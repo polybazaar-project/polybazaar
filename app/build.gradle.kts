@@ -94,7 +94,7 @@ android {
 
 sonar {
     properties {
-       property("sonar.projectKey", "polybazaar-project_polybazaar")
+        property("sonar.projectKey", "polybazaar-project_polybazaar")
         property("sonar.projectName", "PolyBazaar")
         property("sonar.organization", "polybazaar-project")
         property("sonar.host.url", "https://sonarcloud.io")
