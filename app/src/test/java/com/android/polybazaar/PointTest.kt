@@ -1,4 +1,4 @@
-package com.android.sample
+package com.android.polybazaar
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
