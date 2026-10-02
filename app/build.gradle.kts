@@ -154,6 +154,10 @@ dependencies {
 
   // --------       Google-Services     ----------
   implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+  implementation(libs.firebase.auth)
+
+  // ----------       Coroutines      ------------
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }
 
 tasks.withType<Test> {
