@@ -151,6 +151,8 @@ dependencies {
 
   // ----------       Robolectric     ------------
   testImplementation(libs.robolectric)
+  testImplementation(libs.mockito.kotlin)
+  testImplementation(libs.kotlinx.coroutines.test)
 
   // --------       Google-Services     ----------
   implementation(platform("com.google.firebase:firebase-bom:34.19.0"))

@@ -15,7 +15,7 @@ class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getIn
           User(
               uid = firebaseUser.uid,
               email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-              username = firebaseUser.displayName ?: "",
+              username = firebaseUser.displayName ?: throw Exception("User email cannot be null"),
           )
       )
     } catch (e: Exception) {
