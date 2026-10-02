@@ -40,6 +40,11 @@ jobs:
           distribution: "temurin"
           java-version: "21"
 
+      - name: Decode secrets
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
+        run: echo "$GOOGLE_SERVICES" | base64 --decode > ./app/google-services.json
+
       # Caching is a very useful part of a CI, as a workflow is executed in a clean environment every time,
       # this means that one would need to re-download and re-process gradle files for every run. Which is very time consuming.
       #

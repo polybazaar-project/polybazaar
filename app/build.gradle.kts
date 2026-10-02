@@ -6,14 +6,15 @@ plugins {
   alias(libs.plugins.ktfmt)
   alias(libs.plugins.sonar)
   id("jacoco")
+  id("com.google.gms.google-services")
 }
 
 android {
-  namespace = "com.android.sample"
+  namespace = "com.android.polybazaar"
   compileSdk = 37
 
   defaultConfig {
-    applicationId = "com.android.sample"
+    applicationId = "com.android.polybazaar"
     minSdk = 28
     targetSdk = 34
     versionCode = 1
@@ -150,6 +151,9 @@ dependencies {
 
   // ----------       Robolectric     ------------
   testImplementation(libs.robolectric)
+
+  // --------       Google-Services     ----------
+  implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
 }
 
 tasks.withType<Test> {
