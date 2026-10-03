@@ -26,7 +26,8 @@ android {
 
   buildTypes {
     release {
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(
           getDefaultProguardFile("proguard-android-optimize.txt"),
           "proguard-rules.pro",
@@ -85,15 +86,15 @@ kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
 sonar {
   properties {
-    property("sonar.projectKey", "gf_android-sample")
-    property("sonar.projectName", "Android-Sample")
-    property("sonar.organization", "gabrielfleischer")
+    property("sonar.projectKey", "polybazaar-project_polybazaar")
+    property("sonar.projectName", "PolyBazaar")
+    property("sonar.organization", "polybazaar-project")
     property("sonar.host.url", "https://sonarcloud.io")
     // Comma-separated paths to the various directories containing the *.xml JUnit report files.
     // Each path may be absolute or relative to the project base directory.
     property(
         "sonar.junit.reportPaths",
-        "${project.layout.buildDirectory.get()}/test-results/testDebugunitTest/",
+        "${project.layout.buildDirectory.get()}/test-results/testDebugUnitTest/",
     )
     // Paths to xml files with Android Lint issues. If the main flavor is changed, this file will
     // have to be changed too.
@@ -165,6 +166,8 @@ tasks.withType<Test> {
 }
 
 tasks.register("jacocoTestReport", JacocoReport::class) {
+  group = "verification"
+  description = "Generates the JaCoCo coverage report from the unit and connected tests."
   mustRunAfter("testDebugUnitTest", "connectedDebugAndroidTest")
 
   reports {
