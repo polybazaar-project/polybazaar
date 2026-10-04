@@ -15,8 +15,7 @@ class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getIn
           User(
               uid = firebaseUser.uid,
               email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-              username =
-                  firebaseUser.displayName ?: throw Exception("Username cannot be null"),
+              username = firebaseUser.displayName ?: throw Exception("Username cannot be null"),
           )
       )
     } catch (e: Exception) {
@@ -37,7 +36,7 @@ class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getIn
           User(
               uid = firebaseUser.uid,
               email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-              username = username
+              username = username,
           )
       )
     } catch (e: Exception) {
@@ -54,7 +53,8 @@ class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getIn
     return User(
         uid = firebaseUser.uid,
         email = firebaseUser.email ?: throw IllegalStateException("User email cannot be null"),
-        username = firebaseUser.displayName ?: throw IllegalStateException("Username cannot be null"),
+        username =
+            firebaseUser.displayName ?: throw IllegalStateException("Username cannot be null"),
     )
   }
 }
