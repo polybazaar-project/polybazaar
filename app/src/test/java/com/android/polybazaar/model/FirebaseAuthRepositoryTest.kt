@@ -122,7 +122,7 @@ class FirebaseAuthRepositoryTest {
     assertEquals(TEST_UID, user.uid)
     assertEquals(TEST_EMAIL, user.email)
     assertEquals(TEST_USERNAME, user.username)
-    
+
     verify(mockUser).updateProfile(any())
   }
 
