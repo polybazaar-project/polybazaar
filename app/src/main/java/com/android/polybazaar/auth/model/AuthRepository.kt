@@ -1,4 +1,4 @@
-package com.android.polybazaar.model
+package com.android.polybazaar.auth.model
 
 interface AuthRepository {
 

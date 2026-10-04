@@ -1,4 +1,4 @@
-package com.android.polybazaar.model
+package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.AuthResult
