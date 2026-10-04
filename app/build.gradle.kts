@@ -160,7 +160,7 @@ dependencies {
   implementation(libs.firebase.auth)
 
   // ----------       Coroutines      ------------
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+  implementation(libs.kotlinx.coroutines.play.services)
 }
 
 tasks.withType<Test> {
