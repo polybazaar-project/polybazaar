@@ -21,6 +21,11 @@ class FirebaseAuthRepositoryTest {
   private lateinit var mockAuthResult: AuthResult
   private lateinit var authRepository: FirebaseAuthRepository
 
+  private val TEST_EMAIL = "test@example.com"
+  private val TEST_PASSWORD = "password123"
+  private val TEST_USERNAME = "TestUser"
+  private val TEST_UID = "uid123"
+
   @Before
   fun setUp() {
     mockAuth = mock()
@@ -28,59 +33,117 @@ class FirebaseAuthRepositoryTest {
     authRepository = FirebaseAuthRepository(mockAuth)
   }
 
-  private fun configureMockUser(uid: String, email: String, displayName: String): FirebaseUser {
+  private fun simulateFirebaseAuthSuccess(
+      email: String? = TEST_EMAIL,
+      username: String? = TEST_USERNAME,
+      isSignUp: Boolean = false,
+  ): FirebaseUser {
     val mockUser: FirebaseUser = mock()
-    whenever(mockUser.uid).thenReturn(uid)
+    whenever(mockUser.uid).thenReturn(TEST_UID)
     whenever(mockUser.email).thenReturn(email)
-    whenever(mockUser.displayName).thenReturn(displayName)
+    whenever(mockUser.displayName).thenReturn(username)
     whenever(mockAuthResult.user).thenReturn(mockUser)
+
+    if (isSignUp) {
+      whenever(
+              mockAuth.createUserWithEmailAndPassword(
+                  TEST_EMAIL,
+                  TEST_PASSWORD,
+              )
+          )
+          .thenReturn(Tasks.forResult(mockAuthResult))
+      whenever(mockUser.updateProfile(any())).thenReturn(Tasks.forResult(null))
+    } else {
+      whenever(mockAuth.signInWithEmailAndPassword(TEST_EMAIL, TEST_PASSWORD))
+          .thenReturn(Tasks.forResult(mockAuthResult))
+    }
     return mockUser
+  }
+
+  private fun simulateFirebaseAuthError(exception: Exception, isSignUp: Boolean = false) {
+    if (isSignUp) {
+      whenever(mockAuth.createUserWithEmailAndPassword(any(), any()))
+          .thenReturn(Tasks.forException(exception))
+    } else {
+      whenever(mockAuth.signInWithEmailAndPassword(any(), any()))
+          .thenReturn(Tasks.forException(exception))
+    }
   }
 
   @Test
   fun signIn_successful() = runTest {
-    configureMockUser("uid123", "test@test.com", "TestUser")
-    whenever(mockAuth.signInWithEmailAndPassword("test@test.com", "password123"))
-        .thenReturn(Tasks.forResult(mockAuthResult))
+    simulateFirebaseAuthSuccess()
 
-    val result = authRepository.signIn("test@test.com", "password123")
+    val result = authRepository.signIn(TEST_EMAIL, TEST_PASSWORD)
 
-    assertTrue(result.isSuccess)
-    with(result.getOrNull()!!) {
-      assertEquals("uid123", uid)
-      assertEquals("test@test.com", email)
-      assertEquals("TestUser", username)
-    }
+    val user = result.getOrThrow()
+    assertEquals(TEST_UID, user.uid)
+    assertEquals(TEST_EMAIL, user.email)
+    assertEquals(TEST_USERNAME, user.username)
   }
 
   @Test
-  fun signIn_failure() = runTest {
+  fun signIn_failure_invalidCredentials() = runTest {
     val exception = Exception("Invalid credentials")
-    whenever(mockAuth.signInWithEmailAndPassword("test@test.com", "wrong"))
-        .thenReturn(Tasks.forException(exception))
+    simulateFirebaseAuthError(exception)
 
-    val result = authRepository.signIn("test@test.com", "wrong")
+    val result = authRepository.signIn(TEST_EMAIL, "wrong")
+
+    assertEquals(exception, result.exceptionOrNull())
+  }
+
+  @Test
+  fun signIn_failure_nullEmailFromFirebase() = runTest {
+    simulateFirebaseAuthSuccess(email = null)
+
+    val result = authRepository.signIn(TEST_EMAIL, TEST_PASSWORD)
 
     assertTrue(result.isFailure)
-    assertEquals(exception.message, result.exceptionOrNull()?.message)
+    assertTrue(result.exceptionOrNull() is Exception)
+  }
+
+  @Test
+  fun signIn_failure_nullUsernameFromFirebase() = runTest {
+    simulateFirebaseAuthSuccess(username = null)
+
+    val result = authRepository.signIn(TEST_EMAIL, TEST_PASSWORD)
+
+    assertTrue(result.isFailure)
+    assertTrue(result.exceptionOrNull() is Exception)
   }
 
   @Test
   fun signUp_successful() = runTest {
-    val mockUser = configureMockUser("uid123", "test@test.com", "TestUser")
-    whenever(mockAuth.createUserWithEmailAndPassword("test@test.com", "password123"))
-        .thenReturn(Tasks.forResult(mockAuthResult))
-    whenever(mockUser.updateProfile(any())).thenReturn(Tasks.forResult(null))
+    val mockUser = simulateFirebaseAuthSuccess(isSignUp = true)
 
-    val result = authRepository.signUp("test@test.com", "password123", "TestUser")
+    val result = authRepository.signUp(TEST_EMAIL, TEST_PASSWORD, TEST_USERNAME)
 
-    assertTrue(result.isSuccess)
-    with(result.getOrNull()!!) {
-      assertEquals("uid123", uid)
-      assertEquals("test@test.com", email)
-      assertEquals("TestUser", username)
-    }
+    val user = result.getOrThrow()
+    assertEquals(TEST_UID, user.uid)
+    assertEquals(TEST_EMAIL, user.email)
+    assertEquals(TEST_USERNAME, user.username)
+    
     verify(mockUser).updateProfile(any())
+  }
+
+  @Test
+  fun signUp_failure_emailAlreadyInUse() = runTest {
+    val exception = Exception("Email already in use")
+    simulateFirebaseAuthError(exception, isSignUp = true)
+
+    val result = authRepository.signUp(TEST_EMAIL, TEST_PASSWORD, TEST_USERNAME)
+
+    assertEquals(exception, result.exceptionOrNull())
+  }
+
+  @Test
+  fun signUp_failure_nullEmailFromFirebase() = runTest {
+    simulateFirebaseAuthSuccess(email = null, isSignUp = true)
+
+    val result = authRepository.signUp(TEST_EMAIL, TEST_PASSWORD, TEST_USERNAME)
+
+    assertTrue(result.isFailure)
+    assertTrue(result.exceptionOrNull() is Exception)
   }
 
   @Test
@@ -91,14 +154,14 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun getCurrentUser_returnsUser_whenSignedIn() {
-    val mockUser = configureMockUser("uid123", "test@test.com", "TestUser")
+    val mockUser = simulateFirebaseAuthSuccess()
     whenever(mockAuth.currentUser).thenReturn(mockUser)
 
     val returnedUser = authRepository.getCurrentUser()
 
-    assertEquals("uid123", returnedUser.uid)
-    assertEquals("test@test.com", returnedUser.email)
-    assertEquals("TestUser", returnedUser.username)
+    assertEquals(TEST_UID, returnedUser.uid)
+    assertEquals(TEST_EMAIL, returnedUser.email)
+    assertEquals(TEST_USERNAME, returnedUser.username)
   }
 
   @Test
