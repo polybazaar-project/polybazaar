@@ -177,11 +177,11 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
-  fun getCurrentUser_usesEmptyUsername_whenDisplayNameNull() {
+  fun getCurrentUser_throws_whenDisplayNameNull() {
     val mockUser = simulateFirebaseAuthSuccess(username = null)
     whenever(mockAuth.currentUser).thenReturn(mockUser)
 
-    assertEquals("", authRepository.getCurrentUser().username)
+    assertThrows(IllegalStateException::class.java) { authRepository.getCurrentUser() }
   }
 
   @Test
