@@ -150,7 +150,7 @@ class FirebaseAuthRepositoryTest {
   fun signIn_failure_nullUserFromFirebase() = runTest {
     whenever(mockAuthResult.user).thenReturn(null)
     whenever(mockAuth.signInWithEmailAndPassword(TEST_EMAIL, TEST_PASSWORD))
-      .thenReturn(Tasks.forResult(mockAuthResult))
+        .thenReturn(Tasks.forResult(mockAuthResult))
 
     val result = authRepository.signIn(TEST_EMAIL, TEST_PASSWORD)
 
@@ -161,7 +161,7 @@ class FirebaseAuthRepositoryTest {
   fun signUp_failure_nullUserFromFirebase() = runTest {
     whenever(mockAuthResult.user).thenReturn(null)
     whenever(mockAuth.createUserWithEmailAndPassword(TEST_EMAIL, TEST_PASSWORD))
-      .thenReturn(Tasks.forResult(mockAuthResult))
+        .thenReturn(Tasks.forResult(mockAuthResult))
 
     val result = authRepository.signUp(TEST_EMAIL, TEST_PASSWORD, TEST_USERNAME)
 
