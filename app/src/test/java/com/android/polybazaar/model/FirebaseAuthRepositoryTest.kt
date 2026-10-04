@@ -147,6 +147,44 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
+  fun signIn_failure_nullUserFromFirebase() = runTest {
+    whenever(mockAuthResult.user).thenReturn(null)
+    whenever(mockAuth.signInWithEmailAndPassword(TEST_EMAIL, TEST_PASSWORD))
+      .thenReturn(Tasks.forResult(mockAuthResult))
+
+    val result = authRepository.signIn(TEST_EMAIL, TEST_PASSWORD)
+
+    assertTrue(result.isFailure)
+  }
+
+  @Test
+  fun signUp_failure_nullUserFromFirebase() = runTest {
+    whenever(mockAuthResult.user).thenReturn(null)
+    whenever(mockAuth.createUserWithEmailAndPassword(TEST_EMAIL, TEST_PASSWORD))
+      .thenReturn(Tasks.forResult(mockAuthResult))
+
+    val result = authRepository.signUp(TEST_EMAIL, TEST_PASSWORD, TEST_USERNAME)
+
+    assertTrue(result.isFailure)
+  }
+
+  @Test
+  fun getCurrentUser_throws_whenEmailNull() {
+    val mockUser = simulateFirebaseAuthSuccess(email = null)
+    whenever(mockAuth.currentUser).thenReturn(mockUser)
+
+    assertThrows(IllegalStateException::class.java) { authRepository.getCurrentUser() }
+  }
+
+  @Test
+  fun getCurrentUser_usesEmptyUsername_whenDisplayNameNull() {
+    val mockUser = simulateFirebaseAuthSuccess(username = null)
+    whenever(mockAuth.currentUser).thenReturn(mockUser)
+
+    assertEquals("", authRepository.getCurrentUser().username)
+  }
+
+  @Test
   fun signOut_callsFirebaseAuthSignOut() = runTest {
     authRepository.signOut()
     verify(mockAuth).signOut()
