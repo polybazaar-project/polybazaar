@@ -36,6 +36,7 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         authRepository.signOut()
         _uiState.value = AuthUiState()
       } catch (exception: Exception) {
+          if (exception is kotlinx.coroutines.CancellationException) throw exception
         _uiState.update {
           it.copy(isLoading = false, errorMessage = exception.message ?: "Unable to sign out")
         }
