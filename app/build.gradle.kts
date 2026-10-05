@@ -153,6 +153,7 @@ dependencies {
   // ----------       Robolectric     ------------
   testImplementation(libs.robolectric)
   testImplementation(libs.mockito.kotlin)
+  testImplementation(libs.mockito.inline)
   testImplementation(libs.kotlinx.coroutines.test)
 
   // --------       Google-Services     ----------
