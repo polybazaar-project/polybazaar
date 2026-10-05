@@ -49,7 +49,5 @@ Run from the repo root with the Gradle wrapper, exactly as CI does:
 
 The course treats unacknowledged AI use as plagiarism.
 
-- Put this at the top of every source file an agent wrote or substantially changed: `Portions of this code were generated with the help of <tool>.`
-- Add a `Co-Authored-By:` trailer to commits an agent helped write.
-- Name the agent and what it did in the PR description.
+- End the PR description with one sentence acknowledging AI use, naming the agent and what it did.
 - You own every line you submit. "The agent wrote it" is not a defence; be ready to explain it.

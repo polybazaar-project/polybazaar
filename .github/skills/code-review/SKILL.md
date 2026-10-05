@@ -11,6 +11,6 @@ Read the whole diff and the surrounding code, then review against AGENTS.md and 
 - **Offline:** the feature still works, or degrades cleanly, without a connection.
 - **Security:** no secrets or `google-services.json`; Firestore/Storage rules cover new data.
 - **Clarity:** names and commit messages explain the change; no dead code or over-engineering.
-- **AI acknowledgement:** files an agent wrote carry the header note, commits have `Co-Authored-By`, and the PR names the agent.
+- **AI acknowledgement:** if an agent helped, the PR description ends with a sentence naming it and what it did.
 
 Comment on the code, not the author. Prefix each comment with `Important`, `Question` or `Nitpick`, and include something positive when it applies. Write in English.
