@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+if [ ! -x "./gradlew" ]; then
+  echo "Error: ./gradlew is missing or not executable." >&2
+  exit 1
+fi
+
+echo "Running ktfmtCheck before commit..."
+./gradlew ktfmtCheck
