@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -36,18 +34,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.viewmodel.AuthUiState
@@ -65,15 +58,6 @@ object CreateAccountScreenTags {
   const val CANCEL_BUTTON = "create_account_cancel_button"
   const val CREATE_BUTTON = "create_account_create_button"
 }
-
-// Colors from the "Create account" Figma frame.
-private val Background = Color(0xFFFFF7F2)
-private val CardBackground = Color(0xFFFFFDF9)
-private val Outline = Color(0xFFF1E1D5)
-private val Accent = Color(0xFFC86A3B)
-private val TextPrimary = Color(0xFF20231F)
-private val TextSecondary = Color(0xFF70756D)
-private val Danger = Color(0xFFA63D2B)
 
 /**
  * Sign-up screen.
@@ -121,7 +105,7 @@ fun CreateAccountContent(
   Box(
       modifier =
           Modifier.fillMaxSize()
-              .background(Background)
+              .background(AuthColors.Background)
               .safeDrawingPadding()
               .testTag(CreateAccountScreenTags.SCREEN)
   ) {
@@ -131,14 +115,14 @@ fun CreateAccountContent(
           modifier =
               Modifier.fillMaxWidth()
                   .padding(horizontal = 18.dp, vertical = 10.dp)
-                  .background(CardBackground, RoundedCornerShape(20.dp))
-                  .border(1.dp, Outline, RoundedCornerShape(20.dp))
+                  .background(AuthColors.CardBackground, RoundedCornerShape(20.dp))
+                  .border(1.dp, AuthColors.Outline, RoundedCornerShape(20.dp))
                   .padding(16.dp),
           verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
         Text(
             text = "Registration details",
-            color = TextPrimary,
+            color = AuthColors.TextPrimary,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
         )
@@ -178,7 +162,7 @@ fun CreateAccountContent(
         if (confirmPassword.isNotEmpty() && !passwordsMatch) {
           Text(
               text = "Passwords do not match",
-              color = Danger,
+              color = AuthColors.Danger,
               fontSize = 12.sp,
               modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE),
           )
@@ -186,7 +170,7 @@ fun CreateAccountContent(
         uiState.errorMessage?.let {
           Text(
               text = it,
-              color = Danger,
+              color = AuthColors.Danger,
               fontSize = 12.sp,
               modifier = Modifier.testTag(CreateAccountScreenTags.ERROR_MESSAGE),
           )
@@ -200,12 +184,13 @@ fun CreateAccountContent(
               modifier =
                   Modifier.weight(1f).fillMaxSize().testTag(CreateAccountScreenTags.CANCEL_BUTTON),
               shape = RoundedCornerShape(20.dp),
-              border = BorderStroke(1.dp, Outline),
-              colors = ButtonDefaults.outlinedButtonColors(containerColor = CardBackground),
+              border = BorderStroke(1.dp, AuthColors.Outline),
+              colors =
+                  ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
           ) {
             Text(
                 text = "Cancel",
-                color = Danger,
+                color = AuthColors.Danger,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -218,9 +203,9 @@ fun CreateAccountContent(
               shape = RoundedCornerShape(20.dp),
               colors =
                   ButtonDefaults.buttonColors(
-                      containerColor = Accent,
+                      containerColor = AuthColors.Accent,
                       contentColor = Color.White,
-                      disabledContainerColor = Accent.copy(alpha = 0.5f),
+                      disabledContainerColor = AuthColors.Accent.copy(alpha = 0.5f),
                       disabledContentColor = Color.White,
                   ),
           ) {
@@ -248,8 +233,8 @@ private fun Header(onBack: () -> Unit) {
         onClick = onBack,
         modifier =
             Modifier.size(38.dp)
-                .background(Background, CircleShape)
-                .border(1.dp, Outline, CircleShape)
+                .background(AuthColors.Background, CircleShape)
+                .border(1.dp, AuthColors.Outline, CircleShape)
                 .testTag(CreateAccountScreenTags.BACK_BUTTON),
     ) {
       Icon(
@@ -259,91 +244,7 @@ private fun Header(onBack: () -> Unit) {
           modifier = Modifier.size(19.dp),
       )
     }
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-      Text(
-          text = "ACCOUNT",
-          color = Accent,
-          fontSize = 11.sp,
-          fontWeight = FontWeight.SemiBold,
-      )
-      Text(
-          text = "Create account",
-          color = TextPrimary,
-          fontSize = 22.sp,
-          fontWeight = FontWeight.Bold,
-      )
-    }
-  }
-}
-
-@Composable
-private fun LabeledField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    tag: String,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    visualTransformation: VisualTransformation = VisualTransformation.None,
-) {
-  Column(
-      modifier = Modifier.fillMaxWidth(),
-      verticalArrangement = Arrangement.spacedBy(6.dp),
-  ) {
-    Text(
-        text = label.uppercase(),
-        color = Accent,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-    )
-    val textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = true,
-        textStyle = textStyle.copy(color = TextPrimary),
-        cursorBrush = SolidColor(Accent),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        visualTransformation = visualTransformation,
-        modifier = Modifier.fillMaxWidth().testTag(tag),
-        decorationBox = { innerTextField ->
-          Box(
-              modifier =
-                  Modifier.fillMaxWidth()
-                      .background(Background, RoundedCornerShape(14.dp))
-                      .border(1.dp, Outline, RoundedCornerShape(14.dp))
-                      .padding(horizontal = 14.dp, vertical = 12.dp)
-          ) {
-            if (value.isEmpty()) {
-              Text(text = placeholder, style = textStyle.copy(color = TextSecondary))
-            }
-            innerTextField()
-          }
-        },
-    )
-  }
-}
-
-@Composable
-private fun CommunityReassurance(modifier: Modifier = Modifier) {
-  Column(
-      modifier = modifier,
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.spacedBy(8.dp),
-  ) {
-    Icon(
-        painter = painterResource(R.drawable.ic_house),
-        contentDescription = null,
-        tint = Color.Unspecified,
-        modifier = Modifier.size(20.dp),
-    )
-    Text(
-        text = "Good tools. Great neighbours.",
-        color = TextSecondary,
-        fontSize = 12.sp,
-        lineHeight = 1.4.em,
-        textAlign = TextAlign.Center,
-    )
+    AuthTitleGroup(title = "Create account")
   }
 }
 
