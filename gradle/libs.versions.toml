@@ -17,6 +17,7 @@ robolectric = "4.16.1"
 sonar = "7.5.0.8588"
 firebaseAuth = "24.2.0"
 mockitoKotlin = "5.4.0"
+mockitoInline = "5.2.0"
 kotlinxCoroutinesTest = "1.7.3"
 
 kotlinxCoroutinesPlayServices = "1.7.3"
@@ -49,6 +50,7 @@ robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectr
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth", version.ref = "firebaseAuth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
 mockito-kotlin = { group = "org.mockito.kotlin", name = "mockito-kotlin", version.ref = "mockitoKotlin" }
+mockito-inline = { group = "org.mockito", name = "mockito-inline", version.ref = "mockitoInline" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "kotlinxCoroutinesPlayServices" }
 

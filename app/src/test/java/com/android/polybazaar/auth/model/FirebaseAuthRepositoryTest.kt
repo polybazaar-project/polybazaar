@@ -1,4 +1,4 @@
-package com.android.polybazaar.model
+package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.AuthResult
@@ -228,6 +228,20 @@ class FirebaseAuthRepositoryTest {
     val result = runCatching { repository.signUp(email, password, username) }
 
     assertTrue(result.exceptionOrNull() is CancellationException)
+  }
+
+  @Test
+  fun signUp_cancellationAfterAuthCreation_rollsBackAndRethrows() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
+    val exception = CancellationException("Cancelled")
+    mockSignUpAuthResult()
+    whenever(docRef.set(any())).thenThrow(exception)
+    whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
+
+    val result = runCatching { repository.signUp(email, password, username) }
+
+    assertTrue(result.exceptionOrNull() is CancellationException)
+    verify(firebaseUser).delete()
   }
 
   @Test

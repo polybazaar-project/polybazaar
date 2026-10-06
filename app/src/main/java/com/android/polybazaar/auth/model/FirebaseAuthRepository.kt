@@ -1,4 +1,4 @@
-package com.android.polybazaar.model
+package com.android.polybazaar.auth.model
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -65,6 +65,7 @@ class FirebaseAuthRepository(
             e.addSuppressed(rollbackEx)
           }
         }
+        if (e is CancellationException) throw e
         throw Exception("Failed to register username. Account creation rolled back.", e)
       }
     } catch (e: Exception) {
