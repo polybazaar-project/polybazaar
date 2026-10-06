@@ -1,4 +1,4 @@
-package com.android.polybazaar.model
+package com.android.polybazaar.auth.model
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
