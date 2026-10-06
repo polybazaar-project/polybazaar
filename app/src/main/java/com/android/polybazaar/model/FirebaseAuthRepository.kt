@@ -42,19 +42,6 @@ class FirebaseAuthRepository(
       val authResult = auth.createUserWithEmailAndPassword(email, password).await()
       val firebaseUser = authResult.user ?: throw Exception("Failed to create user account")
 
-      val userEmail = firebaseUser.email
-      if (userEmail == null) {
-        val nullEmailException = Exception("User email cannot be null")
-        withContext(NonCancellable) {
-          try {
-            firebaseUser.delete().await()
-          } catch (rollbackEx: Exception) {
-            nullEmailException.addSuppressed(rollbackEx)
-          }
-        }
-        return Result.failure(nullEmailException)
-      }
-
       try {
         val usernameData =
             mapOf(
@@ -66,7 +53,7 @@ class FirebaseAuthRepository(
         Result.success(
             User(
                 uid = firebaseUser.uid,
-                email = userEmail,
+                email = firebaseUser.email ?: throw Exception("User email cannot be null"),
                 username = username,
             )
         )
