@@ -65,6 +65,7 @@ class FirebaseAuthRepository(
             e.addSuppressed(rollbackEx)
           }
         }
+        if (e is CancellationException) throw e
         throw Exception("Failed to register username. Account creation rolled back.", e)
       }
     } catch (e: Exception) {

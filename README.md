@@ -22,8 +22,3 @@ GPS powers the live map of nearby tools and specialized services. The camera is 
 
 ### Offline use
 Users can access their toolbox (owned and currently rented items), profile details, and transaction history, without connection. Users can also draft posts, messages, and change their profile, the changes will be synced when connection is retrieved.
-
-### Firebase security rules
-Firestore and Storage rules are versioned in `firestore.rules` and `storage.rules`. On pushes to
-`main`, CI deploys them with `FIREBASE_PROJECT_ID` and `FIREBASE_SERVICE_ACCOUNT` repository
-secrets. The service account must have the Firebase Rules Admin role.
