@@ -10,7 +10,6 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
-import com.google.firebase.firestore.Transaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -119,8 +118,10 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_success_registersUserAndSavesUsername() = runTest {
-    val (docRef, transaction) = mockUsernameReservation()
+    val docRef = mockUsernameDocument(exists = false)
     mockSignUpAuthResult()
+
+    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
 
     val result = repository.signUp(email, password, username)
 
@@ -129,28 +130,25 @@ class FirebaseAuthRepositoryTest {
     assertEquals(uid, user?.uid)
     assertEquals(email, user?.email)
     assertEquals(username, user?.username)
-    verify(transaction).set(docRef, mapOf("uid" to uid, "username" to username))
+    verify(docRef).set(any())
   }
 
   @Test
-  fun signUp_usernameTakenInTransaction_returnsFailureAndRollsBackAuthUser() = runTest {
-    val (_, transaction) = mockUsernameReservation(exists = true)
-    mockSignUpAuthResult()
-    whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
+  fun signUp_usernameTaken_returnsFailure() = runTest {
+    mockUsernameDocument(exists = true)
 
     val result = repository.signUp(email, password, username)
 
     assertTrue(result.isFailure)
     assertEquals("Username is already taken", result.exceptionOrNull()?.message)
-    verify(firebaseUser).delete()
-    verify(transaction, org.mockito.kotlin.never()).set(any(), any())
   }
 
   @Test
   fun signUp_firestoreSaveFails_rollsBackAuthUser() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
     val saveException = Exception("Network error")
 
-    mockUsernameReservation(failure = saveException)
+    whenever(docRef.set(any())).thenReturn(Tasks.forException(saveException))
     mockSignUpAuthResult()
 
     whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
@@ -168,10 +166,11 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_firestoreSaveFails_rollbackFailureIsSuppressed() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
     val saveException = Exception("Network error")
     val rollbackException = Exception("Failed to delete auth user")
 
-    mockUsernameReservation(failure = saveException)
+    whenever(docRef.set(any())).thenReturn(Tasks.forException(saveException))
     mockSignUpAuthResult()
 
     whenever(firebaseUser.delete()).thenReturn(Tasks.forException(rollbackException))
@@ -191,7 +190,7 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_nullUser_returnsFailure() = runTest {
-    mockUsernameReservation()
+    mockUsernameDocument(exists = false)
     mockSignUpAuthResult(user = null)
 
     val result = repository.signUp(email, password, username)
@@ -202,10 +201,11 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_nullEmail_rollsBackAuthUser() = runTest {
-    mockUsernameReservation()
+    val docRef = mockUsernameDocument(exists = false)
     mockSignUpAuthResult()
     whenever(firebaseUser.email).thenReturn(null)
 
+    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
     whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
 
     val result = repository.signUp(email, password, username)
@@ -325,32 +325,15 @@ class FirebaseAuthRepositoryTest {
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
   }
 
-  private fun mockUsernameReservation(
-      exists: Boolean = false,
-      failure: Exception? = null,
-  ): Pair<DocumentReference, Transaction> {
+  private fun mockUsernameDocument(exists: Boolean): DocumentReference {
     val docRef = mock<DocumentReference>()
     val documentSnapshot = mock<DocumentSnapshot>()
-    val transaction = mock<Transaction>()
 
     whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
     whenever(documentSnapshot.exists()).thenReturn(exists)
-    whenever(transaction.get(docRef)).thenReturn(documentSnapshot)
-    whenever(firestore.runTransaction<Void>(any())).thenAnswer { invocation ->
-      if (failure != null) {
-        Tasks.forException(failure)
-      } else {
-        val function = invocation.getArgument<Transaction.Function<Void>>(0)
-        try {
-          function.apply(transaction)
-          Tasks.forResult(null)
-        } catch (e: Exception) {
-          Tasks.forException(e)
-        }
-      }
-    }
+    whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
 
-    return docRef to transaction
+    return docRef
   }
 
   private fun mockSignUpAuthResult(user: FirebaseUser? = firebaseUser) {

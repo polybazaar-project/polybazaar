@@ -1,7 +1,6 @@
-package com.android.polybazaar.auth.model
+package com.android.polybazaar.model
 
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -35,11 +34,21 @@ class FirebaseAuthRepository(
     return try {
       val usernameDocRef = firestore.collection("usernames").document(username.trim().lowercase())
 
+      val snapshot = usernameDocRef.get().await()
+      if (snapshot.exists()) {
+        return Result.failure(Exception("Username is already taken"))
+      }
+
       val authResult = auth.createUserWithEmailAndPassword(email, password).await()
       val firebaseUser = authResult.user ?: throw Exception("Failed to create user account")
 
       try {
-        reserveUsername(usernameDocRef, firebaseUser.uid, username)
+        val usernameData =
+            mapOf(
+                "uid" to firebaseUser.uid,
+                "username" to username,
+            )
+        usernameDocRef.set(usernameData).await()
 
         Result.success(
             User(
@@ -56,7 +65,6 @@ class FirebaseAuthRepository(
             e.addSuppressed(rollbackEx)
           }
         }
-        if (e is CancellationException || e is UsernameAlreadyTakenException) throw e
         throw Exception("Failed to register username. Account creation rolled back.", e)
       }
     } catch (e: Exception) {
@@ -91,21 +99,4 @@ class FirebaseAuthRepository(
     return document.getString("username")
         ?: throw Exception("Username field not found for the current user")
   }
-
-  private suspend fun reserveUsername(
-      usernameDocRef: DocumentReference,
-      uid: String,
-      username: String,
-  ) {
-    firestore
-        .runTransaction { transaction ->
-          if (transaction.get(usernameDocRef).exists()) {
-            throw UsernameAlreadyTakenException()
-          }
-          transaction.set(usernameDocRef, mapOf("uid" to uid, "username" to username))
-        }
-        .await()
-  }
-
-  private class UsernameAlreadyTakenException : Exception("Username is already taken")
 }
