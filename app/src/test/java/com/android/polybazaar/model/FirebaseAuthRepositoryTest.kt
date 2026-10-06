@@ -118,17 +118,8 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_success_registersUserAndSavesUsername() = runTest {
-    val docRef = mock<DocumentReference>()
-    val documentSnapshot = mock<DocumentSnapshot>()
-
-    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
-    whenever(documentSnapshot.exists()).thenReturn(false)
-    whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
-
-    val authResult = mock<AuthResult>()
-    whenever(authResult.user).thenReturn(firebaseUser)
-    whenever(auth.createUserWithEmailAndPassword(email, password))
-        .thenReturn(Tasks.forResult(authResult))
+    val docRef = mockUsernameDocument(exists = false)
+    mockSignUpAuthResult()
 
     whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
 
@@ -144,12 +135,7 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_usernameTaken_returnsFailure() = runTest {
-    val docRef = mock<DocumentReference>()
-    val documentSnapshot = mock<DocumentSnapshot>()
-
-    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
-    whenever(documentSnapshot.exists()).thenReturn(true)
-    whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
+    mockUsernameDocument(exists = true)
 
     val result = repository.signUp(email, password, username)
 
@@ -159,40 +145,53 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_firestoreSaveFails_rollsBackAuthUser() = runTest {
-    val docRef = mock<DocumentReference>()
-    val documentSnapshot = mock<DocumentSnapshot>()
+    val docRef = mockUsernameDocument(exists = false)
+    val saveException = Exception("Network error")
 
-    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
-    whenever(documentSnapshot.exists()).thenReturn(false)
-    whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
-    whenever(docRef.set(any())).thenReturn(Tasks.forException(Exception("Network error")))
-
-    val authResult = mock<AuthResult>()
-    whenever(authResult.user).thenReturn(firebaseUser)
-    whenever(auth.createUserWithEmailAndPassword(email, password))
-        .thenReturn(Tasks.forResult(authResult))
+    whenever(docRef.set(any())).thenReturn(Tasks.forException(saveException))
+    mockSignUpAuthResult()
 
     whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
 
     val result = repository.signUp(email, password, username)
 
     assertTrue(result.isFailure)
+    assertEquals(
+        "Failed to register username. Account creation rolled back.",
+        result.exceptionOrNull()?.message,
+    )
+    assertEquals(saveException, result.exceptionOrNull()?.cause)
+    verify(firebaseUser).delete()
+  }
+
+  @Test
+  fun signUp_firestoreSaveFails_rollbackFailureIsSuppressed() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
+    val saveException = Exception("Network error")
+    val rollbackException = Exception("Failed to delete auth user")
+
+    whenever(docRef.set(any())).thenReturn(Tasks.forException(saveException))
+    mockSignUpAuthResult()
+
+    whenever(firebaseUser.delete()).thenReturn(Tasks.forException(rollbackException))
+
+    val result = repository.signUp(email, password, username)
+    val registrationException = result.exceptionOrNull()
+
+    assertTrue(result.isFailure)
+    assertEquals(
+        "Failed to register username. Account creation rolled back.",
+        registrationException?.message,
+    )
+    assertEquals(saveException, registrationException?.cause)
+    assertTrue(rollbackException in registrationException?.cause?.suppressed.orEmpty())
     verify(firebaseUser).delete()
   }
 
   @Test
   fun signUp_nullUser_returnsFailure() = runTest {
-    val docRef = mock<DocumentReference>()
-    val documentSnapshot = mock<DocumentSnapshot>()
-
-    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
-    whenever(documentSnapshot.exists()).thenReturn(false)
-    whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
-
-    val authResult = mock<AuthResult>()
-    whenever(authResult.user).thenReturn(null)
-    whenever(auth.createUserWithEmailAndPassword(email, password))
-        .thenReturn(Tasks.forResult(authResult))
+    mockUsernameDocument(exists = false)
+    mockSignUpAuthResult(user = null)
 
     val result = repository.signUp(email, password, username)
 
@@ -201,26 +200,24 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
-  fun signUp_nullEmail_returnsFailure() = runTest {
-    val docRef = mock<DocumentReference>()
-    val documentSnapshot = mock<DocumentSnapshot>()
-
-    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
-    whenever(documentSnapshot.exists()).thenReturn(false)
-    whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
-
-    val authResult = mock<AuthResult>()
-    whenever(authResult.user).thenReturn(firebaseUser)
+  fun signUp_nullEmail_rollsBackAuthUser() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
+    mockSignUpAuthResult()
     whenever(firebaseUser.email).thenReturn(null)
-    whenever(auth.createUserWithEmailAndPassword(email, password))
-        .thenReturn(Tasks.forResult(authResult))
 
     whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
+    whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
 
     val result = repository.signUp(email, password, username)
+    val registrationException = result.exceptionOrNull()
 
     assertTrue(result.isFailure)
-    assertEquals("User email cannot be null", result.exceptionOrNull()?.message)
+    assertEquals(
+        "Failed to register username. Account creation rolled back.",
+        registrationException?.message,
+    )
+    assertEquals("User email cannot be null", registrationException?.cause?.message)
+    verify(firebaseUser).delete()
   }
 
   @Test
@@ -326,5 +323,23 @@ class FirebaseAuthRepositoryTest {
     whenever(documentSnapshot.getString("username")).thenReturn(returnedUsername)
 
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
+  }
+
+  private fun mockUsernameDocument(exists: Boolean): DocumentReference {
+    val docRef = mock<DocumentReference>()
+    val documentSnapshot = mock<DocumentSnapshot>()
+
+    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
+    whenever(documentSnapshot.exists()).thenReturn(exists)
+    whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
+
+    return docRef
+  }
+
+  private fun mockSignUpAuthResult(user: FirebaseUser? = firebaseUser) {
+    val authResult = mock<AuthResult>()
+    whenever(authResult.user).thenReturn(user)
+    whenever(auth.createUserWithEmailAndPassword(email, password))
+        .thenReturn(Tasks.forResult(authResult))
   }
 }
