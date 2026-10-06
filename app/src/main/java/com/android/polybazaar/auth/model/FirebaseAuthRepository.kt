@@ -9,8 +9,8 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 class FirebaseAuthRepository(
-  private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-  private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
 ) : AuthRepository {
 
   override suspend fun signIn(email: String, password: String): Result<User> {
@@ -19,11 +19,11 @@ class FirebaseAuthRepository(
       val firebaseUser = authResult.user ?: throw Exception("Sign in failed")
 
       Result.success(
-        User(
-          uid = firebaseUser.uid,
-          email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-          username = usernameForUid(firebaseUser.uid),
-        )
+          User(
+              uid = firebaseUser.uid,
+              email = firebaseUser.email ?: throw Exception("User email cannot be null"),
+              username = usernameForUid(firebaseUser.uid),
+          )
       )
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -42,11 +42,11 @@ class FirebaseAuthRepository(
         reserveUsername(usernameDocRef, firebaseUser.uid, username)
 
         Result.success(
-          User(
-            uid = firebaseUser.uid,
-            email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-            username = username,
-          )
+            User(
+                uid = firebaseUser.uid,
+                email = firebaseUser.email ?: throw Exception("User email cannot be null"),
+                username = username,
+            )
         )
       } catch (e: Exception) {
         withContext(NonCancellable) {
@@ -73,15 +73,15 @@ class FirebaseAuthRepository(
     val firebaseUser = auth.currentUser ?: throw Exception("No user is currently logged in")
 
     return User(
-      uid = firebaseUser.uid,
-      email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-      username = usernameForUid(firebaseUser.uid),
+        uid = firebaseUser.uid,
+        email = firebaseUser.email ?: throw Exception("User email cannot be null"),
+        username = usernameForUid(firebaseUser.uid),
     )
   }
 
   private suspend fun usernameForUid(uid: String): String {
     val querySnapshot =
-      firestore.collection("usernames").whereEqualTo("uid", uid).limit(1).get().await()
+        firestore.collection("usernames").whereEqualTo("uid", uid).limit(1).get().await()
 
     if (querySnapshot.isEmpty) {
       throw Exception("Username not found for the current user")
@@ -89,22 +89,22 @@ class FirebaseAuthRepository(
 
     val document = querySnapshot.documents.first()
     return document.getString("username")
-      ?: throw Exception("Username field not found for the current user")
+        ?: throw Exception("Username field not found for the current user")
   }
 
   private suspend fun reserveUsername(
-    usernameDocRef: DocumentReference,
-    uid: String,
-    username: String,
+      usernameDocRef: DocumentReference,
+      uid: String,
+      username: String,
   ) {
     firestore
-      .runTransaction { transaction ->
-        if (transaction.get(usernameDocRef).exists()) {
-          throw UsernameAlreadyTakenException()
+        .runTransaction { transaction ->
+          if (transaction.get(usernameDocRef).exists()) {
+            throw UsernameAlreadyTakenException()
+          }
+          transaction.set(usernameDocRef, mapOf("uid" to uid, "username" to username))
         }
-        transaction.set(usernameDocRef, mapOf("uid" to uid, "username" to username))
-      }
-      .await()
+        .await()
   }
 
   private class UsernameAlreadyTakenException : Exception("Username is already taken")
