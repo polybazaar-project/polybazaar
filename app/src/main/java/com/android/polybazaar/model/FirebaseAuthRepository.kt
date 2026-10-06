@@ -44,12 +44,15 @@ class FirebaseAuthRepository(
 
       val userEmail = firebaseUser.email
       if (userEmail == null) {
+        val nullEmailException = Exception("User email cannot be null")
         withContext(NonCancellable) {
           try {
             firebaseUser.delete().await()
-          } catch (rollbackEx: Exception) {}
+          } catch (rollbackEx: Exception) {
+            nullEmailException.addSuppressed(rollbackEx)
+          }
         }
-        return Result.failure(Exception("User email cannot be null"))
+        return Result.failure(nullEmailException)
       }
 
       try {
@@ -71,7 +74,9 @@ class FirebaseAuthRepository(
         withContext(NonCancellable) {
           try {
             firebaseUser.delete().await()
-          } catch (rollbackEx: Exception) {}
+          } catch (rollbackEx: Exception) {
+            e.addSuppressed(rollbackEx)
+          }
         }
         throw Exception("Failed to register username. Account creation rolled back.", e)
       }
