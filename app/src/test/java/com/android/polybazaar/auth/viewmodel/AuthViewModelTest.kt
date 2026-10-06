@@ -165,7 +165,7 @@ class AuthViewModelTest {
       signOutException?.let { throw it }
     }
 
-    override fun getCurrentUser(): User {
+    override suspend fun getCurrentUser(): User {
       throw IllegalStateException("Not configured")
     }
   }
