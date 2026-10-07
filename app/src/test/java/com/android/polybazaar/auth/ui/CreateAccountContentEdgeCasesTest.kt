@@ -178,6 +178,78 @@ class CreateAccountContentEdgeCasesTest {
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
   }
 
+  private fun fillValidFormExceptUsername(username: String) {
+    type(CreateAccountScreenTags.USERNAME_FIELD, username)
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+  }
+
+  @Test
+  fun usernameWithSlash_showsMessageAndDisablesCreateButton() {
+    setContent()
+
+    fillValidFormExceptUsername("ada/lovelace")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
+        .assertTextEquals("Username cannot contain /")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+    assertNull(submitted)
+  }
+
+  @Test
+  fun reservedFirestoreIds_showNotAllowedMessage() {
+    setContent()
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+
+    listOf(".", "..", " .. ", "__name__", "____").forEach { username ->
+      composeTestRule.onNodeWithTag(CreateAccountScreenTags.USERNAME_FIELD).performTextClearance()
+      type(CreateAccountScreenTags.USERNAME_FIELD, username)
+
+      composeTestRule
+          .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
+          .assertTextEquals("This username is not allowed")
+      composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+    }
+  }
+
+  @Test
+  fun usernamesCloseToReservedIds_areAccepted() {
+    setContent()
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+
+    listOf("ada.lovelace", "...", "__ada", "ada__", "___").forEach { username ->
+      composeTestRule.onNodeWithTag(CreateAccountScreenTags.USERNAME_FIELD).performTextClearance()
+      type(CreateAccountScreenTags.USERNAME_FIELD, username)
+
+      composeTestRule
+          .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
+          .assertDoesNotExist()
+      composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
+    }
+  }
+
+  @Test
+  fun removingSlash_hidesMessageAndEnablesCreateButton() {
+    setContent()
+    fillValidFormExceptUsername("ada/")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE).assertExists()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.USERNAME_FIELD).performTextClearance()
+    type(CreateAccountScreenTags.USERNAME_FIELD, "ada")
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
+        .assertDoesNotExist()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
+  }
+
   @Test
   fun confirmPasswordOnly_showsMismatchMessage() {
     setContent()

@@ -72,6 +72,9 @@ class CreateAccountScreenTest {
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
         .assertDoesNotExist()
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
+        .assertDoesNotExist()
   }
 
   @Test

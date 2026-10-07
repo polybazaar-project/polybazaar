@@ -50,6 +50,7 @@ object CreateAccountScreenTags {
   const val SCREEN = "create_account_screen"
   const val BACK_BUTTON = "create_account_back_button"
   const val USERNAME_FIELD = "create_account_username_field"
+  const val USERNAME_INVALID_MESSAGE = "create_account_username_invalid_message"
   const val EMAIL_FIELD = "create_account_email_field"
   const val PASSWORD_FIELD = "create_account_password_field"
   const val CONFIRM_PASSWORD_FIELD = "create_account_confirm_password_field"
@@ -62,6 +63,21 @@ object CreateAccountScreenTags {
 
 /** Firebase Auth rejects passwords shorter than this. */
 const val MIN_PASSWORD_LENGTH = 6
+
+private val RESERVED_FIRESTORE_ID = Regex("__.*__")
+
+/**
+ * Returns why [username] cannot be used, or null if it is valid. The trimmed username becomes a
+ * Firestore document ID, so it must follow Firestore's ID rules.
+ */
+private fun usernameError(username: String): String? {
+  val id = username.trim()
+  return when {
+    id.contains('/') -> "Username cannot contain /"
+    id == "." || id == ".." || RESERVED_FIRESTORE_ID.matches(id) -> "This username is not allowed"
+    else -> null
+  }
+}
 
 /**
  * Sign-up screen.
@@ -98,11 +114,13 @@ fun CreateAccountContent(
   var email by rememberSaveable { mutableStateOf("") }
   var password by rememberSaveable { mutableStateOf("") }
   var confirmPassword by rememberSaveable { mutableStateOf("") }
+  val usernameError = usernameError(username)
   val passwordTooShort = password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH
   val passwordsMatch = password == confirmPassword
   val canSubmit =
       !uiState.isLoading &&
           username.isNotBlank() &&
+          usernameError == null &&
           email.isNotBlank() &&
           password.isNotEmpty() &&
           !passwordTooShort &&
@@ -139,6 +157,14 @@ fun CreateAccountContent(
             placeholder = "Enter your username",
             tag = CreateAccountScreenTags.USERNAME_FIELD,
         )
+        usernameError?.let {
+          Text(
+              text = it,
+              color = AuthColors.Danger,
+              fontSize = 12.sp,
+              modifier = Modifier.testTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE),
+          )
+        }
         LabeledField(
             label = "Email",
             value = email,
