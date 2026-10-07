@@ -5,12 +5,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -126,14 +128,19 @@ fun CreateAccountContent(
           !passwordTooShort &&
           passwordsMatch
 
-  Box(
+  BoxWithConstraints(
       modifier =
           Modifier.fillMaxSize()
               .background(AuthColors.Background)
               .safeDrawingPadding()
               .testTag(CreateAccountScreenTags.SCREEN)
   ) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    // At least screen-high, so the reassurance sits at the bottom on tall screens and scrolls
+    // below the card on short ones (e.g. with the keyboard open) instead of covering it.
+    Column(
+        modifier =
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
+    ) {
       Header(onBack = onBack)
       Column(
           modifier =
@@ -253,12 +260,13 @@ fun CreateAccountContent(
           }
         }
       }
+      Spacer(modifier = Modifier.weight(1f))
+      CommunityReassurance(
+          modifier =
+              Modifier.align(Alignment.CenterHorizontally)
+                  .padding(start = 34.dp, end = 34.dp, top = 16.dp, bottom = 105.dp)
+      )
     }
-    CommunityReassurance(
-        modifier =
-            Modifier.align(Alignment.BottomCenter)
-                .padding(start = 34.dp, end = 34.dp, bottom = 105.dp)
-    )
   }
 }
 
