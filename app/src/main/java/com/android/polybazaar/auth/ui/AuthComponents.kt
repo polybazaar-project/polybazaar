@@ -6,12 +6,15 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +43,46 @@ internal object AuthColors {
   val TextPrimary = Color(0xFF20231F)
   val TextSecondary = Color(0xFF70756D)
   val Danger = Color(0xFFA63D2B)
+}
+
+/** The rounded, outlined card holding an auth form. */
+@Composable
+internal fun AuthCard(content: @Composable ColumnScope.() -> Unit) {
+  Column(
+      modifier =
+          Modifier.fillMaxWidth()
+              .padding(horizontal = 18.dp, vertical = 10.dp)
+              .background(AuthColors.CardBackground, RoundedCornerShape(20.dp))
+              .border(1.dp, AuthColors.Outline, RoundedCornerShape(20.dp))
+              .padding(16.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+      content = content,
+  )
+}
+
+/** The filled accent button that submits an auth form. */
+@Composable
+internal fun AuthPrimaryButton(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+  Button(
+      onClick = onClick,
+      enabled = enabled,
+      modifier = modifier,
+      shape = RoundedCornerShape(20.dp),
+      colors =
+          ButtonDefaults.buttonColors(
+              containerColor = AuthColors.Accent,
+              contentColor = Color.White,
+              disabledContainerColor = AuthColors.Accent.copy(alpha = 0.5f),
+              disabledContentColor = Color.White,
+          ),
+  ) {
+    Text(text = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+  }
 }
 
 /** The "ACCOUNT" eyebrow above a screen title. */

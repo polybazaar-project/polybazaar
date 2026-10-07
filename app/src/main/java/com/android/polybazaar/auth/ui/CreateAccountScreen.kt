@@ -20,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -142,15 +141,7 @@ fun CreateAccountContent(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
     ) {
       Header(onBack = onBack)
-      Column(
-          modifier =
-              Modifier.fillMaxWidth()
-                  .padding(horizontal = 18.dp, vertical = 10.dp)
-                  .background(AuthColors.CardBackground, RoundedCornerShape(20.dp))
-                  .border(1.dp, AuthColors.Outline, RoundedCornerShape(20.dp))
-                  .padding(16.dp),
-          verticalArrangement = Arrangement.spacedBy(12.dp),
-      ) {
+      AuthCard {
         Text(
             text = "Registration details",
             color = AuthColors.TextPrimary,
@@ -242,22 +233,13 @@ fun CreateAccountContent(
                 fontWeight = FontWeight.SemiBold,
             )
           }
-          Button(
+          AuthPrimaryButton(
+              text = "Create account",
               onClick = { onCreateAccount(username.trim(), email.trim(), password) },
               enabled = canSubmit,
               modifier =
                   Modifier.weight(1f).fillMaxSize().testTag(CreateAccountScreenTags.CREATE_BUTTON),
-              shape = RoundedCornerShape(20.dp),
-              colors =
-                  ButtonDefaults.buttonColors(
-                      containerColor = AuthColors.Accent,
-                      contentColor = Color.White,
-                      disabledContainerColor = AuthColors.Accent.copy(alpha = 0.5f),
-                      disabledContentColor = Color.White,
-                  ),
-          ) {
-            Text(text = "Create account", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-          }
+          )
         }
       }
       Spacer(modifier = Modifier.weight(1f))
