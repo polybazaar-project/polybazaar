@@ -1,7 +1,10 @@
 // Portions of this code were generated with the help of Claude Code.
 package com.android.polybazaar.auth.ui
 
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -14,6 +17,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.viewmodel.AuthUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -134,6 +138,24 @@ class SignInContentEdgeCasesTest {
 
     assertEquals(1, createAccountCount)
     assertEquals(1, forgotPasswordCount)
+  }
+
+  @Test
+  fun links_areButtonsWithMinimumTouchTarget() {
+    setContent()
+
+    listOf(SignInScreenTags.FORGOT_PASSWORD_LINK, SignInScreenTags.CREATE_ACCOUNT_LINK).forEach {
+      val link =
+          composeTestRule
+              .onNodeWithTag(it)
+              .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+              .fetchSemanticsNode()
+      // Material 3 widens the touch target, not the layout, so check the touch bounds.
+      val touchBounds = link.touchBoundsInRoot
+      val minTouchPx = 48 * link.layoutInfo.density.density
+      assertTrue("$it touch target is $touchBounds", touchBounds.height >= minTouchPx)
+      assertTrue("$it touch target is $touchBounds", touchBounds.width >= minTouchPx)
+    }
   }
 
   @Test
