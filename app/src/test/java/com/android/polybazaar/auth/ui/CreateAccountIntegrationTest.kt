@@ -23,6 +23,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -138,6 +139,25 @@ class CreateAccountIntegrationTest {
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
     verify(mockAuth, never()).createUserWithEmailAndPassword(any(), any())
     verify(mockUsernameDoc, never()).set(any())
+    assertEquals(0, signedInCount)
+  }
+
+  @Test
+  fun usernameWriteFailure_rollsBackAuthUserAndShowsError() {
+    whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
+        .thenReturn(Tasks.forResult(mockAuthResult))
+    whenever(mockUsernameDoc.set(any()))
+        .thenReturn(Tasks.forException(Exception("Firestore unavailable")))
+    whenever(mockUser.delete()).thenReturn(Tasks.forResult(null))
+
+    fillAndSubmit("ada_lovelace", "ada@epfl.ch", "secret123")
+
+    verify(mockUser).delete()
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Failed to register username. Account creation rolled back.")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
+    assertNull(viewModel.uiState.value.user)
     assertEquals(0, signedInCount)
   }
 
