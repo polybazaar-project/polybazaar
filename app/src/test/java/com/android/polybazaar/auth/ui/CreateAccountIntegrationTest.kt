@@ -47,6 +47,7 @@ class CreateAccountIntegrationTest {
   private lateinit var mockAuthResult: AuthResult
   private lateinit var mockUser: FirebaseUser
   private lateinit var mockUsernameDoc: DocumentReference
+  private lateinit var mockUsernameSnapshot: DocumentSnapshot
   private lateinit var viewModel: AuthViewModel
   private var signedInCount = 0
 
@@ -61,12 +62,12 @@ class CreateAccountIntegrationTest {
 
     val mockFirestore = mock<FirebaseFirestore>()
     val mockUsernames = mock<CollectionReference>()
-    val freeUsername = mock<DocumentSnapshot>()
     mockUsernameDoc = mock()
+    mockUsernameSnapshot = mock()
     whenever(mockFirestore.collection("usernames")).thenReturn(mockUsernames)
     whenever(mockUsernames.document("ada_lovelace")).thenReturn(mockUsernameDoc)
-    whenever(freeUsername.exists()).thenReturn(false)
-    whenever(mockUsernameDoc.get()).thenReturn(Tasks.forResult(freeUsername))
+    whenever(mockUsernameSnapshot.exists()).thenReturn(false)
+    whenever(mockUsernameDoc.get()).thenReturn(Tasks.forResult(mockUsernameSnapshot))
     whenever(mockUsernameDoc.set(any())).thenReturn(Tasks.forResult(null))
 
     viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth, mockFirestore))
@@ -121,6 +122,21 @@ class CreateAccountIntegrationTest {
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
         .assertTextEquals("The email address is already in use by another account.")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
+    verify(mockUsernameDoc, never()).set(any())
+    assertEquals(0, signedInCount)
+  }
+
+  @Test
+  fun takenUsername_showsErrorAndDoesNotCreateAccount() {
+    whenever(mockUsernameSnapshot.exists()).thenReturn(true)
+
+    fillAndSubmit("ada_lovelace", "ada@epfl.ch", "secret123")
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Username is already taken")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
+    verify(mockAuth, never()).createUserWithEmailAndPassword(any(), any())
     verify(mockUsernameDoc, never()).set(any())
     assertEquals(0, signedInCount)
   }
