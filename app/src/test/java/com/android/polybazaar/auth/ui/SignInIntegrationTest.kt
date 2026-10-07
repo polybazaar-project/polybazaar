@@ -17,6 +17,11 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -30,7 +35,8 @@ import org.mockito.kotlin.whenever
 
 /**
  * Integration tests wiring [SignInScreen], the real [AuthViewModel] and the real
- * [FirebaseAuthRepository] together. Only [FirebaseAuth] is mocked, so no request reaches Firebase.
+ * [FirebaseAuthRepository] together. Only [FirebaseAuth] and [FirebaseFirestore] are mocked, so no
+ * request reaches Firebase.
  */
 @RunWith(AndroidJUnit4::class)
 class SignInIntegrationTest {
@@ -40,6 +46,7 @@ class SignInIntegrationTest {
   private lateinit var mockAuth: FirebaseAuth
   private lateinit var mockAuthResult: AuthResult
   private lateinit var mockUser: FirebaseUser
+  private lateinit var mockUsernameLookup: QuerySnapshot
   private lateinit var viewModel: AuthViewModel
   private var signedInCount = 0
 
@@ -50,9 +57,22 @@ class SignInIntegrationTest {
     mockUser = mock()
     whenever(mockUser.uid).thenReturn("uid-ada")
     whenever(mockUser.email).thenReturn("ada@epfl.ch")
-    whenever(mockUser.displayName).thenReturn("ada_lovelace")
     whenever(mockAuthResult.user).thenReturn(mockUser)
-    viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth))
+
+    val mockFirestore = mock<FirebaseFirestore>()
+    val mockUsernames = mock<CollectionReference>()
+    val mockQuery = mock<Query>()
+    val usernameDoc = mock<DocumentSnapshot>()
+    mockUsernameLookup = mock()
+    whenever(mockFirestore.collection("usernames")).thenReturn(mockUsernames)
+    whenever(mockUsernames.whereEqualTo("uid", "uid-ada")).thenReturn(mockQuery)
+    whenever(mockQuery.limit(1)).thenReturn(mockQuery)
+    whenever(mockQuery.get()).thenReturn(Tasks.forResult(mockUsernameLookup))
+    whenever(mockUsernameLookup.isEmpty).thenReturn(false)
+    whenever(mockUsernameLookup.documents).thenReturn(listOf(usernameDoc))
+    whenever(usernameDoc.getString("username")).thenReturn("ada_lovelace")
+
+    viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth, mockFirestore))
 
     composeTestRule.setContent {
       SignInScreen(
@@ -132,8 +152,8 @@ class SignInIntegrationTest {
   }
 
   @Test
-  fun userWithoutDisplayName_cannotSignIn() {
-    whenever(mockUser.displayName).thenReturn(null)
+  fun userWithoutUsernameDocument_cannotSignIn() {
+    whenever(mockUsernameLookup.isEmpty).thenReturn(true)
     whenever(mockAuth.signInWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(Tasks.forResult(mockAuthResult))
 
@@ -141,7 +161,7 @@ class SignInIntegrationTest {
 
     composeTestRule
         .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("User username cannot be null")
+        .assertTextEquals("Username not found for the current user")
     assertEquals(0, signedInCount)
   }
 
