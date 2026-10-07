@@ -153,14 +153,16 @@ dependencies {
   // ----------       Robolectric     ------------
   testImplementation(libs.robolectric)
   testImplementation(libs.mockito.kotlin)
+  testImplementation(libs.mockito.inline)
   testImplementation(libs.kotlinx.coroutines.test)
 
   // --------       Google-Services     ----------
   implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
   implementation(libs.firebase.auth)
+  implementation(libs.firebase.firestore)
 
   // ----------       Coroutines      ------------
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+  implementation(libs.kotlinx.coroutines.play.services)
 }
 
 tasks.withType<Test> {
@@ -192,7 +194,9 @@ tasks.register("jacocoTestReport", JacocoReport::class) {
       )
 
   val debugTree =
-      fileTree("${project.layout.buildDirectory.get()}/tmp/kotlin-classes/debug") {
+      fileTree(
+          "${project.layout.buildDirectory.get()}/intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes"
+      ) {
         exclude(fileFilter)
       }
 

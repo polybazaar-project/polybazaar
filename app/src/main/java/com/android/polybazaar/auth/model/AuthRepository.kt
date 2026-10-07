@@ -8,5 +8,5 @@ interface AuthRepository {
 
   suspend fun signOut()
 
-  fun getCurrentUser(): User
+  suspend fun getCurrentUser(): User
 }
