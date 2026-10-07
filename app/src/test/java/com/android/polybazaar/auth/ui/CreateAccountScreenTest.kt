@@ -201,6 +201,6 @@ class CreateAccountScreenTest {
 
     override suspend fun signOut() {}
 
-    override fun getCurrentUser(): User = throw IllegalStateException("Not used")
+    override suspend fun getCurrentUser(): User = throw IllegalStateException("Not used")
   }
 }
