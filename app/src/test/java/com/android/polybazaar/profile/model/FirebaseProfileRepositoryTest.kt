@@ -135,7 +135,7 @@ class FirebaseProfileRepositoryTest {
             uid = uid,
             email = email,
             username = username,
-            photoUrl = User.DEFAULT_PROFILE_PHOTO_URL,
+            photoUrl = null,
             bio = "",
         ),
         observed.await(),
@@ -185,23 +185,26 @@ class FirebaseProfileRepositoryTest {
     whenever(profileDocument.set(any<Map<String, Any>>(), any<SetOptions>()))
         .thenReturn(Tasks.forResult(null))
 
+    whenever(profileDocument.get()).thenReturn(Tasks.forResult(mock<DocumentSnapshot>()))
+    val snapshot = mock<DocumentSnapshot>()
+    whenever(snapshot.getString("photoUrl")).thenReturn("https://example.com/profile.jpg")
+    whenever(profileDocument.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(photoReference.delete()).thenReturn(Tasks.forResult(null))
+    whenever(profileDocument.update(eq("photoUrl"), any())).thenReturn(Tasks.forResult(null))
+
     repository.removeProfilePhoto(uid)
 
     verify(photoReference).delete()
-    verify(profileDocument)
-        .set(
-            eq(mapOf("photoUrl" to User.DEFAULT_PROFILE_PHOTO_URL)),
-            any<SetOptions>(),
-        )
+    verify(profileDocument).update(eq("photoUrl"), any())
   }
 
   @Test
   fun updateProfile_mergesProfileFieldsIntoFirestore() = runTest {
     // Confirms profile edits update the intended fields without replacing the whole document.
-    whenever(profileDocument.set(any<Map<String, Any>>(), any<SetOptions>()))
+    whenever(profileDocument.set(any<Map<String, Any?>>(), any<SetOptions>()))
         .thenReturn(Tasks.forResult(null))
 
-    repository.updateProfile(uid, "https://example.com/photo.jpg", "Hello", username)
+    repository.updateProfile(uid, "https://example.com/photo.jpg", "Hello")
 
     verify(profileDocument)
         .set(
@@ -209,7 +212,6 @@ class FirebaseProfileRepositoryTest {
                 mapOf(
                     "photoUrl" to "https://example.com/photo.jpg",
                     "bio" to "Hello",
-                    "username" to username,
                 )
             ),
             any<SetOptions>(),
