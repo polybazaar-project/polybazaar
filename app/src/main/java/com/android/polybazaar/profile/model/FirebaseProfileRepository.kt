@@ -3,6 +3,7 @@ package com.android.polybazaar.profile.model
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
@@ -45,28 +46,27 @@ class FirebaseProfileRepository(
   }
 
   override suspend fun removeProfilePhoto(uid: String) {
+    val profile = profileDocument(uid).get().await()
+    if (profile.getString("photoUrl") == null) return
+
     profilePhoto(uid).delete().await()
-    profileDocument(uid)
-        .set(
-            mapOf("photoUrl" to User.DEFAULT_PROFILE_PHOTO_URL),
-            SetOptions.merge(),
-        )
-        .await()
+    profileDocument(uid).update("photoUrl", FieldValue.delete()).await()
   }
 
   override suspend fun updateProfile(
       uid: String,
-      photoUrl: String,
+      photoUrl: String?,
       bio: String,
-      username: String,
   ) {
+    val updates = mutableMapOf<String, Any?>()
+    if (photoUrl != null) updates["photoUrl"] = photoUrl
+    updates["bio"] = bio
+
+    val data = updates.filterValues { it != null }.mapValues { (_, value) -> value as Any }
+
     profileDocument(uid)
         .set(
-            mapOf(
-                "photoUrl" to photoUrl,
-                "bio" to bio,
-                "username" to username,
-            ),
+            data,
             SetOptions.merge(),
         )
         .await()
@@ -89,7 +89,7 @@ class FirebaseProfileRepository(
         uid = uid,
         email = email,
         username = username,
-        photoUrl = getString("photoUrl") ?: User.DEFAULT_PROFILE_PHOTO_URL,
+        photoUrl = getString("photoUrl"),
         bio = getString("bio") ?: "",
     )
   }

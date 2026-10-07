@@ -14,8 +14,7 @@ interface ProfileRepository {
 
   suspend fun updateProfile(
       uid: String,
-      photoUrl: String,
-      bio: String,
-      username: String,
+      photoUrl: String? = null,
+      bio: String = "",
   )
 }
