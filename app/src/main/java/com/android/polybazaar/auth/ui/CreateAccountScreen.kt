@@ -53,11 +53,15 @@ object CreateAccountScreenTags {
   const val EMAIL_FIELD = "create_account_email_field"
   const val PASSWORD_FIELD = "create_account_password_field"
   const val CONFIRM_PASSWORD_FIELD = "create_account_confirm_password_field"
+  const val PASSWORD_TOO_SHORT_MESSAGE = "create_account_password_too_short_message"
   const val PASSWORD_MISMATCH_MESSAGE = "create_account_password_mismatch_message"
   const val ERROR_MESSAGE = "create_account_error_message"
   const val CANCEL_BUTTON = "create_account_cancel_button"
   const val CREATE_BUTTON = "create_account_create_button"
 }
+
+/** Firebase Auth rejects passwords shorter than this. */
+const val MIN_PASSWORD_LENGTH = 6
 
 /**
  * Sign-up screen.
@@ -94,12 +98,14 @@ fun CreateAccountContent(
   var email by rememberSaveable { mutableStateOf("") }
   var password by rememberSaveable { mutableStateOf("") }
   var confirmPassword by rememberSaveable { mutableStateOf("") }
+  val passwordTooShort = password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH
   val passwordsMatch = password == confirmPassword
   val canSubmit =
       !uiState.isLoading &&
           username.isNotBlank() &&
           email.isNotBlank() &&
           password.isNotEmpty() &&
+          !passwordTooShort &&
           passwordsMatch
 
   Box(
@@ -150,6 +156,14 @@ fun CreateAccountContent(
             keyboardType = KeyboardType.Password,
             visualTransformation = PasswordVisualTransformation(),
         )
+        if (passwordTooShort) {
+          Text(
+              text = "Password must be at least $MIN_PASSWORD_LENGTH characters",
+              color = AuthColors.Danger,
+              fontSize = 12.sp,
+              modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE),
+          )
+        }
         LabeledField(
             label = "Confirm password",
             value = confirmPassword,

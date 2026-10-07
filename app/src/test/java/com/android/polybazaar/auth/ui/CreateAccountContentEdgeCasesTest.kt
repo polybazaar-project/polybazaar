@@ -142,11 +142,40 @@ class CreateAccountContentEdgeCasesTest {
 
     type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, " pw ")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, " pw ")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "  pw  ")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "  pw  ")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
 
-    assertEquals(Triple("ada_lovelace", "ada@epfl.ch", " pw "), submitted)
+    assertEquals(Triple("ada_lovelace", "ada@epfl.ch", "  pw  "), submitted)
+  }
+
+  @Test
+  fun passwordOneCharTooShort_keepsCreateButtonDisabled() {
+    setContent()
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secre")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secre")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+    assertNull(submitted)
+  }
+
+  @Test
+  fun passwordOfExactlyMinLength_isAccepted() {
+    setContent()
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
+        .assertDoesNotExist()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
   }
 
   @Test

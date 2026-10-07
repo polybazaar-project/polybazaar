@@ -69,6 +69,38 @@ class CreateAccountScreenTest {
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE)
         .assertDoesNotExist()
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
+        .assertDoesNotExist()
+  }
+
+  @Test
+  fun shortPassword_showsMessageAndDisablesCreateButton() {
+    var submitted = false
+    setContent(onCreateAccount = { _, _, _ -> submitted = true })
+
+    fillForm("ada_lovelace", "ada@epfl.ch", "pass")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
+        .assertIsDisplayed()
+        .assertTextEquals("Password must be at least 6 characters")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+    assertFalse(submitted)
+  }
+
+  @Test
+  fun lengtheningPassword_hidesShortMessageAndEnablesCreateButton() {
+    setContent()
+    fillForm("ada_lovelace", "ada@epfl.ch", "secre", confirmPassword = "secret")
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.PASSWORD_FIELD).performTextInput("t")
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
+        .assertDoesNotExist()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
   }
 
   @Test
