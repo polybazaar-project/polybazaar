@@ -17,7 +17,10 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FirebaseFirestore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Before
@@ -25,7 +28,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.kotlin.any
-import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -33,7 +35,8 @@ import org.mockito.kotlin.whenever
 
 /**
  * Integration tests wiring [CreateAccountScreen], the real [AuthViewModel] and the real
- * [FirebaseAuthRepository] together. Only [FirebaseAuth] is mocked, so no request reaches Firebase.
+ * [FirebaseAuthRepository] together. Only [FirebaseAuth] and [FirebaseFirestore] are mocked, so no
+ * request reaches Firebase.
  */
 @RunWith(AndroidJUnit4::class)
 class CreateAccountIntegrationTest {
@@ -43,6 +46,7 @@ class CreateAccountIntegrationTest {
   private lateinit var mockAuth: FirebaseAuth
   private lateinit var mockAuthResult: AuthResult
   private lateinit var mockUser: FirebaseUser
+  private lateinit var mockUsernameDoc: DocumentReference
   private lateinit var viewModel: AuthViewModel
   private var signedInCount = 0
 
@@ -54,7 +58,18 @@ class CreateAccountIntegrationTest {
     whenever(mockUser.uid).thenReturn("uid-ada")
     whenever(mockUser.email).thenReturn("ada@epfl.ch")
     whenever(mockAuthResult.user).thenReturn(mockUser)
-    viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth))
+
+    val mockFirestore = mock<FirebaseFirestore>()
+    val mockUsernames = mock<CollectionReference>()
+    val freeUsername = mock<DocumentSnapshot>()
+    mockUsernameDoc = mock()
+    whenever(mockFirestore.collection("usernames")).thenReturn(mockUsernames)
+    whenever(mockUsernames.document("ada_lovelace")).thenReturn(mockUsernameDoc)
+    whenever(freeUsername.exists()).thenReturn(false)
+    whenever(mockUsernameDoc.get()).thenReturn(Tasks.forResult(freeUsername))
+    whenever(mockUsernameDoc.set(any())).thenReturn(Tasks.forResult(null))
+
+    viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth, mockFirestore))
 
     composeTestRule.setContent {
       CreateAccountScreen(
@@ -77,17 +92,14 @@ class CreateAccountIntegrationTest {
   }
 
   @Test
-  fun successfulSignUp_createsFirebaseUserSetsDisplayNameAndCallsOnSignedIn() {
+  fun successfulSignUp_createsFirebaseUserSavesUsernameAndCallsOnSignedIn() {
     whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(Tasks.forResult(mockAuthResult))
-    whenever(mockUser.updateProfile(any())).thenReturn(Tasks.forResult(null))
 
     fillAndSubmit(" ada_lovelace ", " ada@epfl.ch ", "secret123")
 
     verify(mockAuth).createUserWithEmailAndPassword("ada@epfl.ch", "secret123")
-    val profileCaptor = argumentCaptor<UserProfileChangeRequest>()
-    verify(mockUser).updateProfile(profileCaptor.capture())
-    assertEquals("ada_lovelace", profileCaptor.firstValue.displayName)
+    verify(mockUsernameDoc).set(mapOf("uid" to "uid-ada", "username" to "ada_lovelace"))
     assertEquals(
         User(uid = "uid-ada", email = "ada@epfl.ch", username = "ada_lovelace"),
         viewModel.uiState.value.user,
@@ -109,27 +121,12 @@ class CreateAccountIntegrationTest {
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
         .assertTextEquals("The email address is already in use by another account.")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
-    verify(mockUser, never()).updateProfile(any())
+    verify(mockUsernameDoc, never()).set(any())
     assertEquals(0, signedInCount)
   }
 
   @Test
-  fun profileUpdateFailure_surfacesErrorAndDoesNotSignIn() {
-    whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
-        .thenReturn(Tasks.forResult(mockAuthResult))
-    whenever(mockUser.updateProfile(any()))
-        .thenReturn(Tasks.forException(Exception("Profile update failed")))
-
-    fillAndSubmit("ada_lovelace", "ada@epfl.ch", "secret123")
-
-    composeTestRule
-        .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Profile update failed")
-    assertEquals(0, signedInCount)
-  }
-
-  @Test
-  fun firebaseReturningNoUser_showsSignUpFailedMessage() {
+  fun firebaseReturningNoUser_showsAccountCreationFailedMessage() {
     whenever(mockAuthResult.user).thenReturn(null)
     whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(Tasks.forResult(mockAuthResult))
@@ -138,7 +135,7 @@ class CreateAccountIntegrationTest {
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Sign up failed")
+        .assertTextEquals("Failed to create user account")
     assertEquals(0, signedInCount)
   }
 
@@ -147,7 +144,6 @@ class CreateAccountIntegrationTest {
     val pending = TaskCompletionSource<AuthResult>()
     whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(pending.task)
-    whenever(mockUser.updateProfile(any())).thenReturn(Tasks.forResult(null))
 
     fillAndSubmit("ada_lovelace", "ada@epfl.ch", "secret123")
 
