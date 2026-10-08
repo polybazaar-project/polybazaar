@@ -14,12 +14,32 @@ data class AuthUiState(
     val user: User? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
+    val sessionChecked: Boolean = false,
 )
 
 class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
 
   private val _uiState = MutableStateFlow(AuthUiState())
   val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+  /** Restores the persisted session, if any. Runs once; later calls are no-ops. */
+  fun restoreSession() {
+    if (_uiState.value.sessionChecked || _uiState.value.isLoading) return
+    viewModelScope.launch {
+      _uiState.update { it.copy(isLoading = true) }
+      val user =
+          try {
+            authRepository.getCurrentUser()
+          } catch (exception: Exception) {
+            if (exception is kotlinx.coroutines.CancellationException) throw exception
+            null
+          }
+      _uiState.update {
+        if (it.sessionChecked) it
+        else it.copy(user = user, isLoading = false, sessionChecked = true)
+      }
+    }
+  }
 
   fun signIn(email: String, password: String) {
     viewModelScope.launch { authenticate { authRepository.signIn(email, password) } }
@@ -34,7 +54,7 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
       _uiState.update { it.copy(isLoading = true, errorMessage = null) }
       try {
         authRepository.signOut()
-        _uiState.value = AuthUiState()
+        _uiState.update { it.copy(user = null, isLoading = false) }
       } catch (exception: Exception) {
         if (exception is kotlinx.coroutines.CancellationException) throw exception
         _uiState.update {
@@ -48,7 +68,9 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
     _uiState.update { it.copy(isLoading = true, errorMessage = null) }
     action()
         .fold(
-            onSuccess = { user -> _uiState.value = AuthUiState(user = user) },
+            onSuccess = { user ->
+              _uiState.update { it.copy(user = user, isLoading = false, sessionChecked = true) }
+            },
             onFailure = { exception ->
               _uiState.update {
                 it.copy(
