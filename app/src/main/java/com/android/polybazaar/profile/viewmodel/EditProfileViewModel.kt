@@ -46,49 +46,20 @@ class EditProfileViewModel(
   }
 
   fun updateBio(bio: String) {
-    _uiState.update {
-      if (it.isLoading || it.isSaving) it
-      else
-          it.copy(
-              bio = bio,
-              isSaved = false,
-              isPartiallySaved = false,
-              errorMessage = null,
-          )
-    }
+    _uiState.update { it.withUpdatedBio(bio) }
   }
 
   fun selectProfilePhoto(photoUri: Uri) {
-    _uiState.update {
-      if (it.isLoading || it.isSaving) it
-      else
-          it.copy(
-              selectedPhotoUri = photoUri,
-              isPhotoRemoved = false,
-              isSaved = false,
-              isPartiallySaved = false,
-              errorMessage = null,
-          )
-    }
+    _uiState.update { it.withSelectedPhoto(photoUri) }
   }
 
   fun removeProfilePhoto() {
-    _uiState.update {
-      if (it.isLoading || it.isSaving) it
-      else
-          it.copy(
-              selectedPhotoUri = null,
-              isPhotoRemoved = true,
-              isSaved = false,
-              isPartiallySaved = false,
-              errorMessage = null,
-          )
-    }
+    _uiState.update { it.withRemovedPhoto() }
   }
 
   fun saveProfile() {
     val state = _uiState.value
-    if (state.isLoading || state.isSaving) return
+    if (!state.canEdit()) return
     if (state.profile == null) {
       _uiState.update { it.copy(errorMessage = "Profile is not available to save") }
       return
@@ -106,47 +77,10 @@ class EditProfileViewModel(
           profileRepository.removeProfilePhoto(uid)
         }
 
-        _uiState.update {
-          it.copy(
-              profile =
-                  it.profile?.copy(
-                      photoUrl =
-                          when {
-                            state.isPhotoRemoved -> null
-                            photoUrl != null -> photoUrl
-                            else -> it.profile.photoUrl
-                          },
-                      bio = state.bio,
-                  ),
-              bio = state.bio,
-              selectedPhotoUri = null,
-              isPhotoRemoved = false,
-              isSaving = false,
-              isSaved = true,
-              isPartiallySaved = false,
-          )
-        }
+        _uiState.update { it.withSavedProfile(state, photoUrl) }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
-        _uiState.update {
-          if (profileUpdateSucceeded && state.isPhotoRemoved) {
-            it.copy(
-                profile = it.profile?.copy(bio = state.bio),
-                bio = state.bio,
-                isSaving = false,
-                isSaved = false,
-                isPartiallySaved = true,
-                errorMessage =
-                    "Bio was saved, but the profile photo could not be removed: " +
-                        (exception.message ?: "Unknown error"),
-            )
-          } else {
-            it.copy(
-                isSaving = false,
-                errorMessage = exception.message ?: "Unable to save profile",
-            )
-          }
-        }
+        _uiState.update { it.withSaveFailure(state, exception, profileUpdateSucceeded) }
       }
     }
   }
@@ -155,39 +89,119 @@ class EditProfileViewModel(
     viewModelScope.launch {
       try {
         profileRepository.observeProfile(uid).collect { profile ->
-          if (profile == null) {
-            _uiState.update {
-              it.copy(
-                  profile = null,
-                  isLoading = false,
-                  errorMessage = "Profile not found",
-              )
-            }
-          } else {
-            _uiState.update { current ->
-              val hasDraftChanges =
-                  current.profile != null &&
-                      (current.bio != current.profile.bio ||
-                          current.selectedPhotoUri != null ||
-                          current.isPhotoRemoved)
-              current.copy(
-                  profile = profile,
-                  bio = if (hasDraftChanges) current.bio else profile.bio,
-                  isLoading = false,
-                  errorMessage = null,
-              )
-            }
-          }
+          _uiState.update { it.withObservedProfile(profile) }
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
-        _uiState.update {
-          it.copy(
-              isLoading = false,
-              errorMessage = exception.message ?: "Unable to load profile",
-          )
-        }
+        _uiState.update { it.withObservationFailure(exception) }
       }
     }
   }
+
+  private fun EditProfileUiState.canEdit(): Boolean = !isLoading && !isSaving
+
+  private fun EditProfileUiState.withUpdatedBio(bio: String): EditProfileUiState =
+      if (!canEdit()) this
+      else
+          copy(
+              bio = bio,
+              isSaved = false,
+              isPartiallySaved = false,
+              errorMessage = null,
+          )
+
+  private fun EditProfileUiState.withSelectedPhoto(photoUri: Uri): EditProfileUiState =
+      if (!canEdit()) this
+      else
+          copy(
+              selectedPhotoUri = photoUri,
+              isPhotoRemoved = false,
+              isSaved = false,
+              isPartiallySaved = false,
+              errorMessage = null,
+          )
+
+  private fun EditProfileUiState.withRemovedPhoto(): EditProfileUiState =
+      if (!canEdit()) this
+      else
+          copy(
+              selectedPhotoUri = null,
+              isPhotoRemoved = true,
+              isSaved = false,
+              isPartiallySaved = false,
+              errorMessage = null,
+          )
+
+  private fun EditProfileUiState.withObservedProfile(profile: User?): EditProfileUiState =
+      if (profile == null) {
+        copy(
+            profile = null,
+            isLoading = false,
+            errorMessage = "Profile not found",
+        )
+      } else {
+        val hasDraftChanges =
+            this.profile != null &&
+                (this.bio != this.profile.bio ||
+                    this.selectedPhotoUri != null ||
+                    this.isPhotoRemoved)
+        copy(
+            profile = profile,
+            bio = if (hasDraftChanges) this.bio else profile.bio,
+            isLoading = false,
+            errorMessage = null,
+        )
+      }
+
+  private fun EditProfileUiState.withObservationFailure(exception: Exception): EditProfileUiState =
+      copy(
+          isLoading = false,
+          errorMessage = exception.message ?: "Unable to load profile",
+      )
+
+  private fun EditProfileUiState.withSavedProfile(
+      state: EditProfileUiState,
+      photoUrl: String?,
+  ): EditProfileUiState =
+      copy(
+          profile =
+              profile?.copy(
+                  photoUrl =
+                      when {
+                        state.isPhotoRemoved -> null
+                        photoUrl != null -> photoUrl
+                        else -> profile.photoUrl
+                      },
+                  bio = state.bio,
+              ),
+          bio = state.bio,
+          selectedPhotoUri = null,
+          isPhotoRemoved = false,
+          isSaving = false,
+          isSaved = true,
+          isPartiallySaved = false,
+      )
+
+  private fun EditProfileUiState.withSaveFailure(
+      state: EditProfileUiState,
+      exception: Exception,
+      profileUpdateSucceeded: Boolean,
+  ): EditProfileUiState =
+      if (profileUpdateSucceeded && state.isPhotoRemoved) {
+        copy(
+            profile = profile?.copy(bio = state.bio),
+            bio = state.bio,
+            isSaving = false,
+            isSaved = false,
+            isPartiallySaved = true,
+            errorMessage =
+                "Bio was saved, but the profile photo could not be removed: " +
+                    (exception.message ?: "Unknown error"),
+        )
+      } else {
+        copy(
+            isSaving = false,
+            errorMessage = exception.message ?: "Unable to save profile",
+        )
+      }
 }
