@@ -141,6 +141,73 @@ class AuthViewModelTest {
     assertEquals("Unable to sign out", viewModel.uiState.value.errorMessage)
   }
 
+  @Test
+  fun restoreSession_exposesPersistedUserAndMarksSessionChecked() = runTest {
+    val user = User(uid = "user-1", email = "user@example.com", username = "User")
+    repository.currentUser = user
+
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(user, viewModel.uiState.value.user)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertTrue(viewModel.uiState.value.sessionChecked)
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun restoreSession_withoutPersistedUser_staysSignedOutWithoutError() = runTest {
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.user)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertTrue(viewModel.uiState.value.sessionChecked)
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun restoreSession_runsOnlyOnce() = runTest {
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, repository.getCurrentUserCalls)
+  }
+
+  @Test
+  fun restoreSession_resultArrivingAfterSignIn_doesNotOverwriteSignedInUser() = runTest {
+    val user = User(uid = "user-1", email = "user@example.com", username = "User")
+    val restoreGate = CompletableDeferred<User?>()
+    repository.getCurrentUserGate = restoreGate
+    repository.signInResult = Result.success(user)
+    viewModel.restoreSession()
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.runCurrent()
+    restoreGate.complete(null)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(user, viewModel.uiState.value.user)
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun signOut_afterRestoreSession_keepsSessionChecked() = runTest {
+    repository.currentUser = User("user-1", "user@example.com", "User")
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.user)
+    assertTrue(viewModel.uiState.value.sessionChecked)
+  }
+
   private class FakeAuthRepository : AuthRepository {
     var signInResult: Result<User> = Result.failure(IllegalStateException("Not configured"))
     var signUpResult: Result<User> = Result.failure(IllegalStateException("Not configured"))
@@ -149,6 +216,9 @@ class AuthViewModelTest {
     var signUpDetails: Triple<String, String, String>? = null
     var signOutException: Exception? = null
     var didSignOut = false
+    var currentUser: User? = null
+    var getCurrentUserCalls = 0
+    var getCurrentUserGate: CompletableDeferred<User?>? = null
 
     override suspend fun signIn(email: String, password: String): Result<User> {
       signInCredentials = email to password
@@ -166,7 +236,11 @@ class AuthViewModelTest {
     }
 
     override suspend fun getCurrentUser(): User {
-      throw IllegalStateException("Not configured")
+      getCurrentUserCalls++
+      getCurrentUserGate?.let { gate ->
+        return gate.await() ?: throw IllegalStateException("No user is currently logged in")
+      }
+      return currentUser ?: throw IllegalStateException("No user is currently logged in")
     }
   }
 }
