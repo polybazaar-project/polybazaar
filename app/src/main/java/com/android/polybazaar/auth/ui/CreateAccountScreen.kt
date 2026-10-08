@@ -1,7 +1,6 @@
 // Portions of this code were generated with the help of Claude Code.
 package com.android.polybazaar.auth.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,12 +17,9 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -217,22 +213,12 @@ fun CreateAccountContent(
             modifier = Modifier.fillMaxWidth().height(48.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          OutlinedButton(
+          AuthSecondaryButton(
+              text = "Cancel",
               onClick = onBack,
               modifier =
                   Modifier.weight(1f).fillMaxSize().testTag(CreateAccountScreenTags.CANCEL_BUTTON),
-              shape = RoundedCornerShape(20.dp),
-              border = BorderStroke(1.dp, AuthColors.Outline),
-              colors =
-                  ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
-          ) {
-            Text(
-                text = "Cancel",
-                color = AuthColors.Danger,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-          }
+          )
           AuthPrimaryButton(
               text = "Create account",
               onClick = { onCreateAccount(username.trim(), email.trim(), password) },

@@ -1,6 +1,7 @@
 // Portions of this code were generated with the help of Claude Code.
 package com.android.polybazaar.auth.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -82,6 +84,20 @@ internal fun AuthPrimaryButton(
           ),
   ) {
     Text(text = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+  }
+}
+
+/** The outlined button next to [AuthPrimaryButton] that cancels a form. */
+@Composable
+internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  OutlinedButton(
+      onClick = onClick,
+      modifier = modifier,
+      shape = RoundedCornerShape(20.dp),
+      border = BorderStroke(1.dp, AuthColors.Outline),
+      colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
+  ) {
+    Text(text = text, color = AuthColors.Danger, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
   }
 }
 
