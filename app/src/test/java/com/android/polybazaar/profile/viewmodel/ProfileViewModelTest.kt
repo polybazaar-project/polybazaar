@@ -153,11 +153,6 @@ class ProfileViewModelTest {
 
     override suspend fun removeProfilePhoto(uid: String) = Unit
 
-    override suspend fun updateProfile(
-        uid: String,
-        photoUrl: String,
-        bio: String,
-        username: String,
-    ) = Unit
+    override suspend fun updateProfile(uid: String, photoUrl: String?, bio: String) = Unit
   }
 }
