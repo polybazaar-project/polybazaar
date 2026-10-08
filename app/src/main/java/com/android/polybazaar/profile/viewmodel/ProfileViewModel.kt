@@ -24,11 +24,20 @@ class ProfileViewModel(private val profileRepository: ProfileRepository) : ViewM
   val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
   private var profileObservation: Job? = null
+  private var observedUid: String? = null
 
   fun observeProfile(uid: String) {
     profileObservation?.cancel()
+    val shouldClearProfile = observedUid != null && observedUid != uid
+    observedUid = uid
     profileObservation = viewModelScope.launch {
-      _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+      _uiState.update {
+        it.copy(
+            profile = if (shouldClearProfile) null else it.profile,
+            isLoading = true,
+            errorMessage = null,
+        )
+      }
       try {
         profileRepository.observeProfile(uid).collect { profile ->
           _uiState.update { it.copy(profile = profile, isLoading = false) }

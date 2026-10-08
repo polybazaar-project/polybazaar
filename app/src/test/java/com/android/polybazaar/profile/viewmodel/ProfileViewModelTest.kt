@@ -101,6 +101,32 @@ class ProfileViewModelTest {
   }
 
   @Test
+  fun observeProfile_clearsPreviousProfileWhenUidChanges() = runTest {
+    // Confirms switching to a different user clears the stale profile while the new observation
+    // loads.
+    repository.observationFlowForUid = { uid ->
+      if (uid == profile.uid) {
+        MutableStateFlow(profile)
+      } else {
+        flow {
+          suspendCancellableCoroutine<Unit> { continuation -> continuation.invokeOnCancellation {} }
+        }
+      }
+    }
+
+    viewModel.observeProfile(profile.uid)
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(profile, viewModel.uiState.value.profile)
+
+    viewModel.observeProfile("other-user")
+    testDispatcher.scheduler.runCurrent()
+
+    assertNull(viewModel.uiState.value.profile)
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
   fun observeProfile_exposesRepositoryFailure() = runTest {
     // Confirms observation failures stop loading and provide an error message.
     repository.observationFlow = flow { throw IllegalStateException("Profile unavailable") }
