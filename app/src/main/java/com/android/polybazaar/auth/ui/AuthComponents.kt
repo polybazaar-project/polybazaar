@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -98,6 +100,26 @@ internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Mo
       colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
   ) {
     Text(text = text, color = AuthColors.Danger, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+  }
+}
+
+/** The round back arrow at the start of a screen header. */
+@Composable
+internal fun AuthBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+  IconButton(
+      onClick = onClick,
+      modifier =
+          modifier
+              .size(38.dp)
+              .background(AuthColors.Background, CircleShape)
+              .border(1.dp, AuthColors.Outline, CircleShape),
+  ) {
+    Icon(
+        painter = painterResource(R.drawable.ic_back_arrow),
+        contentDescription = "Back",
+        tint = Color.Unspecified,
+        modifier = Modifier.size(19.dp),
+    )
   }
 }
 

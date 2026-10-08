@@ -2,7 +2,6 @@
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -14,12 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,16 +25,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.android.polybazaar.R
 import com.android.polybazaar.auth.viewmodel.AuthUiState
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 
@@ -245,21 +237,10 @@ private fun Header(onBack: () -> Unit) {
       horizontalArrangement = Arrangement.spacedBy(15.dp),
       verticalAlignment = Alignment.CenterVertically,
   ) {
-    IconButton(
+    AuthBackButton(
         onClick = onBack,
-        modifier =
-            Modifier.size(38.dp)
-                .background(AuthColors.Background, CircleShape)
-                .border(1.dp, AuthColors.Outline, CircleShape)
-                .testTag(CreateAccountScreenTags.BACK_BUTTON),
-    ) {
-      Icon(
-          painter = painterResource(R.drawable.ic_back_arrow),
-          contentDescription = "Back",
-          tint = Color.Unspecified,
-          modifier = Modifier.size(19.dp),
-      )
-    }
+        modifier = Modifier.testTag(CreateAccountScreenTags.BACK_BUTTON),
+    )
     AuthTitleGroup(title = "Create account")
   }
 }
