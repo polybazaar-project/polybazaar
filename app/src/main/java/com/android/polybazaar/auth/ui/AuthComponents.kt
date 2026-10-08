@@ -85,12 +85,12 @@ internal fun AuthPrimaryButton(
   }
 }
 
-/** The "ACCOUNT" eyebrow above a screen title. */
+/** A screen title with its eyebrow ("ACCOUNT" by default) above it. */
 @Composable
-internal fun AuthTitleGroup(title: String) {
+internal fun AuthTitleGroup(title: String, eyebrow: String = "ACCOUNT") {
   Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
     Text(
-        text = "ACCOUNT",
+        text = eyebrow,
         color = AuthColors.Accent,
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
@@ -113,6 +113,8 @@ internal fun LabeledField(
     tag: String,
     keyboardType: KeyboardType = KeyboardType.Text,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    readOnly: Boolean = false,
+    minLines: Int = 1,
 ) {
   Column(
       modifier = Modifier.fillMaxWidth(),
@@ -124,11 +126,16 @@ internal fun LabeledField(
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
     )
-    val textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    // Multi-line fields (e.g. a bio) use regular body text, as in the Figma frames.
+    val textStyle =
+        if (minLines > 1) TextStyle(fontSize = 14.sp, lineHeight = 1.35.em)
+        else TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        singleLine = true,
+        readOnly = readOnly,
+        singleLine = minLines == 1,
+        minLines = minLines,
         textStyle = textStyle.copy(color = AuthColors.TextPrimary),
         cursorBrush = SolidColor(AuthColors.Accent),
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
