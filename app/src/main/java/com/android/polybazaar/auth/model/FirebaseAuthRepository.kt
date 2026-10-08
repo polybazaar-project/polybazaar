@@ -1,6 +1,7 @@
 package com.android.polybazaar.auth.model
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -22,6 +23,7 @@ class FirebaseAuthRepository(
               uid = firebaseUser.uid,
               email = firebaseUser.email ?: throw Exception("User email cannot be null"),
               username = usernameForUid(firebaseUser.uid),
+              isEmailVerified = firebaseUser.isEmailVerified,
           )
       )
     } catch (e: Exception) {
@@ -50,13 +52,16 @@ class FirebaseAuthRepository(
             )
         usernameDocRef.set(usernameData).await()
 
-        Result.success(
+        val user =
             User(
                 uid = firebaseUser.uid,
                 email = firebaseUser.email ?: throw Exception("User email cannot be null"),
                 username = username,
+                isEmailVerified = firebaseUser.isEmailVerified,
             )
-        )
+        // A failed send must not undo the sign-up: the user can ask for the email again.
+        sendVerificationEmailTo(firebaseUser)
+        Result.success(user)
       } catch (e: Exception) {
         withContext(NonCancellable) {
           try {
@@ -85,7 +90,35 @@ class FirebaseAuthRepository(
         uid = firebaseUser.uid,
         email = firebaseUser.email ?: throw Exception("User email cannot be null"),
         username = usernameForUid(firebaseUser.uid),
+        isEmailVerified = firebaseUser.isEmailVerified,
     )
+  }
+
+  override suspend fun sendVerificationEmail(): Result<Unit> {
+    val firebaseUser =
+        auth.currentUser ?: return Result.failure(Exception("No user is currently logged in"))
+    return sendVerificationEmailTo(firebaseUser)
+  }
+
+  override suspend fun refreshUser(): Result<User> {
+    return try {
+      val firebaseUser = auth.currentUser ?: throw Exception("No user is currently logged in")
+      firebaseUser.reload().await()
+      Result.success(getCurrentUser())
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(e)
+    }
+  }
+
+  private suspend fun sendVerificationEmailTo(firebaseUser: FirebaseUser): Result<Unit> {
+    return try {
+      firebaseUser.sendEmailVerification().await()
+      Result.success(Unit)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(e)
+    }
   }
 
   private suspend fun usernameForUid(uid: String): String {
