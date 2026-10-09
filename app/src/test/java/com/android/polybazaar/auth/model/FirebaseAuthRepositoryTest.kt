@@ -1,6 +1,7 @@
 package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -13,11 +14,13 @@ import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
@@ -45,6 +48,7 @@ class FirebaseAuthRepositoryTest {
     whenever(firestore.collection("usernames")).thenReturn(collectionRef)
     whenever(firebaseUser.uid).thenReturn(uid)
     whenever(firebaseUser.email).thenReturn(email)
+    whenever(firebaseUser.sendEmailVerification()).thenReturn(Tasks.forResult(null))
 
     repository = FirebaseAuthRepository(auth, firestore)
   }
@@ -65,6 +69,20 @@ class FirebaseAuthRepositoryTest {
     assertEquals(uid, user?.uid)
     assertEquals(email, user?.email)
     assertEquals(username, user?.username)
+  }
+
+  @Test
+  fun signIn_verifiedEmail_returnsVerifiedUser() = runTest {
+    val authResult = mock<AuthResult>()
+    whenever(authResult.user).thenReturn(firebaseUser)
+    whenever(firebaseUser.isEmailVerified).thenReturn(true)
+    whenever(auth.signInWithEmailAndPassword(email, password))
+        .thenReturn(Tasks.forResult(authResult))
+    mockUsernameLookupSuccess(uid, username)
+
+    val result = repository.signIn(email, password)
+
+    assertTrue(result.getOrThrow().isEmailVerified)
   }
 
   @Test
@@ -131,6 +149,32 @@ class FirebaseAuthRepositoryTest {
     assertEquals(email, user?.email)
     assertEquals(username, user?.username)
     verify(docRef).set(any())
+  }
+
+  @Test
+  fun signUp_success_sendsVerificationEmailAndReturnsUnverifiedUser() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
+    mockSignUpAuthResult()
+    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
+
+    val result = repository.signUp(email, password, username)
+
+    verify(firebaseUser).sendEmailVerification()
+    assertFalse(result.getOrThrow().isEmailVerified)
+  }
+
+  @Test
+  fun signUp_verificationEmailFails_stillCreatesAccount() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
+    mockSignUpAuthResult()
+    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
+    whenever(firebaseUser.sendEmailVerification())
+        .thenReturn(Tasks.forException(FirebaseTooManyRequestsException("Too many requests")))
+
+    val result = repository.signUp(email, password, username)
+
+    assertTrue(result.isSuccess)
+    verify(firebaseUser, never()).delete()
   }
 
   @Test
@@ -245,6 +289,19 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
+  fun signUp_cancellationWhileSendingVerificationEmail_keepsAccount() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
+    mockSignUpAuthResult()
+    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
+    whenever(firebaseUser.sendEmailVerification()).thenThrow(CancellationException("Cancelled"))
+
+    val result = runCatching { repository.signUp(email, password, username) }
+
+    assertTrue(result.exceptionOrNull() is CancellationException)
+    verify(firebaseUser, never()).delete()
+  }
+
+  @Test
   fun signOut_callsAuthSignOut() = runTest {
     repository.signOut()
     verify(auth).signOut()
@@ -322,6 +379,77 @@ class FirebaseAuthRepositoryTest {
 
     assertTrue(result.isFailure)
     assertEquals("Username field not found for the current user", result.exceptionOrNull()?.message)
+  }
+
+  @Test
+  fun sendVerificationEmail_success_sendsEmailToCurrentUser() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+
+    val result = repository.sendVerificationEmail()
+
+    assertTrue(result.isSuccess)
+    verify(firebaseUser).sendEmailVerification()
+  }
+
+  @Test
+  fun sendVerificationEmail_noUserLoggedIn_returnsFailure() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val result = repository.sendVerificationEmail()
+
+    assertTrue(result.isFailure)
+    assertEquals("No user is currently logged in", result.exceptionOrNull()?.message)
+  }
+
+  @Test
+  fun sendVerificationEmail_tooManyRequests_returnsFailure() = runTest {
+    val exception = FirebaseTooManyRequestsException("Too many requests")
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.sendEmailVerification()).thenReturn(Tasks.forException(exception))
+
+    val result = repository.sendVerificationEmail()
+
+    assertTrue(result.isFailure)
+    assertEquals(exception, result.exceptionOrNull())
+  }
+
+  @Test
+  fun refreshUser_emailVerifiedSinceLastLoad_returnsVerifiedUser() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    var verifiedOnServer = false
+    whenever(firebaseUser.isEmailVerified).thenAnswer { verifiedOnServer }
+    whenever(firebaseUser.reload()).thenAnswer {
+      verifiedOnServer = true
+      Tasks.forResult<Void>(null)
+    }
+    mockUsernameLookupSuccess(uid, username)
+
+    val result = repository.refreshUser()
+
+    assertTrue(result.getOrThrow().isEmailVerified)
+    verify(firebaseUser).reload()
+  }
+
+  @Test
+  fun refreshUser_noUserLoggedIn_returnsFailure() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val result = repository.refreshUser()
+
+    assertTrue(result.isFailure)
+    assertEquals("No user is currently logged in", result.exceptionOrNull()?.message)
+  }
+
+  @Test
+  fun refreshUser_reloadFails_returnsFailure() = runTest {
+    val exception = Exception("Network error")
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.reload()).thenReturn(Tasks.forException(exception))
+
+    val result = repository.refreshUser()
+
+    assertTrue(result.isFailure)
+    assertEquals(exception, result.exceptionOrNull())
   }
 
   private fun mockUsernameLookupSuccess(targetUid: String, returnedUsername: String) {
