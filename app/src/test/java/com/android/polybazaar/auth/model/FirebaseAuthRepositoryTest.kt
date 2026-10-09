@@ -427,7 +427,7 @@ class FirebaseAuthRepositoryTest {
     val result = repository.refreshUser()
 
     assertTrue(result.getOrThrow().isEmailVerified)
-    verify(auth, never()).signInWithEmailAndPassword(any(), any())
+    verify(firebaseUser).reload()
   }
 
   @Test
