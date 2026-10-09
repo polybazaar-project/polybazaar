@@ -289,6 +289,19 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
+  fun signUp_cancellationWhileSendingVerificationEmail_keepsAccount() = runTest {
+    val docRef = mockUsernameDocument(exists = false)
+    mockSignUpAuthResult()
+    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
+    whenever(firebaseUser.sendEmailVerification()).thenThrow(CancellationException("Cancelled"))
+
+    val result = runCatching { repository.signUp(email, password, username) }
+
+    assertTrue(result.exceptionOrNull() is CancellationException)
+    verify(firebaseUser, never()).delete()
+  }
+
+  @Test
   fun signOut_callsAuthSignOut() = runTest {
     repository.signOut()
     verify(auth).signOut()

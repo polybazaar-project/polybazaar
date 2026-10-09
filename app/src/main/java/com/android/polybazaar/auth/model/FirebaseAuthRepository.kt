@@ -44,35 +44,37 @@ class FirebaseAuthRepository(
       val authResult = auth.createUserWithEmailAndPassword(email, password).await()
       val firebaseUser = authResult.user ?: throw Exception("Failed to create user account")
 
-      try {
-        val usernameData =
-            mapOf(
-                "uid" to firebaseUser.uid,
-                "username" to username,
-            )
-        usernameDocRef.set(usernameData).await()
+      val user =
+          try {
+            val usernameData =
+                mapOf(
+                    "uid" to firebaseUser.uid,
+                    "username" to username,
+                )
+            usernameDocRef.set(usernameData).await()
 
-        val user =
             User(
                 uid = firebaseUser.uid,
                 email = firebaseUser.email ?: throw Exception("User email cannot be null"),
                 username = username,
                 isEmailVerified = firebaseUser.isEmailVerified,
             )
-        // A failed send must not undo the sign-up: the user can ask for the email again.
-        sendVerificationEmailTo(firebaseUser)
-        Result.success(user)
-      } catch (e: Exception) {
-        withContext(NonCancellable) {
-          try {
-            firebaseUser.delete().await()
-          } catch (rollbackEx: Exception) {
-            e.addSuppressed(rollbackEx)
+          } catch (e: Exception) {
+            withContext(NonCancellable) {
+              try {
+                firebaseUser.delete().await()
+              } catch (rollbackEx: Exception) {
+                e.addSuppressed(rollbackEx)
+              }
+            }
+            if (e is CancellationException) throw e
+            throw Exception("Failed to register username. Account creation rolled back.", e)
           }
-        }
-        if (e is CancellationException) throw e
-        throw Exception("Failed to register username. Account creation rolled back.", e)
-      }
+
+      // Outside the rollback above: a failed or cancelled send must not undo the sign-up, the
+      // user can ask for the email again.
+      sendVerificationEmailTo(firebaseUser)
+      Result.success(user)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Result.failure(e)
