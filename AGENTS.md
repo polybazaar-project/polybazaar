@@ -37,7 +37,7 @@ Run from the repo root with the Gradle wrapper, exactly as CI does:
 - Branches: `feature/<name>`, `fix/<name>`, `chore/<name>`, `ci/<name>`, `docs/<name>`. Never push to `main`.
 - Commits: Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`, `ci:`, `chore:`), imperative, small and frequent.
 - Stage only the files you changed; never `git add .` or `git add -A`.
-- One task per PR. Open a draft PR early; mark it ready when tests pass. Use `.github/pull_request_template.md`.
+- One task per PR. Open a draft PR early; mark it ready when tests pass. Use `.github/pull_request_template.md`: a short **Summary** first, then **What**, **Why**, **Validation** and **AI use**.
 - Code reviews and PRs are in English. Review with `.github/skills/code-review/SKILL.md`.
 
 ## Security
@@ -49,5 +49,6 @@ Run from the repo root with the Gradle wrapper, exactly as CI does:
 
 The course treats unacknowledged AI use as plagiarism.
 
-- End the PR description with one sentence acknowledging AI use, naming the agent and what it did.
+- Every file an agent creates or modifies carries a sign-off in its header comment: `Co-authored-by: <agent name and model>`. Keep one line per agent; do not duplicate it. Files whose format has no comments (JSON, for example) are covered by the PR's AI use section instead.
+- Fill in the PR's **AI use** section, naming the agent and what it did.
 - You own every line you submit. "The agent wrote it" is not a defence; be ready to explain it.

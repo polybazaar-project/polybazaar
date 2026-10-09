@@ -1,3 +1,6 @@
+## Summary
+<!-- One or two sentences: what this PR does, readable in ten seconds. -->
+
 ## What
 <!-- What changed. -->
 
