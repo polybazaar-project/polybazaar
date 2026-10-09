@@ -1,6 +1,7 @@
 // Portions of this code were generated with the help of Claude Code.
 package com.android.polybazaar.auth.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -10,12 +11,15 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -85,12 +89,46 @@ internal fun AuthPrimaryButton(
   }
 }
 
-/** The "ACCOUNT" eyebrow above a screen title. */
+/** The outlined button next to [AuthPrimaryButton] that cancels a form. */
 @Composable
-internal fun AuthTitleGroup(title: String) {
+internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  OutlinedButton(
+      onClick = onClick,
+      modifier = modifier,
+      shape = RoundedCornerShape(20.dp),
+      border = BorderStroke(1.dp, AuthColors.Outline),
+      colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
+  ) {
+    Text(text = text, color = AuthColors.Danger, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+  }
+}
+
+/** The round back arrow at the start of a screen header. */
+@Composable
+internal fun AuthBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+  IconButton(
+      onClick = onClick,
+      modifier =
+          modifier
+              .size(38.dp)
+              .background(AuthColors.Background, CircleShape)
+              .border(1.dp, AuthColors.Outline, CircleShape),
+  ) {
+    Icon(
+        painter = painterResource(R.drawable.ic_back_arrow),
+        contentDescription = "Back",
+        tint = Color.Unspecified,
+        modifier = Modifier.size(19.dp),
+    )
+  }
+}
+
+/** A screen title with its eyebrow ("ACCOUNT" by default) above it. */
+@Composable
+internal fun AuthTitleGroup(title: String, eyebrow: String = "ACCOUNT") {
   Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
     Text(
-        text = "ACCOUNT",
+        text = eyebrow,
         color = AuthColors.Accent,
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
@@ -113,6 +151,8 @@ internal fun LabeledField(
     tag: String,
     keyboardType: KeyboardType = KeyboardType.Text,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    readOnly: Boolean = false,
+    minLines: Int = 1,
 ) {
   Column(
       modifier = Modifier.fillMaxWidth(),
@@ -124,11 +164,16 @@ internal fun LabeledField(
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
     )
-    val textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    // Multi-line fields (e.g. a bio) use regular body text, as in the Figma frames.
+    val textStyle =
+        if (minLines > 1) TextStyle(fontSize = 14.sp, lineHeight = 1.35.em)
+        else TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        singleLine = true,
+        readOnly = readOnly,
+        singleLine = minLines == 1,
+        minLines = minLines,
         textStyle = textStyle.copy(color = AuthColors.TextPrimary),
         cursorBrush = SolidColor(AuthColors.Accent),
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
