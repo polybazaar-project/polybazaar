@@ -1,8 +1,13 @@
+// Portions of this code were generated with the help of Claude Code.
 package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
@@ -13,11 +18,13 @@ import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
@@ -322,6 +329,96 @@ class FirebaseAuthRepositoryTest {
 
     assertTrue(result.isFailure)
     assertEquals("Username field not found for the current user", result.exceptionOrNull()?.message)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_success_returnsSuccess() = runTest {
+    whenever(auth.sendPasswordResetEmail(email)).thenReturn(Tasks.forResult(null))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertTrue(result.isSuccess)
+    verify(auth).sendPasswordResetEmail(email)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_unknownEmail_returnsSuccess() = runTest {
+    mockPasswordResetFailure(FirebaseAuthInvalidUserException("ERROR_USER_NOT_FOUND", "No user"))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    // Same outcome as a registered address, so the screen does not reveal who has an account.
+    assertTrue(result.isSuccess)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_blankEmail_failsWithInvalidEmailWithoutCallingFirebase() = runTest {
+    val result = repository.sendPasswordResetEmail("   ")
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.INVALID_EMAIL)
+    verify(auth, never()).sendPasswordResetEmail(any<String>())
+  }
+
+  @Test
+  fun sendPasswordResetEmail_malformedEmail_failsWithInvalidEmail() = runTest {
+    mockPasswordResetFailure(
+        FirebaseAuthInvalidCredentialsException("ERROR_INVALID_EMAIL", "Badly formatted")
+    )
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.INVALID_EMAIL)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_noNetwork_failsWithNetwork() = runTest {
+    mockPasswordResetFailure(FirebaseNetworkException("Network error"))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.NETWORK)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_tooManyRequests_failsWithTooManyRequests() = runTest {
+    mockPasswordResetFailure(FirebaseTooManyRequestsException("Blocked"))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.TOO_MANY_REQUESTS)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_otherError_failsWithUnknownAndKeepsCause() = runTest {
+    val exception = IllegalStateException("Unexpected")
+    mockPasswordResetFailure(exception)
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.UNKNOWN)
+    assertSame(exception, result.exceptionOrNull()?.cause)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_cancellationException_isRethrown() = runTest {
+    whenever(auth.sendPasswordResetEmail(email)).thenThrow(CancellationException("Cancelled"))
+
+    val result = runCatching { repository.sendPasswordResetEmail(email) }
+
+    assertTrue(result.exceptionOrNull() is CancellationException)
+  }
+
+  private fun mockPasswordResetFailure(exception: Exception) {
+    whenever(auth.sendPasswordResetEmail(email)).thenReturn(Tasks.forException(exception))
+  }
+
+  private fun assertPasswordResetFailure(
+      result: Result<Unit>,
+      expected: PasswordResetException.Reason,
+  ) {
+    val error = result.exceptionOrNull()
+    assertTrue("Expected PasswordResetException but was $error", error is PasswordResetException)
+    assertEquals(expected, (error as PasswordResetException).reason)
   }
 
   private fun mockUsernameLookupSuccess(targetUid: String, returnedUsername: String) {
