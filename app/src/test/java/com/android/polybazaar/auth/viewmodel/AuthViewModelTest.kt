@@ -242,5 +242,8 @@ class AuthViewModelTest {
       }
       return currentUser ?: throw IllegalStateException("No user is currently logged in")
     }
+
+    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
   }
 }
