@@ -1,6 +1,7 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.model
 
+import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -42,7 +43,7 @@ class ListingTest {
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
-            images = List(Listing.MAXIMUM_IMAGES) { "image-$it" },
+            images = List(Listing.MAXIMUM_IMAGES) { Uri.parse("content://images/$it") },
         )
 
     assertEquals(Listing.MAXIMUM_IMAGES, listing.images.size)
@@ -52,7 +53,7 @@ class ListingTest {
           price = 25.0,
           title = "Math tutoring",
           description = "One-hour session",
-          images = List(Listing.MAXIMUM_IMAGES + 1) { "image-$it" },
+          images = List(Listing.MAXIMUM_IMAGES + 1) { Uri.parse("content://images/$it") },
       )
     }
   }
