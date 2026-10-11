@@ -3,7 +3,6 @@ package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ListingTest {
@@ -36,25 +35,15 @@ class ListingTest {
   }
 
   @Test
-  fun listingImagesAreOptionalAndLimitedToTen() {
+  fun listingImagesAreOptional() {
     val listing =
         ServiceListing(
             category = "Tutoring",
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
-            images = List(Listing.MAXIMUM_IMAGES) { Uri.parse("content://images/$it") },
         )
 
-    assertEquals(Listing.MAXIMUM_IMAGES, listing.images.size)
-    assertThrows(IllegalArgumentException::class.java) {
-      ServiceListing(
-          category = "Tutoring",
-          price = 25.0,
-          title = "Math tutoring",
-          description = "One-hour session",
-          images = List(Listing.MAXIMUM_IMAGES + 1) { Uri.parse("content://images/$it") },
-      )
-    }
+    assertEquals(emptyList<Uri>(), listing.images)
   }
 }

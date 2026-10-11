@@ -16,15 +16,7 @@ sealed class Listing(
     open val images: List<Uri>,
     open val listingId: String?,
 ) {
-  init {
-    require(images.size <= MAXIMUM_IMAGES) { "A listing can have at most $MAXIMUM_IMAGES images." }
-  }
-
   abstract val type: ListingType
-
-  companion object {
-    const val MAXIMUM_IMAGES = 10
-  }
 }
 
 data class ServiceListing(
