@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar
 
 import android.os.Bundle
@@ -6,13 +7,13 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTag
-import androidx.compose.ui.tooling.preview.Preview
-import com.android.polybazaar.resources.C
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.android.polybazaar.auth.model.FirebaseAuthRepository
+import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.ui.navigation.AppNavHost
 import com.android.polybazaar.ui.theme.SampleAppTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,25 +21,15 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     setContent {
       SampleAppTheme {
-        // A surface container using the 'background' color from the theme
-        Surface(
-            modifier = Modifier.fillMaxSize().semantics { testTag = C.Tag.main_screen_container },
-            color = MaterialTheme.colorScheme.background,
-        ) {
-          Greeting("Android")
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+          val authViewModel: AuthViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory { initializer { AuthViewModel(FirebaseAuthRepository()) } }
+              )
+          AppNavHost(authViewModel = authViewModel)
         }
       }
     }
   }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-  Text(text = "Hello $name!", modifier = modifier.semantics { testTag = C.Tag.greeting })
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-  SampleAppTheme { Greeting("Android") }
 }
