@@ -82,18 +82,21 @@ fun ProfileContent(
     // page scrolls instead of overlapping on short screens.
     Column(
         modifier =
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
+            Modifier.fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(start = 18.dp, end = 18.dp, bottom = 14.dp)
     ) {
       Header(onOpenSettings = onOpenSettings)
-      Column(
-          modifier =
-              Modifier.weight(1f).padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 14.dp),
-          verticalArrangement = Arrangement.SpaceBetween,
-      ) {
-        IdentityCard(profile = profile, isLoading = isLoading, errorMessage = errorMessage)
-        RecentActivityCard(modifier = Modifier.padding(vertical = 24.dp))
-        EditProfileButton(onClick = onEditProfile, enabled = profile != null)
-      }
+      Spacer(modifier = Modifier.height(10.dp))
+      IdentityCard(profile = profile, isLoading = isLoading, errorMessage = errorMessage)
+      // Only the spacers are weighted: they share the leftover height (spreading the cards like
+      // the Figma frame) and shrink to zero on short screens, so the page scrolls. A weighted
+      // content Column would instead be squeezed to the leftover height and hide the button.
+      Spacer(modifier = Modifier.weight(1f))
+      RecentActivityCard(modifier = Modifier.padding(vertical = 24.dp))
+      Spacer(modifier = Modifier.weight(1f))
+      EditProfileButton(onClick = onEditProfile, enabled = profile != null)
     }
   }
 }
@@ -101,7 +104,7 @@ fun ProfileContent(
 @Composable
 private fun Header(onOpenSettings: () -> Unit) {
   Row(
-      modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 18.dp),
+      modifier = Modifier.fillMaxWidth().height(54.dp),
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically,
   ) {

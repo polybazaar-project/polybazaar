@@ -1,6 +1,10 @@
 // Portions of this code were generated with the help of Claude Code.
 package com.android.polybazaar.profile.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -10,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.User
 import org.junit.Assert.assertEquals
@@ -63,6 +68,28 @@ class ProfileScreenTest {
     node(ProfileScreenTags.EDIT_PROFILE_BUTTON).performScrollTo().assertIsEnabled()
     node(ProfileScreenTags.LOADING_INDICATOR).assertDoesNotExist()
     node(ProfileScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun shortScreen_scrollsToTheFullSizeEditButton() {
+    // 320dp is shorter than the header, both cards and the 82dp button together, so the page has
+    // to scroll. A squeezed layout would shrink or hide the button instead.
+    composeTestRule.setContent {
+      Box(modifier = Modifier.size(width = 360.dp, height = 320.dp)) {
+        ProfileContent(
+            profile = profile,
+            isLoading = false,
+            errorMessage = null,
+            onEditProfile = {},
+            onOpenSettings = {},
+        )
+      }
+    }
+
+    node(ProfileScreenTags.EDIT_PROFILE_BUTTON)
+        .performScrollTo()
+        .assertIsDisplayed()
+        .assertHeightIsEqualTo(82.dp)
   }
 
   @Test
