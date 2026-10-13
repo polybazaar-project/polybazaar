@@ -46,7 +46,7 @@ private const val AVATAR_DECODE_SIZE_PX = 288
  * otherwise. Photos stored in Firebase are not shown yet, as that needs an image loading library.
  */
 @Composable
-internal fun ProfileAvatar(selectedPhotoUri: Uri? = null, modifier: Modifier = Modifier) {
+internal fun ProfileAvatar(modifier: Modifier = Modifier, selectedPhotoUri: Uri? = null) {
   val selectedPhoto = rememberDecodedPhoto(selectedPhotoUri)
   Box(modifier = modifier.size(72.dp).testTag(ProfileComponentTags.AVATAR)) {
     Image(
