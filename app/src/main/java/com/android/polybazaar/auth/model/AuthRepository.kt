@@ -10,6 +10,10 @@ interface AuthRepository {
 
   suspend fun getCurrentUser(): User
 
+  suspend fun sendVerificationEmail(): Result<Unit>
+
+  suspend fun refreshUser(): Result<User>
+
   /**
    * Asks Firebase to email a password reset link to [email].
    *

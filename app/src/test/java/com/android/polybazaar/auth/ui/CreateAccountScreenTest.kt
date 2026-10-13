@@ -238,6 +238,12 @@ class CreateAccountScreenTest {
 
     override suspend fun getCurrentUser(): User = throw IllegalStateException("Not used")
 
+    override suspend fun sendVerificationEmail(): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
+    override suspend fun refreshUser(): Result<User> =
+        Result.failure(IllegalStateException("Not used"))
+
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
         Result.failure(IllegalStateException("Not used"))
   }
