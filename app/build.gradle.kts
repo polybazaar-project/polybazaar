@@ -160,6 +160,7 @@ dependencies {
   implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
   implementation(libs.firebase.auth)
   implementation(libs.firebase.firestore)
+  implementation(libs.firebase.storage)
 
   // ----------       Coroutines      ------------
   implementation(libs.kotlinx.coroutines.play.services)
