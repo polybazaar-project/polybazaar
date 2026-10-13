@@ -188,6 +188,9 @@ private fun PhotoSection(
     ) {
       SectionTitle("Profile photo")
       Row {
+        // Shown for a photo already saved in Firebase too, even though the avatar below still
+        // draws the default photo: displaying stored photos needs an image loading library
+        // (follow-up in the PR description), not a bug in this condition.
         if (hasCustomPhoto) {
           PhotoLink(
               text = "Remove",
