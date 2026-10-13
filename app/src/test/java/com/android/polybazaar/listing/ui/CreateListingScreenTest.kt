@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.ui
 
+import android.net.Uri
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -10,6 +12,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,9 +23,12 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingUiState
+import com.android.polybazaar.listing.viewmodel.ListingViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -30,6 +36,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class CreateListingScreenTest {
@@ -65,6 +72,7 @@ class CreateListingScreenTest {
 
     node(CreateListingScreenTags.SCREEN).assertIsDisplayed()
     node(CreateListingScreenTags.TYPE_ITEM).assertIsSelected()
+    node(CreateListingScreenTags.PHOTO_PICKER).assertIsDisplayed()
     node(CreateListingScreenTags.REFUND_FIELD).assertIsDisplayed()
     node(CreateListingScreenTags.PRICE_LABEL).assertTextContains("PRICE PER DAY")
     composeTestRule.onNodeWithText("e.g. Bosch drill set").assertIsDisplayed()
@@ -72,12 +80,13 @@ class CreateListingScreenTest {
   }
 
   @Test
-  fun selectingService_showsHourlyPriceWithoutRefund() {
+  fun selectingService_keepsPhotosAndShowsHourlyPrice() {
     setContent()
 
     node(CreateListingScreenTags.TYPE_SERVICE).performClick()
 
     node(CreateListingScreenTags.TYPE_SERVICE).assertIsSelected()
+    node(CreateListingScreenTags.PHOTO_PICKER).assertIsDisplayed()
     node(CreateListingScreenTags.REFUND_FIELD).assertDoesNotExist()
     node(CreateListingScreenTags.PRICE_LABEL).assertTextContains("PRICE PER HOUR")
     composeTestRule.onNodeWithText("e.g. Gardening help").assertIsDisplayed()
@@ -206,14 +215,93 @@ class CreateListingScreenTest {
         .assertTextContains("Network error")
   }
 
+  private fun uris(count: Int) = (1..count).map { Uri.parse("content://photos/$it") }
+
+  private fun setPhotoPicker(
+      photos: List<Uri>,
+      onAddPhotos: () -> Unit = {},
+      onRemovePhoto: (Uri) -> Unit = {},
+      preview: ImageBitmap? = null,
+  ) {
+    composeTestRule.setContent {
+      PhotoPicker(
+          photos = photos,
+          onAddPhotos = onAddPhotos,
+          onRemovePhoto = onRemovePhoto,
+          preview = { preview },
+      )
+    }
+  }
+
+  @Test
+  fun photoPicker_withoutPhotos_showsAddPhotosButton() {
+    var addClicks = 0
+    setPhotoPicker(photos = emptyList(), onAddPhotos = { addClicks++ })
+
+    node(CreateListingScreenTags.PHOTO_PICKER).performClick()
+
+    assertEquals(1, addClicks)
+    node(CreateListingScreenTags.photo(0)).assertDoesNotExist()
+    node(CreateListingScreenTags.ADD_PHOTO).assertDoesNotExist()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // ImageBitmap needs real bitmaps.
+  fun photoPicker_showsEveryChosenPhotoAndAnAddTile() {
+    var addClicks = 0
+    setPhotoPicker(
+        photos = uris(2),
+        onAddPhotos = { addClicks++ },
+        preview = ImageBitmap(width = 4, height = 4),
+    )
+
+    node(CreateListingScreenTags.PHOTO_PICKER).assertDoesNotExist()
+    node(CreateListingScreenTags.photo(0)).assertIsDisplayed()
+    node(CreateListingScreenTags.photo(1)).assertIsDisplayed()
+    composeTestRule.onNodeWithContentDescription("Photo 2").assertIsDisplayed()
+    composeTestRule.onNodeWithText("2/$MAX_PHOTOS").assertIsDisplayed()
+    node(CreateListingScreenTags.ADD_PHOTO).performClick()
+    assertEquals(1, addClicks)
+  }
+
+  @Test
+  fun photoPicker_hidesAddTileOnceLimitIsReached() {
+    setPhotoPicker(photos = uris(MAX_PHOTOS))
+
+    node(CreateListingScreenTags.photo(MAX_PHOTOS - 1)).assertExists()
+    node(CreateListingScreenTags.ADD_PHOTO).assertDoesNotExist()
+  }
+
+  @Test
+  fun photoPicker_removeButtonReportsThatPhoto() {
+    val photos = uris(3)
+    var removed: Uri? = null
+    setPhotoPicker(photos = photos, onRemovePhoto = { removed = it })
+
+    node(CreateListingScreenTags.removePhoto(1)).performClick()
+
+    assertEquals(photos[1], removed)
+  }
+
+  @Test
+  fun buildListing_putsPhotosOnBothTypes() {
+    val photos = uris(3)
+
+    val item = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", photos)
+    val service = buildListing(ListingType.SERVICE, "t", "d", "5", "Tutoring", photos)
+
+    assertEquals(photos, item?.images)
+    assertEquals(photos, service?.images)
+  }
+
   @Test
   fun buildListing_refundValueDefaultsToPrice() {
-    val blank = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", " ")
-    val given = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", "80,50")
+    val blank = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), " ")
+    val given = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "80,50")
 
     assertEquals(5.0, (blank as ItemListing).refundValue, 0.0)
     assertEquals(80.5, (given as ItemListing).refundValue, 0.0)
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", "0"))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "0"))
   }
 
   @Test
@@ -257,11 +345,56 @@ class CreateListingScreenTest {
   }
 
   @Test
+  fun screen_sendsListingToViewModelAndReportsCreation() {
+    val repository = RecordingListingRepository()
+    val viewModel = ListingViewModel(repository)
+    var created: Listing? = null
+    composeTestRule.setContent {
+      CreateListingScreen(listingViewModel = viewModel, onListingCreated = { created = it })
+    }
+
+    node(CreateListingScreenTags.TYPE_SERVICE).performClick()
+    fillForm("Math help", "Analysis I", "20", "Tutoring")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    val sent = repository.received
+    assertTrue(sent is ServiceListing)
+    assertEquals((sent as ServiceListing).copy(listingId = "listing-1"), created)
+  }
+
+  @Test
+  fun screen_showsViewModelError() {
+    val viewModel = ListingViewModel(RecordingListingRepository(failure = Exception("Offline")))
+    composeTestRule.setContent { CreateListingScreen(listingViewModel = viewModel) }
+
+    fillForm("Drill", "Works well", "5", "Tools")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    node(CreateListingScreenTags.ERROR_MESSAGE).performScrollTo().assertTextContains("Offline")
+  }
+
+  @Test
   fun buildListing_returnsNullForIncompleteOrInvalidInput() {
-    assertNull(buildListing(ListingType.ITEM, "", "d", "5", "Tools"))
-    assertNull(buildListing(ListingType.ITEM, "t", " ", "5", "Tools"))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "0", "Tools"))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "1.2.3", "Tools"))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null))
+    assertNull(buildListing(ListingType.ITEM, "", "d", "5", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", " ", "5", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "0", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "1.2.3", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null, emptyList()))
+  }
+
+  private class RecordingListingRepository(private val failure: Exception? = null) :
+      ListingRepository {
+    var received: Listing? = null
+
+    override suspend fun createListing(listing: Listing): Listing {
+      received = listing
+      failure?.let { throw it }
+      return when (listing) {
+        is ItemListing -> listing.copy(listingId = "listing-1")
+        is ServiceListing -> listing.copy(listingId = "listing-1")
+      }
+    }
   }
 }
