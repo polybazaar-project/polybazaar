@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.auth.viewmodel
 
 import androidx.lifecycle.ViewModel
