@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.model
 
 interface AuthRepository {
