@@ -1,6 +1,7 @@
 // Portions of this code were generated with the help of Claude Code.
 package com.android.polybazaar.auth.ui
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -103,9 +104,14 @@ internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Mo
   }
 }
 
-/** The round back arrow at the start of a screen header. */
+/** A 38dp round, outlined icon button, as used in the screen headers. */
 @Composable
-internal fun AuthBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun AuthRoundIconButton(
+    @DrawableRes iconRes: Int,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
   IconButton(
       onClick = onClick,
       modifier =
@@ -115,12 +121,23 @@ internal fun AuthBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) 
               .border(1.dp, AuthColors.Outline, CircleShape),
   ) {
     Icon(
-        painter = painterResource(R.drawable.ic_back_arrow),
-        contentDescription = "Back",
+        painter = painterResource(iconRes),
+        contentDescription = contentDescription,
         tint = Color.Unspecified,
         modifier = Modifier.size(19.dp),
     )
   }
+}
+
+/** The round back arrow at the start of a screen header. */
+@Composable
+internal fun AuthBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+  AuthRoundIconButton(
+      iconRes = R.drawable.ic_back_arrow,
+      contentDescription = "Back",
+      onClick = onClick,
+      modifier = modifier,
+  )
 }
 
 /** A screen title with its eyebrow ("ACCOUNT" by default) above it. */
