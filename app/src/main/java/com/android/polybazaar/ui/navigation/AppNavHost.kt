@@ -95,10 +95,12 @@ fun AppNavHost(
       )
     }
     composable(Routes.PROFILE) {
+      // Renders nothing for the frame between sign-out and the redirect to sign-in.
       val uid = uiState.user?.uid ?: return@composable
       val profileViewModel: ProfileViewModel =
           viewModel(
-              factory = viewModelFactory { initializer { ProfileViewModel(profileRepository) } }
+              key = uid,
+              factory = viewModelFactory { initializer { ProfileViewModel(profileRepository) } },
           )
       val profileState by profileViewModel.uiState.collectAsState()
       LaunchedEffect(uid) { profileViewModel.observeProfile(uid) }
@@ -115,6 +117,7 @@ fun AppNavHost(
       )
     }
     composable(Routes.EDIT_PROFILE) {
+      // Renders nothing for the frame between sign-out and the redirect to sign-in.
       val uid = uiState.user?.uid ?: return@composable
       val editViewModel: EditProfileViewModel =
           viewModel(
