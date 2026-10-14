@@ -242,5 +242,11 @@ class AuthViewModelTest {
       }
       return currentUser ?: throw IllegalStateException("No user is currently logged in")
     }
+
+    override suspend fun sendVerificationEmail(): Result<Unit> =
+        Result.failure(IllegalStateException("Not configured"))
+
+    override suspend fun refreshUser(): Result<User> =
+        Result.failure(IllegalStateException("Not configured"))
   }
 }
