@@ -90,6 +90,13 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.CATEGORY_FIELD).performClick()
     node(CreateListingScreenTags.categoryOption("Tools")).assertIsDisplayed()
     node(CreateListingScreenTags.categoryOption("Tutoring")).assertDoesNotExist()
+
+    node(CreateListingScreenTags.CATEGORY_FIELD).performClick()
+    node(CreateListingScreenTags.TYPE_SERVICE).performClick()
+    node(CreateListingScreenTags.CATEGORY_FIELD).performClick()
+
+    node(CreateListingScreenTags.categoryOption("Tutoring")).assertIsDisplayed()
+    node(CreateListingScreenTags.categoryOption("Tools")).assertDoesNotExist()
   }
 
   @Test
