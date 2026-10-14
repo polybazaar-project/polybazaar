@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.ui.navigation
 
+import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -15,7 +16,12 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.profile.model.ProfileRepository
+import com.android.polybazaar.profile.ui.EditProfileScreenTags
+import com.android.polybazaar.profile.ui.ProfileScreenTags
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -29,9 +35,13 @@ class AppNavHostTest {
 
   private val user = User(uid = "uid-ada", email = "ada@epfl.ch", username = "ada_lovelace")
 
+  private val profileRepository = FakeProfileRepository(user)
+
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
     val viewModel = AuthViewModel(repository)
-    composeTestRule.setContent { AppNavHost(authViewModel = viewModel) }
+    composeTestRule.setContent {
+      AppNavHost(authViewModel = viewModel, profileRepository = profileRepository)
+    }
     return viewModel
   }
 
@@ -51,8 +61,8 @@ class AppNavHostTest {
   fun persistedUser_startsOnProfile() {
     setContent(FakeAuthRepository(currentUser = user))
 
-    composeTestRule.onNodeWithTag(ProfilePlaceholderTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ProfilePlaceholderTags.USERNAME).assertTextEquals("ada_lovelace")
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
   }
 
   @Test
@@ -71,8 +81,8 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("secret1")
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
 
-    composeTestRule.onNodeWithTag(ProfilePlaceholderTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ProfilePlaceholderTags.USERNAME).assertTextEquals("ada_lovelace")
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
   }
 
   @Test
@@ -110,7 +120,11 @@ class AppNavHostTest {
         AuthViewModel(FakeAuthRepository(currentUser = null, signInResult = Result.success(user)))
     composeTestRule.setContent {
       navController = rememberNavController()
-      AppNavHost(authViewModel = viewModel, navController = navController)
+      AppNavHost(
+          authViewModel = viewModel,
+          profileRepository = profileRepository,
+          navController = navController,
+      )
     }
 
     composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).performClick()
@@ -120,6 +134,79 @@ class AppNavHostTest {
 
     assertEquals(Routes.PROFILE, navController.currentBackStackEntry?.destination?.route)
     assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun editProfileButton_opensEditProfileAndCancelReturnsToProfile() {
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SCREEN).assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.CANCEL_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun savingProfile_returnsToProfileWithUpdatedBio() {
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.BIO_FIELD).performTextInput("Hello")
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Hello")
+    assertEquals("Hello", profileRepository.savedBio)
+  }
+
+  @Test
+  fun settingsButton_isNoOp() {
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun signOut_returnsToSignInAndClearsBackStack() {
+    lateinit var navController: NavHostController
+    val viewModel = AuthViewModel(FakeAuthRepository(currentUser = user))
+    composeTestRule.setContent {
+      navController = rememberNavController()
+      AppNavHost(
+          authViewModel = viewModel,
+          profileRepository = profileRepository,
+          navController = navController,
+      )
+    }
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SCREEN).assertIsDisplayed()
+
+    viewModel.signOut()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(Routes.SIGN_IN, navController.currentBackStackEntry?.destination?.route)
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  private class FakeProfileRepository(initial: User) : ProfileRepository {
+    private val profile = MutableStateFlow<User?>(initial)
+    var savedBio: String? = null
+      private set
+
+    override fun observeProfile(uid: String): Flow<User?> = profile
+
+    override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-url"
+
+    override suspend fun removeProfilePhoto(uid: String) = Unit
+
+    override suspend fun updateProfile(uid: String, photoUrl: String?, bio: String) {
+      savedBio = bio
+      profile.value = profile.value?.copy(bio = bio)
+    }
   }
 
   private class FakeAuthRepository(
