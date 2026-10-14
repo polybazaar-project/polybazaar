@@ -211,6 +211,15 @@ class CreateListingScreenTest {
     }
   }
 
+  /** An amount error shows only for a left, non-empty field whose value is not a positive price. */
+  @Test
+  fun showAmountError_onlyFlagsTouchedInvalidAmounts() {
+    assertTrue(showAmountError(touched = true, input = "0"))
+    assertFalse(showAmountError(touched = false, input = "0"))
+    assertFalse(showAmountError(touched = true, input = ""))
+    assertFalse(showAmountError(touched = true, input = "12,50"))
+  }
+
   /** Letters typed in the price field are ignored, so the field stays empty. */
   @Test
   fun priceField_rejectsNonNumericInput() {

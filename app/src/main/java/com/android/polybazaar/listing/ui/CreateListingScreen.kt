@@ -150,6 +150,35 @@ internal fun buildListing(
   }
 }
 
+/** Whether to flag [input] as an invalid amount: only once the user has left a non-empty field. */
+internal fun showAmountError(touched: Boolean, input: String): Boolean =
+    touched && input.isNotEmpty() && parsePrice(input) == null
+
+/** Form texts that differ between items and services. */
+private data class ListingFormTexts(
+    val titlePlaceholder: String,
+    val descriptionPlaceholder: String,
+    val priceLabel: String,
+)
+
+private fun formTextsFor(type: ListingType): ListingFormTexts =
+    when (type) {
+      ListingType.ITEM ->
+          ListingFormTexts(
+              titlePlaceholder = "e.g. Bosch drill set",
+              descriptionPlaceholder =
+                  "Tell fellow students about your item, its condition and what's included.",
+              priceLabel = "Price per day",
+          )
+      ListingType.SERVICE ->
+          ListingFormTexts(
+              titlePlaceholder = "e.g. Gardening help",
+              descriptionPlaceholder =
+                  "Tell fellow students about your service, your experience and what's included.",
+              priceLabel = "Price per hour",
+          )
+    }
+
 /**
  * "Create listing" screen.
  *
@@ -212,6 +241,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
 
   val listing = buildListing(type, title, description, price, category, photos, refundValue)
   val isItem = type == ListingType.ITEM
+  val texts = formTextsFor(type)
 
   Column(
       modifier =
@@ -282,7 +312,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
         FormTextField(
             value = title,
             onValueChange = { title = it },
-            placeholder = if (isItem) "e.g. Bosch drill set" else "e.g. Gardening help",
+            placeholder = texts.titlePlaceholder,
             tag = CreateListingScreenTags.TITLE_FIELD,
         )
       }
@@ -290,11 +320,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
         FormTextField(
             value = description,
             onValueChange = { description = it },
-            placeholder =
-                if (isItem)
-                    "Tell fellow students about your item, its condition and what's included."
-                else
-                    "Tell fellow students about your service, your experience and what's included.",
+            placeholder = texts.descriptionPlaceholder,
             tag = CreateListingScreenTags.DESCRIPTION_FIELD,
             singleLine = false,
             minHeight = 72.dp,
@@ -302,7 +328,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
       }
       Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         FormField(
-            label = if (isItem) "Price per day" else "Price per hour",
+            label = texts.priceLabel,
             labelTag = CreateListingScreenTags.PRICE_LABEL,
             modifier = Modifier.weight(1f),
         ) {
@@ -324,27 +350,16 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
           )
         }
       }
-      if (priceTouched && price.isNotEmpty() && parsePrice(price) == null) {
+      if (showAmountError(priceTouched, price)) {
         FieldError(text = "Enter a price above CHF 0", tag = CreateListingScreenTags.PRICE_ERROR)
       }
       if (isItem) {
-        FormField(label = "Refund value") {
-          FormTextField(
-              value = refundValue,
-              onValueChange = { input -> if (isValidPriceInput(input)) refundValue = input },
-              placeholder = "Same as the price if left empty",
-              tag = CreateListingScreenTags.REFUND_FIELD,
-              keyboardType = KeyboardType.Decimal,
-              prefix = "CHF",
-              onFocusLost = { refundTouched = true },
-          )
-        }
-        if (refundTouched && refundValue.isNotEmpty() && parsePrice(refundValue) == null) {
-          FieldError(
-              text = "Enter a refund value above CHF 0",
-              tag = CreateListingScreenTags.REFUND_ERROR,
-          )
-        }
+        RefundValueField(
+            value = refundValue,
+            onValueChange = { refundValue = it },
+            showError = showAmountError(refundTouched, refundValue),
+            onFocusLost = { refundTouched = true },
+        )
       }
     }
     uiState.errorMessage?.let {
@@ -371,6 +386,33 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
         color = AuthColors.TextSecondary,
         fontSize = 12.sp,
         modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp),
+    )
+  }
+}
+
+/** The item-only "Refund value" field, followed by its error when [showError] is set. */
+@Composable
+private fun RefundValueField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    showError: Boolean,
+    onFocusLost: () -> Unit,
+) {
+  FormField(label = "Refund value") {
+    FormTextField(
+        value = value,
+        onValueChange = { input -> if (isValidPriceInput(input)) onValueChange(input) },
+        placeholder = "Same as the price if left empty",
+        tag = CreateListingScreenTags.REFUND_FIELD,
+        keyboardType = KeyboardType.Decimal,
+        prefix = "CHF",
+        onFocusLost = onFocusLost,
+    )
+  }
+  if (showError) {
+    FieldError(
+        text = "Enter a refund value above CHF 0",
+        tag = CreateListingScreenTags.REFUND_ERROR,
     )
   }
 }
@@ -465,8 +507,10 @@ internal suspend fun loadPhotoPreview(contentResolver: ContentResolver, uri: Uri
             }
             .asImageBitmap()
       } catch (e: IOException) {
+        // Deleted, offline cloud photo or undecodable: show an empty thumbnail, don't crash.
         null
       } catch (e: SecurityException) {
+        // The picker's temporary read access can be lost, e.g. after the app is restored.
         null
       }
     }
