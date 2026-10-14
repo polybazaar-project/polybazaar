@@ -66,7 +66,7 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.SCREEN).assertIsDisplayed()
     node(CreateListingScreenTags.TYPE_ITEM).assertIsSelected()
     node(CreateListingScreenTags.REFUND_FIELD).assertIsDisplayed()
-    node(CreateListingScreenTags.PRICE_LABEL).assertTextContains("Price per day")
+    node(CreateListingScreenTags.PRICE_LABEL).assertTextContains("PRICE PER DAY")
     composeTestRule.onNodeWithText("e.g. Bosch drill set").assertIsDisplayed()
     node(CreateListingScreenTags.ERROR_MESSAGE).assertDoesNotExist()
   }
@@ -79,7 +79,7 @@ class CreateListingScreenTest {
 
     node(CreateListingScreenTags.TYPE_SERVICE).assertIsSelected()
     node(CreateListingScreenTags.REFUND_FIELD).assertDoesNotExist()
-    node(CreateListingScreenTags.PRICE_LABEL).assertTextContains("Price per hour")
+    node(CreateListingScreenTags.PRICE_LABEL).assertTextContains("PRICE PER HOUR")
     composeTestRule.onNodeWithText("e.g. Gardening help").assertIsDisplayed()
   }
 

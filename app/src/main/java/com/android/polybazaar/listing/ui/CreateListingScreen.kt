@@ -360,9 +360,9 @@ private fun FieldError(text: String, tag: String) {
 @Composable
 private fun FieldLabel(text: String, modifier: Modifier = Modifier) {
   Text(
-      text = text,
-      color = AuthColors.TextPrimary,
-      fontSize = 12.sp,
+      text = text.uppercase(),
+      color = AuthColors.Accent,
+      fontSize = 11.sp,
       fontWeight = FontWeight.SemiBold,
       modifier = modifier,
   )
