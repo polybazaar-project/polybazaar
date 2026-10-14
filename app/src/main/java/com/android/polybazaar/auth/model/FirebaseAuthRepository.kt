@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (claude-opus-5-5)
 package com.android.polybazaar.auth.model
 
 import com.google.firebase.auth.FirebaseAuth
@@ -34,7 +35,8 @@ class FirebaseAuthRepository(
 
   override suspend fun signUp(email: String, password: String, username: String): Result<User> {
     return try {
-      val usernameDocRef = firestore.collection("usernames").document(username.trim().lowercase())
+      require(username == username.trim().lowercase()) { "Username must be trimmed and lowercase" }
+      val usernameDocRef = firestore.collection("usernames").document(username)
 
       val snapshot = usernameDocRef.get().await()
       if (snapshot.exists()) {
@@ -46,12 +48,7 @@ class FirebaseAuthRepository(
 
       val user =
           try {
-            val usernameData =
-                mapOf(
-                    "uid" to firebaseUser.uid,
-                    "username" to username,
-                )
-            usernameDocRef.set(usernameData).await()
+            usernameDocRef.set(mapOf("uid" to firebaseUser.uid)).await()
 
             User(
                 uid = firebaseUser.uid,
@@ -131,8 +128,6 @@ class FirebaseAuthRepository(
       throw Exception("Username not found for the current user")
     }
 
-    val document = querySnapshot.documents.first()
-    return document.getString("username")
-        ?: throw Exception("Username field not found for the current user")
+    return querySnapshot.documents.first().id
   }
 }
