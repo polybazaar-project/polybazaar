@@ -39,13 +39,25 @@ class ForgotPasswordViewModel(private val authRepository: AuthRepository) : View
   }
 
   /**
-   * Requests a reset link for the current email. Ignored while a request is already in flight. If
-   * the email changes before the request finishes, its result is dropped: it was for another one.
+   * Requests a reset link for the current email. Ignored while a request is already in flight. A
+   * blank email is rejected locally with [PasswordResetException.Reason.INVALID_EMAIL], without
+   * calling the repository. If the email changes before the request finishes, its result is
+   * dropped: it was for another one.
    */
   fun sendResetLink() {
     if (_uiState.value.isLoading) return
-    _uiState.update { it.copy(isLoading = true, emailSent = false, error = null) }
     val email = _uiState.value.email.trim()
+    if (email.isBlank()) {
+      _uiState.update {
+        it.copy(
+            isLoading = false,
+            emailSent = false,
+            error = PasswordResetException.Reason.INVALID_EMAIL,
+        )
+      }
+      return
+    }
+    _uiState.update { it.copy(isLoading = true, emailSent = false, error = null) }
     viewModelScope.launch {
       authRepository
           .sendPasswordResetEmail(email)
