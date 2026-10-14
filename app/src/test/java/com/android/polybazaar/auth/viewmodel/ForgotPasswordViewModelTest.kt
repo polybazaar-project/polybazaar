@@ -150,16 +150,38 @@ class ForgotPasswordViewModelTest {
   }
 
   @Test
-  fun sendResetLink_withBlankEmail_delegatesEmptyStringAndExposesRepositoryError() = runTest {
-    repository.resetResult =
-        Result.failure(PasswordResetException(PasswordResetException.Reason.INVALID_EMAIL))
-    viewModel.onEmailChange("   ")
+  fun sendResetLink_withBlankEmail_setsInvalidEmailWithoutCallingRepository() = runTest {
+    for (input in listOf("", "   ", "\n\t")) {
+      viewModel.onEmailChange(input)
 
+      viewModel.sendResetLink()
+      testDispatcher.scheduler.advanceUntilIdle()
+
+      assertTrue("input \"$input\"", repository.resetEmails.isEmpty())
+      assertEquals(
+          "input \"$input\"",
+          PasswordResetException.Reason.INVALID_EMAIL,
+          viewModel.uiState.value.error,
+      )
+      assertFalse("input \"$input\"", viewModel.uiState.value.isLoading)
+      assertFalse("input \"$input\"", viewModel.uiState.value.emailSent)
+    }
+  }
+
+  @Test
+  fun sendResetLink_afterBlankEmailError_sendsOnceEmailIsValid() = runTest {
+    viewModel.onEmailChange("   ")
+    viewModel.sendResetLink()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(PasswordResetException.Reason.INVALID_EMAIL, viewModel.uiState.value.error)
+
+    viewModel.onEmailChange("user@example.com")
     viewModel.sendResetLink()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf(""), repository.resetEmails)
-    assertEquals(PasswordResetException.Reason.INVALID_EMAIL, viewModel.uiState.value.error)
+    assertEquals(listOf("user@example.com"), repository.resetEmails)
+    assertNull(viewModel.uiState.value.error)
+    assertTrue(viewModel.uiState.value.emailSent)
   }
 
   @Test
