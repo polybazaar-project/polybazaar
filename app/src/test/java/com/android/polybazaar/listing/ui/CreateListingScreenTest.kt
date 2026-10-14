@@ -163,6 +163,8 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.PRICE_ERROR).assertDoesNotExist()
 
     node(CreateListingScreenTags.PRICE_FIELD).performTextInput("0.00")
+    node(CreateListingScreenTags.PRICE_ERROR).assertDoesNotExist()
+    node(CreateListingScreenTags.TITLE_FIELD).performClick()
 
     node(CreateListingScreenTags.PRICE_ERROR).assertIsDisplayed()
     node(CreateListingScreenTags.PRICE_FIELD).performTextClearance()
@@ -227,13 +229,30 @@ class CreateListingScreenTest {
   }
 
   @Test
+  fun priceField_doesNotShowErrorWhileTypingValidPrice() {
+    setContent()
+
+    node(CreateListingScreenTags.PRICE_FIELD).performTextInput("0")
+    node(CreateListingScreenTags.PRICE_ERROR).assertDoesNotExist()
+    node(CreateListingScreenTags.PRICE_FIELD).performTextInput(".")
+    node(CreateListingScreenTags.PRICE_ERROR).assertDoesNotExist()
+    node(CreateListingScreenTags.PRICE_FIELD).performTextInput("50")
+    node(CreateListingScreenTags.TITLE_FIELD).performClick()
+
+    node(CreateListingScreenTags.PRICE_FIELD).assertTextContains("0.50")
+    node(CreateListingScreenTags.PRICE_ERROR).assertDoesNotExist()
+  }
+
+  @Test
   fun refundField_showsErrorForZeroAndBlocksSubmit() {
     setContent()
     fillForm("Drill", "Works well", "5", "Tools")
 
     node(CreateListingScreenTags.REFUND_FIELD).performScrollTo().performTextInput("0")
+    node(CreateListingScreenTags.REFUND_ERROR).assertDoesNotExist()
+    node(CreateListingScreenTags.TITLE_FIELD).performScrollTo().performClick()
 
-    node(CreateListingScreenTags.REFUND_ERROR).assertIsDisplayed()
+    node(CreateListingScreenTags.REFUND_ERROR).performScrollTo().assertIsDisplayed()
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().assertIsNotEnabled()
   }
 

@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -128,6 +129,9 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
   var description by rememberSaveable { mutableStateOf("") }
   var price by rememberSaveable { mutableStateOf("") }
   var refundValue by rememberSaveable { mutableStateOf("") }
+  // Price errors wait until the field loses focus, so typing "0.50" does not flag "0" and "0.".
+  var priceTouched by rememberSaveable { mutableStateOf(false) }
+  var refundTouched by rememberSaveable { mutableStateOf(false) }
   var category by rememberSaveable { mutableStateOf<String?>(null) }
 
   // Categories differ between items and services, so drop one that no longer applies.
@@ -230,6 +234,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
               tag = CreateListingScreenTags.PRICE_FIELD,
               keyboardType = KeyboardType.Decimal,
               prefix = "CHF",
+              onFocusLost = { priceTouched = true },
           )
         }
         FormField(label = "Category", modifier = Modifier.weight(1f)) {
@@ -240,7 +245,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
           )
         }
       }
-      if (price.isNotEmpty() && parsePrice(price) == null) {
+      if (priceTouched && price.isNotEmpty() && parsePrice(price) == null) {
         FieldError(text = "Enter a price above CHF 0", tag = CreateListingScreenTags.PRICE_ERROR)
       }
       if (isItem) {
@@ -252,9 +257,10 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
               tag = CreateListingScreenTags.REFUND_FIELD,
               keyboardType = KeyboardType.Decimal,
               prefix = "CHF",
+              onFocusLost = { refundTouched = true },
           )
         }
-        if (refundValue.isNotEmpty() && parsePrice(refundValue) == null) {
+        if (refundTouched && refundValue.isNotEmpty() && parsePrice(refundValue) == null) {
           FieldError(
               text = "Enter a refund value above CHF 0",
               tag = CreateListingScreenTags.REFUND_ERROR,
@@ -394,8 +400,11 @@ private fun FormTextField(
     minHeight: Dp = 0.dp,
     keyboardType: KeyboardType = KeyboardType.Text,
     prefix: String? = null,
+    onFocusLost: () -> Unit = {},
 ) {
   val textStyle = TextStyle(fontSize = 13.sp)
+  // onFocusChanged also fires when the field is first composed, so only react to losing focus.
+  var wasFocused by remember { mutableStateOf(false) }
   BasicTextField(
       value = value,
       onValueChange = onValueChange,
@@ -403,7 +412,11 @@ private fun FormTextField(
       textStyle = textStyle.copy(color = AuthColors.TextPrimary),
       cursorBrush = SolidColor(AuthColors.Accent),
       keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-      modifier = Modifier.fillMaxWidth().testTag(tag),
+      modifier =
+          Modifier.fillMaxWidth().testTag(tag).onFocusChanged { state ->
+            if (wasFocused && !state.isFocused) onFocusLost()
+            wasFocused = state.isFocused
+          },
       decorationBox = { innerTextField ->
         Row(
             modifier =
