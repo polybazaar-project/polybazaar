@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.Tasks
@@ -33,7 +34,7 @@ class FirebaseAuthRepositoryTest {
   private lateinit var collectionRef: CollectionReference
   private lateinit var firebaseUser: FirebaseUser
 
-  private val email = "test@example.com"
+  private val email = "test@epfl.ch"
   private val password = "password123"
   private val uid = "uid123"
   private val username = "TestUser"
@@ -175,6 +176,15 @@ class FirebaseAuthRepositoryTest {
 
     assertTrue(result.isSuccess)
     verify(firebaseUser, never()).delete()
+  }
+
+  @Test
+  fun signUp_nonEpflEmail_returnsFailureWithoutCreatingAccount() = runTest {
+    val result = repository.signUp("test@gmail.com", password, username)
+
+    assertTrue(result.isFailure)
+    assertEquals("Use your EPFL email (ending in @epfl.ch)", result.exceptionOrNull()?.message)
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
 
   @Test

@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.auth.model
 
 import com.google.firebase.auth.FirebaseAuth
@@ -33,6 +34,9 @@ class FirebaseAuthRepository(
   }
 
   override suspend fun signUp(email: String, password: String, username: String): Result<User> {
+    if (!isEpflEmail(email)) {
+      return Result.failure(Exception("Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)"))
+    }
     return try {
       val usernameDocRef = firestore.collection("usernames").document(username.trim().lowercase())
 

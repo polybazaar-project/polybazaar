@@ -44,6 +44,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
+import com.android.polybazaar.auth.model.EPFL_EMAIL_DOMAIN
+import com.android.polybazaar.auth.model.isEpflEmail
 import com.android.polybazaar.auth.viewmodel.AuthUiState
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 
@@ -53,6 +55,7 @@ object CreateAccountScreenTags {
   const val USERNAME_FIELD = "create_account_username_field"
   const val USERNAME_INVALID_MESSAGE = "create_account_username_invalid_message"
   const val EMAIL_FIELD = "create_account_email_field"
+  const val EMAIL_NOT_EPFL_MESSAGE = "create_account_email_not_epfl_message"
   const val PASSWORD_FIELD = "create_account_password_field"
   const val CONFIRM_PASSWORD_FIELD = "create_account_confirm_password_field"
   const val PASSWORD_TOO_SHORT_MESSAGE = "create_account_password_too_short_message"
@@ -116,6 +119,7 @@ fun CreateAccountContent(
   var password by rememberSaveable { mutableStateOf("") }
   var confirmPassword by rememberSaveable { mutableStateOf("") }
   val usernameError = usernameError(username)
+  val emailNotEpfl = email.isNotBlank() && !isEpflEmail(email)
   val passwordTooShort = password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH
   val passwordsMatch = password == confirmPassword
   val canSubmit =
@@ -123,6 +127,7 @@ fun CreateAccountContent(
           username.isNotBlank() &&
           usernameError == null &&
           email.isNotBlank() &&
+          !emailNotEpfl &&
           password.isNotEmpty() &&
           !passwordTooShort &&
           passwordsMatch
@@ -171,6 +176,14 @@ fun CreateAccountContent(
             tag = CreateAccountScreenTags.EMAIL_FIELD,
             keyboardType = KeyboardType.Email,
         )
+        if (emailNotEpfl) {
+          Text(
+              text = "Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)",
+              color = AuthColors.Danger,
+              fontSize = 12.sp,
+              modifier = Modifier.testTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE),
+          )
+        }
         LabeledField(
             label = "Password",
             value = password,

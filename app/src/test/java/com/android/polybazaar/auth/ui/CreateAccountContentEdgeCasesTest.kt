@@ -184,6 +184,34 @@ class CreateAccountContentEdgeCasesTest {
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
   }
 
+  @Test
+  fun nonEpflEmail_showsMessageAndDisablesCreateButton() {
+    setContent()
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@gmail.com")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE)
+        .assertIsDisplayed()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+    assertNull(submitted)
+  }
+
+  @Test
+  fun epflEmail_showsNoEmailMessage() {
+    setContent()
+
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE)
+        .assertDoesNotExist()
+  }
+
   private fun fillValidFormExceptUsername(username: String) {
     type(CreateAccountScreenTags.USERNAME_FIELD, username)
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
