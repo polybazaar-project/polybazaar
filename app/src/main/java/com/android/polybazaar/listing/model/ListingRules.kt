@@ -3,7 +3,7 @@ package com.android.polybazaar.listing.model
 
 /** Constraints a listing must respect, shared by every screen that creates or edits one. */
 object ListingRules {
-  /** Maximum number of photos an item listing can have. */
+  /** Maximum number of photos a listing can have. */
   const val MAX_PHOTOS = 5
 
   // Temporary lists until the team agrees on the final categories.
