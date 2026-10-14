@@ -222,6 +222,38 @@ class ForgotPasswordViewModelTest {
     assertEquals(ForgotPasswordUiState(email = "user@example.com"), viewModel.uiState.value)
   }
 
+  @Test
+  fun sendResetLink_successForPreviousEmail_isIgnoredAfterEmailChanges() = runTest {
+    val gate = CompletableDeferred<Result<Unit>>()
+    repository.resetGate = gate
+    viewModel.onEmailChange("a@example.com")
+
+    viewModel.sendResetLink()
+    testDispatcher.scheduler.runCurrent()
+    viewModel.onEmailChange("b@example.com")
+    gate.complete(Result.success(Unit))
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(ForgotPasswordUiState(email = "b@example.com"), viewModel.uiState.value)
+  }
+
+  @Test
+  fun sendResetLink_failureForPreviousEmail_isIgnoredAfterEmailChanges() = runTest {
+    val gate = CompletableDeferred<Result<Unit>>()
+    repository.resetGate = gate
+    viewModel.onEmailChange("a@example.com")
+
+    viewModel.sendResetLink()
+    testDispatcher.scheduler.runCurrent()
+    viewModel.onEmailChange("b@example.com")
+    gate.complete(
+        Result.failure(PasswordResetException(PasswordResetException.Reason.INVALID_EMAIL))
+    )
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.error)
+  }
+
   private class FakeAuthRepository : AuthRepository {
     var resetResult: Result<Unit> = Result.success(Unit)
     var resetGate: CompletableDeferred<Result<Unit>>? = null

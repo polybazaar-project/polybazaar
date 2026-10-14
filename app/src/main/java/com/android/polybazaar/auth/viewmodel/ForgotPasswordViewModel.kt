@@ -38,7 +38,10 @@ class ForgotPasswordViewModel(private val authRepository: AuthRepository) : View
     _uiState.update { it.copy(email = email, emailSent = false, error = null) }
   }
 
-  /** Requests a reset link for the current email. Ignored while a request is already in flight. */
+  /**
+   * Requests a reset link for the current email. Ignored while a request is already in flight. If
+   * the email changes before the request finishes, its result is dropped: it was for another one.
+   */
   fun sendResetLink() {
     if (_uiState.value.isLoading) return
     _uiState.update { it.copy(isLoading = true, emailSent = false, error = null) }
@@ -47,12 +50,20 @@ class ForgotPasswordViewModel(private val authRepository: AuthRepository) : View
       authRepository
           .sendPasswordResetEmail(email)
           .fold(
-              onSuccess = { _uiState.update { it.copy(isLoading = false, emailSent = true) } },
+              onSuccess = {
+                _uiState.update {
+                  if (it.email.trim() == email) it.copy(isLoading = false, emailSent = true)
+                  else it.copy(isLoading = false)
+                }
+              },
               onFailure = { exception ->
                 val reason =
                     (exception as? PasswordResetException)?.reason
                         ?: PasswordResetException.Reason.UNKNOWN
-                _uiState.update { it.copy(isLoading = false, error = reason) }
+                _uiState.update {
+                  if (it.email.trim() == email) it.copy(isLoading = false, error = reason)
+                  else it.copy(isLoading = false)
+                }
               },
           )
     }
