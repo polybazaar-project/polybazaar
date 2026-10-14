@@ -129,7 +129,6 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
   var description by rememberSaveable { mutableStateOf("") }
   var price by rememberSaveable { mutableStateOf("") }
   var refundValue by rememberSaveable { mutableStateOf("") }
-  // Price errors wait until the field loses focus, so typing "0.50" does not flag "0" and "0.".
   var priceTouched by rememberSaveable { mutableStateOf(false) }
   var refundTouched by rememberSaveable { mutableStateOf(false) }
   var category by rememberSaveable { mutableStateOf<String?>(null) }
