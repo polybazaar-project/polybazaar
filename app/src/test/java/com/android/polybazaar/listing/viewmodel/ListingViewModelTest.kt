@@ -4,6 +4,7 @@ package com.android.polybazaar.listing.viewmodel
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ServiceListing
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -48,6 +49,7 @@ class ListingViewModelTest {
 
   @Test
   fun initialState_isIdleWithoutCreatedListing() {
+    // A fresh ViewModel must not be creating, hold a listing or show an error.
     assertEquals(ListingUiState(), viewModel.uiState.value)
   }
 
@@ -59,6 +61,7 @@ class ListingViewModelTest {
     viewModel.createListing(listing)
     testDispatcher.scheduler.advanceUntilIdle()
 
+    // The listing is passed to the repository and the returned listing is exposed in the state.
     assertEquals(listing, repository.createdListing)
     assertEquals(createdListing, viewModel.uiState.value.createdListing)
     assertFalse(viewModel.uiState.value.isCreating)
@@ -73,6 +76,7 @@ class ListingViewModelTest {
     viewModel.createListing(listing)
     testDispatcher.scheduler.runCurrent()
 
+    // While the repository has not answered, the state is "creating" with no result or error.
     assertTrue(viewModel.uiState.value.isCreating)
     assertNull(viewModel.uiState.value.createdListing)
     assertNull(viewModel.uiState.value.errorMessage)
@@ -88,6 +92,7 @@ class ListingViewModelTest {
     viewModel.createListing(listing)
     testDispatcher.scheduler.advanceUntilIdle()
 
+    // A repository failure stops the creation and exposes the exception message.
     assertFalse(viewModel.uiState.value.isCreating)
     assertNull(viewModel.uiState.value.createdListing)
     assertEquals("Storage unavailable", viewModel.uiState.value.errorMessage)
@@ -100,7 +105,47 @@ class ListingViewModelTest {
     viewModel.createListing(listing)
     testDispatcher.scheduler.advanceUntilIdle()
 
+    // An exception without a message still gives the UI a default error to display.
     assertEquals("Unable to create listing", viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun createListing_retryAfterFailureClearsErrorAndExposesNewListing() = runTest {
+    repository.failure = IllegalStateException("Storage unavailable")
+    viewModel.createListing(listing)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val createdListing = listing.copy(listingId = "listing-1")
+    val gate = CompletableDeferred<Listing>()
+    repository.failure = null
+    repository.pendingResult = gate
+    viewModel.createListing(listing)
+    testDispatcher.scheduler.runCurrent()
+
+    // A retry must immediately discard the prior failure while its request is pending.
+    assertTrue(viewModel.uiState.value.isCreating)
+    assertNull(viewModel.uiState.value.createdListing)
+    assertNull(viewModel.uiState.value.errorMessage)
+
+    gate.complete(createdListing)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertFalse(viewModel.uiState.value.isCreating)
+    assertEquals(createdListing, viewModel.uiState.value.createdListing)
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun createListing_cancellationDoesNotExposeErrorOrLeaveCreationInProgress() = runTest {
+    repository.failure = CancellationException()
+
+    viewModel.createListing(listing)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    // Cancellation is control flow, so it must not be rendered as a creation failure.
+    assertFalse(viewModel.uiState.value.isCreating)
+    assertNull(viewModel.uiState.value.createdListing)
+    assertNull(viewModel.uiState.value.errorMessage)
   }
 
   @Test
@@ -112,10 +157,26 @@ class ListingViewModelTest {
     viewModel.createListing(listing.copy(title = "Physics tutoring"))
     testDispatcher.scheduler.runCurrent()
 
+    // Only the first request reaches the repository while it is still in progress.
     assertEquals(listing, repository.createdListing)
 
     gate.complete(listing)
     testDispatcher.scheduler.advanceUntilIdle()
+  }
+
+  @Test
+  fun clearCreatedListing_removesConsumedCreationResult() = runTest {
+    val createdListing = listing.copy(listingId = "listing-1")
+    repository.result = createdListing
+    viewModel.createListing(listing)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    // Prevent navigating again when the screen's ViewModel outlives the first navigation.
+    viewModel.clearCreatedListing()
+
+    assertNull(viewModel.uiState.value.createdListing)
+    assertFalse(viewModel.uiState.value.isCreating)
+    assertNull(viewModel.uiState.value.errorMessage)
   }
 
   private class FakeListingRepository : ListingRepository {
