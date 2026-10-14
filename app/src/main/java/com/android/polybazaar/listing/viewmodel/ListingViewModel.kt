@@ -32,7 +32,10 @@ class ListingViewModel(private val listingRepository: ListingRepository) : ViewM
         val createdListing = listingRepository.createListing(listing)
         _uiState.update { it.copy(createdListing = createdListing, isCreating = false) }
       } catch (exception: Exception) {
-        if (exception is CancellationException) throw exception
+        if (exception is CancellationException) {
+          _uiState.update { it.copy(isCreating = false) }
+          throw exception
+        }
         _uiState.update {
           it.copy(
               isCreating = false,
@@ -41,5 +44,9 @@ class ListingViewModel(private val listingRepository: ListingRepository) : ViewM
         }
       }
     }
+  }
+
+  fun clearCreatedListing() {
+    _uiState.update { it.copy(createdListing = null) }
   }
 }
