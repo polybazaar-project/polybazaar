@@ -443,7 +443,11 @@ private fun rememberPhotoPreview(uri: Uri): ImageBitmap? {
   return preview
 }
 
-private suspend fun loadPhotoPreview(contentResolver: ContentResolver, uri: Uri): ImageBitmap? =
+/**
+ * Decodes [uri] scaled down to at most [PHOTO_PREVIEW_MAX_SIZE] pixels on its longest side, or
+ * returns null when it cannot be read. Internal so its scaling and error handling can be tested.
+ */
+internal suspend fun loadPhotoPreview(contentResolver: ContentResolver, uri: Uri): ImageBitmap? =
     withContext(Dispatchers.IO) {
       try {
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) {
@@ -467,7 +471,7 @@ private suspend fun loadPhotoPreview(contentResolver: ContentResolver, uri: Uri)
       }
     }
 
-private const val PHOTO_PREVIEW_MAX_SIZE = 512
+internal const val PHOTO_PREVIEW_MAX_SIZE = 512
 
 /**
  * The "Photos" field: an "Add photos" button that becomes a row of removable thumbnails, followed
