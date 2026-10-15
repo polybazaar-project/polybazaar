@@ -28,6 +28,9 @@ class FirebaseAuthRepository(
   }
 
   override suspend fun signUp(email: String, password: String, username: String): Result<User> {
+    if (!isEpflEmail(email)) {
+      return Result.failure(Exception("Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)"))
+    }
     return try {
       require(username == username.trim().lowercase()) { "Username must be trimmed and lowercase" }
       val usernameDocRef = firestore.collection("usernames").document(username)
