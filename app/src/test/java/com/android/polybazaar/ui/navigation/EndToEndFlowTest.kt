@@ -79,7 +79,7 @@ class EndToEndFlowTest {
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Mathematician")
 
-    authViewModel.signOut()
+    composeTestRule.runOnIdle { authViewModel.signOut() }
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
 
@@ -118,7 +118,7 @@ class EndToEndFlowTest {
   fun persistedSession_opensProfileWithSavedBio() {
     val user = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
     backend.setSignedIn(user.uid)
-    backend.profiles.value = backend.profiles.value + (user.uid to user.copy(bio = "Back again"))
+    backend.setBio(user.uid, "Back again")
     launchApp()
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
@@ -137,6 +137,10 @@ class EndToEndFlowTest {
       accounts[email] = Account(password, user)
       profiles.value = profiles.value + (user.uid to user)
       return user
+    }
+
+    fun setBio(uid: String, bio: String) {
+      profiles.value = profiles.value + (uid to profiles.value.getValue(uid).copy(bio = bio))
     }
 
     fun setSignedIn(uid: String?) {
