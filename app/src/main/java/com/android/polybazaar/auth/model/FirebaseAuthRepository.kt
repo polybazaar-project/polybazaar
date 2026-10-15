@@ -134,11 +134,10 @@ class FirebaseAuthRepository(
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       // An unknown or disabled address counts as success so the screen cannot be used to find out
-      // which emails have an account (acceptance criterion of #13).
-      // FirebaseAuthInvalidUserException
-      // covers both (ERROR_USER_NOT_FOUND and ERROR_USER_DISABLED); this is intended. With email
-      // enumeration protection on, Firebase already returns success; this covers projects where it
-      // is off.
+      // which emails have an account (acceptance criterion of #13). This is intended:
+      // FirebaseAuthInvalidUserException covers both ERROR_USER_NOT_FOUND and ERROR_USER_DISABLED.
+      // With email enumeration protection on, Firebase already returns success; this covers
+      // projects where it is off.
       if (e is FirebaseAuthInvalidUserException) Result.success(Unit)
       else Result.failure(PasswordResetException(passwordResetReason(e), e))
     }
