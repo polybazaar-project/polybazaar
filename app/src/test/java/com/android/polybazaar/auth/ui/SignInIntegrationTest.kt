@@ -1,4 +1,5 @@
 // Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.ui.test.assertIsEnabled
@@ -18,10 +19,12 @@ import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SetOptions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -29,6 +32,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -70,7 +74,12 @@ class SignInIntegrationTest {
     whenever(mockQuery.get()).thenReturn(Tasks.forResult(mockUsernameLookup))
     whenever(mockUsernameLookup.isEmpty).thenReturn(false)
     whenever(mockUsernameLookup.documents).thenReturn(listOf(usernameDoc))
-    whenever(usernameDoc.getString("username")).thenReturn("ada_lovelace")
+    whenever(usernameDoc.id).thenReturn("ada_lovelace")
+    val mockUsers = mock<CollectionReference>()
+    val mockProfileDoc = mock<DocumentReference>()
+    whenever(mockFirestore.collection("users")).thenReturn(mockUsers)
+    whenever(mockUsers.document("uid-ada")).thenReturn(mockProfileDoc)
+    whenever(mockProfileDoc.set(any(), any<SetOptions>())).thenReturn(Tasks.forResult(null))
 
     viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth, mockFirestore))
 

@@ -8,6 +8,7 @@ import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.tasks.await
@@ -23,14 +24,7 @@ class FirebaseAuthRepository(
       val authResult = auth.signInWithEmailAndPassword(email, password).await()
       val firebaseUser = authResult.user ?: throw Exception("Sign in failed")
 
-      Result.success(
-          User(
-              uid = firebaseUser.uid,
-              email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-              username = usernameForUid(firebaseUser.uid),
-              isEmailVerified = firebaseUser.isEmailVerified,
-          )
-      )
+      Result.success(signedInUser(firebaseUser))
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Result.failure(e)
@@ -38,8 +32,12 @@ class FirebaseAuthRepository(
   }
 
   override suspend fun signUp(email: String, password: String, username: String): Result<User> {
+    if (!isEpflEmail(email)) {
+      return Result.failure(Exception("Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)"))
+    }
     return try {
-      val usernameDocRef = firestore.collection("usernames").document(username.trim().lowercase())
+      require(username == username.trim().lowercase()) { "Username must be trimmed and lowercase" }
+      val usernameDocRef = firestore.collection("usernames").document(username)
 
       val snapshot = usernameDocRef.get().await()
       if (snapshot.exists()) {
@@ -51,16 +49,18 @@ class FirebaseAuthRepository(
 
       val user =
           try {
-            val usernameData =
-                mapOf(
-                    "uid" to firebaseUser.uid,
-                    "username" to username,
-                )
-            usernameDocRef.set(usernameData).await()
+            val email = firebaseUser.email ?: throw Exception("User email cannot be null")
+            // One batch, so the account never ends up with a username but no profile document.
+            firestore
+                .batch()
+                .set(usernameDocRef, mapOf("uid" to firebaseUser.uid))
+                .set(profileDocument(firebaseUser.uid), profileData(username), SetOptions.merge())
+                .commit()
+                .await()
 
             User(
                 uid = firebaseUser.uid,
-                email = firebaseUser.email ?: throw Exception("User email cannot be null"),
+                email = email,
                 username = username,
                 isEmailVerified = firebaseUser.isEmailVerified,
             )
@@ -92,13 +92,7 @@ class FirebaseAuthRepository(
 
   override suspend fun getCurrentUser(): User {
     val firebaseUser = auth.currentUser ?: throw Exception("No user is currently logged in")
-
-    return User(
-        uid = firebaseUser.uid,
-        email = firebaseUser.email ?: throw Exception("User email cannot be null"),
-        username = usernameForUid(firebaseUser.uid),
-        isEmailVerified = firebaseUser.isEmailVerified,
-    )
+    return signedInUser(firebaseUser)
   }
 
   override suspend fun sendVerificationEmail(): Result<Unit> {
@@ -150,6 +144,31 @@ class FirebaseAuthRepository(
     }
   }
 
+  private suspend fun signedInUser(firebaseUser: FirebaseUser): User {
+    val user =
+        User(
+            uid = firebaseUser.uid,
+            email = firebaseUser.email ?: throw Exception("User email cannot be null"),
+            username = usernameForUid(firebaseUser.uid),
+            isEmailVerified = firebaseUser.isEmailVerified,
+        )
+    ensureProfileDocument(user)
+    return user
+  }
+
+  /**
+   * Creates the profile document of accounts made before sign-up wrote it. The write is not
+   * awaited: offline it would only complete once the connection returns, and Firestore already
+   * applies it to the local cache, which is what the profile screen reads.
+   */
+  private fun ensureProfileDocument(user: User) {
+    profileDocument(user.uid).set(profileData(user.username), SetOptions.merge())
+  }
+
+  private fun profileDocument(uid: String) = firestore.collection("users").document(uid)
+
+  private fun profileData(username: String) = mapOf("username" to username)
+
   private suspend fun usernameForUid(uid: String): String {
     val querySnapshot =
         firestore.collection("usernames").whereEqualTo("uid", uid).limit(1).get().await()
@@ -158,9 +177,7 @@ class FirebaseAuthRepository(
       throw Exception("Username not found for the current user")
     }
 
-    val document = querySnapshot.documents.first()
-    return document.getString("username")
-        ?: throw Exception("Username field not found for the current user")
+    return querySnapshot.documents.first().id
   }
 }
 

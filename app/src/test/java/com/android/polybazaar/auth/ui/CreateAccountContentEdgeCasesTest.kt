@@ -143,6 +143,19 @@ class CreateAccountContentEdgeCasesTest {
   }
 
   @Test
+  fun mixedCaseUsername_isSubmittedTrimmedAndLowercased() {
+    setContent()
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "  Ada_Lovelace ")
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
+
+    assertEquals("ada_lovelace", submitted?.first)
+  }
+
+  @Test
   fun whitespaceOnlyPassword_isAcceptedAndSentUntrimmed() {
     setContent()
 
@@ -182,6 +195,34 @@ class CreateAccountContentEdgeCasesTest {
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
         .assertDoesNotExist()
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
+  }
+
+  @Test
+  fun nonEpflEmail_showsMessageAndDisablesCreateButton() {
+    setContent()
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@gmail.com")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE)
+        .assertIsDisplayed()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+    assertNull(submitted)
+  }
+
+  @Test
+  fun epflEmail_showsNoEmailMessage() {
+    setContent()
+
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE)
+        .assertDoesNotExist()
   }
 
   private fun fillValidFormExceptUsername(username: String) {

@@ -1,4 +1,5 @@
 // Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.ui.test.assertIsEnabled
@@ -21,6 +22,8 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.WriteBatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -29,6 +32,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -49,6 +53,8 @@ class CreateAccountIntegrationTest {
   private lateinit var mockUser: FirebaseUser
   private lateinit var mockUsernameDoc: DocumentReference
   private lateinit var mockUsernameSnapshot: DocumentSnapshot
+  private lateinit var mockProfileDoc: DocumentReference
+  private lateinit var mockBatch: WriteBatch
   private lateinit var viewModel: AuthViewModel
   private var signedInCount = 0
 
@@ -69,7 +75,15 @@ class CreateAccountIntegrationTest {
     whenever(mockUsernames.document("ada_lovelace")).thenReturn(mockUsernameDoc)
     whenever(mockUsernameSnapshot.exists()).thenReturn(false)
     whenever(mockUsernameDoc.get()).thenReturn(Tasks.forResult(mockUsernameSnapshot))
-    whenever(mockUsernameDoc.set(any())).thenReturn(Tasks.forResult(null))
+    val mockUsers = mock<CollectionReference>()
+    mockProfileDoc = mock()
+    mockBatch = mock()
+    whenever(mockFirestore.collection("users")).thenReturn(mockUsers)
+    whenever(mockUsers.document("uid-ada")).thenReturn(mockProfileDoc)
+    whenever(mockFirestore.batch()).thenReturn(mockBatch)
+    whenever(mockBatch.set(any(), any())).thenReturn(mockBatch)
+    whenever(mockBatch.set(any(), any(), any<SetOptions>())).thenReturn(mockBatch)
+    whenever(mockBatch.commit()).thenReturn(Tasks.forResult(null))
 
     viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth, mockFirestore))
 
@@ -101,7 +115,10 @@ class CreateAccountIntegrationTest {
     fillAndSubmit(" ada_lovelace ", " ada@epfl.ch ", "secret123")
 
     verify(mockAuth).createUserWithEmailAndPassword("ada@epfl.ch", "secret123")
-    verify(mockUsernameDoc).set(mapOf("uid" to "uid-ada", "username" to "ada_lovelace"))
+    verify(mockBatch).set(mockUsernameDoc, mapOf("uid" to "uid-ada"))
+    verify(mockBatch)
+        .set(eq(mockProfileDoc), eq(mapOf("username" to "ada_lovelace")), any<SetOptions>())
+    verify(mockBatch).commit()
     assertEquals(
         User(uid = "uid-ada", email = "ada@epfl.ch", username = "ada_lovelace"),
         viewModel.uiState.value.user,
@@ -123,7 +140,7 @@ class CreateAccountIntegrationTest {
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
         .assertTextEquals("The email address is already in use by another account.")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
-    verify(mockUsernameDoc, never()).set(any())
+    verify(mockBatch, never()).commit()
     assertEquals(0, signedInCount)
   }
 
@@ -138,7 +155,7 @@ class CreateAccountIntegrationTest {
         .assertTextEquals("Username is already taken")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
     verify(mockAuth, never()).createUserWithEmailAndPassword(any(), any())
-    verify(mockUsernameDoc, never()).set(any())
+    verify(mockBatch, never()).commit()
     assertEquals(0, signedInCount)
   }
 
@@ -146,8 +163,7 @@ class CreateAccountIntegrationTest {
   fun usernameWriteFailure_rollsBackAuthUserAndShowsError() {
     whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(Tasks.forResult(mockAuthResult))
-    whenever(mockUsernameDoc.set(any()))
-        .thenReturn(Tasks.forException(Exception("Firestore unavailable")))
+    whenever(mockBatch.commit()).thenReturn(Tasks.forException(Exception("Firestore unavailable")))
     whenever(mockUser.delete()).thenReturn(Tasks.forResult(null))
 
     fillAndSubmit("ada_lovelace", "ada@epfl.ch", "secret123")

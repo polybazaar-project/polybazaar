@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.model
 
+import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
@@ -15,6 +16,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -24,6 +27,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -36,21 +40,33 @@ class FirebaseAuthRepositoryTest {
   private lateinit var repository: FirebaseAuthRepository
 
   private lateinit var collectionRef: CollectionReference
+  private lateinit var profileDocRef: DocumentReference
+  private lateinit var batch: WriteBatch
   private lateinit var firebaseUser: FirebaseUser
 
-  private val email = "test@example.com"
+  private val email = "test@epfl.ch"
   private val password = "password123"
   private val uid = "uid123"
-  private val username = "TestUser"
+  private val username = "testuser"
 
   @Before
   fun setup() {
     auth = mock()
     firestore = mock()
     collectionRef = mock()
+    profileDocRef = mock()
+    batch = mock()
     firebaseUser = mock()
 
     whenever(firestore.collection("usernames")).thenReturn(collectionRef)
+    val usersCollection = mock<CollectionReference>()
+    whenever(firestore.collection("users")).thenReturn(usersCollection)
+    whenever(usersCollection.document(uid)).thenReturn(profileDocRef)
+    whenever(profileDocRef.set(any(), any<SetOptions>())).thenReturn(Tasks.forResult(null))
+    whenever(firestore.batch()).thenReturn(batch)
+    whenever(batch.set(any(), any())).thenReturn(batch)
+    whenever(batch.set(any(), any(), any<SetOptions>())).thenReturn(batch)
+    whenever(batch.commit()).thenReturn(Tasks.forResult(null))
     whenever(firebaseUser.uid).thenReturn(uid)
     whenever(firebaseUser.email).thenReturn(email)
     whenever(firebaseUser.sendEmailVerification()).thenReturn(Tasks.forResult(null))
@@ -88,6 +104,35 @@ class FirebaseAuthRepositoryTest {
     val result = repository.signIn(email, password)
 
     assertTrue(result.getOrThrow().isEmailVerified)
+  }
+
+  @Test
+  fun signIn_success_createsMissingProfileDocument() = runTest {
+    val authResult = mock<AuthResult>()
+    whenever(authResult.user).thenReturn(firebaseUser)
+    whenever(auth.signInWithEmailAndPassword(email, password))
+        .thenReturn(Tasks.forResult(authResult))
+    mockUsernameLookupSuccess(uid, username)
+
+    repository.signIn(email, password)
+
+    verify(profileDocRef).set(eq(mapOf("username" to username)), any<SetOptions>())
+  }
+
+  @Test
+  fun signIn_profileWriteNotYetAcknowledged_stillReturnsUser() = runTest {
+    val authResult = mock<AuthResult>()
+    whenever(authResult.user).thenReturn(firebaseUser)
+    whenever(auth.signInWithEmailAndPassword(email, password))
+        .thenReturn(Tasks.forResult(authResult))
+    mockUsernameLookupSuccess(uid, username)
+    // An offline write stays pending until the connection returns.
+    whenever(profileDocRef.set(any(), any<SetOptions>()))
+        .thenReturn(TaskCompletionSource<Void>().task)
+
+    val result = repository.signIn(email, password)
+
+    assertEquals(username, result.getOrThrow().username)
   }
 
   @Test
@@ -144,8 +189,6 @@ class FirebaseAuthRepositoryTest {
     val docRef = mockUsernameDocument(exists = false)
     mockSignUpAuthResult()
 
-    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
-
     val result = repository.signUp(email, password, username)
 
     assertTrue(result.isSuccess)
@@ -153,14 +196,36 @@ class FirebaseAuthRepositoryTest {
     assertEquals(uid, user?.uid)
     assertEquals(email, user?.email)
     assertEquals(username, user?.username)
-    verify(docRef).set(any())
+    verify(batch).set(docRef, mapOf("uid" to uid))
+    verify(batch).commit()
+  }
+
+  @Test
+  fun signUp_success_createsProfileDocumentWithUsername() = runTest {
+    mockUsernameDocument(exists = false)
+    mockSignUpAuthResult()
+
+    repository.signUp(email, password, username)
+
+    verify(batch).set(eq(profileDocRef), eq(mapOf("username" to username)), any<SetOptions>())
+  }
+
+  @Test
+  fun signUp_usernameWrongFormat_returnsFailureWithoutTouchingFirebase() = runTest {
+    listOf("TestUser", " testuser", "testuser ").forEach { invalid ->
+      val result = repository.signUp(email, password, invalid)
+
+      assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+      assertEquals("Username must be trimmed and lowercase", result.exceptionOrNull()?.message)
+    }
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
 
   @Test
   fun signUp_success_sendsVerificationEmailAndReturnsUnverifiedUser() = runTest {
-    val docRef = mockUsernameDocument(exists = false)
+    mockUsernameDocument(exists = false)
     mockSignUpAuthResult()
-    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
 
     val result = repository.signUp(email, password, username)
 
@@ -170,9 +235,8 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_verificationEmailFails_stillCreatesAccount() = runTest {
-    val docRef = mockUsernameDocument(exists = false)
+    mockUsernameDocument(exists = false)
     mockSignUpAuthResult()
-    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
     whenever(firebaseUser.sendEmailVerification())
         .thenReturn(Tasks.forException(FirebaseTooManyRequestsException("Too many requests")))
 
@@ -180,6 +244,15 @@ class FirebaseAuthRepositoryTest {
 
     assertTrue(result.isSuccess)
     verify(firebaseUser, never()).delete()
+  }
+
+  @Test
+  fun signUp_nonEpflEmail_returnsFailureWithoutCreatingAccount() = runTest {
+    val result = repository.signUp("test@gmail.com", password, username)
+
+    assertTrue(result.isFailure)
+    assertEquals("Use your EPFL email (ending in @epfl.ch)", result.exceptionOrNull()?.message)
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
 
   @Test
@@ -194,10 +267,10 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_firestoreSaveFails_rollsBackAuthUser() = runTest {
-    val docRef = mockUsernameDocument(exists = false)
+    mockUsernameDocument(exists = false)
     val saveException = Exception("Network error")
 
-    whenever(docRef.set(any())).thenReturn(Tasks.forException(saveException))
+    whenever(batch.commit()).thenReturn(Tasks.forException(saveException))
     mockSignUpAuthResult()
 
     whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
@@ -215,11 +288,11 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_firestoreSaveFails_rollbackFailureIsSuppressed() = runTest {
-    val docRef = mockUsernameDocument(exists = false)
+    mockUsernameDocument(exists = false)
     val saveException = Exception("Network error")
     val rollbackException = Exception("Failed to delete auth user")
 
-    whenever(docRef.set(any())).thenReturn(Tasks.forException(saveException))
+    whenever(batch.commit()).thenReturn(Tasks.forException(saveException))
     mockSignUpAuthResult()
 
     whenever(firebaseUser.delete()).thenReturn(Tasks.forException(rollbackException))
@@ -250,11 +323,10 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_nullEmail_rollsBackAuthUser() = runTest {
-    val docRef = mockUsernameDocument(exists = false)
+    mockUsernameDocument(exists = false)
     mockSignUpAuthResult()
     whenever(firebaseUser.email).thenReturn(null)
 
-    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
     whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
 
     val result = repository.signUp(email, password, username)
@@ -281,10 +353,10 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_cancellationAfterAuthCreation_rollsBackAndRethrows() = runTest {
-    val docRef = mockUsernameDocument(exists = false)
+    mockUsernameDocument(exists = false)
     val exception = CancellationException("Cancelled")
     mockSignUpAuthResult()
-    whenever(docRef.set(any())).thenThrow(exception)
+    whenever(batch.commit()).thenThrow(exception)
     whenever(firebaseUser.delete()).thenReturn(Tasks.forResult(null))
 
     val result = runCatching { repository.signUp(email, password, username) }
@@ -295,9 +367,8 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_cancellationWhileSendingVerificationEmail_keepsAccount() = runTest {
-    val docRef = mockUsernameDocument(exists = false)
+    mockUsernameDocument(exists = false)
     mockSignUpAuthResult()
-    whenever(docRef.set(any())).thenReturn(Tasks.forResult(null))
     whenever(firebaseUser.sendEmailVerification()).thenThrow(CancellationException("Cancelled"))
 
     val result = runCatching { repository.signUp(email, password, username) }
@@ -322,6 +393,16 @@ class FirebaseAuthRepositoryTest {
     assertEquals(uid, result.uid)
     assertEquals(email, result.email)
     assertEquals(username, result.username)
+  }
+
+  @Test
+  fun getCurrentUser_success_createsMissingProfileDocument() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    mockUsernameLookupSuccess(uid, username)
+
+    repository.getCurrentUser()
+
+    verify(profileDocRef).set(eq(mapOf("username" to username)), any<SetOptions>())
   }
 
   @Test
@@ -361,29 +442,6 @@ class FirebaseAuthRepositoryTest {
 
     assertTrue(result.isFailure)
     assertEquals("Username not found for the current user", result.exceptionOrNull()?.message)
-  }
-
-  @Test
-  fun usernameForUid_nullUsername_throwsException() = runTest {
-    whenever(auth.currentUser).thenReturn(firebaseUser)
-
-    val query = mock<Query>()
-    val querySnapshot = mock<QuerySnapshot>()
-    val documentSnapshot = mock<DocumentSnapshot>()
-
-    whenever(collectionRef.whereEqualTo("uid", uid)).thenReturn(query)
-    whenever(query.limit(1)).thenReturn(query)
-    whenever(querySnapshot.isEmpty).thenReturn(false)
-    whenever(querySnapshot.documents).thenReturn(listOf(documentSnapshot))
-
-    whenever(documentSnapshot.getString("username")).thenReturn(null)
-
-    whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
-
-    val result = runCatching { repository.getCurrentUser() }
-
-    assertTrue(result.isFailure)
-    assertEquals("Username field not found for the current user", result.exceptionOrNull()?.message)
   }
 
   @Test
@@ -557,7 +615,7 @@ class FirebaseAuthRepositoryTest {
 
     whenever(querySnapshot.isEmpty).thenReturn(false)
     whenever(querySnapshot.documents).thenReturn(listOf(documentSnapshot))
-    whenever(documentSnapshot.getString("username")).thenReturn(returnedUsername)
+    whenever(documentSnapshot.id).thenReturn(returnedUsername)
 
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
   }
@@ -566,7 +624,7 @@ class FirebaseAuthRepositoryTest {
     val docRef = mock<DocumentReference>()
     val documentSnapshot = mock<DocumentSnapshot>()
 
-    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
+    whenever(collectionRef.document(username)).thenReturn(docRef)
     whenever(documentSnapshot.exists()).thenReturn(exists)
     whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
 
