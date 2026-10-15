@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.ui.navigation
 
@@ -241,5 +242,8 @@ class AppNavHostTest {
     override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)
 
     override suspend fun refreshUser(): Result<User> = signInResult
+
+    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
   }
 }
