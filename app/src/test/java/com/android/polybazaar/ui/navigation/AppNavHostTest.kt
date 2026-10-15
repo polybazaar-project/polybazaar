@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.navigation.NavHostController
@@ -161,12 +162,23 @@ class AppNavHostTest {
   }
 
   @Test
-  fun settingsButton_isNoOp() {
+  fun settingsButton_showsUnavailableMessageAndStaysOnProfile() {
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
 
+    composeTestRule.onNodeWithText(SETTINGS_UNAVAILABLE_MESSAGE).assertIsDisplayed()
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun forgotPasswordLink_showsUnavailableMessageAndStaysOnSignIn() {
+    setContent(FakeAuthRepository(currentUser = null))
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.FORGOT_PASSWORD_LINK).performClick()
+
+    composeTestRule.onNodeWithText(PASSWORD_RESET_UNAVAILABLE_MESSAGE).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
