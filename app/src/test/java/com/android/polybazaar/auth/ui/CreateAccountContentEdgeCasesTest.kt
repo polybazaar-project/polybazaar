@@ -143,6 +143,19 @@ class CreateAccountContentEdgeCasesTest {
   }
 
   @Test
+  fun mixedCaseUsername_isSubmittedTrimmedAndLowercased() {
+    setContent()
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "  Ada_Lovelace ")
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
+
+    assertEquals("ada_lovelace", submitted?.first)
+  }
+
+  @Test
   fun whitespaceOnlyPassword_isAcceptedAndSentUntrimmed() {
     setContent()
 

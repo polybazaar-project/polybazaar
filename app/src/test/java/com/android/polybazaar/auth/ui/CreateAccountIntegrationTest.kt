@@ -101,7 +101,7 @@ class CreateAccountIntegrationTest {
     fillAndSubmit(" ada_lovelace ", " ada@epfl.ch ", "secret123")
 
     verify(mockAuth).createUserWithEmailAndPassword("ada@epfl.ch", "secret123")
-    verify(mockUsernameDoc).set(mapOf("uid" to "uid-ada", "username" to "ada_lovelace"))
+    verify(mockUsernameDoc).set(mapOf("uid" to "uid-ada"))
     assertEquals(
         User(uid = "uid-ada", email = "ada@epfl.ch", username = "ada_lovelace"),
         viewModel.uiState.value.user,

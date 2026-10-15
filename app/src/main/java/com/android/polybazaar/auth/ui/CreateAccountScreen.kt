@@ -213,7 +213,7 @@ fun CreateAccountContent(
           )
           AuthPrimaryButton(
               text = "Create account",
-              onClick = { onCreateAccount(username.trim(), email.trim(), password) },
+              onClick = { onCreateAccount(username.trim().lowercase(), email.trim(), password) },
               enabled = canSubmit,
               modifier =
                   Modifier.weight(1f).fillMaxSize().testTag(CreateAccountScreenTags.CREATE_BUTTON),
