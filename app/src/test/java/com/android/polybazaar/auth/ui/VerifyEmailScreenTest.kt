@@ -147,6 +147,35 @@ class VerifyEmailScreenTest {
   }
 
   @Test
+  fun screen_checkingAnUnverifiedEmail_showsErrorAndDoesNotCallOnVerified() {
+    val repository =
+        FakeAuthRepository(
+            refreshUserResult =
+                Result.success(
+                    User(uid = "user-1", email = email, username = "ada", isEmailVerified = false)
+                )
+        )
+    val viewModel = VerifyEmailViewModel(repository)
+    var verified = false
+    composeTestRule.setContent {
+      VerifyEmailScreen(
+          verifyEmailViewModel = viewModel,
+          email = email,
+          onVerified = { verified = true },
+      )
+    }
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.CHECK_BUTTON).performClick()
+    composeTestRule.waitForIdle()
+
+    assertFalse(verified)
+    composeTestRule
+        .onNodeWithTag(VerifyEmailScreenTags.ERROR_MESSAGE)
+        .assertIsDisplayed()
+        .assertTextEquals("Email not verified yet")
+  }
+
+  @Test
   fun screen_resending_sendsEmailAndStartsCooldown() {
     val repository = FakeAuthRepository()
     val viewModel = VerifyEmailViewModel(repository)
