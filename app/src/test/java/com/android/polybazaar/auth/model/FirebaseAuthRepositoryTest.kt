@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Opus 5.5
+// Co-authored-by: Claude Code (claude-opus-5-5)
 package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.Tasks
@@ -37,7 +37,7 @@ class FirebaseAuthRepositoryTest {
   private val email = "test@epfl.ch"
   private val password = "password123"
   private val uid = "uid123"
-  private val username = "TestUser"
+  private val username = "testuser"
 
   @Before
   fun setup() {
@@ -149,7 +149,19 @@ class FirebaseAuthRepositoryTest {
     assertEquals(uid, user?.uid)
     assertEquals(email, user?.email)
     assertEquals(username, user?.username)
-    verify(docRef).set(any())
+    verify(docRef).set(mapOf("uid" to uid))
+  }
+
+  @Test
+  fun signUp_usernameWrongFormat_returnsFailureWithoutTouchingFirebase() = runTest {
+    listOf("TestUser", " testuser", "testuser ").forEach { invalid ->
+      val result = repository.signUp(email, password, invalid)
+
+      assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+      assertEquals("Username must be trimmed and lowercase", result.exceptionOrNull()?.message)
+    }
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
 
   @Test
@@ -369,29 +381,6 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
-  fun usernameForUid_nullUsername_throwsException() = runTest {
-    whenever(auth.currentUser).thenReturn(firebaseUser)
-
-    val query = mock<Query>()
-    val querySnapshot = mock<QuerySnapshot>()
-    val documentSnapshot = mock<DocumentSnapshot>()
-
-    whenever(collectionRef.whereEqualTo("uid", uid)).thenReturn(query)
-    whenever(query.limit(1)).thenReturn(query)
-    whenever(querySnapshot.isEmpty).thenReturn(false)
-    whenever(querySnapshot.documents).thenReturn(listOf(documentSnapshot))
-
-    whenever(documentSnapshot.getString("username")).thenReturn(null)
-
-    whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
-
-    val result = runCatching { repository.getCurrentUser() }
-
-    assertTrue(result.isFailure)
-    assertEquals("Username field not found for the current user", result.exceptionOrNull()?.message)
-  }
-
-  @Test
   fun sendVerificationEmail_success_sendsEmailToCurrentUser() = runTest {
     whenever(auth.currentUser).thenReturn(firebaseUser)
 
@@ -472,7 +461,7 @@ class FirebaseAuthRepositoryTest {
 
     whenever(querySnapshot.isEmpty).thenReturn(false)
     whenever(querySnapshot.documents).thenReturn(listOf(documentSnapshot))
-    whenever(documentSnapshot.getString("username")).thenReturn(returnedUsername)
+    whenever(documentSnapshot.id).thenReturn(returnedUsername)
 
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
   }
@@ -481,7 +470,7 @@ class FirebaseAuthRepositoryTest {
     val docRef = mock<DocumentReference>()
     val documentSnapshot = mock<DocumentSnapshot>()
 
-    whenever(collectionRef.document(username.trim().lowercase())).thenReturn(docRef)
+    whenever(collectionRef.document(username)).thenReturn(docRef)
     whenever(documentSnapshot.exists()).thenReturn(exists)
     whenever(docRef.get()).thenReturn(Tasks.forResult(documentSnapshot))
 
