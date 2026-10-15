@@ -70,7 +70,7 @@ class SignInIntegrationTest {
     whenever(mockQuery.get()).thenReturn(Tasks.forResult(mockUsernameLookup))
     whenever(mockUsernameLookup.isEmpty).thenReturn(false)
     whenever(mockUsernameLookup.documents).thenReturn(listOf(usernameDoc))
-    whenever(usernameDoc.getString("username")).thenReturn("ada_lovelace")
+    whenever(usernameDoc.id).thenReturn("ada_lovelace")
 
     viewModel = AuthViewModel(FirebaseAuthRepository(mockAuth, mockFirestore))
 
