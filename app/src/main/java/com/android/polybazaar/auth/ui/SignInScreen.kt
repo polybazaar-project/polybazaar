@@ -1,11 +1,10 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -121,7 +119,7 @@ fun SignInContent(
             visualTransformation = PasswordVisualTransformation(),
         )
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-          LinkButton(
+          AuthLinkButton(
               text = "Forgot password?",
               onClick = onForgotPassword,
               tag = SignInScreenTags.FORGOT_PASSWORD_LINK,
@@ -148,7 +146,7 @@ fun SignInContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
           Text(text = "New here?", color = AuthColors.TextSecondary, fontSize = 12.sp)
-          LinkButton(
+          AuthLinkButton(
               text = "Create account",
               onClick = onCreateAccount,
               tag = SignInScreenTags.CREATE_ACCOUNT_LINK,
@@ -173,16 +171,4 @@ private fun SignInContentPreview() {
       onCreateAccount = {},
       onForgotPassword = {},
   )
-}
-
-/** Text link with a 48dp touch target, announced as a button by TalkBack. */
-@Composable
-private fun LinkButton(text: String, onClick: () -> Unit, tag: String) {
-  TextButton(
-      onClick = onClick,
-      modifier = Modifier.testTag(tag),
-      contentPadding = PaddingValues(horizontal = 4.dp),
-  ) {
-    Text(text = text, color = AuthColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-  }
 }
