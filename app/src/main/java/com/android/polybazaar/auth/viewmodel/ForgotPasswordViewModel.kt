@@ -48,13 +48,7 @@ class ForgotPasswordViewModel(private val authRepository: AuthRepository) : View
     if (_uiState.value.isLoading) return
     val email = _uiState.value.email.trim()
     if (email.isBlank()) {
-      _uiState.update {
-        it.copy(
-            isLoading = false,
-            emailSent = false,
-            error = PasswordResetException.Reason.INVALID_EMAIL,
-        )
-      }
+      _uiState.update { it.copy(error = PasswordResetException.Reason.INVALID_EMAIL) }
       return
     }
     _uiState.update { it.copy(isLoading = true, emailSent = false, error = null) }
