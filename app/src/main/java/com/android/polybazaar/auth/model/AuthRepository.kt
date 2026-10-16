@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.model
 
 interface AuthRepository {
@@ -13,4 +14,12 @@ interface AuthRepository {
   suspend fun sendVerificationEmail(): Result<Unit>
 
   suspend fun refreshUser(): Result<User>
+
+  /**
+   * Asks Firebase to email a password reset link to [email].
+   *
+   * Succeeds for unknown addresses too, so the screen always shows the same neutral confirmation
+   * and does not reveal which emails have an account. Fails with a [PasswordResetException].
+   */
+  suspend fun sendPasswordResetEmail(email: String): Result<Unit>
 }

@@ -1,7 +1,11 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.model
 
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -118,6 +122,27 @@ class FirebaseAuthRepository(
     }
   }
 
+  override suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
+    // Firebase throws IllegalArgumentException on an empty string before any request is sent,
+    // so catch the blank case here and report it like any other invalid address.
+    if (email.isBlank()) {
+      return Result.failure(PasswordResetException(PasswordResetException.Reason.INVALID_EMAIL))
+    }
+    return try {
+      auth.sendPasswordResetEmail(email).await()
+      Result.success(Unit)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      // An unknown or disabled address counts as success so the screen cannot be used to find out
+      // which emails have an account (acceptance criterion of #13). This is intended:
+      // FirebaseAuthInvalidUserException covers both ERROR_USER_NOT_FOUND and ERROR_USER_DISABLED.
+      // With email enumeration protection on, Firebase already returns success; this covers
+      // projects where it is off.
+      if (e is FirebaseAuthInvalidUserException) Result.success(Unit)
+      else Result.failure(PasswordResetException(passwordResetReason(e), e))
+    }
+  }
+
   private suspend fun signedInUser(firebaseUser: FirebaseUser): User {
     val user =
         User(
@@ -154,3 +179,16 @@ class FirebaseAuthRepository(
     return querySnapshot.documents.first().id
   }
 }
+
+/**
+ * Maps a Firebase error from a password reset request to the [PasswordResetException.Reason] shown
+ * to the user. Anything not listed becomes [PasswordResetException.Reason.UNKNOWN].
+ */
+private fun passwordResetReason(e: Exception): PasswordResetException.Reason =
+    when (e) {
+      // Firebase reports a badly formatted address as an invalid credential (ERROR_INVALID_EMAIL).
+      is FirebaseAuthInvalidCredentialsException -> PasswordResetException.Reason.INVALID_EMAIL
+      is FirebaseNetworkException -> PasswordResetException.Reason.NETWORK
+      is FirebaseTooManyRequestsException -> PasswordResetException.Reason.TOO_MANY_REQUESTS
+      else -> PasswordResetException.Reason.UNKNOWN
+    }

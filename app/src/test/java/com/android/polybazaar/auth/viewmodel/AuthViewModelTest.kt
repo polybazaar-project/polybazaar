@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.viewmodel
 
 import com.android.polybazaar.auth.model.AuthRepository
@@ -248,5 +249,8 @@ class AuthViewModelTest {
 
     override suspend fun refreshUser(): Result<User> =
         Result.failure(IllegalStateException("Not configured"))
+
+    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
   }
 }
