@@ -1,4 +1,4 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.annotation.DrawableRes
@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,6 +89,18 @@ internal fun AuthPrimaryButton(
           ),
   ) {
     Text(text = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+  }
+}
+
+/** Accent text link with a 48dp touch target, announced as a button by TalkBack. */
+@Composable
+internal fun AuthLinkButton(text: String, onClick: () -> Unit, tag: String) {
+  TextButton(
+      onClick = onClick,
+      modifier = Modifier.testTag(tag),
+      contentPadding = PaddingValues(horizontal = 4.dp),
+  ) {
+    Text(text = text, color = AuthColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
   }
 }
 

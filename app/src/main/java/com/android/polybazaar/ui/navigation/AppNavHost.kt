@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.ui.navigation
 
@@ -23,9 +24,12 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.ui.CreateAccountScreen
+import com.android.polybazaar.auth.ui.ForgotPasswordScreen
 import com.android.polybazaar.auth.ui.SignInScreen
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -38,7 +42,6 @@ object AppNavHostTags {
   const val LOADING = "app_nav_loading"
 }
 
-const val PASSWORD_RESET_UNAVAILABLE_MESSAGE = "Password reset is not available yet"
 const val SETTINGS_UNAVAILABLE_MESSAGE = "Settings are not available yet"
 
 /**
@@ -47,10 +50,14 @@ const val SETTINGS_UNAVAILABLE_MESSAGE = "Settings are not available yet"
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
+ *
+ * @param authRepository used by the screens that need their own ViewModel, such as forgot password.
+ *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  */
 @Composable
 fun AppNavHost(
     authViewModel: AuthViewModel,
+    authRepository: AuthRepository,
     profileRepository: ProfileRepository,
     navController: NavHostController = rememberNavController(),
 ) {
@@ -100,7 +107,9 @@ fun AppNavHost(
             onCreateAccount = {
               navController.navigate(Routes.CREATE_ACCOUNT) { launchSingleTop = true }
             },
-            onForgotPassword = { showUnavailable(PASSWORD_RESET_UNAVAILABLE_MESSAGE) },
+            onForgotPassword = {
+              navController.navigate(Routes.FORGOT_PASSWORD) { launchSingleTop = true }
+            },
             onSignedIn = { navController.navigateToProfileFromAuth() },
         )
       }
@@ -109,6 +118,18 @@ fun AppNavHost(
             authViewModel = authViewModel,
             onBack = { navController.popBackStack() },
             onSignedIn = { navController.navigateToProfileFromAuth() },
+        )
+      }
+      composable(Routes.FORGOT_PASSWORD) {
+        // Scoped to this destination: leaving and coming back starts with an empty form.
+        val forgotPasswordViewModel: ForgotPasswordViewModel =
+            viewModel(
+                factory =
+                    viewModelFactory { initializer { ForgotPasswordViewModel(authRepository) } }
+            )
+        ForgotPasswordScreen(
+            forgotPasswordViewModel = forgotPasswordViewModel,
+            onBack = { navController.popBackStack() },
         )
       }
       composable(Routes.PROFILE) {
