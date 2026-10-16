@@ -42,7 +42,11 @@ class EndToEndFlowTest {
   private fun launchApp() {
     authViewModel = AuthViewModel(backend)
     composeTestRule.setContent {
-      AppNavHost(authViewModel = authViewModel, profileRepository = backend)
+      AppNavHost(
+          authViewModel = authViewModel,
+          authRepository = backend,
+          profileRepository = backend,
+      )
     }
   }
 

@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar
 
@@ -24,13 +25,15 @@ class MainActivity : ComponentActivity() {
     setContent {
       SampleAppTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+          // One repository for every auth screen, so they all see the same Firebase session.
+          val authRepository = remember { FirebaseAuthRepository() }
           val authViewModel: AuthViewModel =
               viewModel(
-                  factory =
-                      viewModelFactory { initializer { AuthViewModel(FirebaseAuthRepository()) } }
+                  factory = viewModelFactory { initializer { AuthViewModel(authRepository) } }
               )
           AppNavHost(
               authViewModel = authViewModel,
+              authRepository = authRepository,
               profileRepository = remember { FirebaseProfileRepository() },
           )
         }
