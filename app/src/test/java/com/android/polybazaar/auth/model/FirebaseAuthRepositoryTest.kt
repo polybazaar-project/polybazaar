@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.TaskCompletionSource
@@ -214,6 +214,39 @@ class FirebaseAuthRepositoryTest {
       assertTrue(result.exceptionOrNull() is IllegalArgumentException)
       assertEquals("Username must be trimmed and lowercase", result.exceptionOrNull()?.message)
     }
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
+  }
+
+  @Test
+  fun signUp_blankUsername_returnsFailureWithoutTouchingFirebase() = runTest {
+    listOf("", "   ").forEach { blank ->
+      val result = repository.signUp(email, password, blank)
+
+      assertEquals("Username is required", result.exceptionOrNull()?.message)
+    }
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
+  }
+
+  @Test
+  fun signUp_tooLongFields_returnFailureWithoutTouchingFirebase() = runTest {
+    val tooLongUsername =
+        repository.signUp(email, password, "a".repeat(AuthRules.MAX_USERNAME_LENGTH + 1))
+    val tooLongEmail =
+        repository.signUp("a".repeat(AuthRules.MAX_EMAIL_LENGTH) + "@epfl.ch", password, username)
+    val tooLongPassword =
+        repository.signUp(email, "p".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1), username)
+
+    assertEquals(
+        "Username must be at most 30 characters",
+        tooLongUsername.exceptionOrNull()?.message,
+    )
+    assertEquals("Email must be at most 254 characters", tooLongEmail.exceptionOrNull()?.message)
+    assertEquals(
+        "Password must be at most 128 characters",
+        tooLongPassword.exceptionOrNull()?.message,
+    )
     verify(firestore, never()).collection(any())
     verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }

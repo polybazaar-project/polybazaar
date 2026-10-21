@@ -1,4 +1,4 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.foundation.background
@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.model.EPFL_EMAIL_DOMAIN
 import com.android.polybazaar.auth.model.isEpflEmail
 import com.android.polybazaar.auth.viewmodel.AuthUiState
@@ -47,28 +48,11 @@ object CreateAccountScreenTags {
   const val PASSWORD_FIELD = "create_account_password_field"
   const val CONFIRM_PASSWORD_FIELD = "create_account_confirm_password_field"
   const val PASSWORD_TOO_SHORT_MESSAGE = "create_account_password_too_short_message"
+  const val PASSWORD_TOO_LONG_MESSAGE = "create_account_password_too_long_message"
   const val PASSWORD_MISMATCH_MESSAGE = "create_account_password_mismatch_message"
   const val ERROR_MESSAGE = "create_account_error_message"
   const val CANCEL_BUTTON = "create_account_cancel_button"
   const val CREATE_BUTTON = "create_account_create_button"
-}
-
-/** Firebase Auth rejects passwords shorter than this. */
-const val MIN_PASSWORD_LENGTH = 6
-
-private val RESERVED_FIRESTORE_ID = Regex("__.*__")
-
-/**
- * Returns why [username] cannot be used, or null if it is valid. The trimmed username becomes a
- * Firestore document ID, so it must follow Firestore's ID rules.
- */
-private fun usernameError(username: String): String? {
-  val id = username.trim()
-  return when {
-    id.contains('/') -> "Username cannot contain /"
-    id == "." || id == ".." || RESERVED_FIRESTORE_ID.matches(id) -> "This username is not allowed"
-    else -> null
-  }
 }
 
 /**
@@ -106,9 +90,10 @@ fun CreateAccountContent(
   var email by rememberSaveable { mutableStateOf("") }
   var password by rememberSaveable { mutableStateOf("") }
   var confirmPassword by rememberSaveable { mutableStateOf("") }
-  val usernameError = usernameError(username)
+  val usernameError = AuthRules.usernameError(AuthRules.normalizeUsername(username))
   val emailNotEpfl = email.isNotBlank() && !isEpflEmail(email)
-  val passwordTooShort = password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH
+  val passwordTooShort = password.isNotEmpty() && password.length < AuthRules.MIN_PASSWORD_LENGTH
+  val passwordTooLong = password.length > AuthRules.MAX_PASSWORD_LENGTH
   val passwordsMatch = password == confirmPassword
   val canSubmit =
       !uiState.isLoading &&
@@ -118,6 +103,7 @@ fun CreateAccountContent(
           !emailNotEpfl &&
           password.isNotEmpty() &&
           !passwordTooShort &&
+          !passwordTooLong &&
           passwordsMatch
 
   BoxWithConstraints(
@@ -144,7 +130,7 @@ fun CreateAccountContent(
         LabeledField(
             label = "Username",
             value = username,
-            onValueChange = { username = it },
+            onValueChange = { username = AuthRules.limitInput(it, AuthRules.MAX_USERNAME_LENGTH) },
             placeholder = "Enter your username",
             tag = CreateAccountScreenTags.USERNAME_FIELD,
         )
@@ -159,7 +145,7 @@ fun CreateAccountContent(
         LabeledField(
             label = "Email",
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { email = AuthRules.limitInput(it, AuthRules.MAX_EMAIL_LENGTH) },
             placeholder = "Enter your email",
             tag = CreateAccountScreenTags.EMAIL_FIELD,
             keyboardType = KeyboardType.Email,
@@ -175,7 +161,7 @@ fun CreateAccountContent(
         LabeledField(
             label = "Password",
             value = password,
-            onValueChange = { password = it },
+            onValueChange = { password = it.take(AuthRules.MAX_PASSWORD_INPUT_LENGTH) },
             placeholder = "Create a password",
             tag = CreateAccountScreenTags.PASSWORD_FIELD,
             keyboardType = KeyboardType.Password,
@@ -183,16 +169,24 @@ fun CreateAccountContent(
         )
         if (passwordTooShort) {
           Text(
-              text = "Password must be at least $MIN_PASSWORD_LENGTH characters",
+              text = "Password must be at least ${AuthRules.MIN_PASSWORD_LENGTH} characters",
               color = AuthColors.Danger,
               fontSize = 12.sp,
               modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE),
           )
         }
+        if (passwordTooLong) {
+          Text(
+              text = "Password must be at most ${AuthRules.MAX_PASSWORD_LENGTH} characters",
+              color = AuthColors.Danger,
+              fontSize = 12.sp,
+              modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_TOO_LONG_MESSAGE),
+          )
+        }
         LabeledField(
             label = "Confirm password",
             value = confirmPassword,
-            onValueChange = { confirmPassword = it },
+            onValueChange = { confirmPassword = it.take(AuthRules.MAX_PASSWORD_INPUT_LENGTH) },
             placeholder = "Repeat your password",
             tag = CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD,
             keyboardType = KeyboardType.Password,
@@ -226,7 +220,9 @@ fun CreateAccountContent(
           )
           AuthPrimaryButton(
               text = "Create account",
-              onClick = { onCreateAccount(username.trim().lowercase(), email.trim(), password) },
+              onClick = {
+                onCreateAccount(AuthRules.normalizeUsername(username), email.trim(), password)
+              },
               enabled = canSubmit,
               modifier =
                   Modifier.weight(1f).fillMaxSize().testTag(CreateAccountScreenTags.CREATE_BUTTON),
