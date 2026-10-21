@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.model
 
 import android.net.Uri
@@ -216,6 +217,29 @@ class FirebaseProfileRepositoryTest {
             ),
             any<SetOptions>(),
         )
+  }
+
+  @Test
+  fun updateProfile_bioAtLimit_isWritten() = runTest {
+    whenever(profileDocument.set(any<Map<String, Any?>>(), any<SetOptions>()))
+        .thenReturn(Tasks.forResult(null))
+
+    repository.updateProfile(uid, null, "a".repeat(500))
+
+    verify(profileDocument).set(eq(mapOf("bio" to "a".repeat(500))), any<SetOptions>())
+  }
+
+  @Test
+  fun updateProfile_bioOverLimit_isRejectedBeforeWriting() = runTest {
+    val failure = runCatching {
+      repository.updateProfile(uid, null, "a".repeat(501))
+    }
+        .exceptionOrNull()
+
+    assertTrue(failure is IllegalArgumentException)
+    assertEquals("Bio must be at most 500 characters", failure?.message)
+    verify(profileDocument, org.mockito.kotlin.never())
+        .set(any<Map<String, Any?>>(), any<SetOptions>())
   }
 
   @Test

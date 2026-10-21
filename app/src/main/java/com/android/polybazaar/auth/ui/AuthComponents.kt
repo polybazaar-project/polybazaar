@@ -1,4 +1,4 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.annotation.DrawableRes
@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -170,17 +171,30 @@ internal fun LabeledField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     readOnly: Boolean = false,
     minLines: Int = 1,
+    counter: String? = null,
+    counterTag: String? = null,
 ) {
   Column(
       modifier = Modifier.fillMaxWidth(),
       verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
-    Text(
-        text = label.uppercase(),
-        color = AuthColors.Accent,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Text(
+          text = label.uppercase(),
+          color = AuthColors.Accent,
+          fontSize = 11.sp,
+          fontWeight = FontWeight.SemiBold,
+          modifier = Modifier.weight(1f),
+      )
+      counter?.let {
+        Text(
+            text = it,
+            color = AuthColors.TextSecondary,
+            fontSize = 11.sp,
+            modifier = if (counterTag != null) Modifier.testTag(counterTag) else Modifier,
+        )
+      }
+    }
     // Multi-line fields (e.g. a bio) use regular body text, as in the Figma frames.
     val textStyle =
         if (minLines > 1) TextStyle(fontSize = 14.sp, lineHeight = 1.35.em)

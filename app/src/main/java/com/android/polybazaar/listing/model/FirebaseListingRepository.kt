@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.listing.model
 
 import com.google.firebase.auth.FirebaseAuth
@@ -17,6 +18,7 @@ class FirebaseListingRepository(
 
   override suspend fun createListing(listing: Listing): Listing {
     val ownerUid = auth.currentUser?.uid ?: throw IllegalStateException("No authenticated user")
+    ListingRules.errorFor(listing)?.let { throw IllegalArgumentException(it) }
     // Creates a reference to a new Firestore document.
     // Represents where we want to store the listing.
     val document = firestore.collection(LISTINGS_COLLECTION).document()
@@ -66,8 +68,8 @@ class FirebaseListingRepository(
         put("category", category)
         put("price", price)
         put("type", type.name)
-        put("title", title)
-        put("description", description)
+        put("title", title.trim())
+        put("description", description.trim())
         put("imageUrls", imageUrls)
         if (this@toFirestoreData is ItemListing) {
           put("refundValue", refundValue)

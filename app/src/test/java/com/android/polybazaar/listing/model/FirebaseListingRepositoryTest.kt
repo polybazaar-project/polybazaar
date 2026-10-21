@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
@@ -18,9 +19,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
+import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -236,6 +239,65 @@ class FirebaseListingRepositoryTest {
 
     assertSame(documentSetFailure, failure)
     assertEquals(listOf(deleteFailure), failure?.suppressed?.toList())
+  }
+
+  @Test
+  fun createListing_overLimit_failsWithoutTouchingFirebase() = runTest {
+    val overLimit =
+        listOf(
+            ServiceListing("Tutoring", 25.0, "t".repeat(81), "One-hour session") to
+                "Title must be at most 80 characters",
+            ServiceListing("Tutoring", 25.0, "Math tutoring", "d".repeat(1001)) to
+                "Description must be at most 1000 characters",
+            ServiceListing("Tutoring", 10_000.01, "Math tutoring", "One-hour session") to
+                "Enter a price between CHF 0 and CHF 10,000",
+            ItemListing("Tools", 5.0, "Drill", "Works well", refundValue = 100_000.01) to
+                "Enter a refund value between CHF 0 and CHF 100,000",
+        )
+
+    overLimit.forEach { (listing, message) ->
+      val failure = runCatching { repository.createListing(listing) }.exceptionOrNull()
+
+      assertTrue(failure is IllegalArgumentException)
+      assertEquals(message, failure?.message)
+    }
+    verifyNoInteractions(firestore, storage)
+  }
+
+  @Test
+  fun createListing_atLimits_succeeds() = runTest {
+    val listing =
+        ItemListing(
+            category = "Tools",
+            price = 10_000.0,
+            title = "t".repeat(80),
+            description = "d".repeat(1000),
+            refundValue = 100_000.0,
+        )
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    val created = repository.createListing(listing)
+
+    assertEquals(listingId, created.listingId)
+  }
+
+  @Test
+  fun createListing_storesTrimmedTitleAndDescription() = runTest {
+    val listing =
+        ServiceListing(
+            category = "Tutoring",
+            price = 25.0,
+            title = "  " + "t".repeat(80),
+            description = "  Padded description \n",
+        )
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    repository.createListing(listing)
+
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(document).set(stored.capture())
+    assertEquals("t".repeat(80), stored.firstValue["title"])
+    assertEquals("Padded description", stored.firstValue["description"])
   }
 
   @Test
