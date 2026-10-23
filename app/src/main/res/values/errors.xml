@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
+<!-- Messages for com.android.polybazaar.error.model.AppError, shared by every screen. -->
+<resources>
+    <string name="error_network">No connection. Check your internet and try again.</string>
+    <string name="error_permission_denied">You don’t have permission to do that.</string>
+    <string name="error_not_found">We couldn’t find what you were looking for.</string>
+    <string name="error_unauthenticated">Please sign in to continue.</string>
+    <string name="error_invalid_credentials">Incorrect email or password.</string>
+    <string name="error_invalid_email">Enter a valid email address.</string>
+    <string name="error_weak_password">This password is too weak. Choose a stronger one.</string>
+    <string name="error_email_already_in_use">An account already exists with this email.</string>
+    <string name="error_too_many_requests">Too many attempts. Wait a few minutes, then try again.</string>
+    <string name="error_unknown">Something went wrong. Please try again.</string>
+</resources>
