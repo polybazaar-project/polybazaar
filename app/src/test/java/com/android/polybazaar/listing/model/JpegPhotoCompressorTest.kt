@@ -9,6 +9,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -22,7 +24,13 @@ import org.robolectric.annotation.GraphicsMode
 class JpegPhotoCompressorTest {
 
   private val context = ApplicationProvider.getApplicationContext<Context>()
-  private val compressor = JpegPhotoCompressor(context.contentResolver)
+
+  /** Runs on the test scheduler rather than a real IO thread. */
+  private fun TestScope.compressor() =
+      JpegPhotoCompressor(
+          context.contentResolver,
+          ioDispatcher = StandardTestDispatcher(testScheduler),
+      )
 
   private fun writeImage(width: Int, height: Int): Uri {
     val file = File.createTempFile("photo", ".png", context.cacheDir)
@@ -37,7 +45,7 @@ class JpegPhotoCompressorTest {
 
   @Test
   fun compress_downscalesLargePhotosKeepingTheirShape() = runTest {
-    val photo = decode(compressor.compress(writeImage(4000, 2000)))
+    val photo = decode(compressor().compress(writeImage(4000, 2000)))
 
     assertEquals(JpegPhotoCompressor.MAX_SIZE, photo.width)
     assertEquals(JpegPhotoCompressor.MAX_SIZE / 2, photo.height)
@@ -45,7 +53,7 @@ class JpegPhotoCompressorTest {
 
   @Test
   fun compress_keepsSmallPhotosAtTheirSize() = runTest {
-    val photo = decode(compressor.compress(writeImage(300, 200)))
+    val photo = decode(compressor().compress(writeImage(300, 200)))
 
     assertEquals(300, photo.width)
     assertEquals(200, photo.height)
@@ -53,7 +61,7 @@ class JpegPhotoCompressorTest {
 
   @Test
   fun compress_encodesAsJpeg() = runTest {
-    val bytes = compressor.compress(writeImage(100, 100))
+    val bytes = compressor().compress(writeImage(100, 100))
 
     // Every JPEG file starts with the SOI marker FF D8.
     assertEquals(0xFF.toByte(), bytes[0])
@@ -64,7 +72,7 @@ class JpegPhotoCompressorTest {
   fun compress_failsForUnreadablePhoto() = runTest {
     val missing = Uri.fromFile(File(context.cacheDir, "does-not-exist.png"))
 
-    val failure = runCatching { compressor.compress(missing) }.exceptionOrNull()
+    val failure = runCatching { compressor().compress(missing) }.exceptionOrNull()
 
     assertTrue(failure is IOException)
   }

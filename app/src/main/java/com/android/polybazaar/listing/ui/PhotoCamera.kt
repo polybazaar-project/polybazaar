@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,7 +66,7 @@ internal fun rememberPhotoCamera(
         val file = pendingPhoto?.let(::File)
         pendingPhoto = null
         if (file != null) {
-          if (saved) currentOnPhotoTaken(Uri.fromFile(file), retakeIndex) else file.delete()
+          if (saved) currentOnPhotoTaken(Uri.fromFile(file), retakeIndex) else deletePhotoFile(file)
         }
       }
   val launchCamera = {
@@ -75,7 +76,7 @@ internal fun rememberPhotoCamera(
       takePicture.launch(contentUriFor(context, file))
     } catch (e: ActivityNotFoundException) {
       pendingPhoto = null
-      file.delete()
+      deletePhotoFile(file)
       Toast.makeText(context, "No camera app found", Toast.LENGTH_SHORT).show()
     }
   }
@@ -120,8 +121,15 @@ internal fun deleteTakenPhoto(context: Context, photo: Uri) {
   if (photo.scheme != ContentResolver.SCHEME_FILE) return
   val file = File(photo.path ?: return)
   // Compared as canonical files, so separators and ".." segments do not matter.
-  if (file.canonicalFile.parentFile == photoDirectory(context).canonicalFile) file.delete()
+  if (file.canonicalFile.parentFile == photoDirectory(context).canonicalFile) deletePhotoFile(file)
 }
+
+/** Deletes [file], only logging a failure: a leftover photo takes space but breaks nothing. */
+private fun deletePhotoFile(file: File) {
+  if (file.exists() && !file.delete()) Log.w(LOG_TAG, "Could not delete photo ${file.name}")
+}
+
+private const val LOG_TAG = "PhotoCamera"
 
 /**
  * The URI under which the manifest's FileProvider shares [file] with the camera app. Built by hand

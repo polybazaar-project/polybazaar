@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -18,15 +19,18 @@ fun interface PhotoCompressor {
  * Downscales a photo to at most [maxSize] pixels on its longest side and re-encodes it as a JPEG. A
  * phone camera photo of several megabytes becomes a few hundred kilobytes, which is still sharp
  * enough to judge an item's condition.
+ *
+ * @param ioDispatcher runs the decoding and encoding, off the main thread.
  */
 class JpegPhotoCompressor(
     private val contentResolver: ContentResolver,
     private val maxSize: Int = MAX_SIZE,
     private val quality: Int = QUALITY,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : PhotoCompressor {
 
   override suspend fun compress(photo: Uri): ByteArray =
-      withContext(Dispatchers.IO) {
+      withContext(ioDispatcher) {
         // ImageDecoder applies the EXIF rotation, so portrait photos stay upright.
         val bitmap =
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, photo)) {
