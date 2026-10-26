@@ -1,15 +1,18 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.model
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 class FirebaseListingRepository(
+    private val photoCompressor: PhotoCompressor,
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
@@ -28,8 +31,8 @@ class FirebaseListingRepository(
           listing.images.mapIndexed { index, uri ->
             // We construct the Storage path using the index, listingId and ownerUid
             val imageReference = listingImage(ownerUid, document.id, index)
-            // Uploading the image
-            imageReference.putFile(uri).await()
+            // Uploading the compressed image rather than the original, which can weigh megabytes
+            imageReference.putBytes(photoCompressor.compress(uri), JPEG_METADATA).await()
             // After the image is successfully uploaded we add imageReference to uploadedImages.
             uploadedImages += imageReference
             // We retrieve the image URL to display it.
@@ -82,5 +85,7 @@ class FirebaseListingRepository(
 
   private companion object {
     const val LISTINGS_COLLECTION = "listings"
+    val JPEG_METADATA: StorageMetadata =
+        StorageMetadata.Builder().setContentType("image/jpeg").build()
   }
 }
