@@ -1,14 +1,19 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.ui
 
+import android.Manifest
+import android.app.Application
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -50,7 +55,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowToast
 
 @RunWith(AndroidJUnit4::class)
 class CreateListingScreenTest {
@@ -242,6 +249,8 @@ class CreateListingScreenTest {
   private fun setPhotoPicker(
       photos: List<Uri>,
       onAddPhotos: () -> Unit = {},
+      onTakePhoto: () -> Unit = {},
+      onRetakePhoto: (Int) -> Unit = {},
       onRemovePhoto: (Uri) -> Unit = {},
       preview: ImageBitmap? = null,
   ) {
@@ -249,6 +258,8 @@ class CreateListingScreenTest {
       PhotoPicker(
           photos = photos,
           onAddPhotos = onAddPhotos,
+          onTakePhoto = onTakePhoto,
+          onRetakePhoto = onRetakePhoto,
           onRemovePhoto = onRemovePhoto,
           preview = { preview },
       )
@@ -265,6 +276,36 @@ class CreateListingScreenTest {
     assertEquals(1, addClicks)
     node(CreateListingScreenTags.photo(0)).assertDoesNotExist()
     node(CreateListingScreenTags.ADD_PHOTO).assertDoesNotExist()
+  }
+
+  @Test
+  fun photoPicker_withoutPhotos_offersTheCamera() {
+    var takeClicks = 0
+    setPhotoPicker(photos = emptyList(), onTakePhoto = { takeClicks++ })
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+
+    assertEquals(1, takeClicks)
+  }
+
+  @Test
+  fun photoPicker_cameraTileFollowsThumbnails() {
+    var takeClicks = 0
+    setPhotoPicker(photos = uris(2), onTakePhoto = { takeClicks++ })
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performScrollTo().performClick()
+
+    assertEquals(1, takeClicks)
+  }
+
+  @Test
+  fun photoPicker_tappingThumbnailRetakesThatPhoto() {
+    var retaken: Int? = null
+    setPhotoPicker(photos = uris(3), onRetakePhoto = { retaken = it })
+
+    node(CreateListingScreenTags.photo(1)).performClick()
+
+    assertEquals(1, retaken)
   }
 
   @Test
@@ -292,6 +333,22 @@ class CreateListingScreenTest {
 
     node(CreateListingScreenTags.photo(MAX_PHOTOS - 1)).assertExists()
     node(CreateListingScreenTags.ADD_PHOTO).assertDoesNotExist()
+    node(CreateListingScreenTags.TAKE_PHOTO).assertDoesNotExist()
+  }
+
+  @Test
+  fun withTakenPhoto_addsNewPhotosAndReplacesRetakenOnes() {
+    val photos = uris(3)
+    val taken = Uri.parse("content://photos/taken")
+
+    assertEquals(photos + taken, withTakenPhoto(photos, taken, retakeIndex = null))
+    assertEquals(
+        listOf(photos[0], taken, photos[2]),
+        withTakenPhoto(photos, taken, retakeIndex = 1),
+    )
+    // A retake of a photo removed in the meantime is kept as a new photo.
+    assertEquals(photos + taken, withTakenPhoto(photos, taken, retakeIndex = 7))
+    assertEquals(uris(MAX_PHOTOS), withTakenPhoto(uris(MAX_PHOTOS), taken, retakeIndex = null))
   }
 
   @Test
@@ -421,10 +478,12 @@ class CreateListingScreenTest {
   }
 
   /**
-   * Stands in for the system photo picker. The screen launches pickers through the
-   * [ActivityResultRegistry] it finds in composition; this one answers every launch immediately
-   * with the next value of [results] (a list of URIs for the multiple picker, one URI or null for
-   * the single one) and records each launched picker contract in [launched].
+   * Stands in for the system photo picker, camera and permission dialog. The screen launches them
+   * through the [ActivityResultRegistry] it finds in composition; this one answers every launch
+   * immediately with the next value of [results] (a list of URIs for the multiple picker, one URI
+   * or null for the single one, a Boolean for the camera and the permission request) and records
+   * each launched contract in [launched]. A [Throwable] result is thrown instead, like a failed
+   * launch.
    */
   private class FakePickerRegistry : ActivityResultRegistry() {
     val results = ArrayDeque<Any?>()
@@ -437,13 +496,15 @@ class CreateListingScreenTest {
         options: ActivityOptionsCompat?,
     ) {
       launched += contract
-      dispatchResult(requestCode, results.removeFirst())
+      val result = results.removeFirst()
+      if (result is Throwable) throw result
+      dispatchResult(requestCode, result)
     }
   }
 
-  private fun setContentWithPicker(
+  private fun setContentWithRegistry(
       registry: FakePickerRegistry,
-      onCreateListing: (Listing) -> Unit = {},
+      content: @Composable () -> Unit,
   ) {
     val owner =
         object : ActivityResultRegistryOwner {
@@ -451,12 +512,16 @@ class CreateListingScreenTest {
         }
     composeTestRule.setContent {
       // rememberLauncherForActivityResult reads its registry from this composition local.
-      CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
-        CreateListingContent(
-            uiState = ListingUiState(),
-            onCreateListing = onCreateListing,
-        )
-      }
+      CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner, content = content)
+    }
+  }
+
+  private fun setContentWithPicker(
+      registry: FakePickerRegistry,
+      onCreateListing: (Listing) -> Unit = {},
+  ) {
+    setContentWithRegistry(registry) {
+      CreateListingContent(uiState = ListingUiState(), onCreateListing = onCreateListing)
     }
   }
 
@@ -541,6 +606,213 @@ class CreateListingScreenTest {
     assertEquals(pickedPhotos(1..3) - pickedPhotos(2..2), created?.images)
   }
 
+  // Camera: the fake registry also answers the permission request and stands in for the camera
+  // app, which leaves the file it was handed empty. Tests that show a taken photo use native
+  // graphics: there, decoding the empty file for its thumbnail fails cleanly instead of crashing.
+
+  private fun grantCameraPermission() =
+      shadowOf(context as Application).grantPermissions(Manifest.permission.CAMERA)
+
+  private val photoDirectory
+    get() = File(context.filesDir, "listing_photos")
+
+  /** Whether [photo] is one the screen took with the camera. */
+  private fun isTakenPhoto(photo: Uri) =
+      File(photo.path!!).canonicalFile.parentFile == photoDirectory.canonicalFile
+
+  private fun takenPhotoFiles() = photoDirectory.listFiles().orEmpty().toList()
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun takingPhoto_withPermission_addsItToTheListing() {
+    grantCameraPermission()
+    val registry = FakePickerRegistry()
+    registry.results.add(true) // The camera app saved a photo.
+    var created: Listing? = null
+    setContentWithPicker(registry, onCreateListing = { created = it })
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+    composeTestRule.onNodeWithText("1/$MAX_PHOTOS").assertIsDisplayed()
+    fillForm("Drill", "Works well", "5", "Tools")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+
+    assertTrue(registry.launched.single() is ActivityResultContracts.TakePicture)
+    val photo = created?.images?.single()
+    assertTrue(photo != null && isTakenPhoto(photo) && File(photo.path!!).exists())
+  }
+
+  /** The camera app writes through this URI, so it must follow res/xml/file_paths.xml. */
+  @Test
+  fun contentUriFor_pointsAtTheFileProviderPhotoRoot() {
+    val uri = contentUriFor(context, File(photoDirectory, "photo_1.jpg"))
+
+    assertEquals(
+        "content://${context.packageName}.fileprovider/listing_photos/photo_1.jpg",
+        uri.toString(),
+    )
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun takingPhoto_withoutPermission_asksForItFirst() {
+    val registry = FakePickerRegistry()
+    registry.results.add(true) // The user allows the camera.
+    registry.results.add(true) // The camera app saved a photo.
+    setContentWithPicker(registry)
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+
+    assertTrue(registry.launched[0] is ActivityResultContracts.RequestPermission)
+    assertTrue(registry.launched[1] is ActivityResultContracts.TakePicture)
+    composeTestRule.onNodeWithText("1/$MAX_PHOTOS").assertIsDisplayed()
+  }
+
+  @Test
+  fun cancellingCamera_addsNothingAndDeletesTheUnusedFile() {
+    grantCameraPermission()
+    val registry = FakePickerRegistry()
+    registry.results.add(false) // The user leaves the camera app without taking a photo.
+    setContentWithPicker(registry)
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+
+    node(CreateListingScreenTags.photo(0)).assertDoesNotExist()
+    assertTrue(takenPhotoFiles().isEmpty())
+  }
+
+  // Taken photos are kept in app storage, which Android never clears, so the screen deletes them
+  // once they are no longer needed.
+
+  @Test
+  fun deleteTakenPhoto_deletesOnlyCameraPhotos() {
+    val taken = File(photoDirectory.apply { mkdirs() }, "photo_1.jpg").apply { createNewFile() }
+    val other = File(context.filesDir, "photo_2.jpg").apply { createNewFile() }
+
+    deleteTakenPhoto(context, Uri.fromFile(other))
+    deleteTakenPhoto(context, Uri.parse("content://media/external/images/media/1"))
+    deleteTakenPhoto(context, Uri.fromFile(taken))
+
+    assertFalse(taken.exists())
+    assertTrue(other.exists())
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun removingTakenPhoto_deletesItsFile() {
+    grantCameraPermission()
+    val registry = FakePickerRegistry()
+    registry.results.add(true) // The camera app saved a photo.
+    setContentWithPicker(registry)
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+    assertEquals(1, takenPhotoFiles().size)
+    node(CreateListingScreenTags.removePhoto(0)).performClick()
+
+    assertTrue(takenPhotoFiles().isEmpty())
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun retakingTakenPhoto_deletesTheOldFile() {
+    grantCameraPermission()
+    val registry = FakePickerRegistry()
+    registry.results.add(true) // The camera app saved a photo.
+    registry.results.add(true) // And saved its retake.
+    setContentWithPicker(registry)
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+    val first = takenPhotoFiles().single()
+    node(CreateListingScreenTags.photo(0)).performClick()
+
+    assertFalse(first.exists())
+    assertEquals(1, takenPhotoFiles().size)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun createdListing_deletesItsTakenPhotos() {
+    grantCameraPermission()
+    val registry = FakePickerRegistry()
+    registry.results.add(true) // The camera app saved a photo.
+    val viewModel = ListingViewModel(RecordingListingRepository())
+    var created: Listing? = null
+    setContentWithRegistry(registry) {
+      CreateListingScreen(listingViewModel = viewModel, onListingCreated = { created = it })
+    }
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+    fillForm("Drill", "Works well", "5", "Tools")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    assertNotNull(created)
+    assertTrue(takenPhotoFiles().isEmpty())
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun retakingPhoto_replacesItInPlace() {
+    grantCameraPermission()
+    val registry = FakePickerRegistry()
+    registry.results.add(pickedPhotos(1..2))
+    registry.results.add(true) // The camera app saved the new photo.
+    var created: Listing? = null
+    setContentWithPicker(registry, onCreateListing = { created = it })
+
+    node(CreateListingScreenTags.PHOTO_PICKER).performClick()
+    node(CreateListingScreenTags.photo(0)).performClick()
+    fillForm("Drill", "Works well", "5", "Tools")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+
+    val images = created?.images.orEmpty()
+    assertEquals(2, images.size)
+    assertTrue(isTakenPhoto(images[0]))
+    assertEquals(pickedPhotos(2..2).single(), images[1])
+  }
+
+  @Test
+  fun deniedPermission_explainsAndCancelKeepsTheForm() {
+    val registry = FakePickerRegistry()
+    registry.results.add(false) // The user refuses the camera.
+    setContentWithPicker(registry)
+    node(CreateListingScreenTags.TITLE_FIELD).performTextInput("Drill")
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+    node(CreateListingScreenTags.CAMERA_PERMISSION_DIALOG).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Camera access needed").assertIsDisplayed()
+    node(CreateListingScreenTags.CAMERA_PERMISSION_CANCEL).performClick()
+
+    node(CreateListingScreenTags.CAMERA_PERMISSION_DIALOG).assertDoesNotExist()
+    node(CreateListingScreenTags.TITLE_FIELD).assertTextContains("Drill")
+    assertTrue(registry.launched.none { it is ActivityResultContracts.TakePicture })
+  }
+
+  @Test
+  fun permissionDialog_openSettingsShowsTheAppSettings() {
+    var dismissed = false
+    composeTestRule.setContent { CameraPermissionDialog(onDismiss = { dismissed = true }) }
+
+    node(CreateListingScreenTags.CAMERA_PERMISSION_SETTINGS).performClick()
+
+    val intent = shadowOf(context as Application).nextStartedActivity
+    assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, intent.action)
+    assertEquals("package:${context.packageName}", intent.dataString)
+    assertTrue(dismissed)
+  }
+
+  @Test
+  fun takingPhoto_withoutCameraApp_showsMessage() {
+    grantCameraPermission()
+    val registry = FakePickerRegistry()
+    registry.results.add(ActivityNotFoundException())
+    setContentWithPicker(registry)
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+
+    assertEquals("No camera app found", ShadowToast.getTextOfLatestToast())
+    node(CreateListingScreenTags.photo(0)).assertDoesNotExist()
+  }
+
   private fun writeImage(width: Int, height: Int): Uri {
     val file = File.createTempFile("photo", ".png", context.cacheDir)
     file.outputStream().use {
@@ -587,7 +859,13 @@ class CreateListingScreenTest {
   fun photoPicker_showsThumbnailLoadedFromPhoto() {
     val photo = writeImage(64, 64)
     composeTestRule.setContent {
-      PhotoPicker(photos = listOf(photo), onAddPhotos = {}, onRemovePhoto = {})
+      PhotoPicker(
+          photos = listOf(photo),
+          onAddPhotos = {},
+          onTakePhoto = {},
+          onRetakePhoto = {},
+          onRemovePhoto = {},
+      )
     }
 
     // The thumbnail is decoded off the main thread, so wait for the image to appear.
