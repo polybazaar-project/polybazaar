@@ -217,6 +217,9 @@ class ForgotPasswordScreenTest {
   private class FakeAuthRepository(private val resetResult: Result<Unit>) : AuthRepository {
     val resetEmails = mutableListOf<String>()
 
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
       resetEmails += email
       return resetResult

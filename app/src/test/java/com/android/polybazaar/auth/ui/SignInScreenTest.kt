@@ -202,6 +202,9 @@ class SignInScreenTest {
     override suspend fun refreshUser(): Result<User> =
         Result.failure(IllegalStateException("Not used"))
 
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
         Result.failure(IllegalStateException("Not used"))
   }

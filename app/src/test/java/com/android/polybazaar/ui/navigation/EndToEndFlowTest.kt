@@ -183,6 +183,9 @@ class EndToEndFlowTest {
 
     override suspend fun refreshUser(): Result<User> = Result.success(getCurrentUser())
 
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
         Result.failure(IllegalStateException("Not used"))
 

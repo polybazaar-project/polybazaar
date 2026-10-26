@@ -164,6 +164,9 @@ class VerifyEmailViewModelTest {
 
     override suspend fun refreshUser(): Result<User> = refreshUserResult
 
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
         Result.failure(IllegalStateException("Not used"))
   }

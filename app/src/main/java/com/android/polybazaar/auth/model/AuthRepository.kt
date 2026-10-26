@@ -22,4 +22,14 @@ interface AuthRepository {
    * and does not reveal which emails have an account. Fails with a [PasswordResetException].
    */
   suspend fun sendPasswordResetEmail(email: String): Result<Unit>
+
+  /**
+   * Sets [newPassword] for the account that requested the reset link whose one-time code is [code].
+   *
+   * Fails with a [ConfirmPasswordResetException]:
+   * [ConfirmPasswordResetException.Reason.INVALID_LINK] if [code] is blank, malformed, expired or
+   * already used, [ConfirmPasswordResetException.Reason.WEAK_PASSWORD] if Firebase rejects
+   * [newPassword].
+   */
+  suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit>
 }
