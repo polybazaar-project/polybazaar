@@ -17,6 +17,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
@@ -28,6 +29,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.core.content.ContextCompat
 import com.android.polybazaar.auth.ui.AuthColors
 import java.io.File
+import java.io.IOException
 
 /**
  * Takes listing photos with the system camera app, asking for the camera permission first.
@@ -47,12 +49,14 @@ internal class PhotoCamera(
 }
 
 /**
+ * @param photosInUse the photos the form shows, which are kept when abandoned photos are deleted.
  * @param onPhotoTaken called with the new photo and, for a retake, the index of the photo it
  *   replaces.
  */
 @Composable
 internal fun rememberPhotoCamera(
-    onPhotoTaken: (photo: Uri, retakeIndex: Int?) -> Unit
+    photosInUse: () -> List<Uri>,
+    onPhotoTaken: (photo: Uri, retakeIndex: Int?) -> Unit,
 ): PhotoCamera {
   val context = LocalContext.current
   val currentOnPhotoTaken by rememberUpdatedState(onPhotoTaken)
@@ -60,6 +64,14 @@ internal fun rememberPhotoCamera(
   var pendingPhoto by rememberSaveable { mutableStateOf<String?>(null) }
   var retakeIndex by rememberSaveable { mutableStateOf<Int?>(null) }
   var permissionDenied by rememberSaveable { mutableStateOf(false) }
+
+  // Photos of a form the user left are never published, so they are deleted when a form opens.
+  // Kept: the photos this form still shows after being recreated, and the one being taken.
+  // Run on the main thread, so that no photo can be taken while the directory is cleaned.
+  LaunchedEffect(Unit) {
+    val pending = pendingPhoto?.let { Uri.fromFile(File(it)) }
+    deleteAbandonedPhotos(context, keep = photosInUse() + listOfNotNull(pending))
+  }
 
   val takePicture =
       rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
@@ -70,14 +82,18 @@ internal fun rememberPhotoCamera(
         }
       }
   val launchCamera = {
-    val file = newPhotoFile(context)
-    pendingPhoto = file.path
-    try {
-      takePicture.launch(contentUriFor(context, file))
-    } catch (e: ActivityNotFoundException) {
-      pendingPhoto = null
-      deletePhotoFile(file)
-      Toast.makeText(context, "No camera app found", Toast.LENGTH_SHORT).show()
+    val file = newPhotoFileOrNull(context)
+    if (file == null) {
+      Toast.makeText(context, "Could not save the photo", Toast.LENGTH_SHORT).show()
+    } else {
+      pendingPhoto = file.path
+      try {
+        takePicture.launch(contentUriFor(context, file))
+      } catch (e: ActivityNotFoundException) {
+        pendingPhoto = null
+        deletePhotoFile(file)
+        Toast.makeText(context, "No camera app found", Toast.LENGTH_SHORT).show()
+      }
     }
   }
   val requestPermission =
@@ -105,13 +121,33 @@ internal fun rememberPhotoCamera(
 /**
  * Photos live in app storage, not the cache, which Android can clear before the listing is
  * uploaded. So they are deleted by hand with [deleteTakenPhoto] once no longer needed.
+ *
+ * @return null when the file cannot be created, for example when storage is full.
  */
-private fun newPhotoFile(context: Context): File {
-  val directory = photoDirectory(context).apply { mkdirs() }
-  return File.createTempFile("photo_", ".jpg", directory)
-}
+private fun newPhotoFileOrNull(context: Context): File? =
+    try {
+      val directory = photoDirectory(context).apply { mkdirs() }
+      File.createTempFile("photo_", ".jpg", directory)
+    } catch (e: IOException) {
+      Log.w(LOG_TAG, "Could not create a photo file", e)
+      null
+    }
 
 private fun photoDirectory(context: Context) = File(context.filesDir, PHOTO_DIRECTORY)
+
+/** Deletes every camera photo except those in [keep], which may also hold gallery photos. */
+internal fun deleteAbandonedPhotos(context: Context, keep: List<Uri>) {
+  val kept =
+      keep
+          .filter { it.scheme == ContentResolver.SCHEME_FILE }
+          .mapNotNull { it.path }
+          .map { File(it).canonicalFile }
+  photoDirectory(context)
+      .listFiles()
+      .orEmpty()
+      .filterNot { it.canonicalFile in kept }
+      .forEach(::deletePhotoFile)
+}
 
 /**
  * Deletes [photo] if the camera took it for a listing. Photos picked from the gallery belong to the
