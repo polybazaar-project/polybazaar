@@ -1,0 +1,105 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Sign-up only checks the domain in the app, and anyone can create a Firebase Auth account
+    // through the REST API, so the rules check it again.
+    function isEpfl() {
+      return isSignedIn()
+          && request.auth.token.email is string
+          && request.auth.token.email.lower().matches('.*@epfl[.]ch$');
+    }
+
+    // Everything except creating an account needs a verified EPFL address.
+    function isVerified() {
+      return isEpfl() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAmount(value, max) {
+      return value is number && value > 0 && value <= max;
+    }
+
+    // Username -> { uid }. Written once at sign-up, in the same batch as the profile document,
+    // before the email is verified.
+    match /usernames/{username} {
+      // Sign-up checks availability before the account exists, so this has to work signed out.
+      allow get: if true;
+      // Sign-in looks up its own username with whereEqualTo("uid", uid).
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      allow create: if isEpfl()
+          && request.resource.data.keys().hasOnly(['uid'])
+          && request.resource.data.uid == request.auth.uid
+          && username == username.lower()
+          && username == username.trim()
+          && username.size() >= 3 && username.size() <= 30;
+
+      allow update, delete: if false;
+    }
+
+    // Public profile. The email is not stored here.
+    match /users/{uid} {
+      function validProfile(data) {
+        return data.keys().hasAll(['username'])
+            && data.keys().hasOnly(['username', 'bio', 'photoUrl'])
+            && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
+            && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 2048));
+      }
+
+      // Other users' profiles are shown next to their listings. Before verifying, a user can
+      // still see their own.
+      allow read: if isVerified() || isOwner(uid);
+
+      // Part of creating the account, so it does not need a verified email: sign-up writes it
+      // before the user has verified. getAfter, because sign-up creates the username in the same
+      // batch.
+      allow create: if isEpfl() && isOwner(uid)
+          && validProfile(request.resource.data)
+          && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.username)).data.uid == uid;
+
+      // Every sign-in rewrites the username it already has (ensureProfileDocument). Before
+      // verifying, that write must change nothing.
+      allow update: if isOwner(uid)
+          && validProfile(request.resource.data)
+          && request.resource.data.username == resource.data.username
+          && (isVerified() || request.resource.data.diff(resource.data).affectedKeys().size() == 0);
+
+      allow delete: if false;
+    }
+
+    match /listings/{listingId} {
+      function validListing(data) {
+        return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imageUrls'])
+            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imageUrls', 'refundValue'])
+            && data.ownerUid == request.auth.uid
+            && data.category is string && data.category.size() > 0 && data.category.size() <= 50
+            && data.title is string && data.title.size() > 0 && data.title.size() <= 80
+            && data.description is string && data.description.size() <= 1000
+            && isAmount(data.price, 10000)
+            && data.imageUrls is list && data.imageUrls.size() <= 5
+            && ((data.type == 'ITEM' && isAmount(data.refundValue, 100000))
+                || (data.type == 'SERVICE' && !('refundValue' in data)));
+      }
+
+      allow read: if isVerified();
+
+      allow create: if isVerified() && validListing(request.resource.data);
+
+      allow update: if isVerified()
+          && resource.data.ownerUid == request.auth.uid
+          && validListing(request.resource.data);
+
+      allow delete: if isVerified() && resource.data.ownerUid == request.auth.uid;
+    }
+  }
+}
