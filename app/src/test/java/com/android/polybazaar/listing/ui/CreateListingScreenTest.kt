@@ -252,6 +252,7 @@ class CreateListingScreenTest {
       onTakePhoto: () -> Unit = {},
       onRetakePhoto: (Int) -> Unit = {},
       onRemovePhoto: (Uri) -> Unit = {},
+      enabled: Boolean = true,
       preview: ImageBitmap? = null,
   ) {
     composeTestRule.setContent {
@@ -261,9 +262,41 @@ class CreateListingScreenTest {
           onTakePhoto = onTakePhoto,
           onRetakePhoto = onRetakePhoto,
           onRemovePhoto = onRemovePhoto,
+          enabled = enabled,
           preview = { preview },
       )
     }
+  }
+
+  @Test
+  fun photoPicker_whenDisabled_ignoresEveryPhotoAction() {
+    var clicks = 0
+    setPhotoPicker(
+        photos = uris(2),
+        onAddPhotos = { clicks++ },
+        onTakePhoto = { clicks++ },
+        onRetakePhoto = { clicks++ },
+        onRemovePhoto = { clicks++ },
+        enabled = false,
+    )
+
+    listOf(
+            CreateListingScreenTags.photo(0),
+            CreateListingScreenTags.removePhoto(0),
+            CreateListingScreenTags.TAKE_PHOTO,
+            CreateListingScreenTags.ADD_PHOTO,
+        )
+        .forEach { node(it).performScrollTo().assertIsNotEnabled().performClick() }
+
+    assertEquals(0, clicks)
+  }
+
+  @Test
+  fun whileCreating_photoButtonsAreDisabled() {
+    setContent(uiState = ListingUiState(isCreating = true))
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performScrollTo().assertIsNotEnabled()
+    node(CreateListingScreenTags.PHOTO_PICKER).performScrollTo().assertIsNotEnabled()
   }
 
   @Test

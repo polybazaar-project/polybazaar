@@ -337,6 +337,8 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
             photos = photos - removed
             deleteTakenPhoto(context, removed)
           },
+          // The repository is still reading these photos, so none may be removed or replaced.
+          enabled = !uiState.isCreating,
       )
       FormField(label = "Title") {
         FormTextField(
@@ -556,6 +558,7 @@ internal const val PHOTO_PREVIEW_MAX_SIZE = 512
  *
  * @param onAddPhotos opens the gallery.
  * @param onRetakePhoto called with the index of the tapped thumbnail.
+ * @param enabled whether photos can be added, retaken or removed.
  * @param preview loads the thumbnail of a photo; replaceable in tests.
  */
 @Composable
@@ -565,6 +568,7 @@ internal fun PhotoPicker(
     onTakePhoto: () -> Unit,
     onRetakePhoto: (Int) -> Unit,
     onRemovePhoto: (Uri) -> Unit,
+    enabled: Boolean = true,
     preview: @Composable (Uri) -> ImageBitmap? = { rememberPhotoPreview(it) },
 ) {
   Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -583,6 +587,7 @@ internal fun PhotoPicker(
             subtitle = "Show its real condition",
             icon = R.drawable.ic_camera,
             onClick = onTakePhoto,
+            enabled = enabled,
             tag = CreateListingScreenTags.TAKE_PHOTO,
             modifier = Modifier.weight(1f),
         )
@@ -591,6 +596,7 @@ internal fun PhotoPicker(
             subtitle = "Up to $MAX_PHOTOS photos",
             icon = R.drawable.ic_image,
             onClick = onAddPhotos,
+            enabled = enabled,
             tag = CreateListingScreenTags.PHOTO_PICKER,
             modifier = Modifier.weight(1f),
         )
@@ -606,6 +612,7 @@ internal fun PhotoPicker(
               index = index,
               onRetake = { onRetakePhoto(index) },
               onRemove = { onRemovePhoto(uri) },
+              enabled = enabled,
           )
         }
         if (photos.size < MAX_PHOTOS) {
@@ -613,12 +620,14 @@ internal fun PhotoPicker(
               text = "Camera",
               icon = R.drawable.ic_camera,
               onClick = onTakePhoto,
+              enabled = enabled,
               tag = CreateListingScreenTags.TAKE_PHOTO,
           )
           AddPhotoTile(
               text = "Gallery",
               icon = R.drawable.ic_image,
               onClick = onAddPhotos,
+              enabled = enabled,
               tag = CreateListingScreenTags.ADD_PHOTO,
           )
         }
@@ -637,6 +646,7 @@ private fun EmptyPhotoOption(
     subtitle: String,
     icon: Int,
     onClick: () -> Unit,
+    enabled: Boolean,
     tag: String,
     modifier: Modifier = Modifier,
 ) {
@@ -646,7 +656,7 @@ private fun EmptyPhotoOption(
               .clip(PhotoShape)
               .background(AuthColors.Background)
               .border(1.dp, AuthColors.Outline, PhotoShape)
-              .clickable(role = Role.Button, onClick = onClick)
+              .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
               .padding(14.dp)
               .testTag(tag),
       horizontalAlignment = Alignment.CenterHorizontally,
@@ -669,6 +679,7 @@ private fun PhotoThumbnail(
     index: Int,
     onRetake: () -> Unit,
     onRemove: () -> Unit,
+    enabled: Boolean,
 ) {
   Box(
       modifier =
@@ -677,6 +688,7 @@ private fun PhotoThumbnail(
               .background(AuthColors.Background)
               .border(1.dp, AuthColors.Outline, PhotoShape)
               .clickable(
+                  enabled = enabled,
                   onClickLabel = "Retake photo ${index + 1}",
                   role = Role.Button,
                   onClick = onRetake,
@@ -698,7 +710,7 @@ private fun PhotoThumbnail(
                 .size(24.dp)
                 .clip(CircleShape)
                 .background(AuthColors.CardBackground)
-                .clickable(role = Role.Button, onClick = onRemove)
+                .clickable(enabled = enabled, role = Role.Button, onClick = onRemove)
                 .semantics { contentDescription = "Remove photo ${index + 1}" }
                 .testTag(CreateListingScreenTags.removePhoto(index)),
         contentAlignment = Alignment.Center,
@@ -709,14 +721,20 @@ private fun PhotoThumbnail(
 }
 
 @Composable
-private fun AddPhotoTile(text: String, icon: Int, onClick: () -> Unit, tag: String) {
+private fun AddPhotoTile(
+    text: String,
+    icon: Int,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    tag: String,
+) {
   Column(
       modifier =
           Modifier.size(ThumbnailSize)
               .clip(PhotoShape)
               .background(AuthColors.Background)
               .border(1.dp, AuthColors.Outline, PhotoShape)
-              .clickable(role = Role.Button, onClick = onClick)
+              .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
               .testTag(tag),
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
