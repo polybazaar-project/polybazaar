@@ -281,6 +281,9 @@ class ForgotPasswordViewModelTest {
     var resetGate: CompletableDeferred<Result<Unit>>? = null
     val resetEmails = mutableListOf<String>()
 
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
       resetEmails += email
       return resetGate?.await() ?: resetResult
