@@ -763,7 +763,7 @@ class CreateListingScreenTest {
 
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
-  fun createdListing_deletesItsTakenPhotos() {
+  fun createdListing_deletesItsTakenPhotosAndClearsThemFromTheForm() {
     grantCameraPermission()
     val registry = FakePickerRegistry()
     registry.results.add(true) // The camera app saved a photo.
@@ -778,8 +778,9 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
     composeTestRule.waitForIdle()
 
-    assertNotNull(created)
+    assertEquals(listOf(Uri.parse("https://example.com/0.jpg")), created?.images)
     assertTrue(takenPhotoFiles().isEmpty())
+    node(CreateListingScreenTags.photo(0)).assertDoesNotExist()
   }
 
   @Test
@@ -918,9 +919,11 @@ class CreateListingScreenTest {
     override suspend fun createListing(listing: Listing): Listing {
       received = listing
       failure?.let { throw it }
+      // Like the real repository, returns where the photos were uploaded.
+      val uploaded = listing.images.indices.map { Uri.parse("https://example.com/$it.jpg") }
       return when (listing) {
-        is ItemListing -> listing.copy(listingId = "listing-1")
-        is ServiceListing -> listing.copy(listingId = "listing-1")
+        is ItemListing -> listing.copy(listingId = "listing-1", images = uploaded)
+        is ServiceListing -> listing.copy(listingId = "listing-1", images = uploaded)
       }
     }
   }

@@ -3,6 +3,7 @@
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -18,12 +19,15 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
+// Robolectric, so that Uri.parse builds the returned download URIs.
+@RunWith(AndroidJUnit4::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FirebaseListingRepositoryTest {
 
@@ -94,6 +98,7 @@ class FirebaseListingRepositoryTest {
     val result = repository.createListing(listing)
 
     assertEquals(listingId, result.listingId)
+    assertEquals(listOf(Uri.parse("https://example.com/listing.jpg")), result.images)
     verify(imageReference).putBytes(eq(photoBytes), any())
     assertEquals(listOf(imageUri), compressedPhotos)
     verify(document)

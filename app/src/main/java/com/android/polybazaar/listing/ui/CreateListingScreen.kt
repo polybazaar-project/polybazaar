@@ -203,14 +203,7 @@ fun CreateListingScreen(
 ) {
   val uiState by listingViewModel.uiState.collectAsState()
 
-  val context = LocalContext.current
-  LaunchedEffect(uiState.createdListing) {
-    uiState.createdListing?.let { listing ->
-      // Uploaded, so the camera photos are no longer needed on the phone.
-      listing.images.forEach { deleteTakenPhoto(context, it) }
-      onListingCreated(listing)
-    }
-  }
+  LaunchedEffect(uiState.createdListing) { uiState.createdListing?.let(onListingCreated) }
 
   CreateListingContent(uiState = uiState, onCreateListing = listingViewModel::createListing)
 }
@@ -256,6 +249,13 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
     val retaken = retakeIndex?.let(photos::getOrNull)
     photos = withTakenPhoto(photos, photo, retakeIndex)
     retaken?.let { deleteTakenPhoto(context, it) }
+  }
+  LaunchedEffect(uiState.createdListing) {
+    if (uiState.createdListing != null) {
+      // Uploaded, so the camera photos are no longer needed on the phone or in the form.
+      photos.forEach { deleteTakenPhoto(context, it) }
+      photos = emptyList()
+    }
   }
 
   // Categories differ between items and services, so drop one that no longer applies.

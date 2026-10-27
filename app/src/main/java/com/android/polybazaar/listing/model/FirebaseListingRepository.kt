@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.model
 
+import android.net.Uri
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
@@ -40,7 +41,8 @@ class FirebaseListingRepository(
           }
 
       document.set(listing.toFirestoreData(ownerUid, imageUrls)).await()
-      return listing.withId(document.id)
+      // Points to the uploaded photos: the local ones may be deleted once the listing is saved.
+      return listing.saved(document.id, imageUrls.map(Uri::parse))
     } catch (exception: Exception) {
       // If listing creation fails, undo image uploads
       // Cleanup code needs to attempt deletion even if the original coroutine has been canceled.
@@ -77,10 +79,10 @@ class FirebaseListingRepository(
         }
       }
 
-  private fun Listing.withId(listingId: String): Listing =
+  private fun Listing.saved(listingId: String, images: List<Uri>): Listing =
       when (this) {
-        is ServiceListing -> copy(listingId = listingId)
-        is ItemListing -> copy(listingId = listingId)
+        is ServiceListing -> copy(listingId = listingId, images = images)
+        is ItemListing -> copy(listingId = listingId, images = images)
       }
 
   private companion object {
