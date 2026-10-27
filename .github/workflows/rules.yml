@@ -1,0 +1,64 @@
+# Co-authored-by: Claude Code (Claude Opus 5.5)
+name: CI - Security Rules
+
+# Only the rule files and their tests can change the result, so skip the job otherwise.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - firestore.rules
+      - storage.rules
+      - firebase.json
+      - rules-tests/**
+      - .github/workflows/rules.yml
+
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - firestore.rules
+      - storage.rules
+      - firebase.json
+      - rules-tests/**
+      - .github/workflows/rules.yml
+
+jobs:
+  rules:
+    name: Firestore and Storage rules
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The Firebase emulators run on the JVM.
+      - name: Setup JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: rules-tests/package-lock.json
+
+      # Saves downloading the emulator jars on every run.
+      - name: Emulator cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('rules-tests/package.json') }}
+
+      - name: Install dependencies
+        working-directory: rules-tests
+        run: npm ci
+
+      - name: Run rules tests
+        working-directory: rules-tests
+        run: npm test
