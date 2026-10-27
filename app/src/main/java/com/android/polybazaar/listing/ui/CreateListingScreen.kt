@@ -245,11 +245,12 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
         addPhotos(uris)
       }
   val context = LocalContext.current
-  val camera = rememberPhotoCamera { photo, retakeIndex ->
-    val retaken = retakeIndex?.let(photos::getOrNull)
-    photos = withTakenPhoto(photos, photo, retakeIndex)
-    retaken?.let { deleteTakenPhoto(context, it) }
-  }
+  val camera =
+      rememberPhotoCamera(photosInUse = { photos }) { photo, retakeIndex ->
+        val retaken = retakeIndex?.let(photos::getOrNull)
+        photos = withTakenPhoto(photos, photo, retakeIndex)
+        retaken?.let { deleteTakenPhoto(context, it) }
+      }
   LaunchedEffect(uiState.createdListing) {
     if (uiState.createdListing != null) {
       // Uploaded, so the camera photos are no longer needed on the phone or in the form.

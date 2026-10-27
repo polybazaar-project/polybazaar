@@ -730,6 +730,49 @@ class CreateListingScreenTest {
   }
 
   @Test
+  fun deleteAbandonedPhotos_keepsPhotosInUseAndOtherFiles() {
+    val directory = photoDirectory.apply { mkdirs() }
+    val inUse = File(directory, "photo_1.jpg").apply { createNewFile() }
+    val abandoned = File(directory, "photo_2.jpg").apply { createNewFile() }
+    val other = File(context.filesDir, "photo_3.jpg").apply { createNewFile() }
+
+    deleteAbandonedPhotos(
+        context,
+        keep = listOf(Uri.fromFile(inUse), Uri.parse("content://media/external/images/media/1")),
+    )
+
+    assertTrue(inUse.exists())
+    assertFalse(abandoned.exists())
+    assertTrue(other.exists())
+  }
+
+  @Test
+  fun openingForm_deletesPhotosOfAFormThatWasLeft() {
+    val abandoned = File(photoDirectory.apply { mkdirs() }, "photo_1.jpg").apply { createNewFile() }
+
+    setContentWithPicker(FakePickerRegistry())
+    composeTestRule.waitForIdle()
+
+    assertFalse(abandoned.exists())
+  }
+
+  @Test
+  fun takingPhoto_whenFileCannotBeCreated_showsMessageAndKeepsTheForm() {
+    grantCameraPermission()
+    // A file where the photo directory should be, so no photo file can be created in it.
+    photoDirectory.createNewFile()
+    val registry = FakePickerRegistry()
+    setContentWithPicker(registry)
+    node(CreateListingScreenTags.TITLE_FIELD).performTextInput("Drill")
+
+    node(CreateListingScreenTags.TAKE_PHOTO).performClick()
+
+    assertEquals("Could not save the photo", ShadowToast.getTextOfLatestToast())
+    assertTrue(registry.launched.isEmpty())
+    node(CreateListingScreenTags.TITLE_FIELD).assertTextContains("Drill")
+  }
+
+  @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   fun removingTakenPhoto_deletesItsFile() {
     grantCameraPermission()
