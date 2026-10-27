@@ -8,6 +8,10 @@
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
+    <!-- The CAMERA permission also implies autofocus, which fixed-focus cameras lack. -->
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
