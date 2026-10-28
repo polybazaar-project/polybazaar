@@ -219,6 +219,32 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
+  fun signUp_valuesExactlyAtLimits_succeed() = runTest {
+    val longEmail = "e".repeat(AuthRules.MAX_EMAIL_LENGTH - "@epfl.ch".length) + "@epfl.ch"
+    val longPassword = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH)
+    whenever(firebaseUser.email).thenReturn(longEmail)
+    mockSignUpAuthResult(email = longEmail, password = longPassword)
+
+    listOf("a".repeat(AuthRules.MIN_USERNAME_LENGTH), "a".repeat(AuthRules.MAX_USERNAME_LENGTH))
+        .forEach { name ->
+          mockUsernameDocument(exists = false, username = name)
+
+          val result = repository.signUp(longEmail, longPassword, name)
+
+          assertEquals(name, result.getOrThrow().username)
+        }
+  }
+
+  @Test
+  fun signUp_usernameBelowMinimum_returnsFailureWithoutTouchingFirebase() = runTest {
+    val result = repository.signUp(email, password, "ab")
+
+    assertEquals("Username must be at least 3 characters", result.exceptionOrNull()?.message)
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
+  }
+
+  @Test
   fun signUp_blankUsername_returnsFailureWithoutTouchingFirebase() = runTest {
     listOf("", "   ").forEach { blank ->
       val result = repository.signUp(email, password, blank)
@@ -559,7 +585,10 @@ class FirebaseAuthRepositoryTest {
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
   }
 
-  private fun mockUsernameDocument(exists: Boolean): DocumentReference {
+  private fun mockUsernameDocument(
+      exists: Boolean,
+      username: String = this.username,
+  ): DocumentReference {
     val docRef = mock<DocumentReference>()
     val documentSnapshot = mock<DocumentSnapshot>()
 
@@ -570,7 +599,11 @@ class FirebaseAuthRepositoryTest {
     return docRef
   }
 
-  private fun mockSignUpAuthResult(user: FirebaseUser? = firebaseUser) {
+  private fun mockSignUpAuthResult(
+      user: FirebaseUser? = firebaseUser,
+      email: String = this.email,
+      password: String = this.password,
+  ) {
     val authResult = mock<AuthResult>()
     whenever(authResult.user).thenReturn(user)
     whenever(auth.createUserWithEmailAndPassword(email, password))

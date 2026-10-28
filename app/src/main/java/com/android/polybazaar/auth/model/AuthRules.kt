@@ -23,6 +23,12 @@ object AuthRules {
    */
   const val MAX_PASSWORD_INPUT_LENGTH = 4096
 
+  /**
+   * Hard cap on username and email input, far above their limits, so a huge paste cannot bloat
+   * rememberSaveable state. Input between the limit and this cap is kept and reported as an error.
+   */
+  const val MAX_TEXT_INPUT_LENGTH = 1024
+
   private val RESERVED_FIRESTORE_ID = Regex("__.*__")
 
   /**

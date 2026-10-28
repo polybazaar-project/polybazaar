@@ -44,6 +44,7 @@ object CreateAccountScreenTags {
   const val USERNAME_FIELD = "create_account_username_field"
   const val USERNAME_INVALID_MESSAGE = "create_account_username_invalid_message"
   const val EMAIL_FIELD = "create_account_email_field"
+  const val EMAIL_TOO_LONG_MESSAGE = "create_account_email_too_long_message"
   const val EMAIL_NOT_EPFL_MESSAGE = "create_account_email_not_epfl_message"
   const val PASSWORD_FIELD = "create_account_password_field"
   const val CONFIRM_PASSWORD_FIELD = "create_account_confirm_password_field"
@@ -91,7 +92,8 @@ fun CreateAccountContent(
   var password by rememberSaveable { mutableStateOf("") }
   var confirmPassword by rememberSaveable { mutableStateOf("") }
   val usernameError = AuthRules.usernameError(AuthRules.normalizeUsername(username))
-  val emailNotEpfl = email.isNotBlank() && !isEpflEmail(email)
+  val emailTooLong = email.trim().length > AuthRules.MAX_EMAIL_LENGTH
+  val emailNotEpfl = email.isNotBlank() && !emailTooLong && !isEpflEmail(email)
   val passwordTooShort = password.isNotEmpty() && password.length < AuthRules.MIN_PASSWORD_LENGTH
   val passwordTooLong = password.length > AuthRules.MAX_PASSWORD_LENGTH
   val passwordsMatch = password == confirmPassword
@@ -101,6 +103,7 @@ fun CreateAccountContent(
           usernameError == null &&
           email.isNotBlank() &&
           !emailNotEpfl &&
+          !emailTooLong &&
           password.isNotEmpty() &&
           !passwordTooShort &&
           !passwordTooLong &&
@@ -130,7 +133,9 @@ fun CreateAccountContent(
         LabeledField(
             label = "Username",
             value = username,
-            onValueChange = { username = AuthRules.limitInput(it, AuthRules.MAX_USERNAME_LENGTH) },
+            onValueChange = {
+              username = AuthRules.limitInput(it, AuthRules.MAX_TEXT_INPUT_LENGTH)
+            },
             placeholder = "Enter your username",
             tag = CreateAccountScreenTags.USERNAME_FIELD,
         )
@@ -145,11 +150,19 @@ fun CreateAccountContent(
         LabeledField(
             label = "Email",
             value = email,
-            onValueChange = { email = AuthRules.limitInput(it, AuthRules.MAX_EMAIL_LENGTH) },
+            onValueChange = { email = AuthRules.limitInput(it, AuthRules.MAX_TEXT_INPUT_LENGTH) },
             placeholder = "Enter your email",
             tag = CreateAccountScreenTags.EMAIL_FIELD,
             keyboardType = KeyboardType.Email,
         )
+        if (emailTooLong) {
+          Text(
+              text = "Email must be at most ${AuthRules.MAX_EMAIL_LENGTH} characters",
+              color = AuthColors.Danger,
+              fontSize = 12.sp,
+              modifier = Modifier.testTag(CreateAccountScreenTags.EMAIL_TOO_LONG_MESSAGE),
+          )
+        }
         if (emailNotEpfl) {
           Text(
               text = "Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)",
