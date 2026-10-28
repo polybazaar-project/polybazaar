@@ -32,18 +32,14 @@ class FirebaseAuthRepository(
       return Result.failure(Exception("Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)"))
     }
     if (username.isBlank()) return Result.failure(Exception("Username is required"))
-    AuthRules.usernameError(AuthRules.normalizeUsername(username))?.let {
+    AuthRules.usernameError(username)?.let {
       return Result.failure(Exception(it))
     }
-    if (email.length > AuthRules.MAX_EMAIL_LENGTH) {
-      return Result.failure(
-          Exception("Email must be at most ${AuthRules.MAX_EMAIL_LENGTH} characters")
-      )
+    AuthRules.emailLengthError(email)?.let {
+      return Result.failure(Exception(it))
     }
-    if (password.length > AuthRules.MAX_PASSWORD_LENGTH) {
-      return Result.failure(
-          Exception("Password must be at most ${AuthRules.MAX_PASSWORD_LENGTH} characters")
-      )
+    AuthRules.passwordLengthError(password)?.let {
+      return Result.failure(Exception(it))
     }
     return try {
       require(username == AuthRules.normalizeUsername(username)) {

@@ -344,7 +344,7 @@ class CreateAccountContentEdgeCasesTest {
     assertEquals(username, editableText(CreateAccountScreenTags.USERNAME_FIELD))
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
-        .assertTextEquals("Username must be at most ${AuthRules.MAX_USERNAME_LENGTH} characters")
+        .assertTextEquals(AuthRules.usernameError(username)!!)
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
   }
 
@@ -380,7 +380,7 @@ class CreateAccountContentEdgeCasesTest {
     assertEquals(email, editableText(CreateAccountScreenTags.EMAIL_FIELD))
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.EMAIL_TOO_LONG_MESSAGE)
-        .assertTextEquals("Email must be at most ${AuthRules.MAX_EMAIL_LENGTH} characters")
+        .assertTextEquals(AuthRules.emailLengthError(email)!!)
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE)
         .assertDoesNotExist()
@@ -420,7 +420,7 @@ class CreateAccountContentEdgeCasesTest {
     )
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_LONG_MESSAGE)
-        .assertTextEquals("Password must be at most ${AuthRules.MAX_PASSWORD_LENGTH} characters")
+        .assertTextEquals(AuthRules.passwordLengthError(tooLong)!!)
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
   }
 

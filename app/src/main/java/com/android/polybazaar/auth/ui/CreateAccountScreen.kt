@@ -91,11 +91,12 @@ fun CreateAccountContent(
   var email by rememberSaveable { mutableStateOf("") }
   var password by rememberSaveable { mutableStateOf("") }
   var confirmPassword by rememberSaveable { mutableStateOf("") }
-  val usernameError = AuthRules.usernameError(AuthRules.normalizeUsername(username))
-  val emailTooLong = email.trim().length > AuthRules.MAX_EMAIL_LENGTH
-  val emailNotEpfl = email.isNotBlank() && !emailTooLong && !isEpflEmail(email)
+  val usernameError = AuthRules.usernameError(username)
+  val emailLengthError = AuthRules.emailLengthError(email)
+  // Skipped while the email is too long, so one field never shows two errors.
+  val emailNotEpfl = email.isNotBlank() && emailLengthError == null && !isEpflEmail(email)
   val passwordTooShort = password.isNotEmpty() && password.length < AuthRules.MIN_PASSWORD_LENGTH
-  val passwordTooLong = password.length > AuthRules.MAX_PASSWORD_LENGTH
+  val passwordLengthError = AuthRules.passwordLengthError(password)
   val passwordsMatch = password == confirmPassword
   val canSubmit =
       !uiState.isLoading &&
@@ -103,10 +104,10 @@ fun CreateAccountContent(
           usernameError == null &&
           email.isNotBlank() &&
           !emailNotEpfl &&
-          !emailTooLong &&
+          emailLengthError == null &&
           password.isNotEmpty() &&
           !passwordTooShort &&
-          !passwordTooLong &&
+          passwordLengthError == null &&
           passwordsMatch
 
   BoxWithConstraints(
@@ -139,14 +140,7 @@ fun CreateAccountContent(
             placeholder = "Enter your username",
             tag = CreateAccountScreenTags.USERNAME_FIELD,
         )
-        usernameError?.let {
-          Text(
-              text = it,
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE),
-          )
-        }
+        usernameError?.let { FieldError(it, CreateAccountScreenTags.USERNAME_INVALID_MESSAGE) }
         LabeledField(
             label = "Email",
             value = email,
@@ -155,72 +149,48 @@ fun CreateAccountContent(
             tag = CreateAccountScreenTags.EMAIL_FIELD,
             keyboardType = KeyboardType.Email,
         )
-        if (emailTooLong) {
-          Text(
-              text = "Email must be at most ${AuthRules.MAX_EMAIL_LENGTH} characters",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.EMAIL_TOO_LONG_MESSAGE),
-          )
-        }
+        emailLengthError?.let { FieldError(it, CreateAccountScreenTags.EMAIL_TOO_LONG_MESSAGE) }
         if (emailNotEpfl) {
-          Text(
-              text = "Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE),
+          FieldError(
+              "Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)",
+              CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE,
           )
         }
         LabeledField(
             label = "Password",
             value = password,
-            onValueChange = { password = it.take(AuthRules.MAX_PASSWORD_INPUT_LENGTH) },
+            onValueChange = {
+              password = AuthRules.limitTo(it, AuthRules.MAX_PASSWORD_INPUT_LENGTH)
+            },
             placeholder = "Create a password",
             tag = CreateAccountScreenTags.PASSWORD_FIELD,
             keyboardType = KeyboardType.Password,
             visualTransformation = PasswordVisualTransformation(),
         )
         if (passwordTooShort) {
-          Text(
-              text = "Password must be at least ${AuthRules.MIN_PASSWORD_LENGTH} characters",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE),
+          FieldError(
+              "Password must be at least ${AuthRules.MIN_PASSWORD_LENGTH} characters",
+              CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE,
           )
         }
-        if (passwordTooLong) {
-          Text(
-              text = "Password must be at most ${AuthRules.MAX_PASSWORD_LENGTH} characters",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_TOO_LONG_MESSAGE),
-          )
+        passwordLengthError?.let {
+          FieldError(it, CreateAccountScreenTags.PASSWORD_TOO_LONG_MESSAGE)
         }
         LabeledField(
             label = "Confirm password",
             value = confirmPassword,
-            onValueChange = { confirmPassword = it.take(AuthRules.MAX_PASSWORD_INPUT_LENGTH) },
+            onValueChange = {
+              confirmPassword = AuthRules.limitTo(it, AuthRules.MAX_PASSWORD_INPUT_LENGTH)
+            },
             placeholder = "Repeat your password",
             tag = CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD,
             keyboardType = KeyboardType.Password,
             visualTransformation = PasswordVisualTransformation(),
         )
         if (confirmPassword.isNotEmpty() && !passwordsMatch) {
-          Text(
-              text = "Passwords do not match",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE),
-          )
+          FieldError("Passwords do not match", CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE)
         }
-        uiState.errorMessage?.let {
-          Text(
-              text = it,
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.ERROR_MESSAGE),
-          )
-        }
+        uiState.errorMessage?.let { FieldError(it, CreateAccountScreenTags.ERROR_MESSAGE) }
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -250,6 +220,16 @@ fun CreateAccountContent(
       )
     }
   }
+}
+
+@Composable
+private fun FieldError(text: String, tag: String) {
+  Text(
+      text = text,
+      color = AuthColors.Danger,
+      fontSize = 12.sp,
+      modifier = Modifier.testTag(tag),
+  )
 }
 
 @Composable

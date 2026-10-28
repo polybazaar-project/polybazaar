@@ -236,10 +236,23 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
+  fun signUp_paddedEmailWithTrimmedLengthAtLimit_passesLengthCheck() = runTest {
+    val trimmed = "e".repeat(AuthRules.MAX_EMAIL_LENGTH - "@epfl.ch".length) + "@epfl.ch"
+    val padded = "  $trimmed  "
+    mockUsernameDocument(exists = false)
+    mockSignUpAuthResult(email = padded)
+    whenever(firebaseUser.email).thenReturn(padded)
+
+    val result = repository.signUp(padded, password, username)
+
+    assertTrue(result.isSuccess)
+  }
+
+  @Test
   fun signUp_usernameBelowMinimum_returnsFailureWithoutTouchingFirebase() = runTest {
     val result = repository.signUp(email, password, "ab")
 
-    assertEquals("Username must be at least 3 characters", result.exceptionOrNull()?.message)
+    assertEquals(AuthRules.usernameError("ab"), result.exceptionOrNull()?.message)
     verify(firestore, never()).collection(any())
     verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
@@ -257,20 +270,18 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_tooLongFields_returnFailureWithoutTouchingFirebase() = runTest {
-    val tooLongUsername =
-        repository.signUp(email, password, "a".repeat(AuthRules.MAX_USERNAME_LENGTH + 1))
-    val tooLongEmail =
-        repository.signUp("a".repeat(AuthRules.MAX_EMAIL_LENGTH) + "@epfl.ch", password, username)
-    val tooLongPassword =
-        repository.signUp(email, "p".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1), username)
+    val longUsername = "a".repeat(AuthRules.MAX_USERNAME_LENGTH + 1)
+    val longEmail = "a".repeat(AuthRules.MAX_EMAIL_LENGTH) + "@epfl.ch"
+    val longPassword = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1)
 
+    val tooLongUsername = repository.signUp(email, password, longUsername)
+    val tooLongEmail = repository.signUp(longEmail, password, username)
+    val tooLongPassword = repository.signUp(email, longPassword, username)
+
+    assertEquals(AuthRules.usernameError(longUsername), tooLongUsername.exceptionOrNull()?.message)
+    assertEquals(AuthRules.emailLengthError(longEmail), tooLongEmail.exceptionOrNull()?.message)
     assertEquals(
-        "Username must be at most 30 characters",
-        tooLongUsername.exceptionOrNull()?.message,
-    )
-    assertEquals("Email must be at most 254 characters", tooLongEmail.exceptionOrNull()?.message)
-    assertEquals(
-        "Password must be at most 128 characters",
+        AuthRules.passwordLengthError(longPassword),
         tooLongPassword.exceptionOrNull()?.message,
     )
     verify(firestore, never()).collection(any())

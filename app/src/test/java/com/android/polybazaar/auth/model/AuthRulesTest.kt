@@ -89,4 +89,34 @@ class AuthRulesTest {
   fun normalizeUsername_canLengthenTheString() {
     assertEquals(40, AuthRules.normalizeUsername("\u0130".repeat(20)).length)
   }
+
+  @Test
+  fun usernameError_normalizesInternally() {
+    assertEquals(
+        "Username must be at most 30 characters",
+        AuthRules.usernameError("\u0130".repeat(20)),
+    )
+    assertNull(AuthRules.usernameError("ABC"))
+  }
+
+  @Test
+  fun emailLengthError_countsTrimmedLength() {
+    val atLimit = "e".repeat(AuthRules.MAX_EMAIL_LENGTH)
+
+    assertNull(AuthRules.emailLengthError(atLimit))
+    assertNull(AuthRules.emailLengthError("  $atLimit  "))
+    assertEquals(
+        "Email must be at most 254 characters",
+        AuthRules.emailLengthError(atLimit + "e"),
+    )
+  }
+
+  @Test
+  fun passwordLengthError_flagsOnlyOverTheMax() {
+    assertNull(AuthRules.passwordLengthError("p".repeat(AuthRules.MAX_PASSWORD_LENGTH)))
+    assertEquals(
+        "Password must be at most 128 characters",
+        AuthRules.passwordLengthError("p".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1)),
+    )
+  }
 }

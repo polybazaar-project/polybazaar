@@ -5,7 +5,7 @@ package com.android.polybazaar.auth.model
 object AuthRules {
   const val MIN_USERNAME_LENGTH = 3
 
-  /** Mirrors the Firestore usernames rule on the unmerged rules branch. */
+  /** Must stay within the usernames size limit enforced by the Firestore security rules. */
   const val MAX_USERNAME_LENGTH = 30
 
   /** Maximum email address length defined by RFC 5321. */
@@ -14,12 +14,12 @@ object AuthRules {
   /** Firebase Auth rejects passwords shorter than this. */
   const val MIN_PASSWORD_LENGTH = 6
 
-  /** A sane cap, well under the 4096 characters Firebase Auth accepts. */
+  /** Product cap on password length. */
   const val MAX_PASSWORD_LENGTH = 128
 
   /**
-   * Matches Firebase Auth's own password limit and keeps rememberSaveable state far from the Bundle
-   * size limit.
+   * Hard cap on password input, matching Firebase Auth's own 4096-character limit and keeping
+   * rememberSaveable state small.
    */
   const val MAX_PASSWORD_INPUT_LENGTH = 4096
 
@@ -32,12 +32,12 @@ object AuthRules {
   private val RESERVED_FIRESTORE_ID = Regex("__.*__")
 
   /**
-   * Returns why [username] cannot be used, or null if it is valid. The trimmed username becomes a
-   * Firestore document ID, so it must follow Firestore's ID rules. A blank username has no error
-   * here; callers treat emptiness separately.
+   * Returns why the raw [username] cannot be used, or null if it is valid. Validation runs on the
+   * [normalizeUsername] form, which becomes a Firestore document ID and so must follow Firestore's
+   * ID rules. A blank username has no error here; callers treat emptiness separately.
    */
   fun usernameError(username: String): String? {
-    val id = username.trim()
+    val id = normalizeUsername(username)
     return when {
       id.contains('/') -> "Username cannot contain /"
       id == "." || id == ".." || RESERVED_FIRESTORE_ID.matches(id) -> "This username is not allowed"
@@ -48,7 +48,17 @@ object AuthRules {
     }
   }
 
-  /** Takes the first [max] chars of [text] without splitting a surrogate pair at the cut. */
+  fun emailLengthError(email: String): String? =
+      if (email.trim().length > MAX_EMAIL_LENGTH)
+          "Email must be at most $MAX_EMAIL_LENGTH characters"
+      else null
+
+  fun passwordLengthError(password: String): String? =
+      if (password.length > MAX_PASSWORD_LENGTH)
+          "Password must be at most $MAX_PASSWORD_LENGTH characters"
+      else null
+
+  /** Takes the first [max] chars of [text]; a cut must not leave half of a surrogate pair. */
   fun limitTo(text: String, max: Int): String {
     if (text.length <= max) return text
     val cut = if (max > 0 && text[max - 1].isHighSurrogate()) max - 1 else max
