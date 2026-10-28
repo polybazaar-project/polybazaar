@@ -281,6 +281,13 @@ describe("listings", () => {
     await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ title: 42 })));
   });
 
+  test("a title or description cannot be blank when creating", async () => {
+    const db = verified(ALICE);
+    await assertFails(setDoc(doc(db, "listings/l1"), itemListing({ title: "   " })));
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ description: "" })));
+    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ description: " \n\t " })));
+  });
+
   test("a description is text", async () => {
     await assertFails(
       setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ description: 42 })),
@@ -346,6 +353,22 @@ describe("listings", () => {
   test("an edit must keep the listing valid", async () => {
     await seed("listings/l1", itemListing());
     await assertFails(updateDoc(doc(verified(ALICE), "listings/l1"), { price: -1 }));
+  });
+
+  test("an edit cannot blank the title or description", async () => {
+    await seed("listings/l1", itemListing());
+    const ref = doc(verified(ALICE), "listings/l1");
+    await assertFails(updateDoc(ref, { title: "" }));
+    await assertFails(updateDoc(ref, { title: "   " }));
+    await assertFails(updateDoc(ref, { description: "" }));
+    await assertFails(updateDoc(ref, { description: "   " }));
+  });
+
+  test("an edit with a trimmed, non-empty description succeeds", async () => {
+    await seed("listings/l1", itemListing());
+    await assertSucceeds(
+      updateDoc(doc(verified(ALICE), "listings/l1"), { description: "Cordless drill, 18 V" }),
+    );
   });
 
   test("the owner cannot hand their listing to someone else", async () => {
