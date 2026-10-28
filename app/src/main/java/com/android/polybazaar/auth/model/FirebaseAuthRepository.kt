@@ -107,6 +107,10 @@ class FirebaseAuthRepository(
     return try {
       val firebaseUser = auth.currentUser ?: throw Exception("No user is currently logged in")
       firebaseUser.reload().await()
+      // reload() leaves the cached ID token as it was, and the security rules read
+      // email_verified from that token. Refresh it, or the newly verified user would still be
+      // refused by Firestore and Storage until the token expires.
+      if (firebaseUser.isEmailVerified) firebaseUser.getIdToken(true).await()
       Result.success(getCurrentUser())
     } catch (e: Exception) {
       if (e is CancellationException) throw e
