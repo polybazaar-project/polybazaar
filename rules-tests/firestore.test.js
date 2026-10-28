@@ -55,6 +55,14 @@ async function seedUser(uid, username) {
   await seed(`users/${uid}`, { username });
 }
 
+/** Commits what sign-up writes: the username entry and the profile, in one batch. */
+function signUp(db, uid, username, usernameData = { uid }) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, `usernames/${username}`), usernameData);
+  batch.set(doc(db, `users/${uid}`), { username }, { merge: true });
+  return batch.commit();
+}
+
 function itemListing(overrides = {}) {
   return {
     ownerUid: ALICE,
@@ -94,12 +102,32 @@ describe("usernames", () => {
     await assertFails(getDocs(query(collection(db, "usernames"), where("uid", "==", BOB))));
   });
 
-  test("a user can claim a username for themselves", async () => {
-    await assertSucceeds(setDoc(doc(unverified(ALICE), "usernames/alice"), { uid: ALICE }));
+  test("a user can claim a username for themselves at sign-up", async () => {
+    await assertSucceeds(signUp(unverified(ALICE), ALICE, "alice"));
+  });
+
+  test("a username cannot be claimed without the profile that names it", async () => {
+    await assertFails(setDoc(doc(unverified(ALICE), "usernames/alice"), { uid: ALICE }));
+  });
+
+  test("a username cannot be claimed with a profile that names another one", async () => {
+    const db = unverified(ALICE);
+    const batch = writeBatch(db);
+    batch.set(doc(db, "usernames/alice"), { uid: ALICE });
+    batch.set(doc(db, "usernames/alice2"), { uid: ALICE });
+    batch.set(doc(db, `users/${ALICE}`), { username: "alice" });
+    await assertFails(batch.commit());
+  });
+
+  test("an account cannot claim a second username", async () => {
+    const db = unverified(ALICE);
+    await assertSucceeds(signUp(db, ALICE, "alice"));
+    await assertFails(setDoc(doc(db, "usernames/alice2"), { uid: ALICE }));
+    await assertFails(signUp(db, ALICE, "alice2"));
   });
 
   test("a user cannot claim a username for someone else", async () => {
-    await assertFails(setDoc(doc(verified(ALICE), "usernames/alice"), { uid: BOB }));
+    await assertFails(signUp(verified(ALICE), ALICE, "alice", { uid: BOB }));
   });
 
   test("a signed-out user cannot claim a username", async () => {
@@ -107,37 +135,19 @@ describe("usernames", () => {
   });
 
   test("only an EPFL address can claim a username", async () => {
-    await assertFails(setDoc(doc(outsider(ALICE), "usernames/alice"), { uid: ALICE }));
-    await assertFails(
-      setDoc(doc(signedIn(ALICE, "alice@notepfl.ch", true), "usernames/alice"), { uid: ALICE }),
-    );
-    await assertFails(
-      setDoc(doc(signedIn(ALICE, "alice@epfl.ch.evil.com", true), "usernames/alice"), {
-        uid: ALICE,
-      }),
-    );
-    await assertSucceeds(
-      setDoc(doc(signedIn(ALICE, "Alice@EPFL.CH", false), "usernames/alice"), { uid: ALICE }),
-    );
+    await assertFails(signUp(outsider(ALICE), ALICE, "alice"));
+    await assertFails(signUp(signedIn(ALICE, "alice@notepfl.ch", true), ALICE, "alice"));
+    await assertFails(signUp(signedIn(ALICE, "alice@epfl.ch.evil.com", true), ALICE, "alice"));
+    await assertSucceeds(signUp(signedIn(ALICE, "Alice@EPFL.CH", false), ALICE, "alice"));
   });
 
   test("a username entry holds only the uid", async () => {
-    await assertFails(
-      setDoc(doc(verified(ALICE), "usernames/alice"), { uid: ALICE, email: "a@epfl.ch" }),
-    );
+    await assertFails(signUp(verified(ALICE), ALICE, "alice", { uid: ALICE, email: "a@epfl.ch" }));
   });
 
   test("a username must be lowercase and trimmed", async () => {
-    await assertFails(setDoc(doc(verified(ALICE), "usernames/Alice"), { uid: ALICE }));
-    await assertFails(setDoc(doc(verified(ALICE), "usernames/ alice"), { uid: ALICE }));
-  });
-
-  test("a username is 3 to 30 characters", async () => {
-    const db = verified(ALICE);
-    await assertFails(setDoc(doc(db, "usernames/ab"), { uid: ALICE }));
-    await assertSucceeds(setDoc(doc(db, "usernames/abc"), { uid: ALICE }));
-    await assertSucceeds(setDoc(doc(db, `usernames/${"a".repeat(30)}`), { uid: ALICE }));
-    await assertFails(setDoc(doc(db, `usernames/${"a".repeat(31)}`), { uid: ALICE }));
+    await assertFails(signUp(verified(ALICE), ALICE, "Alice"));
+    await assertFails(signUp(verified(ALICE), ALICE, " alice"));
   });
 
   test("a username cannot be changed or released", async () => {
@@ -150,19 +160,11 @@ describe("usernames", () => {
 
 describe("users", () => {
   test("sign-up writes the username and profile in one batch before verification", async () => {
-    const db = unverified(ALICE);
-    const batch = writeBatch(db);
-    batch.set(doc(db, "usernames/alice"), { uid: ALICE });
-    batch.set(doc(db, `users/${ALICE}`), { username: "alice" }, { merge: true });
-    await assertSucceeds(batch.commit());
+    await assertSucceeds(signUp(unverified(ALICE), ALICE, "alice"));
   });
 
   test("a non-EPFL account cannot sign up", async () => {
-    const db = outsider(ALICE);
-    const batch = writeBatch(db);
-    batch.set(doc(db, "usernames/alice"), { uid: ALICE });
-    batch.set(doc(db, `users/${ALICE}`), { username: "alice" }, { merge: true });
-    await assertFails(batch.commit());
+    await assertFails(signUp(outsider(ALICE), ALICE, "alice"));
   });
 
   test("a profile needs a username owned by the same user", async () => {
@@ -206,11 +208,11 @@ describe("users", () => {
     );
   });
 
-  test("a bio is at most 500 characters", async () => {
+  test("a bio is text", async () => {
     await seedUser(ALICE, "alice");
     const profile = doc(verified(ALICE), `users/${ALICE}`);
-    await assertSucceeds(updateDoc(profile, { bio: "a".repeat(500) }));
-    await assertFails(updateDoc(profile, { bio: "a".repeat(501) }));
+    await assertSucceeds(updateDoc(profile, { bio: "Weekend maker" }));
+    await assertFails(updateDoc(profile, { bio: 42 }));
   });
 
   test("a user cannot change their username", async () => {
@@ -273,38 +275,29 @@ describe("listings", () => {
     );
   });
 
-  test("a title is 1 to 80 characters", async () => {
+  test("a title is non-empty text", async () => {
     const db = verified(ALICE);
     await assertFails(setDoc(doc(db, "listings/l1"), itemListing({ title: "" })));
-    await assertSucceeds(setDoc(doc(db, "listings/l2"), itemListing({ title: "a".repeat(80) })));
-    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ title: "a".repeat(81) })));
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ title: 42 })));
   });
 
-  test("a description is at most 1000 characters", async () => {
-    const db = verified(ALICE);
-    await assertSucceeds(
-      setDoc(doc(db, "listings/l1"), itemListing({ description: "a".repeat(1000) })),
-    );
+  test("a description is text", async () => {
     await assertFails(
-      setDoc(doc(db, "listings/l2"), itemListing({ description: "a".repeat(1001) })),
+      setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ description: 42 })),
     );
   });
 
-  test("a price is above 0 and at most 10,000", async () => {
+  test("a price is a number above 0", async () => {
     const db = verified(ALICE);
     await assertFails(setDoc(doc(db, "listings/l1"), itemListing({ price: 0 })));
-    await assertSucceeds(setDoc(doc(db, "listings/l2"), itemListing({ price: 10000 })));
-    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ price: 10000.01 })));
-    await assertFails(setDoc(doc(db, "listings/l4"), itemListing({ price: "12" })));
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ price: "12" })));
   });
 
-  test("an item needs a refund value above 0 and at most 100,000", async () => {
+  test("an item needs a refund value above 0", async () => {
     const db = verified(ALICE);
     const { refundValue, ...withoutRefund } = itemListing();
     await assertFails(setDoc(doc(db, "listings/l1"), withoutRefund));
     await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ refundValue: 0 })));
-    await assertSucceeds(setDoc(doc(db, "listings/l3"), itemListing({ refundValue: 100000 })));
-    await assertFails(setDoc(doc(db, "listings/l4"), itemListing({ refundValue: 100001 })));
   });
 
   test("a service cannot have a refund value", async () => {

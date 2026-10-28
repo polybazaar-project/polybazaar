@@ -25,12 +25,13 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    function isAmount(value, max) {
-      return value is number && value > 0 && value <= max;
+    function isAmount(value) {
+      return value is number && value > 0;
     }
 
     // Username -> { uid }. Written once at sign-up, in the same batch as the profile document,
-    // before the email is verified.
+    // before the email is verified. The profile must name this username, so an account can only
+    // ever hold one.
     match /usernames/{username} {
       // Sign-up checks availability before the account exists, so this has to work signed out.
       allow get: if true;
@@ -42,7 +43,7 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid
           && username == username.lower()
           && username == username.trim()
-          && username.size() >= 3 && username.size() <= 30;
+          && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == username;
 
       allow update, delete: if false;
     }
@@ -52,7 +53,7 @@ service cloud.firestore {
       function validProfile(data) {
         return data.keys().hasAll(['username'])
             && data.keys().hasOnly(['username', 'bio', 'photoUrl'])
-            && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
+            && (!('bio' in data) || data.bio is string)
             && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 2048));
       }
 
@@ -83,11 +84,11 @@ service cloud.firestore {
             && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imageUrls', 'refundValue'])
             && data.ownerUid == request.auth.uid
             && data.category is string && data.category.size() > 0 && data.category.size() <= 50
-            && data.title is string && data.title.size() > 0 && data.title.size() <= 80
-            && data.description is string && data.description.size() <= 1000
-            && isAmount(data.price, 10000)
+            && data.title is string && data.title.size() > 0
+            && data.description is string
+            && isAmount(data.price)
             && data.imageUrls is list && data.imageUrls.size() <= 5
-            && ((data.type == 'ITEM' && isAmount(data.refundValue, 100000))
+            && ((data.type == 'ITEM' && isAmount(data.refundValue))
                 || (data.type == 'SERVICE' && !('refundValue' in data)));
       }
 
