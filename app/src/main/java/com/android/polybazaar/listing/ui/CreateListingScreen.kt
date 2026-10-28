@@ -203,9 +203,15 @@ fun CreateListingScreen(
 ) {
   val uiState by listingViewModel.uiState.collectAsState()
 
-  LaunchedEffect(uiState.createdListing) { uiState.createdListing?.let(onListingCreated) }
-
-  CreateListingContent(uiState = uiState, onCreateListing = listingViewModel::createListing)
+  CreateListingContent(
+      uiState = uiState,
+      onCreateListing = listingViewModel::createListing,
+      onListingCreated = { listing ->
+        onListingCreated(listing)
+        // Handled, so recreating the screen (on rotation, say) must not handle it again.
+        listingViewModel.clearCreatedListing()
+      },
+  )
 }
 
 /**
@@ -213,9 +219,15 @@ fun CreateListingScreen(
  * price and a refund value, services an hourly price.
  *
  * @param onCreateListing called with the listing built from the form.
+ * @param onListingCreated called with [ListingUiState.createdListing] once the form has cleared its
+ *   photos.
  */
 @Composable
-fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> Unit) {
+fun CreateListingContent(
+    uiState: ListingUiState,
+    onCreateListing: (Listing) -> Unit,
+    onListingCreated: (Listing) -> Unit = {},
+) {
   var type by rememberSaveable { mutableStateOf(ListingType.ITEM) }
   var title by rememberSaveable { mutableStateOf("") }
   var description by rememberSaveable { mutableStateOf("") }
@@ -252,10 +264,11 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
         retaken?.let { deleteTakenPhoto(context, it) }
       }
   LaunchedEffect(uiState.createdListing) {
-    if (uiState.createdListing != null) {
+    uiState.createdListing?.let { createdListing ->
       // Uploaded, so the camera photos are no longer needed on the phone or in the form.
       photos.forEach { deleteTakenPhoto(context, it) }
       photos = emptyList()
+      onListingCreated(createdListing)
     }
   }
 

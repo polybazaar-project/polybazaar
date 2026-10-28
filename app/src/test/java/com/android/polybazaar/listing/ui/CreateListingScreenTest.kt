@@ -25,6 +25,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -824,6 +825,36 @@ class CreateListingScreenTest {
     assertEquals(listOf(Uri.parse("https://example.com/0.jpg")), created?.images)
     assertTrue(takenPhotoFiles().isEmpty())
     node(CreateListingScreenTags.photo(0)).assertDoesNotExist()
+  }
+
+  /** Rotating after a creation must not handle that creation again and clear the next photos. */
+  @Test
+  fun createdListing_isHandledOnlyOnceAcrossRecreation() {
+    val registry = FakePickerRegistry()
+    registry.results.add(pickedPhotos(1..2))
+    val viewModel = ListingViewModel(RecordingListingRepository())
+    var createdCount = 0
+    val owner =
+        object : ActivityResultRegistryOwner {
+          override val activityResultRegistry = registry
+        }
+    val restorationTester = StateRestorationTester(composeTestRule)
+    restorationTester.setContent {
+      CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+        CreateListingScreen(listingViewModel = viewModel, onListingCreated = { createdCount++ })
+      }
+    }
+
+    fillForm("Drill", "Works well", "5", "Tools")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    // The user starts the next listing.
+    node(CreateListingScreenTags.PHOTO_PICKER).performScrollTo().performClick()
+    restorationTester.emulateSavedInstanceStateRestore()
+
+    assertEquals(1, createdCount)
+    assertNull(viewModel.uiState.value.createdListing)
+    node(CreateListingScreenTags.photo(1)).assertExists()
   }
 
   @Test
