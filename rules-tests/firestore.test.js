@@ -353,6 +353,11 @@ describe("listings", () => {
     await assertFails(updateDoc(doc(verified(ALICE), "listings/l1"), { ownerUid: BOB }));
   });
 
+  test("the owner cannot turn an item into a service", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(setDoc(doc(verified(ALICE), "listings/l1"), serviceListing()));
+  });
+
   test("an unverified owner cannot edit or delete their listing", async () => {
     await seed("listings/l1", itemListing());
     const db = unverified(ALICE);
