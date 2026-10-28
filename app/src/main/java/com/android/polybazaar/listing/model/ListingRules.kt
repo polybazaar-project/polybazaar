@@ -35,13 +35,6 @@ object ListingRules {
   /** Whether [amount] is above zero and at most [max]. */
   fun isValidAmount(amount: Double, max: Double = MAX_PRICE): Boolean = amount > 0 && amount <= max
 
-  /** Takes the first [max] chars of [text] without splitting a surrogate pair at the cut. */
-  fun limitTo(text: String, max: Int): String {
-    if (text.length <= max) return text
-    val cut = if (max > 0 && text[max - 1].isHighSurrogate()) max - 1 else max
-    return text.substring(0, cut)
-  }
-
   /**
    * Returns why [listing] cannot be stored, or null if it is valid. Lengths are measured on the
    * trimmed text because that is what gets stored.

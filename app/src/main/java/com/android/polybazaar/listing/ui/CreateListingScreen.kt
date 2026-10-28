@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.ui.AuthCard
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
@@ -332,7 +333,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
       ) {
         FormTextField(
             value = title,
-            onValueChange = { title = ListingRules.limitTo(it, MAX_TITLE_LENGTH) },
+            onValueChange = { title = AuthRules.limitInput(it, MAX_TITLE_LENGTH) },
             placeholder = texts.titlePlaceholder,
             tag = CreateListingScreenTags.TITLE_FIELD,
         )
@@ -344,7 +345,7 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
       ) {
         FormTextField(
             value = description,
-            onValueChange = { description = ListingRules.limitTo(it, MAX_DESCRIPTION_LENGTH) },
+            onValueChange = { description = AuthRules.limitInput(it, MAX_DESCRIPTION_LENGTH) },
             placeholder = texts.descriptionPlaceholder,
             tag = CreateListingScreenTags.DESCRIPTION_FIELD,
             singleLine = false,

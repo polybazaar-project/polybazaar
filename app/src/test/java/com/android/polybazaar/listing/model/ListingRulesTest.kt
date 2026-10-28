@@ -87,12 +87,4 @@ class ListingRulesTest {
     assertFalse(ListingRules.isValidAmount(Double.POSITIVE_INFINITY))
     assertTrue(ListingRules.isValidAmount(1.0))
   }
-
-  @Test
-  fun limitTo_doesNotSplitSurrogatePairs() {
-    assertEquals("abc", ListingRules.limitTo("abc", 3))
-    assertEquals("ab", ListingRules.limitTo("abcd", 2))
-    assertEquals("a", ListingRules.limitTo("a😀", 2))
-    assertEquals("a😀", ListingRules.limitTo("a😀b", 3))
-  }
 }

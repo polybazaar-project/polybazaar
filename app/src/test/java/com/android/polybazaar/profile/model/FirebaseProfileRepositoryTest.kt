@@ -28,6 +28,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
@@ -238,8 +239,7 @@ class FirebaseProfileRepositoryTest {
 
     assertTrue(failure is IllegalArgumentException)
     assertEquals("Bio must be at most 500 characters", failure?.message)
-    verify(profileDocument, org.mockito.kotlin.never())
-        .set(any<Map<String, Any?>>(), any<SetOptions>())
+    verify(profileDocument, never()).set(any<Map<String, Any?>>(), any<SetOptions>())
   }
 
   @Test

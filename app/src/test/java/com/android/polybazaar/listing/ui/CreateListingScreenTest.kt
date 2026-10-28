@@ -283,6 +283,17 @@ class CreateListingScreenTest {
   }
 
   @Test
+  fun titleAndDescription_dropLeadingSpaces() {
+    setContent()
+
+    node(CreateListingScreenTags.TITLE_FIELD).performTextInput("   Drill")
+    node(CreateListingScreenTags.DESCRIPTION_FIELD).performTextInput("  Works well")
+
+    node(CreateListingScreenTags.TITLE_COUNTER).assertTextEquals("5/80")
+    node(CreateListingScreenTags.DESCRIPTION_COUNTER).assertTextEquals("10/1000")
+  }
+
+  @Test
   fun titleAndDescription_truncateOverlongPaste() {
     setContent()
 
