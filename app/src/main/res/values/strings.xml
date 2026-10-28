@@ -18,4 +18,20 @@
     <string name="forgot_password_error_network">No connection. Check your internet and try again.</string>
     <string name="forgot_password_error_too_many_requests">Too many attempts. Wait a few minutes, then try again.</string>
     <string name="forgot_password_error_unknown">Something went wrong. Please try again.</string>
+
+    <!-- Reset password screen -->
+    <string name="reset_password_title">Reset password</string>
+    <string name="reset_password_heading">Create a new password</string>
+    <string name="reset_password_guidance">Choose a new password for your account. Make it different from your previous password.</string>
+    <string name="reset_password_new_password_label">New password</string>
+    <string name="reset_password_new_password_placeholder">Enter your new password</string>
+    <string name="reset_password_rules">Use at least %1$d characters, including a letter and a number.</string>
+    <string name="reset_password_confirm_label">Confirm password</string>
+    <string name="reset_password_confirm_placeholder">Re-enter your new password</string>
+    <string name="reset_password_button">Reset password</string>
+    <string name="reset_password_resetting_button">Resetting…</string>
+    <string name="reset_password_back_to_sign_in">Back to sign in</string>
+    <string name="reset_password_error_empty">Enter a new password.</string>
+    <string name="reset_password_error_mismatch">The two passwords don’t match.</string>
+    <string name="reset_password_error_invalid_link">This reset link has expired or was already used. Request a new one from Forgot password.</string>
 </resources>
