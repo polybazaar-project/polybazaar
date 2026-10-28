@@ -87,6 +87,10 @@ object CreateListingScreenTags {
   const val TYPE_ITEM = "create_listing_type_item"
   const val PHOTO_PICKER = "create_listing_photo_picker"
   const val ADD_PHOTO = "create_listing_add_photo"
+  const val TAKE_PHOTO = "create_listing_take_photo"
+  const val CAMERA_PERMISSION_DIALOG = "create_listing_camera_permission_dialog"
+  const val CAMERA_PERMISSION_CANCEL = "create_listing_camera_permission_cancel"
+  const val CAMERA_PERMISSION_SETTINGS = "create_listing_camera_permission_settings"
 
   fun photo(index: Int) = "create_listing_photo_$index"
 
@@ -150,6 +154,14 @@ internal fun buildListing(
   }
 }
 
+/** Adds a camera [photo], or swaps it in for the photo at [retakeIndex] when retaking one. */
+internal fun withTakenPhoto(photos: List<Uri>, photo: Uri, retakeIndex: Int?): List<Uri> =
+    if (retakeIndex != null && retakeIndex in photos.indices) {
+      photos.toMutableList().apply { set(retakeIndex, photo) }
+    } else {
+      (photos + photo).take(MAX_PHOTOS)
+    }
+
 /** Whether to flag [input] as an invalid amount: only once the user has left a non-empty field. */
 internal fun showAmountError(touched: Boolean, input: String): Boolean =
     touched && input.isNotEmpty() && parsePrice(input) == null
@@ -191,9 +203,15 @@ fun CreateListingScreen(
 ) {
   val uiState by listingViewModel.uiState.collectAsState()
 
-  LaunchedEffect(uiState.createdListing) { uiState.createdListing?.let(onListingCreated) }
-
-  CreateListingContent(uiState = uiState, onCreateListing = listingViewModel::createListing)
+  CreateListingContent(
+      uiState = uiState,
+      onCreateListing = listingViewModel::createListing,
+      onListingCreated = { listing ->
+        onListingCreated(listing)
+        // Handled, so recreating the screen (on rotation, say) must not handle it again.
+        listingViewModel.clearCreatedListing()
+      },
+  )
 }
 
 /**
@@ -201,9 +219,15 @@ fun CreateListingScreen(
  * price and a refund value, services an hourly price.
  *
  * @param onCreateListing called with the listing built from the form.
+ * @param onListingCreated called with [ListingUiState.createdListing] once the form has cleared its
+ *   photos.
  */
 @Composable
-fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> Unit) {
+fun CreateListingContent(
+    uiState: ListingUiState,
+    onCreateListing: (Listing) -> Unit,
+    onListingCreated: (Listing) -> Unit = {},
+) {
   var type by rememberSaveable { mutableStateOf(ListingType.ITEM) }
   var title by rememberSaveable { mutableStateOf("") }
   var description by rememberSaveable { mutableStateOf("") }
@@ -232,6 +256,21 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
       ) { uris ->
         addPhotos(uris)
       }
+  val context = LocalContext.current
+  val camera =
+      rememberPhotoCamera(photosInUse = { photos }) { photo, retakeIndex ->
+        val retaken = retakeIndex?.let(photos::getOrNull)
+        photos = withTakenPhoto(photos, photo, retakeIndex)
+        retaken?.let { deleteTakenPhoto(context, it) }
+      }
+  LaunchedEffect(uiState.createdListing) {
+    uiState.createdListing?.let { createdListing ->
+      // Uploaded, so the camera photos are no longer needed on the phone or in the form.
+      photos.forEach { deleteTakenPhoto(context, it) }
+      photos = emptyList()
+      onListingCreated(createdListing)
+    }
+  }
 
   // Categories differ between items and services, so drop one that no longer applies.
   val selectType = { newType: ListingType ->
@@ -306,7 +345,14 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
             if (remainingPhotos > 1) multiplePhotoPicker.launch(request)
             else singlePhotoPicker.launch(request)
           },
-          onRemovePhoto = { removed -> photos = photos - removed },
+          onTakePhoto = camera::takePhoto,
+          onRetakePhoto = camera::retakePhoto,
+          onRemovePhoto = { removed ->
+            photos = photos - removed
+            deleteTakenPhoto(context, removed)
+          },
+          // The repository is still reading these photos, so none may be removed or replaced.
+          enabled = !uiState.isCreating,
       )
       FormField(label = "Title") {
         FormTextField(
@@ -387,6 +433,9 @@ fun CreateListingContent(uiState: ListingUiState, onCreateListing: (Listing) -> 
         fontSize = 12.sp,
         modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp),
     )
+  }
+  if (camera.showPermissionExplanation) {
+    CameraPermissionDialog(onDismiss = camera::dismissPermissionExplanation)
   }
 }
 
@@ -518,16 +567,22 @@ internal suspend fun loadPhotoPreview(contentResolver: ContentResolver, uri: Uri
 internal const val PHOTO_PREVIEW_MAX_SIZE = 512
 
 /**
- * The "Photos" field: an "Add photos" button that becomes a row of removable thumbnails, followed
- * by an "Add" tile until [MAX_PHOTOS] are chosen.
+ * The "Photos" field: "Take photo" and "Gallery" buttons that become a row of thumbnails, followed
+ * by "Camera" and "Gallery" tiles until [MAX_PHOTOS] are chosen. Tapping a thumbnail retakes it.
  *
+ * @param onAddPhotos opens the gallery.
+ * @param onRetakePhoto called with the index of the tapped thumbnail.
+ * @param enabled whether photos can be added, retaken or removed.
  * @param preview loads the thumbnail of a photo; replaceable in tests.
  */
 @Composable
 internal fun PhotoPicker(
     photos: List<Uri>,
     onAddPhotos: () -> Unit,
+    onTakePhoto: () -> Unit,
+    onRetakePhoto: (Int) -> Unit,
     onRemovePhoto: (Uri) -> Unit,
+    enabled: Boolean = true,
     preview: @Composable (Uri) -> ImageBitmap? = { rememberPhotoPreview(it) },
 ) {
   Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -540,17 +595,58 @@ internal fun PhotoPicker(
       )
     }
     if (photos.isEmpty()) {
-      EmptyPhotoPicker(onClick = onAddPhotos)
+      Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        EmptyPhotoOption(
+            title = "Take photo",
+            subtitle = "Show its real condition",
+            icon = R.drawable.ic_camera,
+            onClick = onTakePhoto,
+            enabled = enabled,
+            tag = CreateListingScreenTags.TAKE_PHOTO,
+            modifier = Modifier.weight(1f),
+        )
+        EmptyPhotoOption(
+            title = "Gallery",
+            subtitle = "Up to $MAX_PHOTOS photos",
+            icon = R.drawable.ic_image,
+            onClick = onAddPhotos,
+            enabled = enabled,
+            tag = CreateListingScreenTags.PHOTO_PICKER,
+            modifier = Modifier.weight(1f),
+        )
+      }
     } else {
       Row(
           modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
           horizontalArrangement = Arrangement.spacedBy(8.dp),
       ) {
         photos.forEachIndexed { index, uri ->
-          PhotoThumbnail(preview = preview(uri), index = index, onRemove = { onRemovePhoto(uri) })
+          PhotoThumbnail(
+              preview = preview(uri),
+              index = index,
+              onRetake = { onRetakePhoto(index) },
+              onRemove = { onRemovePhoto(uri) },
+              enabled = enabled,
+          )
         }
-        if (photos.size < MAX_PHOTOS) AddPhotoTile(onClick = onAddPhotos)
+        if (photos.size < MAX_PHOTOS) {
+          AddPhotoTile(
+              text = "Camera",
+              icon = R.drawable.ic_camera,
+              onClick = onTakePhoto,
+              enabled = enabled,
+              tag = CreateListingScreenTags.TAKE_PHOTO,
+          )
+          AddPhotoTile(
+              text = "Gallery",
+              icon = R.drawable.ic_image,
+              onClick = onAddPhotos,
+              enabled = enabled,
+              tag = CreateListingScreenTags.ADD_PHOTO,
+          )
+        }
       }
+      Text(text = "Tap a photo to retake it", color = AuthColors.TextSecondary, fontSize = 11.sp)
     }
   }
 }
@@ -559,44 +655,58 @@ private val PhotoShape = RoundedCornerShape(14.dp)
 private val ThumbnailSize = 88.dp
 
 @Composable
-private fun EmptyPhotoPicker(onClick: () -> Unit) {
-  Row(
+private fun EmptyPhotoOption(
+    title: String,
+    subtitle: String,
+    icon: Int,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    tag: String,
+    modifier: Modifier = Modifier,
+) {
+  Column(
       modifier =
-          Modifier.fillMaxWidth()
+          modifier
               .clip(PhotoShape)
               .background(AuthColors.Background)
               .border(1.dp, AuthColors.Outline, PhotoShape)
-              .clickable(role = Role.Button, onClick = onClick)
-              .padding(16.dp)
-              .testTag(CreateListingScreenTags.PHOTO_PICKER),
-      horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-      verticalAlignment = Alignment.CenterVertically,
+              .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+              .padding(14.dp)
+              .testTag(tag),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
-    CameraBadge()
-    Column {
-      Text(
-          text = "Add photos",
-          color = AuthColors.Accent,
-          fontSize = 14.sp,
-          fontWeight = FontWeight.SemiBold,
-      )
-      Text(
-          text = "Choose up to $MAX_PHOTOS from your gallery",
-          color = AuthColors.TextSecondary,
-          fontSize = 11.sp,
-      )
-    }
+    PhotoBadge(icon = icon)
+    Text(
+        text = title,
+        color = AuthColors.Accent,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Text(text = subtitle, color = AuthColors.TextSecondary, fontSize = 11.sp)
   }
 }
 
 @Composable
-private fun PhotoThumbnail(preview: ImageBitmap?, index: Int, onRemove: () -> Unit) {
+private fun PhotoThumbnail(
+    preview: ImageBitmap?,
+    index: Int,
+    onRetake: () -> Unit,
+    onRemove: () -> Unit,
+    enabled: Boolean,
+) {
   Box(
       modifier =
           Modifier.size(ThumbnailSize)
               .clip(PhotoShape)
               .background(AuthColors.Background)
               .border(1.dp, AuthColors.Outline, PhotoShape)
+              .clickable(
+                  enabled = enabled,
+                  onClickLabel = "Retake photo ${index + 1}",
+                  role = Role.Button,
+                  onClick = onRetake,
+              )
               .testTag(CreateListingScreenTags.photo(index))
   ) {
     if (preview != null) {
@@ -614,7 +724,7 @@ private fun PhotoThumbnail(preview: ImageBitmap?, index: Int, onRemove: () -> Un
                 .size(24.dp)
                 .clip(CircleShape)
                 .background(AuthColors.CardBackground)
-                .clickable(role = Role.Button, onClick = onRemove)
+                .clickable(enabled = enabled, role = Role.Button, onClick = onRemove)
                 .semantics { contentDescription = "Remove photo ${index + 1}" }
                 .testTag(CreateListingScreenTags.removePhoto(index)),
         contentAlignment = Alignment.Center,
@@ -625,21 +735,27 @@ private fun PhotoThumbnail(preview: ImageBitmap?, index: Int, onRemove: () -> Un
 }
 
 @Composable
-private fun AddPhotoTile(onClick: () -> Unit) {
+private fun AddPhotoTile(
+    text: String,
+    icon: Int,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    tag: String,
+) {
   Column(
       modifier =
           Modifier.size(ThumbnailSize)
               .clip(PhotoShape)
               .background(AuthColors.Background)
               .border(1.dp, AuthColors.Outline, PhotoShape)
-              .clickable(role = Role.Button, onClick = onClick)
-              .testTag(CreateListingScreenTags.ADD_PHOTO),
+              .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+              .testTag(tag),
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
   ) {
-    CameraBadge()
+    PhotoBadge(icon = icon)
     Text(
-        text = "Add",
+        text = text,
         color = AuthColors.Accent,
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
@@ -648,7 +764,7 @@ private fun AddPhotoTile(onClick: () -> Unit) {
 }
 
 @Composable
-private fun CameraBadge() {
+private fun PhotoBadge(icon: Int) {
   Box(
       modifier =
           Modifier.size(36.dp)
@@ -656,7 +772,7 @@ private fun CameraBadge() {
       contentAlignment = Alignment.Center,
   ) {
     Icon(
-        painter = painterResource(R.drawable.ic_camera),
+        painter = painterResource(icon),
         contentDescription = null,
         tint = AuthColors.Accent,
         modifier = Modifier.size(20.dp),

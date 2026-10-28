@@ -1,7 +1,9 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -17,12 +19,15 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
+// Robolectric, so that Uri.parse builds the returned download URIs.
+@RunWith(AndroidJUnit4::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FirebaseListingRepositoryTest {
 
@@ -37,6 +42,8 @@ class FirebaseListingRepositoryTest {
 
   private val uid = "user-123"
   private val listingId = "listing-456"
+  private val photoBytes = byteArrayOf(1, 2, 3)
+  private val compressedPhotos = mutableListOf<Uri>()
 
   @Before
   fun setUp() {
@@ -57,7 +64,12 @@ class FirebaseListingRepositoryTest {
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child("listings/$uid/$listingId/images/0")).thenReturn(imageReference)
 
-    repository = FirebaseListingRepository(firestore, storage, auth)
+    compressedPhotos.clear()
+    val compressor = PhotoCompressor { photo ->
+      compressedPhotos += photo
+      photoBytes
+    }
+    repository = FirebaseListingRepository(compressor, firestore, storage, auth)
   }
 
   @Test
@@ -75,7 +87,7 @@ class FirebaseListingRepositoryTest {
             images = listOf(imageUri),
         )
 
-    whenever(imageReference.putFile(imageUri)).thenReturn(uploadTask)
+    whenever(imageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
@@ -86,7 +98,9 @@ class FirebaseListingRepositoryTest {
     val result = repository.createListing(listing)
 
     assertEquals(listingId, result.listingId)
-    verify(imageReference).putFile(imageUri)
+    assertEquals(listOf(Uri.parse("https://example.com/listing.jpg")), result.images)
+    verify(imageReference).putBytes(eq(photoBytes), any())
+    assertEquals(listOf(imageUri), compressedPhotos)
     verify(document)
         .set(
             eq(
@@ -132,8 +146,8 @@ class FirebaseListingRepositoryTest {
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
     whenever(firstDownloadUri.toString()).thenReturn("https://example.com/0.jpg")
     whenever(secondDownloadUri.toString()).thenReturn("https://example.com/1.jpg")
-    whenever(firstImageReference.putFile(firstImageUri)).thenReturn(uploadTask)
-    whenever(secondImageReference.putFile(secondImageUri)).thenReturn(uploadTask)
+    whenever(firstImageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
+    whenever(secondImageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
     whenever(firstImageReference.downloadUrl).thenReturn(Tasks.forResult(firstDownloadUri))
     whenever(secondImageReference.downloadUrl).thenReturn(Tasks.forResult(secondDownloadUri))
     whenever(firstImageReference.delete()).thenReturn(Tasks.forResult(null))
@@ -193,8 +207,8 @@ class FirebaseListingRepositoryTest {
     whenever(failedUploadTask.isComplete).thenReturn(true)
     whenever(failedUploadTask.isSuccessful).thenReturn(false)
     whenever(failedUploadTask.exception).thenReturn(uploadFailure)
-    whenever(firstImageReference.putFile(firstImageUri)).thenReturn(successfulUploadTask)
-    whenever(secondImageReference.putFile(secondImageUri)).thenReturn(failedUploadTask)
+    whenever(firstImageReference.putBytes(eq(photoBytes), any())).thenReturn(successfulUploadTask)
+    whenever(secondImageReference.putBytes(eq(photoBytes), any())).thenReturn(failedUploadTask)
     whenever(firstImageReference.downloadUrl).thenReturn(Tasks.forResult(firstDownloadUri))
     whenever(firstImageReference.delete()).thenReturn(Tasks.forResult(null))
 
@@ -226,7 +240,7 @@ class FirebaseListingRepositoryTest {
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
     whenever(downloadUri.toString()).thenReturn("https://example.com/0.jpg")
-    whenever(imageReference.putFile(imageUri)).thenReturn(uploadTask)
+    whenever(imageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
     whenever(imageReference.downloadUrl).thenReturn(Tasks.forResult(downloadUri))
     whenever(imageReference.delete()).thenReturn(Tasks.forException(deleteFailure))
     whenever(document.set(any<Map<String, Any>>()))
