@@ -84,8 +84,9 @@ service cloud.firestore {
             && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imageUrls', 'refundValue'])
             && data.ownerUid == request.auth.uid
             && data.category is string && data.category.size() > 0 && data.category.size() <= 50
-            && data.title is string && data.title.size() > 0
-            && data.description is string
+            // Same as ListingRules.errorFor in the app: no empty or whitespace-only text.
+            && data.title is string && data.title.trim().size() > 0
+            && data.description is string && data.description.trim().size() > 0
             && isAmount(data.price)
             && data.imageUrls is list && data.imageUrls.size() <= 5
             && ((data.type == 'ITEM' && isAmount(data.refundValue))
