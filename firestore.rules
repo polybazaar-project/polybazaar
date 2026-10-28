@@ -98,6 +98,9 @@ service cloud.firestore {
 
       allow update: if isVerified()
           && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          // The type decides whether refundValue exists, so a listing keeps the type it was created with.
+          && request.resource.data.type == resource.data.type
           && validListing(request.resource.data);
 
       allow delete: if isVerified() && resource.data.ownerUid == request.auth.uid;
