@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
@@ -9,12 +10,15 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.rememberNavController
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -38,14 +42,17 @@ class EndToEndFlowTest {
 
   private val backend = InMemoryBackend()
   private lateinit var authViewModel: AuthViewModel
+  private lateinit var navController: NavHostController
 
   private fun launchApp() {
     authViewModel = AuthViewModel(backend)
     composeTestRule.setContent {
+      navController = rememberNavController()
       AppNavHost(
           authViewModel = authViewModel,
           authRepository = backend,
           profileRepository = backend,
+          navController = navController,
       )
     }
   }
@@ -67,6 +74,13 @@ class EndToEndFlowTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
   }
 
+  private fun openProfile() {
+    composeTestRule.runOnIdle {
+      navController.navigate(Routes.PROFILE) { launchSingleTop = true }
+    }
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
   @Test
   fun newUser_createsAccountEditsProfileSignsOutAndSignsBackIn() {
     launchApp()
@@ -74,7 +88,8 @@ class EndToEndFlowTest {
 
     createAccount("ada_lovelace", "ada@epfl.ch", "secret123")
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    openProfile()
     composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
@@ -90,7 +105,8 @@ class EndToEndFlowTest {
 
     signIn("ada@epfl.ch", "secret123")
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    openProfile()
     composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
     composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Mathematician")
   }
@@ -120,13 +136,14 @@ class EndToEndFlowTest {
   }
 
   @Test
-  fun persistedSession_opensProfileWithSavedBio() {
+  fun persistedSession_opensBrowseAndProfileShowsSavedBio() {
     val user = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
     backend.setSignedIn(user.uid)
     backend.setBio(user.uid, "Back again")
     launchApp()
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    openProfile()
     composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Back again")
   }
 
