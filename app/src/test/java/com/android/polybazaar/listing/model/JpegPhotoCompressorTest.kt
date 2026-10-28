@@ -52,6 +52,15 @@ class JpegPhotoCompressorTest {
   }
 
   @Test
+  fun compress_keepsAtLeastOnePixelOnTheShortSide() = runTest {
+    // Scaled to 1600 px wide, the 1 px height becomes 0.4 px and would round down to 0.
+    val photo = decode(compressor().compress(writeImage(4000, 1)))
+
+    assertEquals(JpegPhotoCompressor.MAX_SIZE, photo.width)
+    assertEquals(1, photo.height)
+  }
+
+  @Test
   fun compress_keepsSmallPhotosAtTheirSize() = runTest {
     val photo = decode(compressor().compress(writeImage(300, 200)))
 

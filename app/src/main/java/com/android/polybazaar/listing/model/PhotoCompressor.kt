@@ -41,9 +41,11 @@ class JpegPhotoCompressor(
               decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
               val scale = maxSize.toFloat() / maxOf(info.size.width, info.size.height)
               if (scale < 1f) {
+                // A very thin photo (4000 × 1, say) would round its short side down to 0, which
+                // setTargetSize rejects.
                 decoder.setTargetSize(
-                    (info.size.width * scale).toInt(),
-                    (info.size.height * scale).toInt(),
+                    maxOf(1, (info.size.width * scale).toInt()),
+                    maxOf(1, (info.size.height * scale).toInt()),
                 )
               }
             }
