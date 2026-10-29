@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.viewmodel
 
 import androidx.lifecycle.ViewModel
@@ -47,6 +48,11 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
 
   fun signUp(email: String, password: String, username: String) {
     viewModelScope.launch { authenticate { authRepository.signUp(email, password, username) } }
+  }
+
+  /** Marks the signed-in user's email as verified, once [VerifyEmailViewModel] has confirmed it. */
+  fun onEmailVerified() {
+    _uiState.update { it.copy(user = it.user?.copy(isEmailVerified = true)) }
   }
 
   fun signOut() {

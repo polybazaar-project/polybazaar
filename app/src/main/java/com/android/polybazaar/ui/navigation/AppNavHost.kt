@@ -17,6 +17,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -25,11 +27,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreen
 import com.android.polybazaar.auth.ui.ForgotPasswordScreen
 import com.android.polybazaar.auth.ui.SignInScreen
+import com.android.polybazaar.auth.ui.VerifyEmailScreen
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
+import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -46,7 +51,8 @@ const val SETTINGS_UNAVAILABLE_MESSAGE = "Settings are not available yet"
 
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
- * checked, then routes to the profile for a signed-in user and to sign-in otherwise.
+ * checked, then routes a signed-in user to the profile, or to the verify email screen while their
+ * email is not verified, and everyone else to sign-in.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
@@ -87,7 +93,7 @@ fun AppNavHost(
       composable(Routes.LOADING) {
         LaunchedEffect(uiState.sessionChecked, uiState.user) {
           if (uiState.sessionChecked) {
-            val destination = if (uiState.user != null) Routes.PROFILE else Routes.SIGN_IN
+            val destination = uiState.user?.let(::signedInRoute) ?: Routes.SIGN_IN
             navController.navigate(destination) {
               popUpTo(Routes.LOADING) { inclusive = true }
               launchSingleTop = true
@@ -110,14 +116,18 @@ fun AppNavHost(
             onForgotPassword = {
               navController.navigate(Routes.FORGOT_PASSWORD) { launchSingleTop = true }
             },
-            onSignedIn = { navController.navigateToProfileFromAuth() },
+            onSignedIn = {
+              authViewModel.uiState.value.user?.let { navController.navigateFromAuth(it) }
+            },
         )
       }
       composable(Routes.CREATE_ACCOUNT) {
         CreateAccountScreen(
             authViewModel = authViewModel,
             onBack = { navController.popBackStack() },
-            onSignedIn = { navController.navigateToProfileFromAuth() },
+            onSignedIn = {
+              authViewModel.uiState.value.user?.let { navController.navigateFromAuth(it) }
+            },
         )
       }
       composable(Routes.FORGOT_PASSWORD) {
@@ -130,6 +140,33 @@ fun AppNavHost(
         ForgotPasswordScreen(
             forgotPasswordViewModel = forgotPasswordViewModel,
             onBack = { navController.popBackStack() },
+        )
+      }
+      composable(Routes.VERIFY_EMAIL) {
+        // Renders nothing for the frame between sign-out and the redirect to sign-in.
+        val email = uiState.user?.email ?: return@composable
+        val verifyEmailViewModel: VerifyEmailViewModel =
+            viewModel(
+                factory = viewModelFactory { initializer { VerifyEmailViewModel(authRepository) } }
+            )
+        // Checks on arrival and whenever the user comes back to the app, for example from the
+        // verification link in their mail app, so they do not have to tap the button themselves.
+        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+          verifyEmailViewModel.refresh(showNotVerifiedMessage = false)
+        }
+
+        VerifyEmailScreen(
+            verifyEmailViewModel = verifyEmailViewModel,
+            email = email,
+            onVerified = {
+              authViewModel.onEmailVerified()
+              navController.navigate(Routes.PROFILE) {
+                popUpTo(Routes.VERIFY_EMAIL) { inclusive = true }
+                launchSingleTop = true
+              }
+            },
+            // Signing out is enough: the redirect above takes the user back to sign-in.
+            onUseAnotherAccount = authViewModel::signOut,
         )
       }
       composable(Routes.PROFILE) {
@@ -192,10 +229,16 @@ fun AppNavHost(
   }
 }
 
-private val signedInRoutes = setOf(Routes.PROFILE, Routes.EDIT_PROFILE)
+private val signedInRoutes = setOf(Routes.VERIFY_EMAIL, Routes.PROFILE, Routes.EDIT_PROFILE)
 
-private fun NavHostController.navigateToProfileFromAuth() {
-  navigate(Routes.PROFILE) {
+/**
+ * Where a signed-in [user] belongs: the app once their email is verified, the verify screen before.
+ */
+private fun signedInRoute(user: User): String =
+    if (user.isEmailVerified) Routes.PROFILE else Routes.VERIFY_EMAIL
+
+private fun NavHostController.navigateFromAuth(user: User) {
+  navigate(signedInRoute(user)) {
     popUpTo(Routes.SIGN_IN) { inclusive = true }
     launchSingleTop = true
   }

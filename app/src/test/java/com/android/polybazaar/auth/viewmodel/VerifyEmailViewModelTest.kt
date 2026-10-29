@@ -131,6 +131,17 @@ class VerifyEmailViewModelTest {
   }
 
   @Test
+  fun refresh_automaticCheckWhileUnverified_showsNoMessage() = runTest {
+    repository.refreshUserResult = Result.success(unverifiedUser)
+
+    viewModel.refresh(showNotVerifiedMessage = false)
+    testDispatcher.scheduler.runCurrent()
+
+    assertFalse(viewModel.uiState.value.isVerified)
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
   fun refresh_failure_exposesErrorAndStopsLoading() = runTest {
     repository.refreshUserResult = Result.failure(Exception("Network error"))
 

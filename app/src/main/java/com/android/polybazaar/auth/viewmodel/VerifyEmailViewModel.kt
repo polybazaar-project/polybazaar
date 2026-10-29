@@ -55,8 +55,13 @@ class VerifyEmailViewModel(private val authRepository: AuthRepository) : ViewMod
     }
   }
 
-  /** Checks with the server whether the email has been verified since the last check. */
-  fun refresh() {
+  /**
+   * Checks with the server whether the email has been verified since the last check.
+   *
+   * @param showNotVerifiedMessage false for automatic checks, so a still-unverified result does not
+   *   tell the user "Email not verified yet" before they have asked.
+   */
+  fun refresh(showNotVerifiedMessage: Boolean = true) {
     if (_uiState.value.isLoading) return
     viewModelScope.launch {
       _uiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -68,7 +73,9 @@ class VerifyEmailViewModel(private val authRepository: AuthRepository) : ViewMod
                   it.copy(
                       isVerified = user.isEmailVerified,
                       isLoading = false,
-                      errorMessage = if (user.isEmailVerified) null else "Email not verified yet",
+                      errorMessage =
+                          if (user.isEmailVerified || !showNotVerifiedMessage) null
+                          else "Email not verified yet",
                   )
                 }
               },
