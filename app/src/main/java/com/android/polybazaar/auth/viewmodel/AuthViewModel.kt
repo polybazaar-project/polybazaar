@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.viewmodel
 
 import androidx.lifecycle.ViewModel
@@ -47,6 +48,11 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
 
   fun signUp(email: String, password: String, username: String) {
     viewModelScope.launch { authenticate { authRepository.signUp(email, password, username) } }
+  }
+
+  /** Forgets the error once a screen has shown it, so it is not shown again. */
+  fun clearError() {
+    _uiState.update { it.copy(errorMessage = null) }
   }
 
   fun signOut() {

@@ -143,6 +143,22 @@ class AuthViewModelTest {
   }
 
   @Test
+  fun clearError_removesErrorAndKeepsUser() = runTest {
+    val user = User(uid = "user-1", email = "user@example.com", username = "User")
+    repository.signInResult = Result.success(user)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.signOutException = IllegalStateException()
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.clearError()
+
+    assertNull(viewModel.uiState.value.errorMessage)
+    assertEquals(user, viewModel.uiState.value.user)
+  }
+
+  @Test
   fun restoreSession_exposesPersistedUserAndMarksSessionChecked() = runTest {
     val user = User(uid = "user-1", email = "user@example.com", username = "User")
     repository.currentUser = user

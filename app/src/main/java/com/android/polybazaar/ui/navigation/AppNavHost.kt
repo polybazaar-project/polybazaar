@@ -38,13 +38,12 @@ import com.android.polybazaar.profile.ui.EditProfileContent
 import com.android.polybazaar.profile.ui.ProfileContent
 import com.android.polybazaar.profile.viewmodel.EditProfileViewModel
 import com.android.polybazaar.profile.viewmodel.ProfileViewModel
+import com.android.polybazaar.settings.ui.SettingsContent
 import kotlinx.coroutines.launch
 
 object AppNavHostTags {
   const val LOADING = "app_nav_loading"
 }
-
-const val SETTINGS_UNAVAILABLE_MESSAGE = "Settings are not available yet"
 
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
@@ -66,7 +65,7 @@ fun AppNavHost(
   val uiState by authViewModel.uiState.collectAsState()
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
-  val showUnavailable: (String) -> Unit = { message ->
+  val showMessage: (String) -> Unit = { message ->
     scope.launch {
       snackbarHostState.currentSnackbarData?.dismiss()
       snackbarHostState.showSnackbar(message)
@@ -153,7 +152,7 @@ fun AppNavHost(
             onEditProfile = {
               navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true }
             },
-            onOpenSettings = { showUnavailable(SETTINGS_UNAVAILABLE_MESSAGE) },
+            onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
         )
       }
       composable(Routes.EDIT_PROFILE) {
@@ -187,6 +186,21 @@ fun AppNavHost(
                 ),
         )
       }
+      composable(Routes.SETTINGS) {
+        // Signing out sets the user to null, and the redirect above returns to sign-in. Signing out
+        // rarely fails, and when it does the user stays here, so the error is shown here too. It is
+        // cleared once shown, so it does not come back on the next visit and a repeat still shows.
+        LaunchedEffect(uiState.errorMessage) {
+          uiState.errorMessage?.let {
+            showMessage(it)
+            authViewModel.clearError()
+          }
+        }
+        SettingsContent(
+            onBack = { navController.popBackStack() },
+            onSignOut = authViewModel::signOut,
+        )
+      }
     }
     SnackbarHost(
         hostState = snackbarHostState,
@@ -195,7 +209,8 @@ fun AppNavHost(
   }
 }
 
-private val signedInRoutes = setOf(Routes.BROWSE, Routes.PROFILE, Routes.EDIT_PROFILE)
+private val signedInRoutes =
+    setOf(Routes.BROWSE, Routes.PROFILE, Routes.EDIT_PROFILE, Routes.SETTINGS)
 
 private fun NavHostController.navigateToProfileFromAuth() {
   navigate(Routes.PROFILE) {
