@@ -2,11 +2,14 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.browse.viewmodel
 
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
-import com.android.polybazaar.listing.model.Listing
-import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ServiceListing
+import java.net.UnknownHostException
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -14,7 +17,9 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -168,11 +173,137 @@ class BrowseViewModelTest {
 
   private fun priced(price: Double) = ItemListing("Tools", price, "Drill", "", listingId = "drill")
 
-  private class FakeListingRepository(private val listings: List<Listing>) : ListingRepository {
-    override suspend fun createListing(listing: Listing): Listing = listing
+  @Test
+  fun init_loadsTheRepositoryListings() {
+    val viewModel = BrowseViewModel(repository)
 
-    override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
+    val state = viewModel.uiState.value
+    assertEquals(listings, state.listings)
+    assertEquals(listOf("Electronics", "Tools"), state.categories)
+    assertFalse(state.isLoading)
+    assertNull(state.error)
+    assertEquals(1, repository.getAllListingsCalls)
+  }
 
-    override suspend fun getAllListings(): Result<List<Listing>> = Result.success(listings)
+  @Test
+  fun loadListings_dropsListingsWithoutAnId() {
+    repository.allListings += ItemListing("Books", 3.0, "Unsaved book", "")
+
+    val viewModel = BrowseViewModel(repository)
+
+    assertEquals(listings, viewModel.uiState.value.listings)
+    assertEquals(listOf("Electronics", "Tools"), viewModel.uiState.value.categories)
+  }
+
+  @Test
+  fun loadListings_listsEachCategoryOnceInAlphabeticalOrder() {
+    repository.allListings =
+        listOf(
+            ItemListing("Tools", 8.0, "Drill", "", listingId = "drill"),
+            ServiceListing("Tutoring", 25.0, "Math", "", listingId = "math"),
+            ItemListing("Books", 3.0, "Novel", "", listingId = "novel"),
+            ItemListing("Tools", 5.0, "Hammer", "", listingId = "hammer"),
+        )
+
+    val viewModel = BrowseViewModel(repository)
+
+    assertEquals(listOf("Books", "Tools", "Tutoring"), viewModel.uiState.value.categories)
+  }
+
+  @Test
+  fun loadListings_isLoadingOnlyWhileTheRepositoryAnswers() {
+    val gate = CompletableDeferred<Unit>()
+    repository.gate = gate
+
+    val viewModel = BrowseViewModel(repository)
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertEquals(emptyList<BrowseListing>(), viewModel.uiState.value.listings)
+
+    gate.complete(Unit)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertEquals(listings, viewModel.uiState.value.listings)
+  }
+
+  @Test
+  fun loadListings_onFailure_setsTheErrorAndStopsLoading() {
+    val gate = CompletableDeferred<Unit>()
+    repository.gate = gate
+    repository.failure = UnknownHostException("offline")
+
+    val viewModel = BrowseViewModel(repository)
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    gate.complete(Unit)
+    val state = viewModel.uiState.value
+    assertFalse(state.isLoading)
+    assertEquals(AppError.NETWORK, state.error)
+    assertEquals(emptyList<BrowseListing>(), state.listings)
+  }
+
+  @Test
+  fun loadListings_onFailure_keepsTheListingsAlreadyShown() {
+    val viewModel = BrowseViewModel(repository)
+    repository.failure = UnknownHostException("offline")
+
+    viewModel.loadListings()
+
+    val state = viewModel.uiState.value
+    assertEquals(AppError.NETWORK, state.error)
+    assertEquals(listings, state.listings)
+    assertEquals(listOf("Electronics", "Tools"), state.categories)
+  }
+
+  @Test
+  fun loadListings_retryAfterFailure_clearsTheErrorAndShowsTheListings() {
+    repository.failure = UnknownHostException("offline")
+    val viewModel = BrowseViewModel(repository)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    val gate = CompletableDeferred<Unit>()
+    repository.gate = gate
+    repository.failure = null
+    viewModel.loadListings()
+    // The old error goes away as soon as the retry starts.
+    assertNull(viewModel.uiState.value.error)
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    gate.complete(Unit)
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listings, viewModel.uiState.value.listings)
+    assertEquals(2, repository.getAllListingsCalls)
+  }
+
+  @Test
+  fun loadListings_whenCancelled_reportsNoErrorAndStopsLoading() {
+    repository.failure = CancellationException("left the screen")
+
+    val viewModel = BrowseViewModel(repository)
+
+    assertNull(viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun loadListings_clearsASelectedCategoryThatNoLongerExists() {
+    val viewModel = BrowseViewModel(repository)
+    viewModel.selectCategory("Electronics")
+    repository.allListings = repository.allListings.filter { it.category == "Tools" }
+
+    viewModel.loadListings()
+
+    assertNull(viewModel.uiState.value.selectedCategory)
+    assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun loadListings_keepsASelectedCategoryThatStillExists() {
+    val viewModel = BrowseViewModel(repository)
+    viewModel.selectCategory("Tools")
+    viewModel.updateQuery("drill")
+
+    viewModel.loadListings()
+
+    assertEquals("Tools", viewModel.uiState.value.selectedCategory)
+    assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
   }
 }
