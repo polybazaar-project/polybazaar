@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.viewmodel
 
 import com.android.polybazaar.listing.model.Listing
@@ -190,5 +191,7 @@ class ListingViewModelTest {
       failure?.let { throw it }
       return pendingResult?.await() ?: requireNotNull(result) { "Set a result before creating" }
     }
+
+    override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
   }
 }
