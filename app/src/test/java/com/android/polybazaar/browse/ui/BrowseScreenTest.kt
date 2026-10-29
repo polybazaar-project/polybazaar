@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.browse.viewmodel.BrowseUiState
+import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,25 +21,24 @@ class BrowseScreenTest {
 
   @Test
   fun search_filtersViewModelListings() {
-    composeTestRule.setContent {
-      BrowseScreen(
-          uiState =
-              BrowseUiState(
-                  listings =
-                      listOf(
-                          BrowseListing("drill", "Bosch drill set", "Tools", "350 m away", "CHF 8"),
-                          BrowseListing(
-                              "projector",
-                              "Mini projector",
-                              "Electronics",
-                              "600 m away",
-                              "CHF 12",
-                          ),
-                      ),
-                  categories = listOf("Tools", "Electronics"),
-              ),
-      )
-    }
+    val viewModel =
+        BrowseViewModel(
+            BrowseUiState(
+                listings =
+                    listOf(
+                        BrowseListing("drill", "Bosch drill set", "Tools", "350 m away", "CHF 8"),
+                        BrowseListing(
+                            "projector",
+                            "Mini projector",
+                            "Electronics",
+                            "600 m away",
+                            "CHF 12",
+                        ),
+                    ),
+                categories = listOf("Tools", "Electronics"),
+            )
+        )
+    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("projector")

@@ -21,10 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,10 +36,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.browse.viewmodel.BrowseUiState
+import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 
 object BrowseScreenTags {
   const val SCREEN = "browse_screen"
@@ -49,27 +49,31 @@ object BrowseScreenTags {
 }
 
 @Composable
-fun BrowseScreen(uiState: BrowseUiState = BrowseUiState()) {
-  var query by remember { mutableStateOf("") }
-  var selectedCategory by remember { mutableStateOf<String?>(null) }
-  val listings =
-      remember(uiState.listings, query, selectedCategory) {
-        uiState.listings.filter { listing ->
-          (selectedCategory == null || listing.category == selectedCategory) &&
-              listing.title.contains(query, ignoreCase = true)
-        }
-      }
+fun BrowseScreen(viewModel: BrowseViewModel = viewModel()) {
+  val uiState by viewModel.uiState.collectAsState()
+  BrowseContent(
+      uiState = uiState,
+      onQueryChange = viewModel::updateQuery,
+      onCategorySelected = viewModel::selectCategory,
+  )
+}
 
+@Composable
+fun BrowseContent(
+    uiState: BrowseUiState,
+    onQueryChange: (String) -> Unit,
+    onCategorySelected: (String) -> Unit,
+) {
   Column(
       modifier =
           Modifier.fillMaxSize().background(AuthColors.Background).testTag(BrowseScreenTags.SCREEN)
   ) {
     BrowseHeader()
-    SearchField(query = query, onQueryChange = { query = it })
+    SearchField(query = uiState.query, onQueryChange = onQueryChange)
     CategorySelector(
         categories = uiState.categories,
-        selectedCategory = selectedCategory,
-        onCategorySelected = { selectedCategory = it },
+        selectedCategory = uiState.selectedCategory,
+        onCategorySelected = onCategorySelected,
     )
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
@@ -99,7 +103,7 @@ fun BrowseScreen(uiState: BrowseUiState = BrowseUiState()) {
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-      items(listings, key = { it.id }) { ListingCard(it) }
+      items(uiState.filteredListings, key = { it.id }) { ListingCard(it) }
     }
   }
 }
