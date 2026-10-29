@@ -4,6 +4,9 @@ package com.android.polybazaar.listing.model
 
 interface ListingRepository {
 
+  /**
+   * Uploads the listing's images, saves it, and returns it with its id and [Listing.imagePaths].
+   */
   suspend fun createListing(listing: Listing): Listing
 
   /**
@@ -21,4 +24,7 @@ interface ListingRepository {
    * failure with `toAppError()`.
    */
   suspend fun getAllListings(): Result<List<Listing>>
+
+  /** Downloads one of a listing's images by its Storage path, as the signed-in user. */
+  suspend fun loadListingImage(imagePath: String): ByteArray
 }

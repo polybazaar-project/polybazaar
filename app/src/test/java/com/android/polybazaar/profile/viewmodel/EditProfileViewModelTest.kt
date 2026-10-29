@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.viewmodel
 
@@ -37,7 +38,7 @@ class EditProfileViewModelTest {
           uid = uid,
           email = "user@example.com",
           username = "student",
-          photoUrl = "https://example.com/original.jpg",
+          photoPath = "users/user-123/original.jpg",
           bio = "Original bio",
       )
 
@@ -79,7 +80,7 @@ class EditProfileViewModelTest {
 
     assertEquals(profile, viewModel.uiState.value.profile)
     assertEquals(profile.bio, viewModel.uiState.value.bio)
-    assertEquals(profile.photoUrl, viewModel.uiState.value.photoUrl)
+    assertEquals(profile.photoPath, viewModel.uiState.value.photoPath)
     assertFalse(viewModel.uiState.value.isLoading)
     assertNull(viewModel.uiState.value.errorMessage)
   }
@@ -171,7 +172,7 @@ class EditProfileViewModelTest {
 
     assertSame(photo, viewModel.uiState.value.selectedPhotoUri)
     assertFalse(viewModel.uiState.value.isPhotoRemoved)
-    assertNull(viewModel.uiState.value.photoUrl)
+    assertNull(viewModel.uiState.value.photoPath)
   }
 
   @Test
@@ -183,7 +184,7 @@ class EditProfileViewModelTest {
 
     assertNull(viewModel.uiState.value.selectedPhotoUri)
     assertTrue(viewModel.uiState.value.isPhotoRemoved)
-    assertNull(viewModel.uiState.value.photoUrl)
+    assertNull(viewModel.uiState.value.photoPath)
   }
 
   @Test
@@ -207,10 +208,10 @@ class EditProfileViewModelTest {
     viewModel.saveProfile()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(UpdateCall(uid, photoUrl = null, bio = "New bio"), repository.updateCall)
+    assertEquals(UpdateCall(uid, photoPath = null, bio = "New bio"), repository.updateCall)
     assertEquals(profile.copy(bio = "New bio"), viewModel.uiState.value.profile)
     assertEquals("New bio", viewModel.uiState.value.bio)
-    assertEquals(profile.photoUrl, viewModel.uiState.value.photoUrl)
+    assertEquals(profile.photoPath, viewModel.uiState.value.photoPath)
     assertNull(viewModel.uiState.value.selectedPhotoUri)
     assertFalse(viewModel.uiState.value.isPhotoRemoved)
     assertFalse(viewModel.uiState.value.isSaving)
@@ -222,7 +223,7 @@ class EditProfileViewModelTest {
   fun saveSelectedPhoto_uploadsBeforeUpdatingProfile() = runTest {
     loadProfile()
     val photo = mock<Uri>()
-    repository.uploadedPhotoUrl = "https://example.com/new.jpg"
+    repository.uploadedPhotoPath = "users/user-123/new.jpg"
     viewModel.selectProfilePhoto(photo)
     viewModel.updateBio("Photo and bio")
 
@@ -236,10 +237,10 @@ class EditProfileViewModelTest {
         repository.operations,
     )
     assertEquals(
-        UpdateCall(uid, photoUrl = "https://example.com/new.jpg", bio = "Photo and bio"),
+        UpdateCall(uid, photoPath = "users/user-123/new.jpg", bio = "Photo and bio"),
         repository.updateCall,
     )
-    assertEquals("https://example.com/new.jpg", viewModel.uiState.value.photoUrl)
+    assertEquals("users/user-123/new.jpg", viewModel.uiState.value.photoPath)
     assertNull(viewModel.uiState.value.selectedPhotoUri)
     assertTrue(viewModel.uiState.value.isSaved)
   }
@@ -255,9 +256,9 @@ class EditProfileViewModelTest {
 
     assertEquals(listOf("update", "remove"), repository.operations)
     assertEquals(uid, repository.removedPhotoUid)
-    assertEquals(UpdateCall(uid, photoUrl = null, bio = "No photo"), repository.updateCall)
-    assertNull(viewModel.uiState.value.profile?.photoUrl)
-    assertNull(viewModel.uiState.value.photoUrl)
+    assertEquals(UpdateCall(uid, photoPath = null, bio = "No photo"), repository.updateCall)
+    assertNull(viewModel.uiState.value.profile?.photoPath)
+    assertNull(viewModel.uiState.value.photoPath)
     assertFalse(viewModel.uiState.value.isPhotoRemoved)
     assertTrue(viewModel.uiState.value.isSaved)
   }
@@ -351,7 +352,7 @@ class EditProfileViewModelTest {
 
     assertEquals(listOf("update", "remove"), repository.operations)
     assertEquals(
-        UpdateCall(uid, photoUrl = null, bio = "Bio saved before removal failed"),
+        UpdateCall(uid, photoPath = null, bio = "Bio saved before removal failed"),
         repository.updateCall,
     )
     assertEquals("Bio saved before removal failed", viewModel.uiState.value.bio)
@@ -359,8 +360,8 @@ class EditProfileViewModelTest {
         "Bio saved before removal failed",
         viewModel.uiState.value.profile?.bio,
     )
-    assertEquals(profile.photoUrl, viewModel.uiState.value.profile?.photoUrl)
-    assertEquals(profile.photoUrl, viewModel.uiState.value.photoUrl)
+    assertEquals(profile.photoPath, viewModel.uiState.value.profile?.photoPath)
+    assertEquals(profile.photoPath, viewModel.uiState.value.photoPath)
     assertTrue(viewModel.uiState.value.isPhotoRemoved)
     assertFalse(viewModel.uiState.value.isSaved)
     assertTrue(viewModel.uiState.value.isPartiallySaved)
@@ -384,7 +385,7 @@ class EditProfileViewModelTest {
     assertEquals(listOf("update"), repository.operations)
     assertEquals("Write failed", viewModel.uiState.value.errorMessage)
     assertTrue(viewModel.uiState.value.isPhotoRemoved)
-    assertEquals(profile.photoUrl, viewModel.uiState.value.profile?.photoUrl)
+    assertEquals(profile.photoPath, viewModel.uiState.value.profile?.photoPath)
     assertFalse(viewModel.uiState.value.isSaving)
     assertFalse(viewModel.uiState.value.isSaved)
   }
@@ -415,7 +416,7 @@ class EditProfileViewModelTest {
     viewModel = EditProfileViewModel(repository, uid)
   }
 
-  private data class UpdateCall(val uid: String, val photoUrl: String?, val bio: String)
+  private data class UpdateCall(val uid: String, val photoPath: String?, val bio: String)
 
   private class FakeProfileRepository : ProfileRepository {
     val profiles = MutableSharedFlow<User?>(replay = 1)
@@ -426,7 +427,7 @@ class EditProfileViewModelTest {
     var updateCall: UpdateCall? = null
     var updateCallCount = 0
     var operations = mutableListOf<String>()
-    var uploadedPhotoUrl = "https://example.com/uploaded.jpg"
+    var uploadedPhotoPath = "users/user-123/uploaded.jpg"
     var uploadException: Exception? = null
     var removeException: Exception? = null
     var updateException: Exception? = null
@@ -441,8 +442,10 @@ class EditProfileViewModelTest {
       operations += "upload"
       uploadCall = uid to photoUri
       uploadException?.let { throw it }
-      return uploadedPhotoUrl
+      return uploadedPhotoPath
     }
+
+    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
 
     override suspend fun removeProfilePhoto(uid: String) {
       operations += "remove"
@@ -450,9 +453,9 @@ class EditProfileViewModelTest {
       removeException?.let { throw it }
     }
 
-    override suspend fun updateProfile(uid: String, photoUrl: String?, bio: String) {
+    override suspend fun updateProfile(uid: String, photoPath: String?, bio: String) {
       operations += "update"
-      updateCall = UpdateCall(uid, photoUrl, bio)
+      updateCall = UpdateCall(uid, photoPath, bio)
       updateCallCount++
       updateGate?.await()
       updateException?.let { throw it }

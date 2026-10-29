@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
@@ -45,5 +46,7 @@ class ListingTest {
         )
 
     assertEquals(emptyList<Uri>(), listing.images)
+    // Not saved yet, so not stored anywhere.
+    assertEquals(emptyList<String>(), listing.imagePaths)
   }
 }

@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.ui
 
@@ -84,7 +85,7 @@ fun EditProfileContent(
     actions: EditProfileActions,
 ) {
   val canEdit = profile != null && !isSaving
-  val hasCustomPhoto = selectedPhotoUri != null || (profile?.photoUrl != null && !isPhotoRemoved)
+  val hasCustomPhoto = selectedPhotoUri != null || (profile?.photoPath != null && !isPhotoRemoved)
 
   Column(
       modifier =
