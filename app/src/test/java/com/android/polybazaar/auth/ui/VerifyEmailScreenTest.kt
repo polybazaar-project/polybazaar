@@ -194,12 +194,13 @@ class VerifyEmailScreenTest {
 
   @Test
   fun screen_systemBack_callsOnUseAnotherAccount() {
+    val viewModel = VerifyEmailViewModel(FakeAuthRepository())
     var exits = 0
     lateinit var backDispatcher: OnBackPressedDispatcher
     composeTestRule.setContent {
       backDispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
       VerifyEmailScreen(
-          verifyEmailViewModel = VerifyEmailViewModel(FakeAuthRepository()),
+          verifyEmailViewModel = viewModel,
           email = email,
           onVerified = {},
           onUseAnotherAccount = { exits++ },
