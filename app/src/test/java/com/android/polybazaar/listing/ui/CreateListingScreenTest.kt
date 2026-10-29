@@ -1128,5 +1128,7 @@ class CreateListingScreenTest {
         is ServiceListing -> listing.copy(listingId = "listing-1", images = uploaded)
       }
     }
+
+    override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
   }
 }
