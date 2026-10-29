@@ -1,4 +1,4 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.ui
 
 import android.net.Uri
@@ -36,6 +36,7 @@ import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.auth.ui.AuthSecondaryButton
 import com.android.polybazaar.auth.ui.AuthTitleGroup
 import com.android.polybazaar.auth.ui.LabeledField
+import com.android.polybazaar.profile.model.ProfileRules
 
 object EditProfileScreenTags {
   const val SCREEN = "edit_profile_screen"
@@ -45,6 +46,7 @@ object EditProfileScreenTags {
   const val USERNAME_FIELD = "edit_profile_username_field"
   const val EMAIL_FIELD = "edit_profile_email_field"
   const val BIO_FIELD = "edit_profile_bio_field"
+  const val BIO_COUNTER = "edit_profile_bio_counter"
   const val ERROR_MESSAGE = "edit_profile_error_message"
   const val CANCEL_BUTTON = "edit_profile_cancel_button"
   const val SAVE_BUTTON = "edit_profile_save_button"
@@ -137,6 +139,8 @@ fun EditProfileContent(
           tag = EditProfileScreenTags.BIO_FIELD,
           readOnly = !canEdit,
           minLines = 3,
+          counter = "${bio.length}/${ProfileRules.MAX_BIO_LENGTH}",
+          counterTag = EditProfileScreenTags.BIO_COUNTER,
       )
       errorMessage?.let {
         Text(

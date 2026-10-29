@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.model
 
 import android.net.Uri
@@ -58,8 +59,10 @@ class FirebaseProfileRepository(
       photoUrl: String?,
       bio: String,
   ) {
+    require(bio.length <= ProfileRules.MAX_BIO_LENGTH) { ProfileRules.BIO_TOO_LONG_MESSAGE }
     val updates = mutableMapOf<String, Any?>()
     if (photoUrl != null) updates["photoUrl"] = photoUrl
+    // Stored as typed: spacing and line breaks are part of how the user wrote the bio.
     updates["bio"] = bio
 
     val data = updates.filterValues { it != null }.mapValues { (_, value) -> value as Any }
