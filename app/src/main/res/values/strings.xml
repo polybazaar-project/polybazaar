@@ -45,5 +45,5 @@
     <string name="reset_password_error_empty">Enter a new password.</string>
     <string name="reset_password_error_too_long">This password is too long. Choose a shorter one.</string>
     <string name="reset_password_error_mismatch">The two passwords don’t match.</string>
-    <string name="reset_password_error_invalid_link">This reset link has expired or was already used. Request a new one from Forgot password.</string>
+    <string name="reset_password_error_invalid_link">This reset link has expired or was already used. Go back to sign in and tap Forgot password? to get a new one.</string>
 </resources>
