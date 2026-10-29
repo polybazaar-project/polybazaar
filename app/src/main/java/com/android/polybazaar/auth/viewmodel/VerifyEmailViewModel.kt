@@ -20,10 +20,22 @@ data class VerifyEmailUiState(
     val errorMessage: String? = null,
 )
 
-class VerifyEmailViewModel(private val authRepository: AuthRepository) : ViewModel() {
+/**
+ * @param initialCooldownSeconds how long Resend stays disabled when the screen opens. Sign-up has
+ *   just sent an email, so by default the user waits for it instead of sending a second one.
+ */
+class VerifyEmailViewModel(
+    private val authRepository: AuthRepository,
+    initialCooldownSeconds: Int = RESEND_COOLDOWN_SECONDS,
+) : ViewModel() {
 
-  private val _uiState = MutableStateFlow(VerifyEmailUiState())
+  private val _uiState =
+      MutableStateFlow(VerifyEmailUiState(resendCooldownSeconds = initialCooldownSeconds))
   val uiState: StateFlow<VerifyEmailUiState> = _uiState.asStateFlow()
+
+  init {
+    viewModelScope.launch { countDownResendCooldown() }
+  }
 
   /**
    * Sends the verification email again. Ignored once verified, while loading, or during the

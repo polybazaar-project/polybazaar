@@ -215,7 +215,7 @@ class VerifyEmailScreenTest {
   @Test
   fun screen_resending_sendsEmailAndStartsCooldown() {
     val repository = FakeAuthRepository()
-    val viewModel = VerifyEmailViewModel(repository)
+    val viewModel = VerifyEmailViewModel(repository, initialCooldownSeconds = 0)
     composeTestRule.setContent {
       VerifyEmailScreen(
           verifyEmailViewModel = viewModel,

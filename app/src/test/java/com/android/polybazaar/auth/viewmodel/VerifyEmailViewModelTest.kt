@@ -30,7 +30,7 @@ class VerifyEmailViewModelTest {
   fun setUp() {
     Dispatchers.setMain(testDispatcher)
     repository = FakeAuthRepository()
-    viewModel = VerifyEmailViewModel(repository)
+    viewModel = VerifyEmailViewModel(repository, initialCooldownSeconds = 0)
   }
 
   @After
@@ -41,6 +41,22 @@ class VerifyEmailViewModelTest {
   @Test
   fun initialState_isUnverifiedAndIdle() {
     assertEquals(VerifyEmailUiState(), viewModel.uiState.value)
+  }
+
+  @Test
+  fun byDefault_startsWithCooldownAndIgnoresResend() = runTest {
+    val defaultViewModel = VerifyEmailViewModel(repository)
+
+    assertEquals(RESEND_COOLDOWN_SECONDS, defaultViewModel.uiState.value.resendCooldownSeconds)
+    defaultViewModel.resend()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(0, repository.sendVerificationEmailCalls)
+
+    testDispatcher.scheduler.advanceTimeBy(RESEND_COOLDOWN_SECONDS * 1_000L + 1)
+    assertEquals(0, defaultViewModel.uiState.value.resendCooldownSeconds)
+    defaultViewModel.resend()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(1, repository.sendVerificationEmailCalls)
   }
 
   @Test
