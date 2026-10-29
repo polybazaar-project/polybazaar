@@ -440,6 +440,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }
