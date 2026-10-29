@@ -240,6 +240,7 @@ private fun ListingCard(listing: BrowseListing) {
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
         )
+        Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = stringResource(R.string.browse_price_per_day),
             color = AuthColors.TextSecondary,
