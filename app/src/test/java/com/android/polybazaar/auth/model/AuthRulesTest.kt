@@ -1,9 +1,10 @@
-// Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Sonnet 5.5, Claude Opus 5.5)
 package com.android.polybazaar.auth.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AuthRulesTest {
@@ -109,6 +110,17 @@ class AuthRulesTest {
         "Email must be at most 254 characters",
         AuthRules.emailLengthError(atLimit + "e"),
     )
+  }
+
+  @Test
+  fun meetsPasswordRules_needsTheMinimumLengthALetterAndADigit() {
+    assertTrue(AuthRules.meetsPasswordRules("abcdefg1"))
+    // Any Unicode letter and digit count: Cyrillic letters and Arabic-Indic digits.
+    assertTrue(AuthRules.meetsPasswordRules("пароль\u0661\u0662"))
+    assertFalse(AuthRules.meetsPasswordRules("abcdef1"))
+    assertFalse(AuthRules.meetsPasswordRules("abcdefgh"))
+    assertFalse(AuthRules.meetsPasswordRules("12345678"))
+    assertFalse(AuthRules.meetsPasswordRules(""))
   }
 
   @Test

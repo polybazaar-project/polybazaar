@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Sonnet 5.5, Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.foundation.background
@@ -95,8 +95,12 @@ fun CreateAccountContent(
   val emailLengthError = AuthRules.emailLengthError(email)
   // Skipped while the email is too long, so one field never shows two errors.
   val emailNotEpfl = email.isNotBlank() && emailLengthError == null && !isEpflEmail(email)
-  val passwordTooShort = password.isNotEmpty() && password.length < AuthRules.MIN_PASSWORD_LENGTH
   val passwordLengthError = AuthRules.passwordLengthError(password)
+  // Skipped while the password is too long, so the field never shows two errors.
+  val passwordTooWeak =
+      password.isNotEmpty() &&
+          passwordLengthError == null &&
+          !AuthRules.meetsPasswordRules(password)
   val passwordsMatch = password == confirmPassword
   val canSubmit =
       !uiState.isLoading &&
@@ -106,7 +110,7 @@ fun CreateAccountContent(
           !emailNotEpfl &&
           emailLengthError == null &&
           password.isNotEmpty() &&
-          !passwordTooShort &&
+          !passwordTooWeak &&
           passwordLengthError == null &&
           passwordsMatch
 
@@ -167,9 +171,9 @@ fun CreateAccountContent(
             keyboardType = KeyboardType.Password,
             visualTransformation = PasswordVisualTransformation(),
         )
-        if (passwordTooShort) {
+        if (passwordTooWeak) {
           FieldError(
-              "Password must be at least ${AuthRules.MIN_PASSWORD_LENGTH} characters",
+              "Use at least ${AuthRules.MIN_PASSWORD_LENGTH} characters, including a letter and a number",
               CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE,
           )
         }

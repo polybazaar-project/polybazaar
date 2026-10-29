@@ -4,6 +4,7 @@ package com.android.polybazaar.auth.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.model.ConfirmPasswordResetException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,9 @@ import kotlinx.coroutines.launch
 enum class ResetPasswordError {
   /** The new password is empty or only whitespace. */
   EMPTY_PASSWORD,
+
+  /** The new password is longer than [AuthRules.MAX_PASSWORD_LENGTH], as sign-up refuses. */
+  PASSWORD_TOO_LONG,
 
   /** The new password does not meet the rules shown under the field, or Firebase rejected it. */
   WEAK_PASSWORD,
@@ -35,27 +39,25 @@ enum class ResetPasswordError {
   UNKNOWN,
 }
 
-/** Shortest new password accepted, as stated under the new password field. */
-internal const val MIN_PASSWORD_LENGTH = 8
-
 /**
  * Checks the two fields before anything is sent, in this order:
  * - [newPassword] blank: [ResetPasswordError.EMPTY_PASSWORD];
- * - [newPassword] shorter than [MIN_PASSWORD_LENGTH], or without a letter or a digit:
+ * - [newPassword] over [AuthRules.MAX_PASSWORD_LENGTH]: [ResetPasswordError.PASSWORD_TOO_LONG];
+ * - [newPassword] not meeting [AuthRules.meetsPasswordRules], the same rule as sign-up:
  *   [ResetPasswordError.WEAK_PASSWORD];
  * - [confirmPassword] not exactly equal to [newPassword], blank included:
  *   [ResetPasswordError.PASSWORDS_DO_NOT_MATCH].
  *
- * Letters and digits are any Unicode ones ([Char.isLetter], [Char.isDigit]). Nothing is trimmed.
+ * Nothing is trimmed.
  *
  * @return the first rule broken, or null if the passwords can be sent.
  */
 internal fun newPasswordError(newPassword: String, confirmPassword: String): ResetPasswordError? =
     when {
       newPassword.isBlank() -> ResetPasswordError.EMPTY_PASSWORD
-      newPassword.length < MIN_PASSWORD_LENGTH ||
-          newPassword.none { it.isLetter() } ||
-          newPassword.none { it.isDigit() } -> ResetPasswordError.WEAK_PASSWORD
+      // Before the strength check, so a long password is not called weak.
+      AuthRules.passwordLengthError(newPassword) != null -> ResetPasswordError.PASSWORD_TOO_LONG
+      !AuthRules.meetsPasswordRules(newPassword) -> ResetPasswordError.WEAK_PASSWORD
       confirmPassword != newPassword -> ResetPasswordError.PASSWORDS_DO_NOT_MATCH
       else -> null
     }
