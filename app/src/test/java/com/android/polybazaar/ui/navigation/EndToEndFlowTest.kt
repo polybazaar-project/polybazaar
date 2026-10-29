@@ -17,6 +17,7 @@ import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
+import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -29,10 +30,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * End-to-end tests of what a user can do in the app today: create an account, edit the profile,
- * sign out and sign back in. The real navigation graph, screens and [AuthViewModel] run together;
- * only the data layer is replaced by [InMemoryBackend], so state written by one screen is read back
- * by the others as it would be from Firebase.
+ * End-to-end tests of what a user can do in the app today: create an account, verify the email,
+ * edit the profile, sign out and sign back in. The real navigation graph, screens and
+ * [AuthViewModel] run together; only the data layer is replaced by [InMemoryBackend], so state
+ * written by one screen is read back by the others as it would be from Firebase.
  */
 @RunWith(AndroidJUnit4::class)
 class EndToEndFlowTest {
@@ -74,11 +75,15 @@ class EndToEndFlowTest {
   }
 
   @Test
-  fun newUser_createsAccountEditsProfileSignsOutAndSignsBackIn() {
+  fun newUser_createsAccountVerifiesEmailEditsProfileSignsOutAndSignsBackIn() {
     launchApp()
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
 
     createAccount("ada_lovelace", "ada@epfl.ch", "secret123")
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    backend.openVerificationLink("ada@epfl.ch")
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.CHECK_BUTTON).performClick()
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
@@ -140,15 +145,30 @@ class EndToEndFlowTest {
     private class Account(val password: String, val user: User)
 
     private val accounts = mutableMapOf<String, Account>()
+    private val verifiedUids = mutableSetOf<String>()
     private var signedInUid: String? = null
     val profiles = MutableStateFlow<Map<String, User>>(emptyMap())
 
-    fun register(email: String, password: String, username: String): User {
+    /** Accounts registered by a test are verified unless [verified] says otherwise. */
+    fun register(
+        email: String,
+        password: String,
+        username: String,
+        verified: Boolean = true,
+    ): User {
       val user = User(uid = "uid-$username", email = email, username = username)
       accounts[email] = Account(password, user)
+      if (verified) verifiedUids += user.uid
       profiles.value = profiles.value + (user.uid to user)
       return user
     }
+
+    /** Simulates the user clicking the link in the verification email. */
+    fun openVerificationLink(email: String) {
+      verifiedUids += accounts.getValue(email).user.uid
+    }
+
+    private fun withVerification(user: User) = user.copy(isEmailVerified = user.uid in verifiedUids)
 
     fun setBio(uid: String, bio: String) {
       profiles.value = profiles.value + (uid to profiles.value.getValue(uid).copy(bio = bio))
@@ -164,14 +184,14 @@ class EndToEndFlowTest {
         return Result.failure(IllegalArgumentException("Wrong password"))
       }
       signedInUid = account.user.uid
-      return Result.success(account.user)
+      return Result.success(withVerification(account.user))
     }
 
     override suspend fun signUp(email: String, password: String, username: String): Result<User> {
       if (accounts.values.any { it.user.username == username }) {
         return Result.failure(IllegalStateException("Username is already taken"))
       }
-      val user = register(email, password, username)
+      val user = register(email, password, username, verified = false)
       signedInUid = user.uid
       return Result.success(user)
     }
@@ -182,7 +202,7 @@ class EndToEndFlowTest {
 
     override suspend fun getCurrentUser(): User {
       val uid = signedInUid ?: throw IllegalStateException("No user is currently logged in")
-      return profiles.value.getValue(uid)
+      return withVerification(profiles.value.getValue(uid))
     }
 
     override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)

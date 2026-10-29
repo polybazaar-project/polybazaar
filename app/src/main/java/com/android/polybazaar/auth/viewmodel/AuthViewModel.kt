@@ -55,6 +55,11 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
     _uiState.update { it.copy(errorMessage = null) }
   }
 
+  /** Marks the signed-in user's email as verified, once [VerifyEmailViewModel] has confirmed it. */
+  fun onEmailVerified() {
+    _uiState.update { it.copy(user = it.user?.copy(isEmailVerified = true)) }
+  }
+
   fun signOut() {
     viewModelScope.launch {
       _uiState.update { it.copy(isLoading = true, errorMessage = null) }

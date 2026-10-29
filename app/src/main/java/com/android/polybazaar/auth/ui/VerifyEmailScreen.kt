@@ -1,10 +1,13 @@
 // Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.auth.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,6 +41,8 @@ object VerifyEmailScreenTags {
   const val ERROR_MESSAGE = "verify_email_error_message"
   const val CHECK_BUTTON = "verify_email_check_button"
   const val RESEND_BUTTON = "verify_email_resend_button"
+  const val BACK_BUTTON = "verify_email_back_button"
+  const val USE_ANOTHER_ACCOUNT_LINK = "verify_email_use_another_account_link"
 }
 
 /**
@@ -45,22 +50,27 @@ object VerifyEmailScreenTags {
  *
  * @param email the address the verification link was sent to.
  * @param onVerified called once the server confirms the email is verified.
+ * @param onUseAnotherAccount called from the back arrow, the system back gesture and the "Use a
+ *   different account" link. The user is signed in, so leaving this screen means signing out.
  */
 @Composable
 fun VerifyEmailScreen(
     verifyEmailViewModel: VerifyEmailViewModel,
     email: String,
     onVerified: () -> Unit,
+    onUseAnotherAccount: () -> Unit,
 ) {
   val uiState by verifyEmailViewModel.uiState.collectAsState()
 
   LaunchedEffect(uiState.isVerified) { if (uiState.isVerified) onVerified() }
+  BackHandler(onBack = onUseAnotherAccount)
 
   VerifyEmailContent(
       uiState = uiState,
       email = email,
       onCheckVerified = verifyEmailViewModel::refresh,
       onResend = verifyEmailViewModel::resend,
+      onUseAnotherAccount = onUseAnotherAccount,
   )
 }
 
@@ -70,6 +80,7 @@ fun VerifyEmailContent(
     email: String,
     onCheckVerified: () -> Unit,
     onResend: () -> Unit,
+    onUseAnotherAccount: () -> Unit,
 ) {
   val canResend = !uiState.isLoading && !uiState.isVerified && uiState.resendCooldownSeconds == 0
 
@@ -84,9 +95,15 @@ fun VerifyEmailContent(
         modifier =
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
     ) {
-      Column(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+      Row(
+          modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 18.dp),
+          horizontalArrangement = Arrangement.spacedBy(15.dp),
+          verticalAlignment = Alignment.CenterVertically,
       ) {
+        AuthBackButton(
+            onClick = onUseAnotherAccount,
+            modifier = Modifier.testTag(VerifyEmailScreenTags.BACK_BUTTON),
+        )
         AuthTitleGroup(title = "Verify your email")
       }
       AuthCard {
@@ -148,6 +165,18 @@ fun VerifyEmailContent(
               fontWeight = FontWeight.SemiBold,
           )
         }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(text = "Wrong email?", color = AuthColors.TextSecondary, fontSize = 12.sp)
+          AuthLinkButton(
+              text = "Use a different account",
+              onClick = onUseAnotherAccount,
+              tag = VerifyEmailScreenTags.USE_ANOTHER_ACCOUNT_LINK,
+          )
+        }
       }
       Spacer(modifier = Modifier.weight(1f))
       CommunityReassurance(
@@ -167,5 +196,6 @@ private fun VerifyEmailContentPreview() {
       email = "ada.lovelace@epfl.ch",
       onCheckVerified = {},
       onResend = {},
+      onUseAnotherAccount = {},
   )
 }

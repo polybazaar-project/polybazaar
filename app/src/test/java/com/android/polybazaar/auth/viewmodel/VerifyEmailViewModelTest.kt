@@ -30,7 +30,7 @@ class VerifyEmailViewModelTest {
   fun setUp() {
     Dispatchers.setMain(testDispatcher)
     repository = FakeAuthRepository()
-    viewModel = VerifyEmailViewModel(repository)
+    viewModel = VerifyEmailViewModel(repository, initialCooldownSeconds = 0)
   }
 
   @After
@@ -41,6 +41,22 @@ class VerifyEmailViewModelTest {
   @Test
   fun initialState_isUnverifiedAndIdle() {
     assertEquals(VerifyEmailUiState(), viewModel.uiState.value)
+  }
+
+  @Test
+  fun byDefault_startsWithCooldownAndIgnoresResend() = runTest {
+    val defaultViewModel = VerifyEmailViewModel(repository)
+
+    assertEquals(RESEND_COOLDOWN_SECONDS, defaultViewModel.uiState.value.resendCooldownSeconds)
+    defaultViewModel.resend()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(0, repository.sendVerificationEmailCalls)
+
+    testDispatcher.scheduler.advanceTimeBy(RESEND_COOLDOWN_SECONDS * 1_000L + 1)
+    assertEquals(0, defaultViewModel.uiState.value.resendCooldownSeconds)
+    defaultViewModel.resend()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(1, repository.sendVerificationEmailCalls)
   }
 
   @Test
@@ -131,6 +147,17 @@ class VerifyEmailViewModelTest {
   }
 
   @Test
+  fun refresh_automaticCheckWhileUnverified_showsNoMessage() = runTest {
+    repository.refreshUserResult = Result.success(unverifiedUser)
+
+    viewModel.refresh(automatic = true)
+    testDispatcher.scheduler.runCurrent()
+
+    assertFalse(viewModel.uiState.value.isVerified)
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
   fun refresh_failure_exposesErrorAndStopsLoading() = runTest {
     repository.refreshUserResult = Result.failure(Exception("Network error"))
 
@@ -140,6 +167,19 @@ class VerifyEmailViewModelTest {
     assertFalse(viewModel.uiState.value.isVerified)
     assertFalse(viewModel.uiState.value.isLoading)
     assertEquals("Network error", viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun refresh_automaticCheckFailure_showsNoMessage() = runTest {
+    repository.refreshUserResult =
+        Result.failure(Exception("A network error (such as timeout) has occurred."))
+
+    viewModel.refresh(automatic = true)
+    testDispatcher.scheduler.runCurrent()
+
+    assertFalse(viewModel.uiState.value.isVerified)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.errorMessage)
   }
 
   private class FakeAuthRepository : AuthRepository {
