@@ -209,6 +209,17 @@ class AuthViewModelTest {
     assertTrue(viewModel.uiState.value.sessionChecked)
   }
 
+  @Test
+  fun onEmailVerified_marksSignedInUserVerified() = runTest {
+    repository.signInResult = Result.success(User("user-1", "user@example.com", "User"))
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.onEmailVerified()
+
+    assertEquals(true, viewModel.uiState.value.user?.isEmailVerified)
+  }
+
   private class FakeAuthRepository : AuthRepository {
     var signInResult: Result<User> = Result.failure(IllegalStateException("Not configured"))
     var signUpResult: Result<User> = Result.failure(IllegalStateException("Not configured"))

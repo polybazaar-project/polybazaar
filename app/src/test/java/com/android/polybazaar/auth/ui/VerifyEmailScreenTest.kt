@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.auth.ui
 
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -34,6 +36,7 @@ class VerifyEmailScreenTest {
       uiState: VerifyEmailUiState = VerifyEmailUiState(),
       onCheckVerified: () -> Unit = {},
       onResend: () -> Unit = {},
+      onUseAnotherAccount: () -> Unit = {},
   ) {
     composeTestRule.setContent {
       VerifyEmailContent(
@@ -41,6 +44,7 @@ class VerifyEmailScreenTest {
           email = email,
           onCheckVerified = onCheckVerified,
           onResend = onResend,
+          onUseAnotherAccount = onUseAnotherAccount,
       )
     }
   }
@@ -70,6 +74,17 @@ class VerifyEmailScreenTest {
 
     assertEquals(1, checks)
     assertEquals(1, resends)
+  }
+
+  @Test
+  fun backArrowAndUseAnotherAccountLink_callOnUseAnotherAccount() {
+    var exits = 0
+    setContent(onUseAnotherAccount = { exits++ })
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.USE_ANOTHER_ACCOUNT_LINK).performClick()
+
+    assertEquals(2, exits)
   }
 
   @Test
@@ -137,6 +152,7 @@ class VerifyEmailScreenTest {
           verifyEmailViewModel = viewModel,
           email = email,
           onVerified = { verified = true },
+          onUseAnotherAccount = {},
       )
     }
 
@@ -162,6 +178,7 @@ class VerifyEmailScreenTest {
           verifyEmailViewModel = viewModel,
           email = email,
           onVerified = { verified = true },
+          onUseAnotherAccount = {},
       )
     }
 
@@ -176,14 +193,35 @@ class VerifyEmailScreenTest {
   }
 
   @Test
+  fun screen_systemBack_callsOnUseAnotherAccount() {
+    val viewModel = VerifyEmailViewModel(FakeAuthRepository())
+    var exits = 0
+    lateinit var backDispatcher: OnBackPressedDispatcher
+    composeTestRule.setContent {
+      backDispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
+      VerifyEmailScreen(
+          verifyEmailViewModel = viewModel,
+          email = email,
+          onVerified = {},
+          onUseAnotherAccount = { exits++ },
+      )
+    }
+
+    composeTestRule.runOnIdle { backDispatcher.onBackPressed() }
+
+    assertEquals(1, exits)
+  }
+
+  @Test
   fun screen_resending_sendsEmailAndStartsCooldown() {
     val repository = FakeAuthRepository()
-    val viewModel = VerifyEmailViewModel(repository)
+    val viewModel = VerifyEmailViewModel(repository, initialCooldownSeconds = 0)
     composeTestRule.setContent {
       VerifyEmailScreen(
           verifyEmailViewModel = viewModel,
           email = email,
           onVerified = {},
+          onUseAnotherAccount = {},
       )
     }
 

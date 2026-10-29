@@ -20,10 +20,22 @@ data class VerifyEmailUiState(
     val errorMessage: String? = null,
 )
 
-class VerifyEmailViewModel(private val authRepository: AuthRepository) : ViewModel() {
+/**
+ * @param initialCooldownSeconds how long Resend stays disabled when the screen opens. Sign-up has
+ *   just sent an email, so by default the user waits for it instead of sending a second one.
+ */
+class VerifyEmailViewModel(
+    private val authRepository: AuthRepository,
+    initialCooldownSeconds: Int = RESEND_COOLDOWN_SECONDS,
+) : ViewModel() {
 
-  private val _uiState = MutableStateFlow(VerifyEmailUiState())
+  private val _uiState =
+      MutableStateFlow(VerifyEmailUiState(resendCooldownSeconds = initialCooldownSeconds))
   val uiState: StateFlow<VerifyEmailUiState> = _uiState.asStateFlow()
+
+  init {
+    viewModelScope.launch { countDownResendCooldown() }
+  }
 
   /**
    * Sends the verification email again. Ignored once verified, while loading, or during the
@@ -55,8 +67,13 @@ class VerifyEmailViewModel(private val authRepository: AuthRepository) : ViewMod
     }
   }
 
-  /** Checks with the server whether the email has been verified since the last check. */
-  fun refresh() {
+  /**
+   * Checks with the server whether the email has been verified since the last check.
+   *
+   * @param automatic true for checks the user did not ask for, such as on resume. They show no
+   *   message, neither "Email not verified yet" nor a failure, since the next check retries anyway.
+   */
+  fun refresh(automatic: Boolean = false) {
     if (_uiState.value.isLoading) return
     viewModelScope.launch {
       _uiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -68,7 +85,8 @@ class VerifyEmailViewModel(private val authRepository: AuthRepository) : ViewMod
                   it.copy(
                       isVerified = user.isEmailVerified,
                       isLoading = false,
-                      errorMessage = if (user.isEmailVerified) null else "Email not verified yet",
+                      errorMessage =
+                          if (user.isEmailVerified || automatic) null else "Email not verified yet",
                   )
                 }
               },
@@ -76,7 +94,9 @@ class VerifyEmailViewModel(private val authRepository: AuthRepository) : ViewMod
                 _uiState.update {
                   it.copy(
                       isLoading = false,
-                      errorMessage = exception.message ?: "Unable to check verification",
+                      errorMessage =
+                          if (automatic) null
+                          else exception.message ?: "Unable to check verification",
                   )
                 }
               },

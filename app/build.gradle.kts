@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -121,6 +122,7 @@ dependencies {
   implementation(libs.androidx.appcompat)
   implementation(libs.material)
   implementation(libs.androidx.lifecycle.runtime.ktx)
+  implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(platform(libs.compose.bom))
   testImplementation(libs.junit)
   globalTestImplementation(libs.androidx.junit)

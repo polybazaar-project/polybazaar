@@ -19,6 +19,7 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
+import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -37,7 +38,14 @@ class AppNavHostTest {
 
   @get:Rule val composeTestRule = createComposeRule()
 
-  private val user = User(uid = "uid-ada", email = "ada@epfl.ch", username = "ada_lovelace")
+  private val user =
+      User(
+          uid = "uid-ada",
+          email = "ada@epfl.ch",
+          username = "ada_lovelace",
+          isEmailVerified = true,
+      )
+  private val unverifiedUser = user.copy(isEmailVerified = false)
 
   private val profileRepository = FakeProfileRepository(user)
   private lateinit var navController: NavHostController
@@ -243,6 +251,125 @@ class AppNavHostTest {
     assertNull(navController.previousBackStackEntry)
   }
 
+  @Test
+  fun persistedUnverifiedUser_startsOnVerifyEmailWithoutMessage() {
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.EMAIL_TEXT).assertTextEquals("ada@epfl.ch")
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun signIn_unverifiedUser_opensVerifyEmail() {
+    setContent(
+        FakeAuthRepository(
+            currentUser = null,
+            signInResult = Result.success(unverifiedUser),
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.EMAIL_FIELD).performTextInput("ada@epfl.ch")
+    composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("secret1")
+    composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun emailVerifiedOutsideTheApp_opensProfileWithoutSigningInAgain() {
+    // The cached session still says unverified, but the server already knows about the link.
+    setContent(
+        FakeAuthRepository(currentUser = unverifiedUser, refreshUserResult = Result.success(user))
+    )
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun checkButton_onceVerified_opensProfileAndClearsBackStack() {
+    lateinit var navController: NavHostController
+    val repository =
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    val viewModel = AuthViewModel(repository)
+    composeTestRule.setContent {
+      navController = rememberNavController()
+      AppNavHost(
+          authViewModel = viewModel,
+          authRepository = repository,
+          profileRepository = profileRepository,
+          navController = navController,
+      )
+    }
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+
+    repository.refreshUserResult = Result.success(user)
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.CHECK_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(Routes.PROFILE, navController.currentBackStackEntry?.destination?.route)
+    assertNull(navController.previousBackStackEntry)
+    assertEquals(true, viewModel.uiState.value.user?.isEmailVerified)
+  }
+
+  @Test
+  fun signOut_fromVerifyEmail_returnsToSignIn() {
+    val viewModel =
+        setContent(
+            FakeAuthRepository(
+                currentUser = unverifiedUser,
+                refreshUserResult = Result.success(unverifiedUser),
+            )
+        )
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+
+    viewModel.signOut()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun useAnotherAccountLink_fromVerifyEmail_signsOutAndReturnsToSignIn() {
+    val viewModel =
+        setContent(
+            FakeAuthRepository(
+                currentUser = unverifiedUser,
+                refreshUserResult = Result.success(unverifiedUser),
+            )
+        )
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.USE_ANOTHER_ACCOUNT_LINK).performClick()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(viewModel.uiState.value.user)
+  }
+
+  @Test
+  fun backArrow_fromVerifyEmail_signsOutAndReturnsToSignIn() {
+    val viewModel =
+        setContent(
+            FakeAuthRepository(
+                currentUser = unverifiedUser,
+                refreshUserResult = Result.success(unverifiedUser),
+            )
+        )
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.BACK_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(viewModel.uiState.value.user)
+  }
+
   private class FakeProfileRepository(initial: User) : ProfileRepository {
     private val profile = MutableStateFlow<User?>(initial)
     var savedBio: String? = null
@@ -264,6 +391,7 @@ class AppNavHostTest {
       private val currentUser: User? = null,
       private val currentUserGate: CompletableDeferred<User?>? = null,
       private val signInResult: Result<User> = Result.failure(IllegalStateException("Not set")),
+      var refreshUserResult: Result<User> = Result.failure(IllegalStateException("Not set")),
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> = signInResult
 
@@ -279,7 +407,7 @@ class AppNavHostTest {
 
     override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)
 
-    override suspend fun refreshUser(): Result<User> = signInResult
+    override suspend fun refreshUser(): Result<User> = refreshUserResult
 
     val resetEmails = mutableListOf<String>()
 
