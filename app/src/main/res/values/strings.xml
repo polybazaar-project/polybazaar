@@ -3,6 +3,14 @@
     <string name="title_activity_main">MainActivity</string>
     <string name="title_activity_second">SecondActivity</string>
 
+    <!-- Browse screen -->
+    <string name="browse_header_title">Polybazaar</string>
+    <string name="browse_header_subtitle">Good tools. Great neighbours.</string>
+    <string name="browse_search_placeholder">What would you like to borrow?</string>
+    <string name="browse_nearby_title">Near you</string>
+    <string name="browse_nearby_location">Zürich · within 2 km</string>
+    <string name="browse_price_per_day"> / day</string>
+
     <!-- Forgot password screen -->
     <string name="forgot_password_title">Forgot password</string>
     <string name="forgot_password_heading">Reset your password</string>

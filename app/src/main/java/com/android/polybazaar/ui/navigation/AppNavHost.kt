@@ -30,8 +30,8 @@ import com.android.polybazaar.auth.ui.CreateAccountScreen
 import com.android.polybazaar.auth.ui.ForgotPasswordScreen
 import com.android.polybazaar.auth.ui.SignInScreen
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
-import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
+import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -48,7 +48,7 @@ const val SETTINGS_UNAVAILABLE_MESSAGE = "Settings are not available yet"
 
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
- * checked, then routes to browse for a signed-in user and to sign-in otherwise.
+ * checked, then routes to profile for a signed-in user and to sign-in otherwise.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
@@ -89,7 +89,7 @@ fun AppNavHost(
       composable(Routes.LOADING) {
         LaunchedEffect(uiState.sessionChecked, uiState.user) {
           if (uiState.sessionChecked) {
-            val destination = if (uiState.user != null) Routes.BROWSE else Routes.SIGN_IN
+            val destination = if (uiState.user != null) Routes.PROFILE else Routes.SIGN_IN
             navController.navigate(destination) {
               popUpTo(Routes.LOADING) { inclusive = true }
               launchSingleTop = true
@@ -134,9 +134,7 @@ fun AppNavHost(
             onBack = { navController.popBackStack() },
         )
       }
-      composable(Routes.BROWSE) {
-        BrowseScreen()
-      }
+      composable(Routes.BROWSE) { BrowseScreen() }
       composable(Routes.PROFILE) {
         // Renders nothing for the frame between sign-out and the redirect to sign-in.
         val uid = uiState.user?.uid ?: return@composable
@@ -200,7 +198,7 @@ fun AppNavHost(
 private val signedInRoutes = setOf(Routes.BROWSE, Routes.PROFILE, Routes.EDIT_PROFILE)
 
 private fun NavHostController.navigateToProfileFromAuth() {
-  navigate(Routes.BROWSE) {
+  navigate(Routes.PROFILE) {
     popUpTo(Routes.SIGN_IN) { inclusive = true }
     launchSingleTop = true
   }

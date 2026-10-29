@@ -18,7 +18,6 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
-import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -74,13 +73,6 @@ class EndToEndFlowTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
   }
 
-  private fun openProfile() {
-    composeTestRule.runOnIdle {
-      navController.navigate(Routes.PROFILE) { launchSingleTop = true }
-    }
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
-  }
-
   @Test
   fun newUser_createsAccountEditsProfileSignsOutAndSignsBackIn() {
     launchApp()
@@ -88,8 +80,7 @@ class EndToEndFlowTest {
 
     createAccount("ada_lovelace", "ada@epfl.ch", "secret123")
 
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
-    openProfile()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
@@ -105,8 +96,7 @@ class EndToEndFlowTest {
 
     signIn("ada@epfl.ch", "secret123")
 
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
-    openProfile()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
     composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Mathematician")
   }
@@ -136,14 +126,13 @@ class EndToEndFlowTest {
   }
 
   @Test
-  fun persistedSession_opensBrowseAndProfileShowsSavedBio() {
+  fun persistedSession_opensProfileAndShowsSavedBio() {
     val user = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
     backend.setSignedIn(user.uid)
     backend.setBio(user.uid, "Back again")
     launchApp()
 
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
-    openProfile()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Back again")
   }
 

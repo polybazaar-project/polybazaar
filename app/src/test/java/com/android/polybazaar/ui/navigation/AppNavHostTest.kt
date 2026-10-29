@@ -20,7 +20,6 @@ import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
-import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -58,9 +57,7 @@ class AppNavHostTest {
   }
 
   private fun openProfile() {
-    composeTestRule.runOnIdle {
-      navController.navigate(Routes.PROFILE) { launchSingleTop = true }
-    }
+    composeTestRule.runOnIdle { navController.navigate(Routes.PROFILE) { launchSingleTop = true } }
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
   }
 
@@ -77,10 +74,10 @@ class AppNavHostTest {
   }
 
   @Test
-  fun persistedUser_startsOnBrowse() {
+  fun persistedUser_startsOnProfile() {
     setContent(FakeAuthRepository(currentUser = user))
 
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
@@ -91,7 +88,7 @@ class AppNavHostTest {
   }
 
   @Test
-  fun signIn_navigatesToBrowse() {
+  fun signIn_navigatesToProfile() {
     val repository = FakeAuthRepository(currentUser = null, signInResult = Result.success(user))
     setContent(repository)
 
@@ -99,7 +96,7 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("secret1")
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
 
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
@@ -149,7 +146,7 @@ class AppNavHostTest {
     viewModel.signIn("ada@epfl.ch", "secret1")
     composeTestRule.waitForIdle()
 
-    assertEquals(Routes.BROWSE, navController.currentBackStackEntry?.destination?.route)
+    assertEquals(Routes.PROFILE, navController.currentBackStackEntry?.destination?.route)
     assertNull(navController.previousBackStackEntry)
   }
 

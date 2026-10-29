@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,13 +77,17 @@ fun BrowseScreen(uiState: BrowseUiState = BrowseUiState()) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-          text = "Near you",
+          text = stringResource(R.string.browse_nearby_title),
           color = AuthColors.TextPrimary,
           fontSize = 22.sp,
           fontWeight = FontWeight.Bold,
       )
-      Text(text = "Zürich · within 2 km", color = AuthColors.TextSecondary, fontSize = 14.sp)
-      //The location will be done later using the map etc, for now I would keep it this way.
+      Text(
+          text = stringResource(R.string.browse_nearby_location),
+          color = AuthColors.TextSecondary,
+          fontSize = 14.sp,
+      )
+      // The location will be done later using the map etc, for now I would keep it this way.
     }
     LazyColumn(
         modifier = Modifier.weight(1f),
@@ -103,13 +108,13 @@ fun BrowseScreen(uiState: BrowseUiState = BrowseUiState()) {
 private fun BrowseHeader() {
   Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 34.dp, bottom = 20.dp)) {
     Text(
-        text = "Polybazaar",
+        text = stringResource(R.string.browse_header_title),
         color = AuthColors.TextPrimary,
         fontSize = 32.sp,
         fontWeight = FontWeight.Bold,
     )
     Text(
-        text = "Good tools. Great neighbours.",
+        text = stringResource(R.string.browse_header_subtitle),
         color = AuthColors.TextSecondary,
         fontSize = 16.sp,
         modifier = Modifier.padding(top = 2.dp),
@@ -141,7 +146,7 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
         decorationBox = { innerTextField ->
           if (query.isBlank()) {
             Text(
-                text = "What would you like to borrow?",
+                text = stringResource(R.string.browse_search_placeholder),
                 color = AuthColors.TextSecondary,
                 fontSize = 16.sp,
             )
@@ -231,7 +236,11 @@ private fun ListingCard(listing: BrowseListing) {
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
         )
-        Text(text = " / day", color = AuthColors.TextSecondary, fontSize = 17.sp)
+        Text(
+            text = stringResource(R.string.browse_price_per_day),
+            color = AuthColors.TextSecondary,
+            fontSize = 17.sp,
+        )
       }
     }
   }
