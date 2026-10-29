@@ -11,14 +11,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -63,8 +62,12 @@ class ResetPasswordScreenTest {
     setContent()
 
     node(ResetPasswordScreenTags.SCREEN).assertIsDisplayed()
-    // The title and the button both say "Reset password", as in the Figma.
-    composeTestRule.onAllNodesWithText(string(R.string.reset_password_title)).assertCountEquals(2)
+    composeTestRule
+        .onNode(
+            hasText(string(R.string.reset_password_title)) and
+                !hasTestTag(ResetPasswordScreenTags.RESET_BUTTON)
+        )
+        .assertIsDisplayed()
     composeTestRule.onNodeWithText(string(R.string.reset_password_heading)).assertIsDisplayed()
     composeTestRule.onNodeWithText(string(R.string.reset_password_guidance)).assertIsDisplayed()
     composeTestRule
