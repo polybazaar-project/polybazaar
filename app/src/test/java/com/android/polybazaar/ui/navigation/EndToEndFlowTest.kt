@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
@@ -9,6 +10,8 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.rememberNavController
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
@@ -39,14 +42,17 @@ class EndToEndFlowTest {
 
   private val backend = InMemoryBackend()
   private lateinit var authViewModel: AuthViewModel
+  private lateinit var navController: NavHostController
 
   private fun launchApp() {
     authViewModel = AuthViewModel(backend)
     composeTestRule.setContent {
+      navController = rememberNavController()
       AppNavHost(
           authViewModel = authViewModel,
           authRepository = backend,
           profileRepository = backend,
+          navController = navController,
       )
     }
   }
@@ -125,7 +131,7 @@ class EndToEndFlowTest {
   }
 
   @Test
-  fun persistedSession_opensProfileWithSavedBio() {
+  fun persistedSession_opensProfileAndShowsSavedBio() {
     val user = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
     backend.setSignedIn(user.uid)
     backend.setBio(user.uid, "Back again")

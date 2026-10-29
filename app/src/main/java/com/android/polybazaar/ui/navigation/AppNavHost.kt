@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
 import androidx.compose.foundation.layout.Box
@@ -35,6 +36,7 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreen
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
+import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -169,6 +171,7 @@ fun AppNavHost(
             onUseAnotherAccount = authViewModel::signOut,
         )
       }
+      composable(Routes.BROWSE) { BrowseScreen() }
       composable(Routes.PROFILE) {
         // Renders nothing for the frame between sign-out and the redirect to sign-in.
         val uid = uiState.user?.uid ?: return@composable
@@ -229,7 +232,8 @@ fun AppNavHost(
   }
 }
 
-private val signedInRoutes = setOf(Routes.VERIFY_EMAIL, Routes.PROFILE, Routes.EDIT_PROFILE)
+private val signedInRoutes =
+    setOf(Routes.VERIFY_EMAIL, Routes.BROWSE, Routes.PROFILE, Routes.EDIT_PROFILE)
 
 /**
  * Where a signed-in [user] belongs: the app once their email is verified, the verify screen before.

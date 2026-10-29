@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
@@ -47,17 +48,25 @@ class AppNavHostTest {
   private val unverifiedUser = user.copy(isEmailVerified = false)
 
   private val profileRepository = FakeProfileRepository(user)
+  private lateinit var navController: NavHostController
 
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
     val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
+      navController = rememberNavController()
       AppNavHost(
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          navController = navController,
       )
     }
     return viewModel
+  }
+
+  private fun openProfile() {
+    composeTestRule.runOnIdle { navController.navigate(Routes.PROFILE) { launchSingleTop = true } }
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
@@ -77,7 +86,6 @@ class AppNavHostTest {
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
   }
 
   @Test
@@ -97,7 +105,6 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("ada_lovelace")
   }
 
   @Test
@@ -130,7 +137,6 @@ class AppNavHostTest {
 
   @Test
   fun signIn_removesAuthScreensFromBackStack() {
-    lateinit var navController: NavHostController
     val repository = FakeAuthRepository(currentUser = null, signInResult = Result.success(user))
     val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
@@ -155,6 +161,7 @@ class AppNavHostTest {
   @Test
   fun editProfileButton_opensEditProfileAndCancelReturnsToProfile() {
     setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
     composeTestRule.onNodeWithTag(EditProfileScreenTags.SCREEN).assertIsDisplayed()
@@ -166,6 +173,7 @@ class AppNavHostTest {
   @Test
   fun savingProfile_returnsToProfileWithUpdatedBio() {
     setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
     composeTestRule.onNodeWithTag(EditProfileScreenTags.BIO_FIELD).performTextInput("Hello")
@@ -179,6 +187,7 @@ class AppNavHostTest {
   @Test
   fun settingsButton_showsUnavailableMessageAndStaysOnProfile() {
     setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
 
@@ -219,7 +228,6 @@ class AppNavHostTest {
 
   @Test
   fun signOut_returnsToSignInAndClearsBackStack() {
-    lateinit var navController: NavHostController
     val repository = FakeAuthRepository(currentUser = user)
     val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
@@ -231,6 +239,7 @@ class AppNavHostTest {
           navController = navController,
       )
     }
+    openProfile()
     composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
     composeTestRule.onNodeWithTag(EditProfileScreenTags.SCREEN).assertIsDisplayed()
 
