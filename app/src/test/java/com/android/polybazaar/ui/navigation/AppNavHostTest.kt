@@ -22,6 +22,8 @@ import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -51,6 +53,16 @@ class AppNavHostTest {
   private val unverifiedUser = user.copy(isEmailVerified = false)
 
   private val profileRepository = FakeProfileRepository(user)
+
+  // No test here opens Browse; the navigation graph only needs a repository to build.
+  private val listingRepository =
+      object : ListingRepository {
+        override suspend fun createListing(listing: Listing): Listing = listing
+
+        override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
+
+        override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
+      }
   private lateinit var navController: NavHostController
 
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
@@ -61,6 +73,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }
@@ -154,6 +167,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }
@@ -347,6 +361,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }

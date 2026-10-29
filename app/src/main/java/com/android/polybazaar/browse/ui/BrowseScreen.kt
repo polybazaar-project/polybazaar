@@ -37,7 +37,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.browse.viewmodel.BrowseListing
@@ -53,7 +52,7 @@ object BrowseScreenTags {
 }
 
 @Composable
-fun BrowseScreen(viewModel: BrowseViewModel = viewModel()) {
+fun BrowseScreen(viewModel: BrowseViewModel) {
   val uiState by viewModel.uiState.collectAsState()
   BrowseContent(
       uiState = uiState,

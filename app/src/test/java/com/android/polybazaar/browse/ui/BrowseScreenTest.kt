@@ -3,6 +3,9 @@
 package com.android.polybazaar.browse.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -10,8 +13,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.browse.viewmodel.BrowseListing
-import com.android.polybazaar.browse.viewmodel.BrowseUiState
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingRepository
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,16 +28,15 @@ class BrowseScreenTest {
 
   private val sampleListings =
       listOf(
-          BrowseListing("drill", "Bosch drill set", "Tools", "350 m away", "CHF 8"),
-          BrowseListing("projector", "Mini projector", "Electronics", "600 m away", "CHF 12"),
-          BrowseListing("hammer", "Claw hammer", "Tools", "200 m away", "CHF 5"),
+          ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"),
+          ItemListing("Electronics", 12.0, "Mini projector", "", listingId = "projector"),
+          ItemListing("Tools", 5.0, "Claw hammer", "", listingId = "hammer"),
       )
   private val sampleCategories = listOf("Tools", "Electronics")
 
   @Test
   fun search_filtersViewModelListings() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
@@ -44,11 +48,10 @@ class BrowseScreenTest {
 
   @Test
   fun categoryFilter_showsOnlyListingsInCategory() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
-    composeTestRule.onNodeWithText("Tools").performClick()
+    clickCategory("Tools")
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithText("Claw hammer").assertIsDisplayed()
@@ -57,12 +60,11 @@ class BrowseScreenTest {
 
   @Test
   fun categoryToggle_clearsCategoryFilter() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
-    composeTestRule.onNodeWithText("Tools").performClick()
-    composeTestRule.onNodeWithText("Tools").performClick()
+    clickCategory("Tools")
+    clickCategory("Tools")
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithText("Mini projector").assertIsDisplayed()
@@ -71,11 +73,10 @@ class BrowseScreenTest {
 
   @Test
   fun searchAndCategoryTogether_showsIntersection() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
-    composeTestRule.onNodeWithText("Tools").performClick()
+    clickCategory("Tools")
     composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("hammer")
 
     composeTestRule.onNodeWithText("Claw hammer").assertIsDisplayed()
@@ -142,21 +143,22 @@ class BrowseScreenTest {
 
   @Test
   fun emptyListings_displaysPricingFormat() {
-    val listing = BrowseListing("id1", "Test Item", "Category", "100 m", "CHF 10")
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = listOf(listing), categories = emptyList()))
+    val listing = ItemListing("Category", 10.0, "Test Item", "", listingId = "id1")
+    val viewModel = BrowseViewModel(FakeListingRepository(listOf(listing)))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText("Test Item").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Category · 100 m").assertIsDisplayed()
+    // Without a distance the card shows only the category, which is also a selector chip.
+    composeTestRule
+        .onNode(hasText("Category") and hasAnyAncestor(hasTestTag(BrowseScreenTags.LISTING_CARD)))
+        .assertIsDisplayed()
     composeTestRule.onNodeWithText("CHF 10").assertIsDisplayed()
     composeTestRule.onNodeWithText("/ day").assertIsDisplayed()
   }
 
   @Test
   fun multipleListingsDisplay_withCorrectMetadata() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
@@ -166,8 +168,7 @@ class BrowseScreenTest {
 
   @Test
   fun noResultsFound_stillShowsUI() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("nonexistent")
@@ -181,5 +182,22 @@ class BrowseScreenTest {
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithText("Mini projector").assertIsDisplayed()
+  }
+
+  // Cards show the category too, so the click targets the chip in the category selector.
+  private fun clickCategory(category: String) {
+    composeTestRule
+        .onNode(
+            hasText(category) and hasAnyAncestor(hasTestTag(BrowseScreenTags.CATEGORY_SELECTOR))
+        )
+        .performClick()
+  }
+
+  private class FakeListingRepository(private val listings: List<Listing>) : ListingRepository {
+    override suspend fun createListing(listing: Listing): Listing = listing
+
+    override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
+
+    override suspend fun getAllListings(): Result<List<Listing>> = Result.success(listings)
   }
 }
