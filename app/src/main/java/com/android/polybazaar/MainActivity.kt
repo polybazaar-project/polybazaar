@@ -38,7 +38,11 @@ class MainActivity : ComponentActivity() {
               authRepository = authRepository,
               profileRepository = remember { FirebaseProfileRepository() },
               listingRepository =
-                  remember { FirebaseListingRepository(JpegPhotoCompressor(contentResolver)) },
+                  remember {
+                    FirebaseListingRepository(
+                        JpegPhotoCompressor(applicationContext.contentResolver)
+                    )
+                  },
           )
         }
       }
