@@ -68,7 +68,13 @@ class ResetPasswordScreenTest {
     composeTestRule.onNodeWithText(string(R.string.reset_password_heading)).assertIsDisplayed()
     composeTestRule.onNodeWithText(string(R.string.reset_password_guidance)).assertIsDisplayed()
     composeTestRule
-        .onNodeWithText(string(R.string.reset_password_rules, AuthRules.MIN_PASSWORD_LENGTH))
+        .onNodeWithText(
+            context.resources.getQuantityString(
+                R.plurals.reset_password_rules,
+                AuthRules.MIN_PASSWORD_LENGTH,
+                AuthRules.MIN_PASSWORD_LENGTH,
+            )
+        )
         .assertIsDisplayed()
     composeTestRule
         .onNodeWithText(string(R.string.reset_password_new_password_placeholder))

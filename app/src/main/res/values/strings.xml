@@ -33,7 +33,10 @@
     <string name="reset_password_guidance">Choose a new password for your account. Make it different from your previous password.</string>
     <string name="reset_password_new_password_label">New password</string>
     <string name="reset_password_new_password_placeholder">Enter your new password</string>
-    <string name="reset_password_rules">Use at least %1$d characters, including a letter and a number.</string>
+    <plurals name="reset_password_rules">
+        <item quantity="one">Use at least %1$d character, including a letter and a number.</item>
+        <item quantity="other">Use at least %1$d characters, including a letter and a number.</item>
+    </plurals>
     <string name="reset_password_confirm_label">Confirm password</string>
     <string name="reset_password_confirm_placeholder">Re-enter your new password</string>
     <string name="reset_password_button">Reset password</string>

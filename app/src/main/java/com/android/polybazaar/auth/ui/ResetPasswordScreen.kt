@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -140,7 +141,13 @@ fun ResetPasswordContent(uiState: ResetPasswordUiState, actions: ResetPasswordAc
               placeholder = stringResource(R.string.reset_password_new_password_placeholder),
               tag = ResetPasswordScreenTags.NEW_PASSWORD_FIELD,
           )
-          GuidanceText(stringResource(R.string.reset_password_rules, AuthRules.MIN_PASSWORD_LENGTH))
+          GuidanceText(
+              pluralStringResource(
+                  R.plurals.reset_password_rules,
+                  AuthRules.MIN_PASSWORD_LENGTH,
+                  AuthRules.MIN_PASSWORD_LENGTH,
+              )
+          )
         }
         PasswordField(
             label = stringResource(R.string.reset_password_confirm_label),
