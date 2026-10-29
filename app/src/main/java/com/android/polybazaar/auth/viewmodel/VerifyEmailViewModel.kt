@@ -70,10 +70,10 @@ class VerifyEmailViewModel(
   /**
    * Checks with the server whether the email has been verified since the last check.
    *
-   * @param showNotVerifiedMessage false for automatic checks, so a still-unverified result does not
-   *   tell the user "Email not verified yet" before they have asked.
+   * @param automatic true for checks the user did not ask for, such as on resume. They show no
+   *   message, neither "Email not verified yet" nor a failure, since the next check retries anyway.
    */
-  fun refresh(showNotVerifiedMessage: Boolean = true) {
+  fun refresh(automatic: Boolean = false) {
     if (_uiState.value.isLoading) return
     viewModelScope.launch {
       _uiState.update { it.copy(isLoading = true, errorMessage = null) }
@@ -86,8 +86,7 @@ class VerifyEmailViewModel(
                       isVerified = user.isEmailVerified,
                       isLoading = false,
                       errorMessage =
-                          if (user.isEmailVerified || !showNotVerifiedMessage) null
-                          else "Email not verified yet",
+                          if (user.isEmailVerified || automatic) null else "Email not verified yet",
                   )
                 }
               },
@@ -95,7 +94,9 @@ class VerifyEmailViewModel(
                 _uiState.update {
                   it.copy(
                       isLoading = false,
-                      errorMessage = exception.message ?: "Unable to check verification",
+                      errorMessage =
+                          if (automatic) null
+                          else exception.message ?: "Unable to check verification",
                   )
                 }
               },

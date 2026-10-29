@@ -154,7 +154,7 @@ fun AppNavHost(
         // Checks on arrival and whenever the user comes back to the app, for example from the
         // verification link in their mail app, so they do not have to tap the button themselves.
         LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-          verifyEmailViewModel.refresh(showNotVerifiedMessage = false)
+          verifyEmailViewModel.refresh(automatic = true)
         }
 
         VerifyEmailScreen(

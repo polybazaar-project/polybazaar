@@ -150,7 +150,7 @@ class VerifyEmailViewModelTest {
   fun refresh_automaticCheckWhileUnverified_showsNoMessage() = runTest {
     repository.refreshUserResult = Result.success(unverifiedUser)
 
-    viewModel.refresh(showNotVerifiedMessage = false)
+    viewModel.refresh(automatic = true)
     testDispatcher.scheduler.runCurrent()
 
     assertFalse(viewModel.uiState.value.isVerified)
@@ -167,6 +167,19 @@ class VerifyEmailViewModelTest {
     assertFalse(viewModel.uiState.value.isVerified)
     assertFalse(viewModel.uiState.value.isLoading)
     assertEquals("Network error", viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun refresh_automaticCheckFailure_showsNoMessage() = runTest {
+    repository.refreshUserResult =
+        Result.failure(Exception("A network error (such as timeout) has occurred."))
+
+    viewModel.refresh(automatic = true)
+    testDispatcher.scheduler.runCurrent()
+
+    assertFalse(viewModel.uiState.value.isVerified)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.errorMessage)
   }
 
   private class FakeAuthRepository : AuthRepository {
