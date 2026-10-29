@@ -574,6 +574,7 @@ class FirebaseListingRepositoryTest {
         )
     givenAllListings(
         listingDocument("missing-category", valid - "category"),
+        listingDocument("missing-description", valid - "description"),
         listingDocument("missing-price", valid - "price"),
         listingDocument("unknown-type", valid + ("type" to "RENTAL")),
         listingDocument("item-without-refund", valid + ("type" to "ITEM")),
