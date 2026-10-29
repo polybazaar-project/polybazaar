@@ -10,6 +10,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GetTokenResult
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
@@ -28,6 +29,7 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -485,12 +487,43 @@ class FirebaseAuthRepositoryTest {
       verifiedOnServer = true
       Tasks.forResult<Void>(null)
     }
+    whenever(firebaseUser.getIdToken(true)).thenReturn(Tasks.forResult(mock<GetTokenResult>()))
     mockUsernameLookupSuccess(uid, username)
 
     val result = repository.refreshUser()
 
     assertTrue(result.getOrThrow().isEmailVerified)
-    verify(firebaseUser).reload()
+    // The rules read email_verified from the ID token, so it must be refreshed after the reload.
+    val order = inOrder(firebaseUser)
+    order.verify(firebaseUser).reload()
+    order.verify(firebaseUser).getIdToken(true)
+  }
+
+  @Test
+  fun refreshUser_stillUnverified_keepsTheCachedToken() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.isEmailVerified).thenReturn(false)
+    whenever(firebaseUser.reload()).thenReturn(Tasks.forResult(null))
+    mockUsernameLookupSuccess(uid, username)
+
+    val result = repository.refreshUser()
+
+    assertFalse(result.getOrThrow().isEmailVerified)
+    verify(firebaseUser, never()).getIdToken(any())
+  }
+
+  @Test
+  fun refreshUser_tokenRefreshFails_returnsFailure() = runTest {
+    val exception = Exception("Network error")
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.isEmailVerified).thenReturn(true)
+    whenever(firebaseUser.reload()).thenReturn(Tasks.forResult(null))
+    whenever(firebaseUser.getIdToken(true)).thenReturn(Tasks.forException(exception))
+
+    val result = repository.refreshUser()
+
+    assertTrue(result.isFailure)
+    assertEquals(exception, result.exceptionOrNull())
   }
 
   @Test
