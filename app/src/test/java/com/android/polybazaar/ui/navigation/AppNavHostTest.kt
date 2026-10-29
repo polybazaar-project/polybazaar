@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -252,6 +253,49 @@ class AppNavHostTest {
     composeTestRule.waitForIdle()
 
     assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun failedSignOut_errorDoesNotReturnOnNextVisit() {
+    setContent(
+        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+    )
+    openSettings()
+    confirmSignOut()
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    waitForSnackbarToDisappear("No network")
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithText("No network").assertDoesNotExist()
+  }
+
+  @Test
+  fun failedSignOut_repeatedFailureShowsErrorAgain() {
+    setContent(
+        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+    )
+    openSettings()
+    confirmSignOut()
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    waitForSnackbarToDisappear("No network")
+
+    confirmSignOut()
+
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+  }
+
+  private fun confirmSignOut() {
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+  }
+
+  private fun waitForSnackbarToDisappear(text: String) {
+    composeTestRule.waitUntil(timeoutMillis = 10_000) {
+      composeTestRule.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
+    }
   }
 
   @Test
