@@ -12,4 +12,5 @@ object Routes {
   const val BROWSE = "browse"
   const val PROFILE = "profile"
   const val EDIT_PROFILE = "edit_profile"
+  const val SETTINGS = "settings"
 }

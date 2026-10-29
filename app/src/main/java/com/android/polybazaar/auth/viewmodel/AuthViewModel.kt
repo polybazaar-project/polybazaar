@@ -50,6 +50,11 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
     viewModelScope.launch { authenticate { authRepository.signUp(email, password, username) } }
   }
 
+  /** Forgets the error once a screen has shown it, so it is not shown again. */
+  fun clearError() {
+    _uiState.update { it.copy(errorMessage = null) }
+  }
+
   /** Marks the signed-in user's email as verified, once [VerifyEmailViewModel] has confirmed it. */
   fun onEmailVerified() {
     _uiState.update { it.copy(user = it.user?.copy(isEmailVerified = true)) }

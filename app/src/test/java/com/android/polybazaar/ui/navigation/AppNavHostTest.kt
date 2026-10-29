@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -24,10 +25,12 @@ import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
+import com.android.polybazaar.settings.ui.SettingsScreenTags
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -67,6 +70,12 @@ class AppNavHostTest {
   private fun openProfile() {
     composeTestRule.runOnIdle { navController.navigate(Routes.PROFILE) { launchSingleTop = true } }
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  private fun openSettings() {
+    openProfile()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
@@ -185,14 +194,116 @@ class AppNavHostTest {
   }
 
   @Test
-  fun settingsButton_showsUnavailableMessageAndStaysOnProfile() {
+  fun settingsButton_opensSettingsAndBackReturnsToProfile() {
     setContent(FakeAuthRepository(currentUser = user))
     openProfile()
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
 
-    composeTestRule.onNodeWithText(SETTINGS_UNAVAILABLE_MESSAGE).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.BACK_BUTTON).performClick()
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun signOutFromSettings_returnsToSignInAndClearsBackStack() {
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    openSettings()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(viewModel.uiState.value.user)
+    assertEquals(Routes.SIGN_IN, navController.currentBackStackEntry?.destination?.route)
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun cancellingSignOut_staysOnSettingsSignedIn() {
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    openSettings()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CANCEL).performClick()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
+    assertNotNull(viewModel.uiState.value.user)
+  }
+
+  @Test
+  fun failedSignOut_showsErrorAndStaysOnSettings() {
+    setContent(
+        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+    )
+    openSettings()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun failedSignOut_clearsErrorOnceShown() {
+    val viewModel =
+        setContent(
+            FakeAuthRepository(
+                currentUser = user,
+                signOutError = IllegalStateException("No network"),
+            )
+        )
+    openSettings()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    composeTestRule.waitForIdle()
+
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun failedSignOut_errorDoesNotReturnOnNextVisit() {
+    setContent(
+        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+    )
+    openSettings()
+    confirmSignOut()
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    waitForSnackbarToDisappear("No network")
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithText("No network").assertDoesNotExist()
+  }
+
+  @Test
+  fun failedSignOut_repeatedFailureShowsErrorAgain() {
+    setContent(
+        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+    )
+    openSettings()
+    confirmSignOut()
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    waitForSnackbarToDisappear("No network")
+
+    confirmSignOut()
+
+    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+  }
+
+  private fun confirmSignOut() {
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+  }
+
+  private fun waitForSnackbarToDisappear(text: String) {
+    composeTestRule.waitUntil(timeoutMillis = 10_000) {
+      composeTestRule.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
+    }
   }
 
   @Test
@@ -392,13 +503,16 @@ class AppNavHostTest {
       private val currentUserGate: CompletableDeferred<User?>? = null,
       private val signInResult: Result<User> = Result.failure(IllegalStateException("Not set")),
       var refreshUserResult: Result<User> = Result.failure(IllegalStateException("Not set")),
+      private val signOutError: Exception? = null,
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> = signInResult
 
     override suspend fun signUp(email: String, password: String, username: String): Result<User> =
         signInResult
 
-    override suspend fun signOut() = Unit
+    override suspend fun signOut() {
+      signOutError?.let { throw it }
+    }
 
     override suspend fun getCurrentUser(): User {
       val result = if (currentUserGate != null) currentUserGate.await() else currentUser
