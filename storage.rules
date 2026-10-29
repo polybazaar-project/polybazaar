@@ -1,0 +1,42 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Same check as isVerified in firestore.rules: a verified EPFL address.
+    function isVerified() {
+      return request.auth != null
+          && request.auth.token.email is string
+          && request.auth.token.email.lower().matches('.*@epfl[.]ch$')
+          && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isVerified() && request.auth.uid == uid;
+    }
+
+    // Profile photos are uploaded uncompressed, and full-size phone photos can reach 8 MB.
+    function isImageUpload() {
+      return request.resource.size < 10 * 1024 * 1024
+          && request.resource.contentType.matches('image/.*');
+    }
+
+    match /users/{uid}/profile.jpg {
+      allow read: if isVerified();
+      allow create, update: if isOwner(uid) && isImageUpload();
+      allow delete: if isOwner(uid);
+    }
+
+    // At most 5 photos per listing, stored as images/0 to images/4.
+    match /listings/{uid}/{listingId}/images/{index} {
+      allow read: if isVerified();
+      allow create, update: if isOwner(uid) && index.matches('[0-4]') && isImageUpload();
+      allow delete: if isOwner(uid);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,4 +1,4 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
@@ -200,6 +200,12 @@ class SignInScreenTest {
         Result.failure(IllegalStateException("Not used"))
 
     override suspend fun refreshUser(): Result<User> =
+        Result.failure(IllegalStateException("Not used"))
+
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
+    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
         Result.failure(IllegalStateException("Not used"))
   }
 }

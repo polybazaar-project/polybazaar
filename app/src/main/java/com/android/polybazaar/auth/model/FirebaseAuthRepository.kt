@@ -1,7 +1,13 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.auth.model
 
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthActionCodeException
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -32,18 +38,14 @@ class FirebaseAuthRepository(
       return Result.failure(Exception("Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)"))
     }
     if (username.isBlank()) return Result.failure(Exception("Username is required"))
-    AuthRules.usernameError(AuthRules.normalizeUsername(username))?.let {
+    AuthRules.usernameError(username)?.let {
       return Result.failure(Exception(it))
     }
-    if (email.length > AuthRules.MAX_EMAIL_LENGTH) {
-      return Result.failure(
-          Exception("Email must be at most ${AuthRules.MAX_EMAIL_LENGTH} characters")
-      )
+    AuthRules.emailLengthError(email)?.let {
+      return Result.failure(Exception(it))
     }
-    if (password.length > AuthRules.MAX_PASSWORD_LENGTH) {
-      return Result.failure(
-          Exception("Password must be at most ${AuthRules.MAX_PASSWORD_LENGTH} characters")
-      )
+    AuthRules.passwordLengthError(password)?.let {
+      return Result.failure(Exception(it))
     }
     return try {
       require(username == AuthRules.normalizeUsername(username)) {
@@ -117,6 +119,10 @@ class FirebaseAuthRepository(
     return try {
       val firebaseUser = auth.currentUser ?: throw Exception("No user is currently logged in")
       firebaseUser.reload().await()
+      // reload() leaves the cached ID token as it was, and the security rules read
+      // email_verified from that token. Refresh it, or the newly verified user would still be
+      // refused by Firestore and Storage until the token expires.
+      if (firebaseUser.isEmailVerified) firebaseUser.getIdToken(true).await()
       Result.success(getCurrentUser())
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -131,6 +137,43 @@ class FirebaseAuthRepository(
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Result.failure(e)
+    }
+  }
+
+  override suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
+    // Firebase throws IllegalArgumentException on an empty string before any request is sent,
+    // so catch the blank case here and report it like any other invalid address.
+    if (email.isBlank()) {
+      return Result.failure(PasswordResetException(PasswordResetException.Reason.INVALID_EMAIL))
+    }
+    return try {
+      auth.sendPasswordResetEmail(email).await()
+      Result.success(Unit)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      // An unknown or disabled address counts as success so the screen cannot be used to find out
+      // which emails have an account (acceptance criterion of #13). This is intended:
+      // FirebaseAuthInvalidUserException covers both ERROR_USER_NOT_FOUND and ERROR_USER_DISABLED.
+      // With email enumeration protection on, Firebase already returns success; this covers
+      // projects where it is off.
+      if (e is FirebaseAuthInvalidUserException) Result.success(Unit)
+      else Result.failure(PasswordResetException(passwordResetReason(e), e))
+    }
+  }
+
+  override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> {
+    // Firebase throws IllegalArgumentException on an empty code before any request is sent.
+    if (code.isBlank()) {
+      return Result.failure(
+          ConfirmPasswordResetException(ConfirmPasswordResetException.Reason.INVALID_LINK)
+      )
+    }
+    return try {
+      auth.confirmPasswordReset(code, newPassword).await()
+      Result.success(Unit)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(ConfirmPasswordResetException(confirmPasswordResetReason(e), e))
     }
   }
 
@@ -170,3 +213,30 @@ class FirebaseAuthRepository(
     return querySnapshot.documents.first().id
   }
 }
+
+/**
+ * Maps a Firebase error from a password reset request to the [PasswordResetException.Reason] shown
+ * to the user. Anything not listed becomes [PasswordResetException.Reason.UNKNOWN].
+ */
+private fun passwordResetReason(e: Exception): PasswordResetException.Reason =
+    when (e) {
+      // Firebase reports a badly formatted address as an invalid credential (ERROR_INVALID_EMAIL).
+      is FirebaseAuthInvalidCredentialsException -> PasswordResetException.Reason.INVALID_EMAIL
+      is FirebaseNetworkException -> PasswordResetException.Reason.NETWORK
+      is FirebaseTooManyRequestsException -> PasswordResetException.Reason.TOO_MANY_REQUESTS
+      else -> PasswordResetException.Reason.UNKNOWN
+    }
+
+/**
+ * Maps a Firebase error from setting the new password to the [ConfirmPasswordResetException.Reason]
+ * shown to the user. Anything not listed becomes [ConfirmPasswordResetException.Reason.UNKNOWN].
+ */
+private fun confirmPasswordResetReason(e: Exception): ConfirmPasswordResetException.Reason =
+    when (e) {
+      // ERROR_EXPIRED_ACTION_CODE and ERROR_INVALID_ACTION_CODE.
+      is FirebaseAuthActionCodeException -> ConfirmPasswordResetException.Reason.INVALID_LINK
+      is FirebaseAuthWeakPasswordException -> ConfirmPasswordResetException.Reason.WEAK_PASSWORD
+      is FirebaseNetworkException -> ConfirmPasswordResetException.Reason.NETWORK
+      is FirebaseTooManyRequestsException -> ConfirmPasswordResetException.Reason.TOO_MANY_REQUESTS
+      else -> ConfirmPasswordResetException.Reason.UNKNOWN
+    }

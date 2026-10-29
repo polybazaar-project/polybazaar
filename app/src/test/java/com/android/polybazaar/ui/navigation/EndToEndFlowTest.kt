@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.ui.navigation
 
@@ -41,7 +42,11 @@ class EndToEndFlowTest {
   private fun launchApp() {
     authViewModel = AuthViewModel(backend)
     composeTestRule.setContent {
-      AppNavHost(authViewModel = authViewModel, profileRepository = backend)
+      AppNavHost(
+          authViewModel = authViewModel,
+          authRepository = backend,
+          profileRepository = backend,
+      )
     }
   }
 
@@ -177,6 +182,12 @@ class EndToEndFlowTest {
     override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)
 
     override suspend fun refreshUser(): Result<User> = Result.success(getCurrentUser())
+
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
+    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
 
     override fun observeProfile(uid: String): Flow<User?> = profiles.map { it[uid] }
 

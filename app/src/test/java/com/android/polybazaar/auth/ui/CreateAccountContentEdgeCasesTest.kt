@@ -18,6 +18,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextInputSelection
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRules
@@ -330,18 +332,74 @@ class CreateAccountContentEdgeCasesTest {
   }
 
   @Test
-  fun overlongUsernameAndEmail_areTruncatedToFieldLimits() {
+  fun overlongUsername_isKeptAndShowsMessageAndDisablesCreateButton() {
     setContent()
+    val username = "u".repeat(AuthRules.MAX_USERNAME_LENGTH + 5)
+    type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
 
-    type(CreateAccountScreenTags.USERNAME_FIELD, "u".repeat(AuthRules.MAX_USERNAME_LENGTH + 5))
-    type(CreateAccountScreenTags.EMAIL_FIELD, "e".repeat(AuthRules.MAX_EMAIL_LENGTH + 5))
+    type(CreateAccountScreenTags.USERNAME_FIELD, username)
+
+    assertEquals(username, editableText(CreateAccountScreenTags.USERNAME_FIELD))
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
+        .assertTextEquals(AuthRules.usernameError(username)!!)
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun typingIntoFullUsername_keepsTheCharacterAndShowsMessage() {
+    setContent()
+    type(CreateAccountScreenTags.USERNAME_FIELD, "a".repeat(AuthRules.MAX_USERNAME_LENGTH))
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.USERNAME_FIELD)
+        .performTextInputSelection(TextRange(5))
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "b")
 
     assertEquals(
-        AuthRules.MAX_USERNAME_LENGTH,
+        "a".repeat(5) + "b" + "a".repeat(AuthRules.MAX_USERNAME_LENGTH - 5),
+        editableText(CreateAccountScreenTags.USERNAME_FIELD),
+    )
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE)
+        .assertTextEquals("Username must be at most ${AuthRules.MAX_USERNAME_LENGTH} characters")
+  }
+
+  @Test
+  fun overlongEmail_showsOnlyTooLongMessageAndDisablesCreateButton() {
+    setContent()
+    val email = "e".repeat(AuthRules.MAX_EMAIL_LENGTH + 1 - "@epfl.ch".length) + "@epfl.ch"
+    type(CreateAccountScreenTags.USERNAME_FIELD, "ada")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+
+    type(CreateAccountScreenTags.EMAIL_FIELD, email)
+
+    assertEquals(email, editableText(CreateAccountScreenTags.EMAIL_FIELD))
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.EMAIL_TOO_LONG_MESSAGE)
+        .assertTextEquals(AuthRules.emailLengthError(email)!!)
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE)
+        .assertDoesNotExist()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun usernameAndEmailInput_areHeldAtHardCap() {
+    setContent()
+
+    type(CreateAccountScreenTags.USERNAME_FIELD, "u".repeat(2000))
+    type(CreateAccountScreenTags.EMAIL_FIELD, "e".repeat(2000))
+
+    assertEquals(
+        AuthRules.MAX_TEXT_INPUT_LENGTH,
         editableText(CreateAccountScreenTags.USERNAME_FIELD).length,
     )
     assertEquals(
-        AuthRules.MAX_EMAIL_LENGTH,
+        AuthRules.MAX_TEXT_INPUT_LENGTH,
         editableText(CreateAccountScreenTags.EMAIL_FIELD).length,
     )
   }
@@ -362,7 +420,7 @@ class CreateAccountContentEdgeCasesTest {
     )
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_LONG_MESSAGE)
-        .assertTextEquals("Password must be at most ${AuthRules.MAX_PASSWORD_LENGTH} characters")
+        .assertTextEquals(AuthRules.passwordLengthError(tooLong)!!)
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
   }
 
@@ -384,16 +442,16 @@ class CreateAccountContentEdgeCasesTest {
   }
 
   @Test
-  fun emojiAtUsernameBoundary_isNotSplit() {
+  fun emojiAtHardCapBoundary_isNotSplit() {
     setContent()
 
     type(
         CreateAccountScreenTags.USERNAME_FIELD,
-        "a".repeat(AuthRules.MAX_USERNAME_LENGTH - 1) + "\uD83D\uDE00",
+        "a".repeat(AuthRules.MAX_TEXT_INPUT_LENGTH - 1) + "\uD83D\uDE00",
     )
 
     val text = editableText(CreateAccountScreenTags.USERNAME_FIELD)
-    assertEquals(AuthRules.MAX_USERNAME_LENGTH - 1, text.length)
+    assertEquals(AuthRules.MAX_TEXT_INPUT_LENGTH - 1, text.length)
     assertFalse(text.last().isHighSurrogate())
   }
 
@@ -445,19 +503,6 @@ class CreateAccountContentEdgeCasesTest {
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_LONG_MESSAGE)
         .assertIsDisplayed()
-  }
-
-  @Test
-  fun pastingOverCapThenEditing_keepsUsernameWithinLimit() {
-    setContent()
-
-    type(CreateAccountScreenTags.USERNAME_FIELD, "a".repeat(AuthRules.MAX_USERNAME_LENGTH + 10))
-    type(CreateAccountScreenTags.USERNAME_FIELD, "b")
-
-    assertEquals(
-        AuthRules.MAX_USERNAME_LENGTH,
-        editableText(CreateAccountScreenTags.USERNAME_FIELD).length,
-    )
   }
 
   @Test

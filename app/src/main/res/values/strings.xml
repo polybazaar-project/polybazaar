@@ -2,4 +2,20 @@
     <string name="app_name">SampleApp</string>
     <string name="title_activity_main">MainActivity</string>
     <string name="title_activity_second">SecondActivity</string>
+
+    <!-- Forgot password screen -->
+    <string name="forgot_password_title">Forgot password</string>
+    <string name="forgot_password_heading">Reset your password</string>
+    <string name="forgot_password_guidance">Enter the email address linked to your account. We’ll send you a link to reset your password.</string>
+    <string name="forgot_password_email_label">Email</string>
+    <string name="forgot_password_email_placeholder">Enter your email</string>
+    <string name="forgot_password_send_button">Send reset link</string>
+    <string name="forgot_password_sending_button">Sending…</string>
+    <string name="forgot_password_resend_button">Resend link</string>
+    <string name="forgot_password_back_to_sign_in">Back to sign in</string>
+    <string name="forgot_password_sent_message">If an account exists for %1$s, a reset link is on its way. Check your inbox and your spam folder.</string>
+    <string name="forgot_password_error_invalid_email">Enter a valid email address.</string>
+    <string name="forgot_password_error_network">No connection. Check your internet and try again.</string>
+    <string name="forgot_password_error_too_many_requests">Too many attempts. Wait a few minutes, then try again.</string>
+    <string name="forgot_password_error_unknown">Something went wrong. Please try again.</string>
 </resources>

@@ -3,10 +3,14 @@ package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GetTokenResult
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
@@ -19,11 +23,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -219,6 +225,45 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
+  fun signUp_valuesExactlyAtLimits_succeed() = runTest {
+    val longEmail = "e".repeat(AuthRules.MAX_EMAIL_LENGTH - "@epfl.ch".length) + "@epfl.ch"
+    val longPassword = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH)
+    whenever(firebaseUser.email).thenReturn(longEmail)
+    mockSignUpAuthResult(email = longEmail, password = longPassword)
+
+    listOf("a".repeat(AuthRules.MIN_USERNAME_LENGTH), "a".repeat(AuthRules.MAX_USERNAME_LENGTH))
+        .forEach { name ->
+          mockUsernameDocument(exists = false, username = name)
+
+          val result = repository.signUp(longEmail, longPassword, name)
+
+          assertEquals(name, result.getOrThrow().username)
+        }
+  }
+
+  @Test
+  fun signUp_paddedEmailWithTrimmedLengthAtLimit_passesLengthCheck() = runTest {
+    val trimmed = "e".repeat(AuthRules.MAX_EMAIL_LENGTH - "@epfl.ch".length) + "@epfl.ch"
+    val padded = "  $trimmed  "
+    mockUsernameDocument(exists = false)
+    mockSignUpAuthResult(email = padded)
+    whenever(firebaseUser.email).thenReturn(padded)
+
+    val result = repository.signUp(padded, password, username)
+
+    assertTrue(result.isSuccess)
+  }
+
+  @Test
+  fun signUp_usernameBelowMinimum_returnsFailureWithoutTouchingFirebase() = runTest {
+    val result = repository.signUp(email, password, "ab")
+
+    assertEquals(AuthRules.usernameError("ab"), result.exceptionOrNull()?.message)
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
+  }
+
+  @Test
   fun signUp_blankUsername_returnsFailureWithoutTouchingFirebase() = runTest {
     listOf("", "   ").forEach { blank ->
       val result = repository.signUp(email, password, blank)
@@ -231,20 +276,18 @@ class FirebaseAuthRepositoryTest {
 
   @Test
   fun signUp_tooLongFields_returnFailureWithoutTouchingFirebase() = runTest {
-    val tooLongUsername =
-        repository.signUp(email, password, "a".repeat(AuthRules.MAX_USERNAME_LENGTH + 1))
-    val tooLongEmail =
-        repository.signUp("a".repeat(AuthRules.MAX_EMAIL_LENGTH) + "@epfl.ch", password, username)
-    val tooLongPassword =
-        repository.signUp(email, "p".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1), username)
+    val longUsername = "a".repeat(AuthRules.MAX_USERNAME_LENGTH + 1)
+    val longEmail = "a".repeat(AuthRules.MAX_EMAIL_LENGTH) + "@epfl.ch"
+    val longPassword = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1)
 
+    val tooLongUsername = repository.signUp(email, password, longUsername)
+    val tooLongEmail = repository.signUp(longEmail, password, username)
+    val tooLongPassword = repository.signUp(email, longPassword, username)
+
+    assertEquals(AuthRules.usernameError(longUsername), tooLongUsername.exceptionOrNull()?.message)
+    assertEquals(AuthRules.emailLengthError(longEmail), tooLongEmail.exceptionOrNull()?.message)
     assertEquals(
-        "Username must be at most 30 characters",
-        tooLongUsername.exceptionOrNull()?.message,
-    )
-    assertEquals("Email must be at most 254 characters", tooLongEmail.exceptionOrNull()?.message)
-    assertEquals(
-        "Password must be at most 128 characters",
+        AuthRules.passwordLengthError(longPassword),
         tooLongPassword.exceptionOrNull()?.message,
     )
     verify(firestore, never()).collection(any())
@@ -514,12 +557,43 @@ class FirebaseAuthRepositoryTest {
       verifiedOnServer = true
       Tasks.forResult<Void>(null)
     }
+    whenever(firebaseUser.getIdToken(true)).thenReturn(Tasks.forResult(mock<GetTokenResult>()))
     mockUsernameLookupSuccess(uid, username)
 
     val result = repository.refreshUser()
 
     assertTrue(result.getOrThrow().isEmailVerified)
-    verify(firebaseUser).reload()
+    // The rules read email_verified from the ID token, so it must be refreshed after the reload.
+    val order = inOrder(firebaseUser)
+    order.verify(firebaseUser).reload()
+    order.verify(firebaseUser).getIdToken(true)
+  }
+
+  @Test
+  fun refreshUser_stillUnverified_keepsTheCachedToken() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.isEmailVerified).thenReturn(false)
+    whenever(firebaseUser.reload()).thenReturn(Tasks.forResult(null))
+    mockUsernameLookupSuccess(uid, username)
+
+    val result = repository.refreshUser()
+
+    assertFalse(result.getOrThrow().isEmailVerified)
+    verify(firebaseUser, never()).getIdToken(any())
+  }
+
+  @Test
+  fun refreshUser_tokenRefreshFails_returnsFailure() = runTest {
+    val exception = Exception("Network error")
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.isEmailVerified).thenReturn(true)
+    whenever(firebaseUser.reload()).thenReturn(Tasks.forResult(null))
+    whenever(firebaseUser.getIdToken(true)).thenReturn(Tasks.forException(exception))
+
+    val result = repository.refreshUser()
+
+    assertTrue(result.isFailure)
+    assertEquals(exception, result.exceptionOrNull())
   }
 
   @Test
@@ -544,6 +618,96 @@ class FirebaseAuthRepositoryTest {
     assertEquals(exception, result.exceptionOrNull())
   }
 
+  @Test
+  fun sendPasswordResetEmail_success_returnsSuccess() = runTest {
+    whenever(auth.sendPasswordResetEmail(email)).thenReturn(Tasks.forResult(null))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertTrue(result.isSuccess)
+    verify(auth).sendPasswordResetEmail(email)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_unknownEmail_returnsSuccess() = runTest {
+    mockPasswordResetFailure(FirebaseAuthInvalidUserException("ERROR_USER_NOT_FOUND", "No user"))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    // Same outcome as a registered address, so the screen does not reveal who has an account.
+    assertTrue(result.isSuccess)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_blankEmail_failsWithInvalidEmailWithoutCallingFirebase() = runTest {
+    val result = repository.sendPasswordResetEmail("   ")
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.INVALID_EMAIL)
+    verify(auth, never()).sendPasswordResetEmail(any<String>())
+  }
+
+  @Test
+  fun sendPasswordResetEmail_malformedEmail_failsWithInvalidEmail() = runTest {
+    mockPasswordResetFailure(
+        FirebaseAuthInvalidCredentialsException("ERROR_INVALID_EMAIL", "Badly formatted")
+    )
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.INVALID_EMAIL)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_noNetwork_failsWithNetwork() = runTest {
+    mockPasswordResetFailure(FirebaseNetworkException("Network error"))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.NETWORK)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_tooManyRequests_failsWithTooManyRequests() = runTest {
+    mockPasswordResetFailure(FirebaseTooManyRequestsException("Blocked"))
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.TOO_MANY_REQUESTS)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_otherError_failsWithUnknownAndKeepsCause() = runTest {
+    val exception = IllegalStateException("Unexpected")
+    mockPasswordResetFailure(exception)
+
+    val result = repository.sendPasswordResetEmail(email)
+
+    assertPasswordResetFailure(result, PasswordResetException.Reason.UNKNOWN)
+    assertSame(exception, result.exceptionOrNull()?.cause)
+  }
+
+  @Test
+  fun sendPasswordResetEmail_cancellationException_isRethrown() = runTest {
+    whenever(auth.sendPasswordResetEmail(email)).thenThrow(CancellationException("Cancelled"))
+
+    val result = runCatching { repository.sendPasswordResetEmail(email) }
+
+    assertTrue(result.exceptionOrNull() is CancellationException)
+  }
+
+  private fun mockPasswordResetFailure(exception: Exception) {
+    whenever(auth.sendPasswordResetEmail(email)).thenReturn(Tasks.forException(exception))
+  }
+
+  private fun assertPasswordResetFailure(
+      result: Result<Unit>,
+      expected: PasswordResetException.Reason,
+  ) {
+    val error = result.exceptionOrNull()
+    assertTrue("Expected PasswordResetException but was $error", error is PasswordResetException)
+    assertEquals(expected, (error as PasswordResetException).reason)
+  }
+
   private fun mockUsernameLookupSuccess(targetUid: String, returnedUsername: String) {
     val query = mock<Query>()
     val querySnapshot = mock<QuerySnapshot>()
@@ -559,7 +723,10 @@ class FirebaseAuthRepositoryTest {
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
   }
 
-  private fun mockUsernameDocument(exists: Boolean): DocumentReference {
+  private fun mockUsernameDocument(
+      exists: Boolean,
+      username: String = this.username,
+  ): DocumentReference {
     val docRef = mock<DocumentReference>()
     val documentSnapshot = mock<DocumentSnapshot>()
 
@@ -570,7 +737,11 @@ class FirebaseAuthRepositoryTest {
     return docRef
   }
 
-  private fun mockSignUpAuthResult(user: FirebaseUser? = firebaseUser) {
+  private fun mockSignUpAuthResult(
+      user: FirebaseUser? = firebaseUser,
+      email: String = this.email,
+      password: String = this.password,
+  ) {
     val authResult = mock<AuthResult>()
     whenever(authResult.user).thenReturn(user)
     whenever(auth.createUserWithEmailAndPassword(email, password))

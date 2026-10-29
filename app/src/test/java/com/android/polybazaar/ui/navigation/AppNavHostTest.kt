@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.ui.navigation
 
@@ -15,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
+import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
@@ -41,7 +43,11 @@ class AppNavHostTest {
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
     val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
-      AppNavHost(authViewModel = viewModel, profileRepository = profileRepository)
+      AppNavHost(
+          authViewModel = viewModel,
+          authRepository = repository,
+          profileRepository = profileRepository,
+      )
     }
     return viewModel
   }
@@ -117,12 +123,13 @@ class AppNavHostTest {
   @Test
   fun signIn_removesAuthScreensFromBackStack() {
     lateinit var navController: NavHostController
-    val viewModel =
-        AuthViewModel(FakeAuthRepository(currentUser = null, signInResult = Result.success(user)))
+    val repository = FakeAuthRepository(currentUser = null, signInResult = Result.success(user))
+    val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
       navController = rememberNavController()
       AppNavHost(
           authViewModel = viewModel,
+          authRepository = repository,
           profileRepository = profileRepository,
           navController = navController,
       )
@@ -172,23 +179,46 @@ class AppNavHostTest {
   }
 
   @Test
-  fun forgotPasswordLink_showsUnavailableMessageAndStaysOnSignIn() {
+  fun forgotPasswordLink_opensForgotPasswordAndBackReturnsToSignIn() {
     setContent(FakeAuthRepository(currentUser = null))
 
     composeTestRule.onNodeWithTag(SignInScreenTags.FORGOT_PASSWORD_LINK).performClick()
+    composeTestRule.onNodeWithTag(ForgotPasswordScreenTags.SCREEN).assertIsDisplayed()
 
-    composeTestRule.onNodeWithText(PASSWORD_RESET_UNAVAILABLE_MESSAGE).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ForgotPasswordScreenTags.BACK_BUTTON).performClick()
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun forgotPassword_sendsTheLinkThroughTheGivenRepository() {
+    val repository = FakeAuthRepository(currentUser = null)
+    setContent(repository)
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.FORGOT_PASSWORD_LINK).performClick()
+    composeTestRule
+        .onNodeWithTag(ForgotPasswordScreenTags.EMAIL_FIELD)
+        .performTextInput("ada@epfl.ch")
+    composeTestRule.onNodeWithTag(ForgotPasswordScreenTags.SEND_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ForgotPasswordScreenTags.SENT_MESSAGE).assertIsDisplayed()
+    assertEquals(listOf("ada@epfl.ch"), repository.resetEmails)
+
+    // "Back to sign in" leaves the screen, and coming back starts with an empty form.
+    composeTestRule.onNodeWithTag(ForgotPasswordScreenTags.BACK_TO_SIGN_IN_LINK).performClick()
+    composeTestRule.onNodeWithTag(SignInScreenTags.FORGOT_PASSWORD_LINK).performClick()
+    composeTestRule.onNodeWithTag(ForgotPasswordScreenTags.SENT_MESSAGE).assertDoesNotExist()
   }
 
   @Test
   fun signOut_returnsToSignInAndClearsBackStack() {
     lateinit var navController: NavHostController
-    val viewModel = AuthViewModel(FakeAuthRepository(currentUser = user))
+    val repository = FakeAuthRepository(currentUser = user)
+    val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
       navController = rememberNavController()
       AppNavHost(
           authViewModel = viewModel,
+          authRepository = repository,
           profileRepository = profileRepository,
           navController = navController,
       )
@@ -241,5 +271,15 @@ class AppNavHostTest {
     override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)
 
     override suspend fun refreshUser(): Result<User> = signInResult
+
+    val resetEmails = mutableListOf<String>()
+
+    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
+        Result.failure(IllegalStateException("Not used"))
+
+    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
+      resetEmails += email
+      return Result.success(Unit)
+    }
   }
 }
