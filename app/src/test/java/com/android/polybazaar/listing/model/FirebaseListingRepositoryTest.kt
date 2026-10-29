@@ -256,16 +256,29 @@ class FirebaseListingRepositoryTest {
 
   @Test
   fun createListing_overLimit_failsWithoutTouchingFirebase() = runTest {
+    // A photo is needed for the compressor to have something to compress.
+    val photos = listOf(Uri.parse("content://images/0"))
     val overLimit =
         listOf(
-            ServiceListing("Tutoring", 25.0, "t".repeat(81), "One-hour session") to
+            ServiceListing("Tutoring", 25.0, "t".repeat(81), "One-hour session", images = photos) to
                 "Title must be at most 80 characters",
-            ServiceListing("Tutoring", 25.0, "Math tutoring", "d".repeat(1001)) to
+            ServiceListing("Tutoring", 25.0, "Math tutoring", "d".repeat(1001), images = photos) to
                 "Description must be at most 1000 characters",
-            ServiceListing("Tutoring", 10_000.01, "Math tutoring", "One-hour session") to
-                "Enter a price between CHF 0 and CHF 10,000",
-            ItemListing("Tools", 5.0, "Drill", "Works well", refundValue = 100_000.01) to
-                "Enter a refund value between CHF 0 and CHF 100,000",
+            ServiceListing(
+                "Tutoring",
+                10_000.01,
+                "Math tutoring",
+                "One-hour session",
+                images = photos,
+            ) to "Enter a price between CHF 0 and CHF 10,000",
+            ItemListing(
+                "Tools",
+                5.0,
+                "Drill",
+                "Works well",
+                refundValue = 100_000.01,
+                images = photos,
+            ) to "Enter a refund value between CHF 0 and CHF 100,000",
         )
 
     overLimit.forEach { (listing, message) ->
@@ -275,6 +288,7 @@ class FirebaseListingRepositoryTest {
       assertEquals(message, failure?.message)
     }
     verifyNoInteractions(firestore, storage)
+    assertTrue(compressedPhotos.isEmpty())
   }
 
   @Test
