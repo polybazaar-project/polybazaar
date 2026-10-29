@@ -217,6 +217,28 @@ class ResetPasswordScreenTest {
   }
 
   @Test
+  fun withTheViewModel_hugePasteIsCappedLikeSignUp() {
+    val viewModel = ResetPasswordViewModel(FakeAuthRepository(Result.success(Unit)), "code-1")
+    composeTestRule.setContent {
+      ResetPasswordScreen(
+          resetPasswordViewModel = viewModel,
+          onBackToSignIn = {},
+          onPasswordReset = {},
+      )
+    }
+    val paste = "a1".repeat(AuthRules.MAX_PASSWORD_INPUT_LENGTH)
+
+    node(ResetPasswordScreenTags.NEW_PASSWORD_FIELD).performTextInput(paste)
+    node(ResetPasswordScreenTags.CONFIRM_PASSWORD_FIELD).performTextInput(paste)
+
+    assertEquals(AuthRules.MAX_PASSWORD_INPUT_LENGTH, viewModel.uiState.value.newPassword.length)
+    assertEquals(
+        AuthRules.MAX_PASSWORD_INPUT_LENGTH,
+        viewModel.uiState.value.confirmPassword.length,
+    )
+  }
+
+  @Test
   fun withTheViewModel_expiredLinkShowsTheInvalidLinkMessage() {
     val repository =
         FakeAuthRepository(

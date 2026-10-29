@@ -40,6 +40,7 @@
     <string name="reset_password_resetting_button">Resetting…</string>
     <string name="reset_password_back_to_sign_in">Back to sign in</string>
     <string name="reset_password_error_empty">Enter a new password.</string>
+    <string name="reset_password_error_too_long">This password is too long. Choose a shorter one.</string>
     <string name="reset_password_error_mismatch">The two passwords don’t match.</string>
     <string name="reset_password_error_invalid_link">This reset link has expired or was already used. Request a new one from Forgot password.</string>
 </resources>

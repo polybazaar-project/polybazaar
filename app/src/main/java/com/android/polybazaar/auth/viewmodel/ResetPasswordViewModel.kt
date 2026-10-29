@@ -17,6 +17,9 @@ enum class ResetPasswordError {
   /** The new password is empty or only whitespace. */
   EMPTY_PASSWORD,
 
+  /** The new password is longer than [AuthRules.MAX_PASSWORD_LENGTH], as sign-up refuses. */
+  PASSWORD_TOO_LONG,
+
   /** The new password does not meet the rules shown under the field, or Firebase rejected it. */
   WEAK_PASSWORD,
 
@@ -39,6 +42,7 @@ enum class ResetPasswordError {
 /**
  * Checks the two fields before anything is sent, in this order:
  * - [newPassword] blank: [ResetPasswordError.EMPTY_PASSWORD];
+ * - [newPassword] over [AuthRules.MAX_PASSWORD_LENGTH]: [ResetPasswordError.PASSWORD_TOO_LONG];
  * - [newPassword] not meeting [AuthRules.meetsPasswordRules], the same rule as sign-up:
  *   [ResetPasswordError.WEAK_PASSWORD];
  * - [confirmPassword] not exactly equal to [newPassword], blank included:
@@ -51,6 +55,8 @@ enum class ResetPasswordError {
 internal fun newPasswordError(newPassword: String, confirmPassword: String): ResetPasswordError? =
     when {
       newPassword.isBlank() -> ResetPasswordError.EMPTY_PASSWORD
+      // Before the strength check, so a long password is not called weak.
+      AuthRules.passwordLengthError(newPassword) != null -> ResetPasswordError.PASSWORD_TOO_LONG
       !AuthRules.meetsPasswordRules(newPassword) -> ResetPasswordError.WEAK_PASSWORD
       confirmPassword != newPassword -> ResetPasswordError.PASSWORDS_DO_NOT_MATCH
       else -> null

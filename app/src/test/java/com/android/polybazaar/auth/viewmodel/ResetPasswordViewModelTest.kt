@@ -2,6 +2,7 @@
 package com.android.polybazaar.auth.viewmodel
 
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.model.ConfirmPasswordResetException
 import com.android.polybazaar.auth.model.User
 import kotlinx.coroutines.CompletableDeferred
@@ -159,6 +160,27 @@ class ResetPasswordViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertLocalError("no letter", ResetPasswordError.WEAK_PASSWORD)
+  }
+
+  @Test
+  fun resetPassword_passwordOverTheMax_failsAsTooLongWithoutCallingRepository() = runTest {
+    enterPasswords("a".repeat(AuthRules.MAX_PASSWORD_LENGTH) + "1")
+
+    viewModel.resetPassword()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertLocalError("129 characters", ResetPasswordError.PASSWORD_TOO_LONG)
+  }
+
+  @Test
+  fun resetPassword_passwordOfMaximumLength_isSent() = runTest {
+    val password = "a".repeat(AuthRules.MAX_PASSWORD_LENGTH - 1) + "1"
+    enterPasswords(password)
+
+    viewModel.resetPassword()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(OOB_CODE to password), repository.resetCalls)
   }
 
   @Test

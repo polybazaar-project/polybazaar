@@ -78,8 +78,13 @@ fun ResetPasswordScreen(
       uiState = uiState,
       actions =
           ResetPasswordActions(
-              onNewPasswordChange = resetPasswordViewModel::onNewPasswordChange,
-              onConfirmPasswordChange = resetPasswordViewModel::onConfirmPasswordChange,
+              // Capped like sign-up, so a huge paste never reaches the state.
+              onNewPasswordChange = {
+                resetPasswordViewModel.onNewPasswordChange(capPasswordInput(it))
+              },
+              onConfirmPasswordChange = {
+                resetPasswordViewModel.onConfirmPasswordChange(capPasswordInput(it))
+              },
               onResetPassword = resetPasswordViewModel::resetPassword,
               onBackToSignIn = onBackToSignIn,
           ),
@@ -181,6 +186,10 @@ fun ResetPasswordContent(uiState: ResetPasswordUiState, actions: ResetPasswordAc
   }
 }
 
+/** Cuts [input] to [AuthRules.MAX_PASSWORD_INPUT_LENGTH], as sign-up does. */
+private fun capPasswordInput(input: String): String =
+    AuthRules.limitTo(input, AuthRules.MAX_PASSWORD_INPUT_LENGTH)
+
 /** A masked password field with the password keyboard. */
 @Composable
 private fun PasswordField(
@@ -216,6 +225,7 @@ private fun GuidanceText(text: String) {
 internal fun resetPasswordErrorText(error: ResetPasswordError): Int =
     when (error) {
       ResetPasswordError.EMPTY_PASSWORD -> R.string.reset_password_error_empty
+      ResetPasswordError.PASSWORD_TOO_LONG -> R.string.reset_password_error_too_long
       ResetPasswordError.WEAK_PASSWORD -> R.string.error_weak_password
       ResetPasswordError.PASSWORDS_DO_NOT_MATCH -> R.string.reset_password_error_mismatch
       ResetPasswordError.INVALID_LINK -> R.string.reset_password_error_invalid_link
