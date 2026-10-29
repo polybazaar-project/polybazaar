@@ -19,8 +19,7 @@ import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
-import com.android.polybazaar.listing.model.Listing
-import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -45,14 +44,7 @@ class EndToEndFlowTest {
   private val backend = InMemoryBackend()
 
   // No test here opens Browse; the navigation graph only needs a repository to build.
-  private val listingRepository =
-      object : ListingRepository {
-        override suspend fun createListing(listing: Listing): Listing = listing
-
-        override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
-
-        override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
-      }
+  private val listingRepository = FakeListingRepository()
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
 
