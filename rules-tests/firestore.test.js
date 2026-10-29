@@ -71,7 +71,7 @@ function itemListing(overrides = {}) {
     type: "ITEM",
     title: "Drill",
     description: "Cordless drill",
-    imageUrls: ["https://example.com/0.jpg"],
+    imagePaths: [],
     refundValue: 100,
     ...overrides,
   };
@@ -189,7 +189,7 @@ describe("users", () => {
     await seedUser(ALICE, "alice");
     const profile = doc(unverified(ALICE), `users/${ALICE}`);
     await assertFails(updateDoc(profile, { bio: "Hi" }));
-    await assertFails(updateDoc(profile, { photoUrl: "https://example.com/p.jpg" }));
+    await assertFails(updateDoc(profile, { photoPath: `users/${ALICE}/profile.jpg` }));
   });
 
   test("a non-EPFL account cannot edit a profile", async () => {
@@ -202,10 +202,21 @@ describe("users", () => {
     await assertSucceeds(
       setDoc(
         doc(verified(ALICE), `users/${ALICE}`),
-        { bio: "Hi", photoUrl: "https://example.com/p.jpg" },
+        { bio: "Hi", photoPath: `users/${ALICE}/profile.jpg` },
         { merge: true },
       ),
     );
+  });
+
+  test("a profile photo is the user's own Storage path, not a URL", async () => {
+    await seedUser(ALICE, "alice");
+    const profile = doc(verified(ALICE), `users/${ALICE}`);
+    await assertFails(updateDoc(profile, { photoPath: `users/${BOB}/profile.jpg` }));
+    await assertFails(
+      updateDoc(profile, { photoPath: "https://firebasestorage.googleapis.com/v0/b/x/o/p?token=t" }),
+    );
+    // The old field held a download URL, which works for anyone who has it.
+    await assertFails(updateDoc(profile, { photoUrl: "https://example.com/p.jpg" }));
   });
 
   test("a bio is text", async () => {
@@ -319,9 +330,39 @@ describe("listings", () => {
 
   test("a listing has at most 5 images", async () => {
     const db = verified(ALICE);
-    const urls = (n) => Array.from({ length: n }, (_, i) => `https://example.com/${i}.jpg`);
-    await assertSucceeds(setDoc(doc(db, "listings/l1"), itemListing({ imageUrls: urls(5) })));
-    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ imageUrls: urls(6) })));
+    const paths = (listingId, n) =>
+      Array.from({ length: n }, (_, i) => `listings/${ALICE}/${listingId}/images/${i}`);
+    await assertSucceeds(setDoc(doc(db, "listings/l1"), itemListing({ imagePaths: paths("l1", 5) })));
+    // A sixth image has nowhere to go: there is no images/5.
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ imagePaths: paths("l2", 6) })));
+    // Nor can the five allowed paths be padded with a repeat.
+    const repeated = [...paths("l3", 5), `listings/${ALICE}/l3/images/0`];
+    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ imagePaths: repeated })));
+  });
+
+  test("a listing names each image once", async () => {
+    const image = `listings/${ALICE}/l1/images/0`;
+    await assertFails(
+      setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ imagePaths: [image, image] })),
+    );
+  });
+
+  test("a listing's images are its own Storage paths, not URLs", async () => {
+    const db = verified(ALICE);
+    await assertFails(
+      setDoc(doc(db, "listings/l1"), itemListing({ imagePaths: [`listings/${ALICE}/l2/images/0`] })),
+    );
+    await assertFails(
+      setDoc(doc(db, "listings/l1"), itemListing({ imagePaths: [`listings/${BOB}/l1/images/0`] })),
+    );
+    await assertFails(
+      setDoc(doc(db, "listings/l1"), itemListing({ imagePaths: ["https://example.com/0.jpg"] })),
+    );
+    // The old field held download URLs, which work for anyone who has them.
+    const { imagePaths, ...withoutPaths } = itemListing();
+    await assertFails(
+      setDoc(doc(db, "listings/l1"), { ...withoutPaths, imageUrls: ["https://example.com/0.jpg"] }),
+    );
   });
 
   test("a listing cannot hold unknown fields", async () => {
