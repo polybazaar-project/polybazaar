@@ -3,6 +3,7 @@
 package com.android.polybazaar.browse.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -11,12 +12,18 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.R
 import com.android.polybazaar.browse.viewmodel.BrowseListing
+import com.android.polybazaar.browse.viewmodel.BrowseUiState
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
-import com.android.polybazaar.listing.model.Listing
-import com.android.polybazaar.listing.model.ListingRepository
+import java.net.UnknownHostException
+import kotlinx.coroutines.CompletableDeferred
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -184,6 +191,94 @@ class BrowseScreenTest {
     composeTestRule.onNodeWithText("Mini projector").assertIsDisplayed()
   }
 
+  @Test
+  fun firstLoad_showsTheLoadingIndicatorUntilListingsArrive() {
+    val gate = CompletableDeferred<Unit>()
+    val repository = FakeListingRepository(sampleListings).apply { this.gate = gate }
+    val viewModel = BrowseViewModel(repository)
+    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LOADING_INDICATOR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).assertDoesNotExist()
+
+    gate.complete(Unit)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LOADING_INDICATOR).assertDoesNotExist()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+  }
+
+  @Test
+  fun reload_keepsTheListingsInsteadOfTheLoadingIndicator() {
+    composeTestRule.setContent {
+      BrowseContent(
+          uiState = BrowseUiState(listings = listOf(drillCard), isLoading = true),
+          onQueryChange = {},
+          onCategorySelected = {},
+          onRetry = {},
+      )
+    }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LOADING_INDICATOR).assertDoesNotExist()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).assertIsDisplayed()
+  }
+
+  @Test
+  fun error_showsItsMessageNextToTheListingsAlreadyShown() {
+    var retries = 0
+    composeTestRule.setContent {
+      BrowseContent(
+          uiState = BrowseUiState(listings = listOf(drillCard), error = AppError.NETWORK),
+          onQueryChange = {},
+          onCategorySelected = {},
+          onRetry = { retries++ },
+      )
+    }
+
+    composeTestRule
+        .onNode(
+            hasAnyAncestor(hasTestTag(BrowseScreenTags.ERROR)) and
+                hasText(string(R.string.error_network))
+        )
+        .assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.RETRY_BUTTON).performClick()
+    assertEquals(1, retries)
+  }
+
+  @Test
+  fun retry_reloadsTheListingsAndHidesTheError() {
+    val repository =
+        FakeListingRepository(sampleListings).apply { failure = UnknownHostException("offline") }
+    val viewModel = BrowseViewModel(repository)
+    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
+    composeTestRule.onNodeWithTag(BrowseScreenTags.ERROR).assertIsDisplayed()
+
+    repository.failure = null
+    composeTestRule.onNodeWithTag(BrowseScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(2, repository.getAllListingsCalls)
+    composeTestRule.onNodeWithTag(BrowseScreenTags.ERROR).assertDoesNotExist()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+  }
+
+  @Test
+  fun listingCard_withoutDistance_showsOnlyTheCategory() {
+    composeTestRule.setContent { ListingCard(drillCard) }
+
+    composeTestRule
+        .onNode(hasAnyAncestor(hasTestTag(BrowseScreenTags.LISTING_CARD)) and hasText("Tools"))
+        .assertTextEquals("Tools")
+    composeTestRule.onNodeWithText("·", substring = true).assertDoesNotExist()
+  }
+
+  private val drillCard =
+      BrowseListing(id = "drill", title = "Bosch drill set", category = "Tools", price = "CHF 8")
+
+  private fun string(id: Int): String =
+      ApplicationProvider.getApplicationContext<android.content.Context>().getString(id)
+
   // Cards show the category too, so the click targets the chip in the category selector.
   private fun clickCategory(category: String) {
     composeTestRule
@@ -191,13 +286,5 @@ class BrowseScreenTest {
             hasText(category) and hasAnyAncestor(hasTestTag(BrowseScreenTags.CATEGORY_SELECTOR))
         )
         .performClick()
-  }
-
-  private class FakeListingRepository(private val listings: List<Listing>) : ListingRepository {
-    override suspend fun createListing(listing: Listing): Listing = listing
-
-    override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
-
-    override suspend fun getAllListings(): Result<List<Listing>> = Result.success(listings)
   }
 }
