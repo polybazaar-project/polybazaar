@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.auth.model
 
 import com.google.firebase.FirebaseNetworkException
@@ -37,8 +37,20 @@ class FirebaseAuthRepository(
     if (!isEpflEmail(email)) {
       return Result.failure(Exception("Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)"))
     }
+    if (username.isBlank()) return Result.failure(Exception("Username is required"))
+    AuthRules.usernameError(username)?.let {
+      return Result.failure(Exception(it))
+    }
+    AuthRules.emailLengthError(email)?.let {
+      return Result.failure(Exception(it))
+    }
+    AuthRules.passwordLengthError(password)?.let {
+      return Result.failure(Exception(it))
+    }
     return try {
-      require(username == username.trim().lowercase()) { "Username must be trimmed and lowercase" }
+      require(username == AuthRules.normalizeUsername(username)) {
+        "Username must be trimmed and lowercase"
+      }
       val usernameDocRef = firestore.collection("usernames").document(username)
 
       val snapshot = usernameDocRef.get().await()
