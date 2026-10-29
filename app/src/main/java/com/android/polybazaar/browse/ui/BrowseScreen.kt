@@ -20,7 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,12 +39,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.browse.viewmodel.BrowseUiState
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.ui.message
 
 object BrowseScreenTags {
   const val SCREEN = "browse_screen"
@@ -50,15 +53,19 @@ object BrowseScreenTags {
   const val HEADER = "browse_header"
   const val CATEGORY_SELECTOR = "browse_category_selector"
   const val LISTING_CARD = "browse_listing_card"
+  const val LOADING_INDICATOR = "browse_loading_indicator"
+  const val ERROR = "browse_error"
+  const val RETRY_BUTTON = "browse_retry_button"
 }
 
 @Composable
-fun BrowseScreen(viewModel: BrowseViewModel = viewModel()) {
+fun BrowseScreen(viewModel: BrowseViewModel) {
   val uiState by viewModel.uiState.collectAsState()
   BrowseContent(
       uiState = uiState,
       onQueryChange = viewModel::updateQuery,
       onCategorySelected = viewModel::selectCategory,
+      onRetry = viewModel::loadListings,
   )
 }
 
@@ -67,6 +74,7 @@ fun BrowseContent(
     uiState: BrowseUiState,
     onQueryChange: (String) -> Unit,
     onCategorySelected: (String) -> Unit,
+    onRetry: () -> Unit,
 ) {
   Column(
       modifier =
@@ -97,6 +105,19 @@ fun BrowseContent(
       )
       // The location will be done later using the map etc, for now I would keep it this way.
     }
+    uiState.error?.let { BrowseError(error = it, onRetry = onRetry) }
+    // Once listings are shown, a reload keeps them on screen instead of a spinner.
+    if (uiState.isLoading && uiState.listings.isEmpty()) {
+      Box(
+          modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+          contentAlignment = Alignment.Center,
+      ) {
+        CircularProgressIndicator(
+            color = AuthColors.Accent,
+            modifier = Modifier.size(32.dp).testTag(BrowseScreenTags.LOADING_INDICATOR),
+        )
+      }
+    }
     LazyColumn(
         modifier = Modifier.weight(1f),
         contentPadding =
@@ -108,6 +129,32 @@ fun BrowseContent(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
       items(uiState.filteredListings, key = { it.id }) { ListingCard(it) }
+    }
+  }
+}
+
+@Composable
+internal fun BrowseError(error: AppError, onRetry: () -> Unit) {
+  Row(
+      modifier =
+          Modifier.fillMaxWidth()
+              .padding(horizontal = 24.dp, vertical = 4.dp)
+              .testTag(BrowseScreenTags.ERROR),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+        text = error.message(),
+        color = AuthColors.Danger,
+        fontSize = 14.sp,
+        modifier = Modifier.weight(1f),
+    )
+    TextButton(onClick = onRetry, modifier = Modifier.testTag(BrowseScreenTags.RETRY_BUTTON)) {
+      Text(
+          text = stringResource(R.string.browse_retry),
+          color = AuthColors.Accent,
+          fontWeight = FontWeight.Bold,
+      )
     }
   }
 }
@@ -240,7 +287,7 @@ internal fun ListingCard(listing: BrowseListing) {
           overflow = TextOverflow.Ellipsis,
       )
       Text(
-          text = "${listing.category} · ${listing.distance}",
+          text = listOfNotNull(listing.category, listing.distance).joinToString(" · "),
           color = AuthColors.TextSecondary,
           fontSize = 15.sp,
           maxLines = 1,
@@ -271,18 +318,23 @@ internal fun BrowseScreenPreview() {
           BrowseUiState(
               listings =
                   listOf(
-                      BrowseListing("drill", "Bosch drill set", "Tools", "350 m away", "CHF 8"),
                       BrowseListing(
-                          "projector",
-                          "Mini projector",
-                          "Electronics",
-                          "600 m away",
-                          "CHF 12",
+                          id = "drill",
+                          title = "Bosch drill set",
+                          category = "Tools",
+                          price = "CHF 8",
+                      ),
+                      BrowseListing(
+                          id = "projector",
+                          title = "Mini projector",
+                          category = "Electronics",
+                          price = "CHF 12",
                       ),
                   ),
               categories = listOf("Tools", "Electronics"),
           ),
       onQueryChange = {},
       onCategorySelected = {},
+      onRetry = {},
   )
 }

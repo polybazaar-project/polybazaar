@@ -1,20 +1,70 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.browse.viewmodel
 
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ServiceListing
+import java.net.UnknownHostException
+import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class BrowseViewModelTest {
 
+  // The cards the repository's listings below map to.
   private val listings =
       listOf(
-          BrowseListing("drill", "Bosch drill set", "Tools", "350 m away", "CHF 8"),
-          BrowseListing("projector", "Mini projector", "Electronics", "600 m away", "CHF 12"),
+          BrowseListing(
+              id = "drill",
+              title = "Bosch drill set",
+              category = "Tools",
+              price = "CHF 8",
+          ),
+          BrowseListing(
+              id = "projector",
+              title = "Mini projector",
+              category = "Electronics",
+              price = "CHF 12",
+          ),
       )
+
+  private val repository =
+      FakeListingRepository(
+          listOf(
+              ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"),
+              ItemListing("Electronics", 12.0, "Mini projector", "", listingId = "projector"),
+          )
+      )
+
+  @Before
+  fun setUp() {
+    // init loads the listings on Dispatchers.Main; run it before each test's assertions.
+    Dispatchers.setMain(UnconfinedTestDispatcher())
+  }
+
+  @After
+  fun tearDown() {
+    Dispatchers.resetMain()
+  }
 
   @Test
   fun updateQuery_filtersListings() {
-    val viewModel = BrowseViewModel(BrowseUiState(listings = listings))
+    val viewModel = BrowseViewModel(repository)
 
     viewModel.updateQuery("projector")
 
@@ -23,7 +73,7 @@ class BrowseViewModelTest {
 
   @Test
   fun selectCategory_filtersListings() {
-    val viewModel = BrowseViewModel(BrowseUiState(listings = listings))
+    val viewModel = BrowseViewModel(repository)
 
     viewModel.selectCategory("Tools")
 
@@ -32,7 +82,7 @@ class BrowseViewModelTest {
 
   @Test
   fun clearingCategory_resetsFilter() {
-    val viewModel = BrowseViewModel(BrowseUiState(listings = listings))
+    val viewModel = BrowseViewModel(repository)
 
     viewModel.selectCategory("Tools")
     viewModel.selectCategory("Tools")
@@ -42,7 +92,7 @@ class BrowseViewModelTest {
 
   @Test
   fun queryAndCategory_filterListingsTogether() {
-    val viewModel = BrowseViewModel(BrowseUiState(listings = listings))
+    val viewModel = BrowseViewModel(repository)
 
     viewModel.updateQuery("projector")
     viewModel.selectCategory("Tools")
@@ -52,11 +102,208 @@ class BrowseViewModelTest {
 
   @Test
   fun clearingQuery_restoresListings() {
-    val viewModel = BrowseViewModel(BrowseUiState(listings = listings))
+    val viewModel = BrowseViewModel(repository)
 
     viewModel.updateQuery("projector")
     viewModel.updateQuery("")
 
     assertEquals(listings, viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun toBrowseListing_mapsItemsAndServicesTheSameWay() {
+    val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits", 120.0, listingId = "drill")
+    val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One hour", listingId = "math")
+
+    assertEquals(
+        BrowseListing(id = "drill", title = "Bosch drill set", category = "Tools", price = "CHF 8"),
+        item.toBrowseListing(),
+    )
+    assertEquals(
+        BrowseListing(
+            id = "math",
+            title = "Math tutoring",
+            category = "Tutoring",
+            price = "CHF 25",
+        ),
+        service.toBrowseListing(),
+    )
+  }
+
+  @Test
+  fun toBrowseListing_withoutListingId_returnsNull() {
+    assertNull(ServiceListing("Tutoring", 25.0, "Math tutoring", "One hour").toBrowseListing())
+  }
+
+  @Test
+  fun toBrowseListing_keepsWholePricesShortAndShowsCentsOtherwise() {
+    val prices =
+        mapOf(
+            0.0 to "CHF 0",
+            8.0 to "CHF 8",
+            100.0 to "CHF 100",
+            8.5 to "CHF 8.50",
+            12.25 to "CHF 12.25",
+            10.1 to "CHF 10.10",
+            // Rounded to the cent first, so it becomes a whole price.
+            8.999 to "CHF 9",
+        )
+
+    prices.forEach { (price, expected) ->
+      assertEquals(expected, priced(price).toBrowseListing()?.price)
+    }
+  }
+
+  @Test
+  fun toBrowseListing_usesADecimalPointWhateverTheDeviceLanguage() {
+    val default = Locale.getDefault()
+    // German formats 8.5 as "8,50".
+    Locale.setDefault(Locale.GERMANY)
+    try {
+      assertEquals("CHF 8.50", priced(8.5).toBrowseListing()?.price)
+    } finally {
+      Locale.setDefault(default)
+    }
+  }
+
+  @Test
+  fun toBrowseListing_leavesDistanceOut() {
+    assertNull(priced(8.0).toBrowseListing()?.distance)
+  }
+
+  private fun priced(price: Double) = ItemListing("Tools", price, "Drill", "", listingId = "drill")
+
+  @Test
+  fun init_loadsTheRepositoryListings() {
+    val viewModel = BrowseViewModel(repository)
+
+    val state = viewModel.uiState.value
+    assertEquals(listings, state.listings)
+    assertEquals(listOf("Electronics", "Tools"), state.categories)
+    assertFalse(state.isLoading)
+    assertNull(state.error)
+    assertEquals(1, repository.getAllListingsCalls)
+  }
+
+  @Test
+  fun loadListings_dropsListingsWithoutAnId() {
+    repository.allListings += ItemListing("Books", 3.0, "Unsaved book", "")
+
+    val viewModel = BrowseViewModel(repository)
+
+    assertEquals(listings, viewModel.uiState.value.listings)
+    assertEquals(listOf("Electronics", "Tools"), viewModel.uiState.value.categories)
+  }
+
+  @Test
+  fun loadListings_listsEachCategoryOnceInAlphabeticalOrder() {
+    repository.allListings =
+        listOf(
+            ItemListing("Tools", 8.0, "Drill", "", listingId = "drill"),
+            ServiceListing("Tutoring", 25.0, "Math", "", listingId = "math"),
+            ItemListing("Books", 3.0, "Novel", "", listingId = "novel"),
+            ItemListing("Tools", 5.0, "Hammer", "", listingId = "hammer"),
+        )
+
+    val viewModel = BrowseViewModel(repository)
+
+    assertEquals(listOf("Books", "Tools", "Tutoring"), viewModel.uiState.value.categories)
+  }
+
+  @Test
+  fun loadListings_isLoadingOnlyWhileTheRepositoryAnswers() {
+    val gate = CompletableDeferred<Unit>()
+    repository.gate = gate
+
+    val viewModel = BrowseViewModel(repository)
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertEquals(emptyList<BrowseListing>(), viewModel.uiState.value.listings)
+
+    gate.complete(Unit)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertEquals(listings, viewModel.uiState.value.listings)
+  }
+
+  @Test
+  fun loadListings_onFailure_setsTheErrorAndStopsLoading() {
+    val gate = CompletableDeferred<Unit>()
+    repository.gate = gate
+    repository.failure = UnknownHostException("offline")
+
+    val viewModel = BrowseViewModel(repository)
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    gate.complete(Unit)
+    val state = viewModel.uiState.value
+    assertFalse(state.isLoading)
+    assertEquals(AppError.NETWORK, state.error)
+    assertEquals(emptyList<BrowseListing>(), state.listings)
+  }
+
+  @Test
+  fun loadListings_onFailure_keepsTheListingsAlreadyShown() {
+    val viewModel = BrowseViewModel(repository)
+    repository.failure = UnknownHostException("offline")
+
+    viewModel.loadListings()
+
+    val state = viewModel.uiState.value
+    assertEquals(AppError.NETWORK, state.error)
+    assertEquals(listings, state.listings)
+    assertEquals(listOf("Electronics", "Tools"), state.categories)
+  }
+
+  @Test
+  fun loadListings_retryAfterFailure_clearsTheErrorAndShowsTheListings() {
+    repository.failure = UnknownHostException("offline")
+    val viewModel = BrowseViewModel(repository)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    val gate = CompletableDeferred<Unit>()
+    repository.gate = gate
+    repository.failure = null
+    viewModel.loadListings()
+    // The old error goes away as soon as the retry starts.
+    assertNull(viewModel.uiState.value.error)
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    gate.complete(Unit)
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listings, viewModel.uiState.value.listings)
+    assertEquals(2, repository.getAllListingsCalls)
+  }
+
+  @Test
+  fun loadListings_whenCancelled_reportsNoErrorAndStopsLoading() {
+    repository.failure = CancellationException("left the screen")
+
+    val viewModel = BrowseViewModel(repository)
+
+    assertNull(viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun loadListings_clearsASelectedCategoryThatNoLongerExists() {
+    val viewModel = BrowseViewModel(repository)
+    viewModel.selectCategory("Electronics")
+    repository.allListings = repository.allListings.filter { it.category == "Tools" }
+
+    viewModel.loadListings()
+
+    assertNull(viewModel.uiState.value.selectedCategory)
+    assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun loadListings_keepsASelectedCategoryThatStillExists() {
+    val viewModel = BrowseViewModel(repository)
+    viewModel.selectCategory("Tools")
+    viewModel.updateQuery("drill")
+
+    viewModel.loadListings()
+
+    assertEquals("Tools", viewModel.uiState.value.selectedCategory)
+    assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
   }
 }

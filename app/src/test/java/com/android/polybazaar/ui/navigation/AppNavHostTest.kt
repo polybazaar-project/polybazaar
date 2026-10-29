@@ -22,6 +22,9 @@ import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.browse.ui.BrowseScreenTags
+import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -51,6 +54,8 @@ class AppNavHostTest {
   private val unverifiedUser = user.copy(isEmailVerified = false)
 
   private val profileRepository = FakeProfileRepository(user)
+
+  private val listingRepository = FakeListingRepository()
   private lateinit var navController: NavHostController
 
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
@@ -61,6 +66,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }
@@ -95,6 +101,20 @@ class AppNavHostTest {
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun browse_showsTheListingsFromTheListingRepository() {
+    listingRepository.allListings =
+        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+
+    composeTestRule.runOnIdle { navController.navigate(Routes.BROWSE) }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    assertEquals(1, listingRepository.getAllListingsCalls)
   }
 
   @Test
@@ -154,6 +174,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }
@@ -347,6 +368,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }
@@ -418,6 +440,7 @@ class AppNavHostTest {
           authViewModel = viewModel,
           authRepository = repository,
           profileRepository = profileRepository,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }

@@ -13,4 +13,12 @@ interface ListingRepository {
    * `toAppError()`.
    */
   suspend fun getMyListings(): Result<List<Listing>>
+
+  /**
+   * Returns every listing on the marketplace, for the Browse screen.
+   *
+   * Fails when Firestore cannot answer or the security rules deny the read; the caller maps the
+   * failure with `toAppError()`.
+   */
+  suspend fun getAllListings(): Result<List<Listing>>
 }

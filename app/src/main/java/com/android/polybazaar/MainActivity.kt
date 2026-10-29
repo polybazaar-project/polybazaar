@@ -15,6 +15,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.listing.model.FirebaseListingRepository
+import com.android.polybazaar.listing.model.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
 import com.android.polybazaar.ui.theme.SampleAppTheme
@@ -35,6 +37,12 @@ class MainActivity : ComponentActivity() {
               authViewModel = authViewModel,
               authRepository = authRepository,
               profileRepository = remember { FirebaseProfileRepository() },
+              listingRepository =
+                  remember {
+                    FirebaseListingRepository(
+                        JpegPhotoCompressor(applicationContext.contentResolver)
+                    )
+                  },
           )
         }
       }

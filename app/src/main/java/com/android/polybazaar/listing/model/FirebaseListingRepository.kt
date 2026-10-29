@@ -82,6 +82,18 @@ class FirebaseListingRepository(
     }
   }
 
+  override suspend fun getAllListings(): Result<List<Listing>> {
+    return try {
+      // No auth check here: the security rules reject unverified readers with PERMISSION_DENIED.
+      // Offline, get() answers from the local cache, so listings already seen stay visible.
+      val snapshot = firestore.collection(LISTINGS_COLLECTION).get().await()
+      Result.success(snapshot.documents.mapNotNull { it.toListing() })
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(e)
+    }
+  }
+
   private fun listingImage(ownerUid: String, listingId: String, index: Int): StorageReference =
       // storage.reference: Returns a reference to the root of the Firestore Storage
       // .child: Returns a reference to a location beneath that root

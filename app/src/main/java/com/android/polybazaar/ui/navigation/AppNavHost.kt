@@ -37,6 +37,8 @@ import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
+import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -60,12 +62,14 @@ object AppNavHostTags {
  *
  * @param authRepository used by the screens that need their own ViewModel, such as forgot password.
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
+ * @param listingRepository gives the Browse screen the listings to show.
  */
 @Composable
 fun AppNavHost(
     authViewModel: AuthViewModel,
     authRepository: AuthRepository,
     profileRepository: ProfileRepository,
+    listingRepository: ListingRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -170,7 +174,13 @@ fun AppNavHost(
             onUseAnotherAccount = authViewModel::signOut,
         )
       }
-      composable(Routes.BROWSE) { BrowseScreen() }
+      composable(Routes.BROWSE) {
+        val browseViewModel: BrowseViewModel =
+            viewModel(
+                factory = viewModelFactory { initializer { BrowseViewModel(listingRepository) } }
+            )
+        BrowseScreen(viewModel = browseViewModel)
+      }
       composable(Routes.PROFILE) {
         // Renders nothing for the frame between sign-out and the redirect to sign-in.
         val uid = uiState.user?.uid ?: return@composable

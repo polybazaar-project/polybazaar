@@ -19,6 +19,7 @@ import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -41,6 +42,9 @@ class EndToEndFlowTest {
   @get:Rule val composeTestRule = createComposeRule()
 
   private val backend = InMemoryBackend()
+
+  // No test here opens Browse; the navigation graph only needs a repository to build.
+  private val listingRepository = FakeListingRepository()
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
 
@@ -52,6 +56,7 @@ class EndToEndFlowTest {
           authViewModel = authViewModel,
           authRepository = backend,
           profileRepository = backend,
+          listingRepository = listingRepository,
           navController = navController,
       )
     }

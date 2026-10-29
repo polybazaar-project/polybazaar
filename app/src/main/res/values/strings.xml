@@ -10,6 +10,7 @@
     <string name="browse_nearby_title">Near you</string>
     <string name="browse_nearby_location">Zürich · within 2 km</string>
     <string name="browse_price_per_day">/ day</string>
+    <string name="browse_retry">Retry</string>
 
     <!-- Forgot password screen -->
     <string name="forgot_password_title">Forgot password</string>

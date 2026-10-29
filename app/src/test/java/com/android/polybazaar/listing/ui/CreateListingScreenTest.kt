@@ -1130,5 +1130,7 @@ class CreateListingScreenTest {
     }
 
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
+
+    override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
   }
 }

@@ -472,6 +472,148 @@ class FirebaseListingRepositoryTest {
     assertTrue(thrown is CancellationException)
   }
 
+  @Test
+  fun getAllListings_readsTheWholeCollectionAndRebuildsItemsAndServices() = runTest {
+    givenAllListings(
+        listingDocument(
+            "item-1",
+            mapOf(
+                "ownerUid" to "someone-else",
+                "type" to "ITEM",
+                "category" to "Tools",
+                "price" to 8.5,
+                "title" to "Bosch drill set",
+                "description" to "With bits",
+                "imageUrls" to listOf("https://example.com/drill.jpg"),
+                "refundValue" to 120.0,
+            ),
+        ),
+        listingDocument(
+            "service-1",
+            mapOf(
+                "ownerUid" to uid,
+                "type" to "SERVICE",
+                "category" to "Tutoring",
+                "price" to 25.0,
+                "title" to "Math tutoring",
+                "description" to "One-hour session",
+            ),
+        ),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(
+        listOf(
+            ItemListing(
+                category = "Tools",
+                price = 8.5,
+                title = "Bosch drill set",
+                description = "With bits",
+                refundValue = 120.0,
+                images = listOf(Uri.parse("https://example.com/drill.jpg")),
+                listingId = "item-1",
+            ),
+            ServiceListing(
+                category = "Tutoring",
+                price = 25.0,
+                title = "Math tutoring",
+                description = "One-hour session",
+                listingId = "service-1",
+            ),
+        ),
+        result,
+    )
+    // Every user's listings, not only the signed-in user's.
+    verify(listings, never()).whereEqualTo(any<String>(), any())
+  }
+
+  @Test
+  fun getAllListings_readsAWholeNumberPriceStoredAsLong() = runTest {
+    // Firestore returns whole numbers as Long, for the price and the refund value.
+    givenAllListings(
+        listingDocument(
+            "item-1",
+            mapOf(
+                "type" to "ITEM",
+                "category" to "Tools",
+                "price" to 8L,
+                "title" to "Bosch drill set",
+                "description" to "With bits",
+                "refundValue" to 120L,
+            ),
+        )
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(
+        listOf(
+            ItemListing("Tools", 8.0, "Bosch drill set", "With bits", 120.0, listingId = "item-1")
+        ),
+        result,
+    )
+  }
+
+  @Test
+  fun getAllListings_withNoListings_returnsAnEmptyList() = runTest {
+    givenAllListings()
+
+    assertEquals(emptyList<Listing>(), repository.getAllListings().getOrThrow())
+  }
+
+  @Test
+  fun getAllListings_skipsMalformedDocumentsAndKeepsTheOthers() = runTest {
+    val valid =
+        mapOf(
+            "type" to "SERVICE",
+            "category" to "Tutoring",
+            "price" to 25.0,
+            "title" to "Math tutoring",
+            "description" to "One-hour session",
+        )
+    givenAllListings(
+        listingDocument("missing-category", valid - "category"),
+        listingDocument("missing-description", valid - "description"),
+        listingDocument("missing-price", valid - "price"),
+        listingDocument("unknown-type", valid + ("type" to "RENTAL")),
+        listingDocument("item-without-refund", valid + ("type" to "ITEM")),
+        listingDocument("valid", valid),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(listOf("valid"), result.map { it.listingId })
+  }
+
+  @Test
+  fun getAllListings_whenTheRulesRefuseTheRead_returnsTheFailure() = runTest {
+    // What the rules answer to a reader whose email is not verified.
+    val denied =
+        FirebaseFirestoreException("denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    whenever(listings.get()).thenReturn(Tasks.forException(denied))
+
+    val failure = repository.getAllListings().exceptionOrNull()
+
+    assertSame(denied, failure)
+    assertEquals(AppError.PERMISSION_DENIED, failure?.toAppError())
+  }
+
+  @Test
+  fun getAllListings_whenCancelled_rethrowsInsteadOfReturningAFailure() = runTest {
+    whenever(listings.get()).thenReturn(Tasks.forCanceled())
+
+    val thrown = runCatching { repository.getAllListings() }.exceptionOrNull()
+
+    assertTrue(thrown is CancellationException)
+  }
+
+  private fun givenAllListings(vararg documents: DocumentSnapshot) {
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(documents.toList())
+    whenever(listings.get()).thenReturn(Tasks.forResult(snapshot))
+  }
+
   private fun givenMyListings(vararg documents: DocumentSnapshot) {
     val snapshot = mock<QuerySnapshot>()
     whenever(snapshot.documents).thenReturn(documents.toList())
