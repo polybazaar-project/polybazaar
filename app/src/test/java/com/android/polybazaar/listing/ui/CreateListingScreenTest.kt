@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.listing.ui
 
 import android.Manifest
@@ -24,6 +24,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -41,6 +42,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.ListingRules
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
@@ -203,9 +205,127 @@ class CreateListingScreenTest {
   }
 
   @Test
+  fun priceField_showsRangeErrorAboveMaxAndBlocksSubmit() {
+    setContent()
+    fillForm("Drill", "Works well", "10000.01", "Tools")
+    node(CreateListingScreenTags.TITLE_FIELD).performClick()
+
+    node(CreateListingScreenTags.PRICE_ERROR)
+        .assertIsDisplayed()
+        .assertTextEquals("Enter a price between CHF 0 and CHF 10,000")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().assertIsNotEnabled()
+  }
+
+  @Test
+  fun priceField_acceptsMaxPrice() {
+    var created: Listing? = null
+    setContent(onCreateListing = { created = it })
+    fillForm("Drill", "Works well", "10000", "Tools")
+    node(CreateListingScreenTags.TITLE_FIELD).performClick()
+
+    node(CreateListingScreenTags.PRICE_ERROR).assertDoesNotExist()
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    assertEquals(10_000.0, created?.price)
+  }
+
+  @Test
+  fun priceField_capsIntegerPartAtFiveDigits() {
+    setContent()
+
+    node(CreateListingScreenTags.PRICE_FIELD).performTextInput("12345")
+    node(CreateListingScreenTags.PRICE_FIELD).performTextInput("6")
+
+    node(CreateListingScreenTags.PRICE_FIELD).assertTextContains("12345")
+    node(CreateListingScreenTags.PRICE_FIELD)
+        .assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("12345"))
+        )
+  }
+
+  @Test
+  fun refundField_showsRangeErrorAboveMaxAndBlocksSubmit() {
+    setContent()
+    fillForm("Drill", "Works well", "5", "Tools")
+
+    node(CreateListingScreenTags.REFUND_FIELD).performScrollTo().performTextInput("100000.01")
+    node(CreateListingScreenTags.TITLE_FIELD).performScrollTo().performClick()
+
+    node(CreateListingScreenTags.REFUND_ERROR)
+        .performScrollTo()
+        .assertTextEquals("Enter a refund value between CHF 0 and CHF 100,000")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().assertIsNotEnabled()
+  }
+
+  @Test
+  fun refundField_acceptsSixDigitsUpToMax() {
+    var created: Listing? = null
+    setContent(onCreateListing = { created = it })
+    fillForm("Drill", "Works well", "5", "Tools")
+
+    node(CreateListingScreenTags.REFUND_FIELD).performScrollTo().performTextInput("100000")
+    node(CreateListingScreenTags.REFUND_FIELD).performTextInput("0")
+    node(CreateListingScreenTags.REFUND_FIELD)
+        .assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.EditableText,
+                AnnotatedString("100000"),
+            )
+        )
+    node(CreateListingScreenTags.TITLE_FIELD).performScrollTo().performClick()
+    node(CreateListingScreenTags.REFUND_ERROR).assertDoesNotExist()
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    assertEquals(100_000.0, (created as ItemListing).refundValue, 0.0)
+  }
+
+  @Test
+  fun titleAndDescription_showCounters() {
+    setContent()
+    node(CreateListingScreenTags.TITLE_COUNTER).assertTextEquals("0/80")
+    node(CreateListingScreenTags.DESCRIPTION_COUNTER).assertTextEquals("0/1000")
+
+    node(CreateListingScreenTags.TITLE_FIELD).performTextInput("Drill")
+    node(CreateListingScreenTags.DESCRIPTION_FIELD).performTextInput("a".repeat(42))
+
+    node(CreateListingScreenTags.TITLE_COUNTER).assertTextEquals("5/80")
+    node(CreateListingScreenTags.DESCRIPTION_COUNTER).assertTextEquals("42/1000")
+  }
+
+  @Test
+  fun titleAndDescription_dropLeadingSpaces() {
+    setContent()
+
+    node(CreateListingScreenTags.TITLE_FIELD).performTextInput("   Drill")
+    node(CreateListingScreenTags.DESCRIPTION_FIELD).performTextInput("  Works well")
+
+    node(CreateListingScreenTags.TITLE_COUNTER).assertTextEquals("5/80")
+    node(CreateListingScreenTags.DESCRIPTION_COUNTER).assertTextEquals("10/1000")
+  }
+
+  @Test
+  fun titleAndDescription_truncateOverlongPaste() {
+    setContent()
+
+    node(CreateListingScreenTags.TITLE_FIELD).performTextInput("t".repeat(100))
+    node(CreateListingScreenTags.DESCRIPTION_FIELD).performTextInput("d".repeat(1200))
+
+    node(CreateListingScreenTags.TITLE_COUNTER).assertTextEquals("80/80")
+    node(CreateListingScreenTags.DESCRIPTION_COUNTER).assertTextEquals("1000/1000")
+    node(CreateListingScreenTags.TITLE_FIELD)
+        .assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.EditableText,
+                AnnotatedString("t".repeat(80)),
+            )
+        )
+  }
+
+  @Test
   fun isValidPriceInput_allowsOneSeparatorAndTwoDecimals() {
     listOf("", "5", "12.5", "12,50", "0.", ".5").forEach { assertTrue(it, isValidPriceInput(it)) }
-    listOf("1.2.3", "1,000.50", "1.234", "abc", "-5", "5 ").forEach {
+    listOf("10000.00", "99999").forEach { assertTrue(it, isValidPriceInput(it)) }
+    assertTrue(isValidRefundInput("100000.00"))
+    assertFalse(isValidRefundInput("1000000"))
+    listOf("1.2.3", "1,000.50", "1.234", "abc", "-5", "5 ", "100000").forEach {
       assertFalse(it, isValidPriceInput(it))
     }
   }
@@ -216,6 +336,10 @@ class CreateListingScreenTest {
     assertFalse(showAmountError(touched = false, input = "0"))
     assertFalse(showAmountError(touched = true, input = ""))
     assertFalse(showAmountError(touched = true, input = "12,50"))
+    assertFalse(showAmountError(touched = true, input = "10000"))
+    assertTrue(showAmountError(touched = true, input = "10000.01"))
+    assertFalse(showAmountError(true, "100000", ListingRules.MAX_REFUND_VALUE))
+    assertTrue(showAmountError(true, "100000.01", ListingRules.MAX_REFUND_VALUE))
   }
 
   @Test
@@ -495,6 +619,10 @@ class CreateListingScreenTest {
     assertNull(buildListing(ListingType.ITEM, "t", "d", "0", "Tools", emptyList()))
     assertNull(buildListing(ListingType.ITEM, "t", "d", "1.2.3", "Tools", emptyList()))
     assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null, emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "10000.01", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000.01"))
+    assertNotNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000"))
+    assertNull(buildListing(ListingType.SERVICE, "t", "d", "10000.01", "Tutoring", emptyList()))
   }
 
   // Photo picking: these tests use a fake system picker to reach the code that handles its result,
@@ -1000,5 +1128,7 @@ class CreateListingScreenTest {
         is ServiceListing -> listing.copy(listingId = "listing-1", images = uploaded)
       }
     }
+
+    override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
   }
 }

@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.listing.ui
 
 import android.content.ContentResolver
@@ -66,12 +66,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.ui.AuthCard
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingRules
+import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
+import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.categoriesFor
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
@@ -97,7 +101,9 @@ object CreateListingScreenTags {
   fun removePhoto(index: Int) = "create_listing_remove_photo_$index"
 
   const val TITLE_FIELD = "create_listing_title_field"
+  const val TITLE_COUNTER = "create_listing_title_counter"
   const val DESCRIPTION_FIELD = "create_listing_description_field"
+  const val DESCRIPTION_COUNTER = "create_listing_description_counter"
   const val PRICE_LABEL = "create_listing_price_label"
   const val PRICE_FIELD = "create_listing_price_field"
   const val PRICE_ERROR = "create_listing_price_error"
@@ -110,14 +116,22 @@ object CreateListingScreenTags {
   fun categoryOption(category: String) = "create_listing_category_option_$category"
 }
 
-/** Digits with at most one decimal separator and two decimals: what the price field accepts. */
-private val PRICE_INPUT = Regex("""\d*([.,]\d{0,2})?""")
+/**
+ * Up to five integer digits (10000.00 is the largest valid amount), at most one decimal separator
+ * and two decimals: what the price field accepts.
+ */
+private val PRICE_INPUT = Regex("""\d{0,5}([.,]\d{0,2})?""")
+
+/** Same as [PRICE_INPUT] with a sixth integer digit, since 100000.00 is the largest refund. */
+private val REFUND_INPUT = Regex("""\d{0,6}([.,]\d{0,2})?""")
 
 internal fun isValidPriceInput(input: String): Boolean = PRICE_INPUT.matches(input)
 
+internal fun isValidRefundInput(input: String): Boolean = REFUND_INPUT.matches(input)
+
 /** Parses a user-typed price, accepting either "." or "," as decimal separator. */
-internal fun parsePrice(input: String): Double? =
-    input.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 }
+internal fun parsePrice(input: String, max: Double = ListingRules.MAX_PRICE): Double? =
+    input.trim().replace(',', '.').toDoubleOrNull()?.takeIf { ListingRules.isValidAmount(it, max) }
 
 /** Builds the listing described by the form, or returns null while the form is incomplete. */
 internal fun buildListing(
@@ -140,7 +154,8 @@ internal fun buildListing(
             description = description.trim(),
             // Left blank, the refund value falls back to the price, like in ItemListing.
             refundValue =
-                if (refundValue.isBlank()) parsedPrice else parsePrice(refundValue) ?: return null,
+                if (refundValue.isBlank()) parsedPrice
+                else parsePrice(refundValue, ListingRules.MAX_REFUND_VALUE) ?: return null,
             images = photos,
         )
     ListingType.SERVICE ->
@@ -163,8 +178,11 @@ internal fun withTakenPhoto(photos: List<Uri>, photo: Uri, retakeIndex: Int?): L
     }
 
 /** Whether to flag [input] as an invalid amount: only once the user has left a non-empty field. */
-internal fun showAmountError(touched: Boolean, input: String): Boolean =
-    touched && input.isNotEmpty() && parsePrice(input) == null
+internal fun showAmountError(
+    touched: Boolean,
+    input: String,
+    max: Double = ListingRules.MAX_PRICE,
+): Boolean = touched && input.isNotEmpty() && parsePrice(input, max) == null
 
 /** Form texts that differ between items and services. */
 private data class ListingFormTexts(
@@ -354,18 +372,26 @@ fun CreateListingContent(
           // The repository is still reading these photos, so none may be removed or replaced.
           enabled = !uiState.isCreating,
       )
-      FormField(label = "Title") {
+      FormField(
+          label = "Title",
+          counter = "${title.length}/$MAX_TITLE_LENGTH",
+          counterTag = CreateListingScreenTags.TITLE_COUNTER,
+      ) {
         FormTextField(
             value = title,
-            onValueChange = { title = it },
+            onValueChange = { title = AuthRules.limitInput(it, MAX_TITLE_LENGTH) },
             placeholder = texts.titlePlaceholder,
             tag = CreateListingScreenTags.TITLE_FIELD,
         )
       }
-      FormField(label = "Description") {
+      FormField(
+          label = "Description",
+          counter = "${description.length}/$MAX_DESCRIPTION_LENGTH",
+          counterTag = CreateListingScreenTags.DESCRIPTION_COUNTER,
+      ) {
         FormTextField(
             value = description,
-            onValueChange = { description = it },
+            onValueChange = { description = AuthRules.limitInput(it, MAX_DESCRIPTION_LENGTH) },
             placeholder = texts.descriptionPlaceholder,
             tag = CreateListingScreenTags.DESCRIPTION_FIELD,
             singleLine = false,
@@ -397,13 +423,16 @@ fun CreateListingContent(
         }
       }
       if (showAmountError(priceTouched, price)) {
-        FieldError(text = "Enter a price above CHF 0", tag = CreateListingScreenTags.PRICE_ERROR)
+        FieldError(
+            text = ListingRules.PRICE_RANGE_MESSAGE,
+            tag = CreateListingScreenTags.PRICE_ERROR,
+        )
       }
       if (isItem) {
         RefundValueField(
             value = refundValue,
             onValueChange = { refundValue = it },
-            showError = showAmountError(refundTouched, refundValue),
+            showError = showAmountError(refundTouched, refundValue, ListingRules.MAX_REFUND_VALUE),
             onFocusLost = { refundTouched = true },
         )
       }
@@ -450,7 +479,7 @@ private fun RefundValueField(
   FormField(label = "Refund value") {
     FormTextField(
         value = value,
-        onValueChange = { input -> if (isValidPriceInput(input)) onValueChange(input) },
+        onValueChange = { input -> if (isValidRefundInput(input)) onValueChange(input) },
         placeholder = "Same as the price if left empty",
         tag = CreateListingScreenTags.REFUND_FIELD,
         keyboardType = KeyboardType.Decimal,
@@ -460,7 +489,7 @@ private fun RefundValueField(
   }
   if (showError) {
     FieldError(
-        text = "Enter a refund value above CHF 0",
+        text = ListingRules.REFUND_RANGE_MESSAGE,
         tag = CreateListingScreenTags.REFUND_ERROR,
     )
   }
@@ -806,13 +835,25 @@ private fun FormField(
     label: String,
     modifier: Modifier = Modifier,
     labelTag: String? = null,
+    counter: String? = null,
+    counterTag: String? = null,
     content: @Composable () -> Unit,
 ) {
   Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    FieldLabel(
-        text = label,
-        modifier = if (labelTag != null) Modifier.testTag(labelTag) else Modifier,
-    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      FieldLabel(
+          text = label,
+          modifier = (if (labelTag != null) Modifier.testTag(labelTag) else Modifier).weight(1f),
+      )
+      counter?.let {
+        Text(
+            text = it,
+            color = AuthColors.TextSecondary,
+            fontSize = 11.sp,
+            modifier = if (counterTag != null) Modifier.testTag(counterTag) else Modifier,
+        )
+      }
+    }
     content()
   }
 }

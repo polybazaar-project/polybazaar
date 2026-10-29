@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import com.android.polybazaar.auth.ui.ForgotPasswordScreen
 import com.android.polybazaar.auth.ui.SignInScreen
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
+import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -46,7 +48,7 @@ const val SETTINGS_UNAVAILABLE_MESSAGE = "Settings are not available yet"
 
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
- * checked, then routes to the profile for a signed-in user and to sign-in otherwise.
+ * checked, then routes to profile for a signed-in user and to sign-in otherwise.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
@@ -132,6 +134,7 @@ fun AppNavHost(
             onBack = { navController.popBackStack() },
         )
       }
+      composable(Routes.BROWSE) { BrowseScreen() }
       composable(Routes.PROFILE) {
         // Renders nothing for the frame between sign-out and the redirect to sign-in.
         val uid = uiState.user?.uid ?: return@composable
@@ -192,7 +195,7 @@ fun AppNavHost(
   }
 }
 
-private val signedInRoutes = setOf(Routes.PROFILE, Routes.EDIT_PROFILE)
+private val signedInRoutes = setOf(Routes.BROWSE, Routes.PROFILE, Routes.EDIT_PROFILE)
 
 private fun NavHostController.navigateToProfileFromAuth() {
   navigate(Routes.PROFILE) {

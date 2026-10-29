@@ -1,13 +1,16 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -21,6 +24,7 @@ class FirebaseListingRepository(
 
   override suspend fun createListing(listing: Listing): Listing {
     val ownerUid = auth.currentUser?.uid ?: throw IllegalStateException("No authenticated user")
+    ListingRules.errorFor(listing)?.let { throw IllegalArgumentException(it) }
     // Creates a reference to a new Firestore document.
     // Represents where we want to store the listing.
     val document = firestore.collection(LISTINGS_COLLECTION).document()
@@ -59,6 +63,25 @@ class FirebaseListingRepository(
     }
   }
 
+  override suspend fun getMyListings(): Result<List<Listing>> {
+    return try {
+      // A Firestore UNAUTHENTICATED error, so toAppError() reports it like an expired session.
+      val ownerUid =
+          auth.currentUser?.uid
+              ?: throw FirebaseFirestoreException(
+                  "No authenticated user",
+                  FirebaseFirestoreException.Code.UNAUTHENTICATED,
+              )
+      // Offline, get() answers from the local cache, so listings already seen stay visible.
+      val snapshot =
+          firestore.collection(LISTINGS_COLLECTION).whereEqualTo("ownerUid", ownerUid).get().await()
+      Result.success(snapshot.documents.mapNotNull { it.toListing() })
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(e)
+    }
+  }
+
   private fun listingImage(ownerUid: String, listingId: String, index: Int): StorageReference =
       // storage.reference: Returns a reference to the root of the Firestore Storage
       // .child: Returns a reference to a location beneath that root
@@ -71,8 +94,8 @@ class FirebaseListingRepository(
         put("category", category)
         put("price", price)
         put("type", type.name)
-        put("title", title)
-        put("description", description)
+        put("title", title.trim())
+        put("description", description.trim())
         put("imageUrls", imageUrls)
         if (this@toFirestoreData is ItemListing) {
           put("refundValue", refundValue)
@@ -84,6 +107,33 @@ class FirebaseListingRepository(
         is ServiceListing -> copy(listingId = listingId, images = images)
         is ItemListing -> copy(listingId = listingId, images = images)
       }
+
+  /**
+   * Rebuilds a listing from its Firestore document, the reverse of [toFirestoreData].
+   *
+   * Returns null for a document that does not have the expected fields, so one malformed listing
+   * (for example written before the security rules checked them) does not hide all the others.
+   * `get() as?` is used instead of getString/getDouble, which throw on a field of the wrong type.
+   */
+  private fun DocumentSnapshot.toListing(): Listing? {
+    val category = get("category") as? String
+    val title = get("title") as? String
+    val description = get("description") as? String
+    // Firestore returns a Long for a whole number such as 8, so read any Number.
+    val price = (get("price") as? Number)?.toDouble()
+    if (category == null || title == null || description == null || price == null) return null
+    val images = (get("imageUrls") as? List<*>).orEmpty().filterIsInstance<String>().map(Uri::parse)
+
+    return when (get("type")) {
+      ListingType.SERVICE.name ->
+          ServiceListing(category, price, title, description, images = images, listingId = id)
+      ListingType.ITEM.name -> {
+        val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
+        ItemListing(category, price, title, description, refundValue, images, listingId = id)
+      }
+      else -> null
+    }
+  }
 
   private companion object {
     const val LISTINGS_COLLECTION = "listings"

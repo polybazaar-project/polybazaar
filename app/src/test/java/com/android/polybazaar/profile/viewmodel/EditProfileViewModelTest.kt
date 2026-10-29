@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.viewmodel
 
 import android.net.Uri
@@ -147,6 +148,17 @@ class EditProfileViewModelTest {
     assertEquals("Try again", viewModel.uiState.value.bio)
     assertFalse(viewModel.uiState.value.isSaved)
     assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun updateBio_acceptsExactlyTheLimitAndTruncatesBeyondIt() = runTest {
+    loadProfile()
+
+    viewModel.updateBio("a".repeat(500))
+    assertEquals("a".repeat(500), viewModel.uiState.value.bio)
+
+    viewModel.updateBio("b".repeat(501))
+    assertEquals("b".repeat(500), viewModel.uiState.value.bio)
   }
 
   @Test

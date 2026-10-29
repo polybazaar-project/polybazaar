@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.viewmodel
 
 import android.net.Uri
@@ -5,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.profile.model.ProfileRepository
+import com.android.polybazaar.profile.model.ProfileRules
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -104,7 +106,7 @@ class EditProfileViewModel(
       if (!canEdit()) this
       else
           copy(
-              bio = bio,
+              bio = ProfileRules.limitBio(bio),
               isSaved = false,
               isPartiallySaved = false,
               errorMessage = null,

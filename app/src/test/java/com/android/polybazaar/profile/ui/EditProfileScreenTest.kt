@@ -1,4 +1,4 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.ui
 
 import android.net.Uri
@@ -101,6 +101,13 @@ class EditProfileScreenTest {
     node(EditProfileScreenTags.BIO_FIELD).performTextInput("Hi")
 
     assertEquals(listOf("Hi"), bios)
+  }
+
+  @Test
+  fun bioCounter_showsLengthOutOfLimit() {
+    setContent(bio = "a".repeat(42))
+
+    node(EditProfileScreenTags.BIO_COUNTER).assertTextEquals("42/500")
   }
 
   @Test

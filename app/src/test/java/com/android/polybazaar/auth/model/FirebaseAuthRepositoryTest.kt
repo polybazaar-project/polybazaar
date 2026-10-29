@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.auth.model
 
 import com.google.android.gms.tasks.TaskCompletionSource
@@ -10,6 +10,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GetTokenResult
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
@@ -28,6 +29,7 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -218,6 +220,76 @@ class FirebaseAuthRepositoryTest {
       assertTrue(result.exceptionOrNull() is IllegalArgumentException)
       assertEquals("Username must be trimmed and lowercase", result.exceptionOrNull()?.message)
     }
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
+  }
+
+  @Test
+  fun signUp_valuesExactlyAtLimits_succeed() = runTest {
+    val longEmail = "e".repeat(AuthRules.MAX_EMAIL_LENGTH - "@epfl.ch".length) + "@epfl.ch"
+    val longPassword = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH)
+    whenever(firebaseUser.email).thenReturn(longEmail)
+    mockSignUpAuthResult(email = longEmail, password = longPassword)
+
+    listOf("a".repeat(AuthRules.MIN_USERNAME_LENGTH), "a".repeat(AuthRules.MAX_USERNAME_LENGTH))
+        .forEach { name ->
+          mockUsernameDocument(exists = false, username = name)
+
+          val result = repository.signUp(longEmail, longPassword, name)
+
+          assertEquals(name, result.getOrThrow().username)
+        }
+  }
+
+  @Test
+  fun signUp_paddedEmailWithTrimmedLengthAtLimit_passesLengthCheck() = runTest {
+    val trimmed = "e".repeat(AuthRules.MAX_EMAIL_LENGTH - "@epfl.ch".length) + "@epfl.ch"
+    val padded = "  $trimmed  "
+    mockUsernameDocument(exists = false)
+    mockSignUpAuthResult(email = padded)
+    whenever(firebaseUser.email).thenReturn(padded)
+
+    val result = repository.signUp(padded, password, username)
+
+    assertTrue(result.isSuccess)
+  }
+
+  @Test
+  fun signUp_usernameBelowMinimum_returnsFailureWithoutTouchingFirebase() = runTest {
+    val result = repository.signUp(email, password, "ab")
+
+    assertEquals(AuthRules.usernameError("ab"), result.exceptionOrNull()?.message)
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
+  }
+
+  @Test
+  fun signUp_blankUsername_returnsFailureWithoutTouchingFirebase() = runTest {
+    listOf("", "   ").forEach { blank ->
+      val result = repository.signUp(email, password, blank)
+
+      assertEquals("Username is required", result.exceptionOrNull()?.message)
+    }
+    verify(firestore, never()).collection(any())
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
+  }
+
+  @Test
+  fun signUp_tooLongFields_returnFailureWithoutTouchingFirebase() = runTest {
+    val longUsername = "a".repeat(AuthRules.MAX_USERNAME_LENGTH + 1)
+    val longEmail = "a".repeat(AuthRules.MAX_EMAIL_LENGTH) + "@epfl.ch"
+    val longPassword = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1)
+
+    val tooLongUsername = repository.signUp(email, password, longUsername)
+    val tooLongEmail = repository.signUp(longEmail, password, username)
+    val tooLongPassword = repository.signUp(email, longPassword, username)
+
+    assertEquals(AuthRules.usernameError(longUsername), tooLongUsername.exceptionOrNull()?.message)
+    assertEquals(AuthRules.emailLengthError(longEmail), tooLongEmail.exceptionOrNull()?.message)
+    assertEquals(
+        AuthRules.passwordLengthError(longPassword),
+        tooLongPassword.exceptionOrNull()?.message,
+    )
     verify(firestore, never()).collection(any())
     verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
@@ -485,12 +557,43 @@ class FirebaseAuthRepositoryTest {
       verifiedOnServer = true
       Tasks.forResult<Void>(null)
     }
+    whenever(firebaseUser.getIdToken(true)).thenReturn(Tasks.forResult(mock<GetTokenResult>()))
     mockUsernameLookupSuccess(uid, username)
 
     val result = repository.refreshUser()
 
     assertTrue(result.getOrThrow().isEmailVerified)
-    verify(firebaseUser).reload()
+    // The rules read email_verified from the ID token, so it must be refreshed after the reload.
+    val order = inOrder(firebaseUser)
+    order.verify(firebaseUser).reload()
+    order.verify(firebaseUser).getIdToken(true)
+  }
+
+  @Test
+  fun refreshUser_stillUnverified_keepsTheCachedToken() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.isEmailVerified).thenReturn(false)
+    whenever(firebaseUser.reload()).thenReturn(Tasks.forResult(null))
+    mockUsernameLookupSuccess(uid, username)
+
+    val result = repository.refreshUser()
+
+    assertFalse(result.getOrThrow().isEmailVerified)
+    verify(firebaseUser, never()).getIdToken(any())
+  }
+
+  @Test
+  fun refreshUser_tokenRefreshFails_returnsFailure() = runTest {
+    val exception = Exception("Network error")
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.isEmailVerified).thenReturn(true)
+    whenever(firebaseUser.reload()).thenReturn(Tasks.forResult(null))
+    whenever(firebaseUser.getIdToken(true)).thenReturn(Tasks.forException(exception))
+
+    val result = repository.refreshUser()
+
+    assertTrue(result.isFailure)
+    assertEquals(exception, result.exceptionOrNull())
   }
 
   @Test
@@ -620,7 +723,10 @@ class FirebaseAuthRepositoryTest {
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
   }
 
-  private fun mockUsernameDocument(exists: Boolean): DocumentReference {
+  private fun mockUsernameDocument(
+      exists: Boolean,
+      username: String = this.username,
+  ): DocumentReference {
     val docRef = mock<DocumentReference>()
     val documentSnapshot = mock<DocumentSnapshot>()
 
@@ -631,7 +737,11 @@ class FirebaseAuthRepositoryTest {
     return docRef
   }
 
-  private fun mockSignUpAuthResult(user: FirebaseUser? = firebaseUser) {
+  private fun mockSignUpAuthResult(
+      user: FirebaseUser? = firebaseUser,
+      email: String = this.email,
+      password: String = this.password,
+  ) {
     val authResult = mock<AuthResult>()
     whenever(authResult.user).thenReturn(user)
     whenever(auth.createUserWithEmailAndPassword(email, password))

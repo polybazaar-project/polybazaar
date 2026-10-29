@@ -1,4 +1,4 @@
-// Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.foundation.background
@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.model.EPFL_EMAIL_DOMAIN
 import com.android.polybazaar.auth.model.isEpflEmail
 import com.android.polybazaar.auth.viewmodel.AuthUiState
@@ -43,32 +44,16 @@ object CreateAccountScreenTags {
   const val USERNAME_FIELD = "create_account_username_field"
   const val USERNAME_INVALID_MESSAGE = "create_account_username_invalid_message"
   const val EMAIL_FIELD = "create_account_email_field"
+  const val EMAIL_TOO_LONG_MESSAGE = "create_account_email_too_long_message"
   const val EMAIL_NOT_EPFL_MESSAGE = "create_account_email_not_epfl_message"
   const val PASSWORD_FIELD = "create_account_password_field"
   const val CONFIRM_PASSWORD_FIELD = "create_account_confirm_password_field"
   const val PASSWORD_TOO_SHORT_MESSAGE = "create_account_password_too_short_message"
+  const val PASSWORD_TOO_LONG_MESSAGE = "create_account_password_too_long_message"
   const val PASSWORD_MISMATCH_MESSAGE = "create_account_password_mismatch_message"
   const val ERROR_MESSAGE = "create_account_error_message"
   const val CANCEL_BUTTON = "create_account_cancel_button"
   const val CREATE_BUTTON = "create_account_create_button"
-}
-
-/** Firebase Auth rejects passwords shorter than this. */
-const val MIN_PASSWORD_LENGTH = 6
-
-private val RESERVED_FIRESTORE_ID = Regex("__.*__")
-
-/**
- * Returns why [username] cannot be used, or null if it is valid. The trimmed username becomes a
- * Firestore document ID, so it must follow Firestore's ID rules.
- */
-private fun usernameError(username: String): String? {
-  val id = username.trim()
-  return when {
-    id.contains('/') -> "Username cannot contain /"
-    id == "." || id == ".." || RESERVED_FIRESTORE_ID.matches(id) -> "This username is not allowed"
-    else -> null
-  }
 }
 
 /**
@@ -106,9 +91,12 @@ fun CreateAccountContent(
   var email by rememberSaveable { mutableStateOf("") }
   var password by rememberSaveable { mutableStateOf("") }
   var confirmPassword by rememberSaveable { mutableStateOf("") }
-  val usernameError = usernameError(username)
-  val emailNotEpfl = email.isNotBlank() && !isEpflEmail(email)
-  val passwordTooShort = password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH
+  val usernameError = AuthRules.usernameError(username)
+  val emailLengthError = AuthRules.emailLengthError(email)
+  // Skipped while the email is too long, so one field never shows two errors.
+  val emailNotEpfl = email.isNotBlank() && emailLengthError == null && !isEpflEmail(email)
+  val passwordTooShort = password.isNotEmpty() && password.length < AuthRules.MIN_PASSWORD_LENGTH
+  val passwordLengthError = AuthRules.passwordLengthError(password)
   val passwordsMatch = password == confirmPassword
   val canSubmit =
       !uiState.isLoading &&
@@ -116,8 +104,10 @@ fun CreateAccountContent(
           usernameError == null &&
           email.isNotBlank() &&
           !emailNotEpfl &&
+          emailLengthError == null &&
           password.isNotEmpty() &&
           !passwordTooShort &&
+          passwordLengthError == null &&
           passwordsMatch
 
   BoxWithConstraints(
@@ -144,76 +134,63 @@ fun CreateAccountContent(
         LabeledField(
             label = "Username",
             value = username,
-            onValueChange = { username = it },
+            onValueChange = {
+              username = AuthRules.limitInput(it, AuthRules.MAX_TEXT_INPUT_LENGTH)
+            },
             placeholder = "Enter your username",
             tag = CreateAccountScreenTags.USERNAME_FIELD,
         )
-        usernameError?.let {
-          Text(
-              text = it,
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.USERNAME_INVALID_MESSAGE),
-          )
-        }
+        usernameError?.let { FieldError(it, CreateAccountScreenTags.USERNAME_INVALID_MESSAGE) }
         LabeledField(
             label = "Email",
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { email = AuthRules.limitInput(it, AuthRules.MAX_TEXT_INPUT_LENGTH) },
             placeholder = "Enter your email",
             tag = CreateAccountScreenTags.EMAIL_FIELD,
             keyboardType = KeyboardType.Email,
         )
+        emailLengthError?.let { FieldError(it, CreateAccountScreenTags.EMAIL_TOO_LONG_MESSAGE) }
         if (emailNotEpfl) {
-          Text(
-              text = "Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE),
+          FieldError(
+              "Use your EPFL email (ending in @$EPFL_EMAIL_DOMAIN)",
+              CreateAccountScreenTags.EMAIL_NOT_EPFL_MESSAGE,
           )
         }
         LabeledField(
             label = "Password",
             value = password,
-            onValueChange = { password = it },
+            onValueChange = {
+              password = AuthRules.limitTo(it, AuthRules.MAX_PASSWORD_INPUT_LENGTH)
+            },
             placeholder = "Create a password",
             tag = CreateAccountScreenTags.PASSWORD_FIELD,
             keyboardType = KeyboardType.Password,
             visualTransformation = PasswordVisualTransformation(),
         )
         if (passwordTooShort) {
-          Text(
-              text = "Password must be at least $MIN_PASSWORD_LENGTH characters",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE),
+          FieldError(
+              "Password must be at least ${AuthRules.MIN_PASSWORD_LENGTH} characters",
+              CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE,
           )
+        }
+        passwordLengthError?.let {
+          FieldError(it, CreateAccountScreenTags.PASSWORD_TOO_LONG_MESSAGE)
         }
         LabeledField(
             label = "Confirm password",
             value = confirmPassword,
-            onValueChange = { confirmPassword = it },
+            onValueChange = {
+              confirmPassword = AuthRules.limitTo(it, AuthRules.MAX_PASSWORD_INPUT_LENGTH)
+            },
             placeholder = "Repeat your password",
             tag = CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD,
             keyboardType = KeyboardType.Password,
             visualTransformation = PasswordVisualTransformation(),
         )
         if (confirmPassword.isNotEmpty() && !passwordsMatch) {
-          Text(
-              text = "Passwords do not match",
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE),
-          )
+          FieldError("Passwords do not match", CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE)
         }
-        uiState.errorMessage?.let {
-          Text(
-              text = it,
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.testTag(CreateAccountScreenTags.ERROR_MESSAGE),
-          )
-        }
+        uiState.errorMessage?.let { FieldError(it, CreateAccountScreenTags.ERROR_MESSAGE) }
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -226,7 +203,9 @@ fun CreateAccountContent(
           )
           AuthPrimaryButton(
               text = "Create account",
-              onClick = { onCreateAccount(username.trim().lowercase(), email.trim(), password) },
+              onClick = {
+                onCreateAccount(AuthRules.normalizeUsername(username), email.trim(), password)
+              },
               enabled = canSubmit,
               modifier =
                   Modifier.weight(1f).fillMaxSize().testTag(CreateAccountScreenTags.CREATE_BUTTON),
@@ -241,6 +220,16 @@ fun CreateAccountContent(
       )
     }
   }
+}
+
+@Composable
+private fun FieldError(text: String, tag: String) {
+  Text(
+      text = text,
+      color = AuthColors.Danger,
+      fontSize = 12.sp,
+      modifier = Modifier.testTag(tag),
+  )
 }
 
 @Composable

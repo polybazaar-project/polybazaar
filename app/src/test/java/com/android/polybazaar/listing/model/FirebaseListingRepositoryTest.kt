@@ -1,18 +1,25 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -21,9 +28,12 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
+import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 
 // Robolectric, so that Uri.parse builds the returned download URIs.
@@ -253,6 +263,79 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun createListing_overLimit_failsWithoutTouchingFirebase() = runTest {
+    // A photo is needed for the compressor to have something to compress.
+    val photos = listOf(Uri.parse("content://images/0"))
+    val overLimit =
+        listOf(
+            ServiceListing("Tutoring", 25.0, "t".repeat(81), "One-hour session", images = photos) to
+                "Title must be at most 80 characters",
+            ServiceListing("Tutoring", 25.0, "Math tutoring", "d".repeat(1001), images = photos) to
+                "Description must be at most 1000 characters",
+            ServiceListing(
+                "Tutoring",
+                10_000.01,
+                "Math tutoring",
+                "One-hour session",
+                images = photos,
+            ) to "Enter a price between CHF 0 and CHF 10,000",
+            ItemListing(
+                "Tools",
+                5.0,
+                "Drill",
+                "Works well",
+                refundValue = 100_000.01,
+                images = photos,
+            ) to "Enter a refund value between CHF 0 and CHF 100,000",
+        )
+
+    overLimit.forEach { (listing, message) ->
+      val failure = runCatching { repository.createListing(listing) }.exceptionOrNull()
+
+      assertTrue(failure is IllegalArgumentException)
+      assertEquals(message, failure?.message)
+    }
+    verifyNoInteractions(firestore, storage)
+    assertTrue(compressedPhotos.isEmpty())
+  }
+
+  @Test
+  fun createListing_atLimits_succeeds() = runTest {
+    val listing =
+        ItemListing(
+            category = "Tools",
+            price = 10_000.0,
+            title = "t".repeat(80),
+            description = "d".repeat(1000),
+            refundValue = 100_000.0,
+        )
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    val created = repository.createListing(listing)
+
+    assertEquals(listingId, created.listingId)
+  }
+
+  @Test
+  fun createListing_storesTrimmedTitleAndDescription() = runTest {
+    val listing =
+        ServiceListing(
+            category = "Tutoring",
+            price = 25.0,
+            title = "  " + "t".repeat(80),
+            description = "  Padded description \n",
+        )
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    repository.createListing(listing)
+
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(document).set(stored.capture())
+    assertEquals("t".repeat(80), stored.firstValue["title"])
+    assertEquals("Padded description", stored.firstValue["description"])
+  }
+
+  @Test
   fun createListing_withoutAuthenticatedUser_throwsError() = runTest {
     whenever(auth.currentUser).thenReturn(null)
 
@@ -270,5 +353,141 @@ class FirebaseListingRepositoryTest {
 
     assertTrue(failure is IllegalStateException)
     assertEquals("No authenticated user", failure?.message)
+  }
+
+  @Test
+  fun getMyListings_queriesOwnListingsAndRebuildsItemsAndServices() = runTest {
+    givenMyListings(
+        listingDocument(
+            "item-1",
+            mapOf(
+                "type" to "ITEM",
+                "category" to "Tools",
+                "price" to 8.5,
+                "title" to "Bosch drill set",
+                "description" to "With bits",
+                "imageUrls" to listOf("https://example.com/drill.jpg"),
+                "refundValue" to 120.0,
+            ),
+        ),
+        // Firestore returns whole numbers as Long, so the price must still be read.
+        listingDocument(
+            "service-1",
+            mapOf(
+                "type" to "SERVICE",
+                "category" to "Tutoring",
+                "price" to 25L,
+                "title" to "Math tutoring",
+                "description" to "One-hour session",
+                "imageUrls" to emptyList<String>(),
+            ),
+        ),
+    )
+
+    val result = repository.getMyListings().getOrThrow()
+
+    assertEquals(
+        listOf(
+            ItemListing(
+                category = "Tools",
+                price = 8.5,
+                title = "Bosch drill set",
+                description = "With bits",
+                refundValue = 120.0,
+                images = listOf(Uri.parse("https://example.com/drill.jpg")),
+                listingId = "item-1",
+            ),
+            ServiceListing(
+                category = "Tutoring",
+                price = 25.0,
+                title = "Math tutoring",
+                description = "One-hour session",
+                listingId = "service-1",
+            ),
+        ),
+        result,
+    )
+    verify(listings).whereEqualTo("ownerUid", uid)
+  }
+
+  @Test
+  fun getMyListings_withNoListings_returnsAnEmptyList() = runTest {
+    givenMyListings()
+
+    assertEquals(emptyList<Listing>(), repository.getMyListings().getOrThrow())
+  }
+
+  @Test
+  fun getMyListings_skipsMalformedDocumentsAndKeepsTheOthers() = runTest {
+    val valid =
+        mapOf(
+            "type" to "SERVICE",
+            "category" to "Tutoring",
+            "price" to 25.0,
+            "title" to "Math tutoring",
+            "description" to "One-hour session",
+        )
+    givenMyListings(
+        listingDocument("missing-title", valid - "title"),
+        listingDocument("unknown-type", valid + ("type" to "RENTAL")),
+        listingDocument("price-as-text", valid + ("price" to "25")),
+        listingDocument("item-without-refund", valid + ("type" to "ITEM")),
+        listingDocument("valid", valid),
+    )
+
+    val result = repository.getMyListings().getOrThrow()
+
+    assertEquals(listOf("valid"), result.map { it.listingId })
+  }
+
+  @Test
+  fun getMyListings_withoutAuthenticatedUser_failsAsUnauthenticatedWithoutQuerying() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val failure = repository.getMyListings().exceptionOrNull()
+
+    assertEquals(AppError.UNAUTHENTICATED, failure?.toAppError())
+    verify(listings, never()).whereEqualTo(any<String>(), any())
+  }
+
+  @Test
+  fun getMyListings_whenTheQueryFails_returnsTheFailure() = runTest {
+    // What Firestore raises offline when the listings are not in the local cache.
+    val unavailable =
+        FirebaseFirestoreException("offline", FirebaseFirestoreException.Code.UNAVAILABLE)
+    givenQueryResult(Tasks.forException(unavailable))
+
+    val failure = repository.getMyListings().exceptionOrNull()
+
+    assertSame(unavailable, failure)
+    assertEquals(AppError.NETWORK, failure?.toAppError())
+  }
+
+  @Test
+  fun getMyListings_whenCancelled_rethrowsInsteadOfReturningAFailure() = runTest {
+    givenQueryResult(Tasks.forCanceled())
+
+    val thrown = runCatching { repository.getMyListings() }.exceptionOrNull()
+
+    assertTrue(thrown is CancellationException)
+  }
+
+  private fun givenMyListings(vararg documents: DocumentSnapshot) {
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(documents.toList())
+    givenQueryResult(Tasks.forResult(snapshot))
+  }
+
+  private fun givenQueryResult(result: com.google.android.gms.tasks.Task<QuerySnapshot>) {
+    val query = mock<Query>()
+    whenever(listings.whereEqualTo("ownerUid", uid)).thenReturn(query)
+    whenever(query.get()).thenReturn(result)
+  }
+
+  private fun listingDocument(id: String, fields: Map<String, Any>): DocumentSnapshot {
+    val document = mock<DocumentSnapshot>()
+    whenever(document.id).thenReturn(id)
+    whenever(document.get(any<String>())).thenAnswer { fields[it.getArgument<String>(0)] }
+    return document
   }
 }
