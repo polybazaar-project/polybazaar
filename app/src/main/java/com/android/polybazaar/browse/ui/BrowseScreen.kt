@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.browse.ui
 
 import androidx.compose.foundation.background
@@ -21,10 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,38 +37,47 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.browse.viewmodel.BrowseUiState
+import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 
 object BrowseScreenTags {
   const val SCREEN = "browse_screen"
   const val SEARCH_FIELD = "browse_search_field"
+  const val HEADER = "browse_header"
+  const val CATEGORY_SELECTOR = "browse_category_selector"
+  const val LISTING_CARD = "browse_listing_card"
 }
 
 @Composable
-fun BrowseScreen(uiState: BrowseUiState = BrowseUiState()) {
-  var query by remember { mutableStateOf("") }
-  var selectedCategory by remember { mutableStateOf<String?>(null) }
-  val listings =
-      remember(uiState.listings, query, selectedCategory) {
-        uiState.listings.filter { listing ->
-          (selectedCategory == null || listing.category == selectedCategory) &&
-              listing.title.contains(query, ignoreCase = true)
-        }
-      }
+fun BrowseScreen(viewModel: BrowseViewModel = viewModel()) {
+  val uiState by viewModel.uiState.collectAsState()
+  BrowseContent(
+      uiState = uiState,
+      onQueryChange = viewModel::updateQuery,
+      onCategorySelected = viewModel::selectCategory,
+  )
+}
 
+@Composable
+fun BrowseContent(
+    uiState: BrowseUiState,
+    onQueryChange: (String) -> Unit,
+    onCategorySelected: (String) -> Unit,
+) {
   Column(
       modifier =
           Modifier.fillMaxSize().background(AuthColors.Background).testTag(BrowseScreenTags.SCREEN)
   ) {
     BrowseHeader()
-    SearchField(query = query, onQueryChange = { query = it })
+    SearchField(query = uiState.query, onQueryChange = onQueryChange)
     CategorySelector(
         categories = uiState.categories,
-        selectedCategory = selectedCategory,
-        onCategorySelected = { selectedCategory = it },
+        selectedCategory = uiState.selectedCategory,
+        onCategorySelected = onCategorySelected,
     )
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
@@ -99,14 +107,18 @@ fun BrowseScreen(uiState: BrowseUiState = BrowseUiState()) {
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-      items(listings, key = { it.id }) { ListingCard(it) }
+      items(uiState.filteredListings, key = { it.id }) { ListingCard(it) }
     }
   }
 }
 
 @Composable
-private fun BrowseHeader() {
-  Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 34.dp, bottom = 20.dp)) {
+internal fun BrowseHeader() {
+  Column(
+      modifier =
+          Modifier.padding(start = 24.dp, end = 24.dp, top = 34.dp, bottom = 20.dp)
+              .testTag(BrowseScreenTags.HEADER)
+  ) {
     Text(
         text = stringResource(R.string.browse_header_title),
         color = AuthColors.TextPrimary,
@@ -123,7 +135,7 @@ private fun BrowseHeader() {
 }
 
 @Composable
-private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
+internal fun SearchField(query: String, onQueryChange: (String) -> Unit) {
   val shape = RoundedCornerShape(20.dp)
   Row(
       modifier =
@@ -158,13 +170,16 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
 }
 
 @Composable
-private fun CategorySelector(
+internal fun CategorySelector(
     categories: List<String>,
     selectedCategory: String?,
     onCategorySelected: (String) -> Unit,
 ) {
   Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
+      modifier =
+          Modifier.fillMaxWidth()
+              .padding(horizontal = 24.dp, vertical = 20.dp)
+              .testTag(BrowseScreenTags.CATEGORY_SELECTOR),
       horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     categories.forEach { category ->
@@ -190,7 +205,7 @@ private fun CategorySelector(
 }
 
 @Composable
-private fun ListingCard(listing: BrowseListing) {
+internal fun ListingCard(listing: BrowseListing) {
   val shape = RoundedCornerShape(28.dp)
   Row(
       modifier =
@@ -198,7 +213,8 @@ private fun ListingCard(listing: BrowseListing) {
               .height(118.dp)
               .background(AuthColors.CardBackground, shape)
               .border(1.dp, AuthColors.Outline, shape)
-              .padding(14.dp),
+              .padding(14.dp)
+              .testTag(BrowseScreenTags.LISTING_CARD),
       verticalAlignment = Alignment.CenterVertically,
   ) {
     Box(
@@ -236,6 +252,7 @@ private fun ListingCard(listing: BrowseListing) {
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
         )
+        Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = stringResource(R.string.browse_price_per_day),
             color = AuthColors.TextSecondary,
@@ -248,6 +265,24 @@ private fun ListingCard(listing: BrowseListing) {
 
 @Preview(showBackground = true, widthDp = 412, heightDp = 844)
 @Composable
-private fun BrowseScreenPreview() {
-  BrowseScreen()
+internal fun BrowseScreenPreview() {
+  BrowseContent(
+      uiState =
+          BrowseUiState(
+              listings =
+                  listOf(
+                      BrowseListing("drill", "Bosch drill set", "Tools", "350 m away", "CHF 8"),
+                      BrowseListing(
+                          "projector",
+                          "Mini projector",
+                          "Electronics",
+                          "600 m away",
+                          "CHF 12",
+                      ),
+                  ),
+              categories = listOf("Tools", "Electronics"),
+          ),
+      onQueryChange = {},
+      onCategorySelected = {},
+  )
 }
