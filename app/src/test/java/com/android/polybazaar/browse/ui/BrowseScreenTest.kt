@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.browse.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
@@ -172,5 +173,13 @@ class BrowseScreenTest {
     composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("nonexistent")
 
     composeTestRule.onNodeWithText("Bosch drill set").assertDoesNotExist()
+  }
+
+  @Test
+  fun preview_showsSampleListings() {
+    composeTestRule.setContent { BrowseScreenPreview() }
+
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Mini projector").assertIsDisplayed()
   }
 }

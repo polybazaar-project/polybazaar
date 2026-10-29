@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.browse.ui
 
 import androidx.compose.foundation.background
@@ -264,7 +265,7 @@ internal fun ListingCard(listing: BrowseListing) {
 
 @Preview(showBackground = true, widthDp = 412, heightDp = 844)
 @Composable
-private fun BrowseScreenPreview() {
+internal fun BrowseScreenPreview() {
   BrowseContent(
       uiState =
           BrowseUiState(
