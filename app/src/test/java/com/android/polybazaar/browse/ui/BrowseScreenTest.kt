@@ -133,9 +133,9 @@ class BrowseScreenTest {
     composeTestRule.onNodeWithText("Mini projector").assertIsDisplayed()
     composeTestRule.onNodeWithText("Claw hammer").assertIsDisplayed()
 
-    composeTestRule.onNodeWithText("350 m away").assertIsDisplayed()
-    composeTestRule.onNodeWithText("600 m away").assertIsDisplayed()
-    composeTestRule.onNodeWithText("200 m away").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Tools · 350 m away").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Electronics · 600 m away").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Tools · 200 m away").assertIsDisplayed()
 
     composeTestRule.onNodeWithText("CHF 8").assertIsDisplayed()
     composeTestRule.onNodeWithText("CHF 12").assertIsDisplayed()
