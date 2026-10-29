@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Sonnet 5.5, Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.foundation.layout.Box
@@ -152,8 +152,8 @@ class CreateAccountContentEdgeCasesTest {
 
     type(CreateAccountScreenTags.USERNAME_FIELD, "  Ada_Lovelace ")
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret12")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret12")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
 
     assertEquals("ada_lovelace", submitted?.first)
@@ -165,11 +165,11 @@ class CreateAccountContentEdgeCasesTest {
 
     type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "  pw  ")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "  pw  ")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "  secret12  ")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "  secret12  ")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
 
-    assertEquals(Triple("ada_lovelace", "ada@epfl.ch", "  pw  "), submitted)
+    assertEquals(Triple("ada_lovelace", "ada@epfl.ch", "  secret12  "), submitted)
   }
 
   @Test
@@ -178,8 +178,8 @@ class CreateAccountContentEdgeCasesTest {
 
     type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "secre")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secre")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret1")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret1")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
 
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
@@ -192,8 +192,8 @@ class CreateAccountContentEdgeCasesTest {
 
     type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret12")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret12")
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
@@ -232,8 +232,8 @@ class CreateAccountContentEdgeCasesTest {
   private fun fillValidFormExceptUsername(username: String) {
     type(CreateAccountScreenTags.USERNAME_FIELD, username)
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret12")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret12")
   }
 
   @Test
@@ -272,8 +272,8 @@ class CreateAccountContentEdgeCasesTest {
   fun usernamesCloseToReservedIds_areAccepted() {
     setContent()
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret12")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret12")
 
     listOf("ada.lovelace", "...", "__ada", "ada__", "___").forEach { username ->
       composeTestRule.onNodeWithTag(CreateAccountScreenTags.USERNAME_FIELD).performTextClearance()
@@ -317,8 +317,8 @@ class CreateAccountContentEdgeCasesTest {
   fun usernamesAtMinAndMaxLength_areAccepted() {
     setContent()
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret12")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret12")
 
     listOf(AuthRules.MIN_USERNAME_LENGTH, AuthRules.MAX_USERNAME_LENGTH).forEach { length ->
       composeTestRule.onNodeWithTag(CreateAccountScreenTags.USERNAME_FIELD).performTextClearance()
@@ -428,7 +428,8 @@ class CreateAccountContentEdgeCasesTest {
   fun emailAndPasswordAtMaxLength_areAccepted() {
     setContent()
     val email = "e".repeat(AuthRules.MAX_EMAIL_LENGTH - "@epfl.ch".length) + "@epfl.ch"
-    val password = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH)
+    // A digit at the end, so the password also meets the letter and digit rule.
+    val password = "p".repeat(AuthRules.MAX_PASSWORD_LENGTH - 1) + "1"
     type(CreateAccountScreenTags.USERNAME_FIELD, "ada")
     type(CreateAccountScreenTags.EMAIL_FIELD, email)
     type(CreateAccountScreenTags.PASSWORD_FIELD, password)
@@ -547,8 +548,8 @@ class CreateAccountContentEdgeCasesTest {
     setContent()
     type(CreateAccountScreenTags.USERNAME_FIELD, "ada_lovelace")
     type(CreateAccountScreenTags.EMAIL_FIELD, "ada@epfl.ch")
-    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
-    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret")
+    type(CreateAccountScreenTags.PASSWORD_FIELD, "secret12")
+    type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "secret12")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
 
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.PASSWORD_FIELD).performTextClearance()

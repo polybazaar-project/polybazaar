@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
-import com.android.polybazaar.auth.viewmodel.MIN_PASSWORD_LENGTH
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.viewmodel.ResetPasswordError
 import com.android.polybazaar.auth.viewmodel.ResetPasswordUiState
 import com.android.polybazaar.auth.viewmodel.ResetPasswordViewModel
@@ -135,7 +135,7 @@ fun ResetPasswordContent(uiState: ResetPasswordUiState, actions: ResetPasswordAc
               placeholder = stringResource(R.string.reset_password_new_password_placeholder),
               tag = ResetPasswordScreenTags.NEW_PASSWORD_FIELD,
           )
-          GuidanceText(stringResource(R.string.reset_password_rules, MIN_PASSWORD_LENGTH))
+          GuidanceText(stringResource(R.string.reset_password_rules, AuthRules.MIN_PASSWORD_LENGTH))
         }
         PasswordField(
             label = stringResource(R.string.reset_password_confirm_label),

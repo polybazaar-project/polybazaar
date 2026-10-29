@@ -88,17 +88,29 @@ class CreateAccountScreenTest {
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
         .assertIsDisplayed()
-        .assertTextEquals("Password must be at least 6 characters")
+        .assertTextEquals("Use at least 8 characters, including a letter and a number")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
     assertFalse(submitted)
   }
 
   @Test
+  fun passwordWithoutDigit_showsMessageAndDisablesCreateButton() {
+    setContent()
+
+    fillForm("ada_lovelace", "ada@epfl.ch", "lovelace")
+
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
+        .assertIsDisplayed()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
   fun lengtheningPassword_hidesShortMessageAndEnablesCreateButton() {
     setContent()
-    fillForm("ada_lovelace", "ada@epfl.ch", "secre", confirmPassword = "secret")
+    fillForm("ada_lovelace", "ada@epfl.ch", "secret1", confirmPassword = "secret12")
 
-    composeTestRule.onNodeWithTag(CreateAccountScreenTags.PASSWORD_FIELD).performTextInput("t")
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.PASSWORD_FIELD).performTextInput("2")
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_TOO_SHORT_MESSAGE)
@@ -125,11 +137,11 @@ class CreateAccountScreenTest {
   @Test
   fun fixingConfirmPassword_hidesMessageAndEnablesCreateButton() {
     setContent()
-    fillForm("ada_lovelace", "ada@epfl.ch", "secret", confirmPassword = "secre")
+    fillForm("ada_lovelace", "ada@epfl.ch", "secret12", confirmPassword = "secret1")
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD)
-        .performTextInput("t")
+        .performTextInput("2")
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE)
@@ -150,11 +162,13 @@ class CreateAccountScreenTest {
         .onNodeWithTag(CreateAccountScreenTags.EMAIL_FIELD)
         .performTextInput("ada@epfl.ch")
     createButton.assertIsNotEnabled()
-    composeTestRule.onNodeWithTag(CreateAccountScreenTags.PASSWORD_FIELD).performTextInput("secret")
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.PASSWORD_FIELD)
+        .performTextInput("secret12")
     createButton.assertIsNotEnabled()
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD)
-        .performTextInput("secret")
+        .performTextInput("secret12")
     createButton.assertIsEnabled()
   }
 
@@ -165,10 +179,10 @@ class CreateAccountScreenTest {
         onCreateAccount = { name, email, password -> submitted = Triple(name, email, password) }
     )
 
-    fillForm(" ada_lovelace ", " ada@epfl.ch ", "secret")
+    fillForm(" ada_lovelace ", " ada@epfl.ch ", "secret12")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
 
-    assertEquals(Triple("ada_lovelace", "ada@epfl.ch", "secret"), submitted)
+    assertEquals(Triple("ada_lovelace", "ada@epfl.ch", "secret12"), submitted)
   }
 
   @Test
@@ -215,11 +229,11 @@ class CreateAccountScreenTest {
       )
     }
 
-    fillForm("ada_lovelace", "ada@epfl.ch", "secret")
+    fillForm("ada_lovelace", "ada@epfl.ch", "secret12")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).performClick()
     composeTestRule.waitForIdle()
 
-    assertEquals(Triple("ada@epfl.ch", "secret", "ada_lovelace"), repository.signUpDetails)
+    assertEquals(Triple("ada@epfl.ch", "secret12", "ada_lovelace"), repository.signUpDetails)
     assertTrue(signedIn)
   }
 

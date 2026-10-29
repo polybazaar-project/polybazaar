@@ -29,9 +29,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.model.ConfirmPasswordResetException
 import com.android.polybazaar.auth.model.User
-import com.android.polybazaar.auth.viewmodel.MIN_PASSWORD_LENGTH
 import com.android.polybazaar.auth.viewmodel.ResetPasswordError
 import com.android.polybazaar.auth.viewmodel.ResetPasswordUiState
 import com.android.polybazaar.auth.viewmodel.ResetPasswordViewModel
@@ -68,7 +68,7 @@ class ResetPasswordScreenTest {
     composeTestRule.onNodeWithText(string(R.string.reset_password_heading)).assertIsDisplayed()
     composeTestRule.onNodeWithText(string(R.string.reset_password_guidance)).assertIsDisplayed()
     composeTestRule
-        .onNodeWithText(string(R.string.reset_password_rules, MIN_PASSWORD_LENGTH))
+        .onNodeWithText(string(R.string.reset_password_rules, AuthRules.MIN_PASSWORD_LENGTH))
         .assertIsDisplayed()
     composeTestRule
         .onNodeWithText(string(R.string.reset_password_new_password_placeholder))

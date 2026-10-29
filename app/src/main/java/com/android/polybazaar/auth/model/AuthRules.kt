@@ -1,7 +1,9 @@
-// Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Sonnet 5.5, Claude Opus 5.5)
 package com.android.polybazaar.auth.model
 
-/** Validation rules for the sign-up fields, shared by the UI and the repository. */
+/**
+ * Validation rules for the sign-up and reset password fields, shared by the UI and the repository.
+ */
 object AuthRules {
   const val MIN_USERNAME_LENGTH = 3
 
@@ -11,8 +13,11 @@ object AuthRules {
   /** Maximum email address length defined by RFC 5321. */
   const val MAX_EMAIL_LENGTH = 254
 
-  /** Firebase Auth rejects passwords shorter than this. */
-  const val MIN_PASSWORD_LENGTH = 6
+  /**
+   * Shortest password accepted at sign-up and on reset, as the reset password Figma states. Above
+   * Firebase Auth's own minimum of 6.
+   */
+  const val MIN_PASSWORD_LENGTH = 8
 
   /** Product cap on password length. */
   const val MAX_PASSWORD_LENGTH = 128
@@ -57,6 +62,16 @@ object AuthRules {
       if (password.length > MAX_PASSWORD_LENGTH)
           "Password must be at most $MAX_PASSWORD_LENGTH characters"
       else null
+
+  /**
+   * Whether [password] has at least [MIN_PASSWORD_LENGTH] chars, a letter and a digit. Letters and
+   * digits are any Unicode ones ([Char.isLetter], [Char.isDigit]); nothing is trimmed. The maximum
+   * is checked separately by [passwordLengthError].
+   */
+  fun meetsPasswordRules(password: String): Boolean =
+      password.length >= MIN_PASSWORD_LENGTH &&
+          password.any { it.isLetter() } &&
+          password.any { it.isDigit() }
 
   /** Takes the first [max] chars of [text]; a cut must not leave half of a surrogate pair. */
   fun limitTo(text: String, max: Int): String {
