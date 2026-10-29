@@ -36,7 +36,8 @@ class MainActivity : ComponentActivity() {
           AppNavHost(
               authViewModel = authViewModel,
               authRepository = authRepository,
-              profileRepository = remember { FirebaseProfileRepository() },
+              profileRepository =
+                  remember { FirebaseProfileRepository(applicationContext.contentResolver) },
               listingRepository =
                   remember {
                     FirebaseListingRepository(

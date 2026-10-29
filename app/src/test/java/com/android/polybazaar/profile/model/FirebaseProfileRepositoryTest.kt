@@ -1,6 +1,8 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.model
 
+import android.content.ContentResolver
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
 import com.google.android.gms.tasks.Tasks
@@ -38,6 +40,7 @@ class FirebaseProfileRepositoryTest {
   private lateinit var firestore: FirebaseFirestore
   private lateinit var storage: FirebaseStorage
   private lateinit var auth: FirebaseAuth
+  private lateinit var contentResolver: ContentResolver
   private lateinit var usersCollection: CollectionReference
   private lateinit var profileDocument: DocumentReference
   private lateinit var storageRoot: StorageReference
@@ -53,6 +56,7 @@ class FirebaseProfileRepositoryTest {
     firestore = mock()
     storage = mock()
     auth = mock()
+    contentResolver = mock()
     usersCollection = mock()
     profileDocument = mock()
     storageRoot = mock()
@@ -63,7 +67,7 @@ class FirebaseProfileRepositoryTest {
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child("users/$uid/profile.jpg")).thenReturn(photoReference)
 
-    repository = FirebaseProfileRepository(firestore, storage, auth)
+    repository = FirebaseProfileRepository(contentResolver, firestore, storage, auth)
   }
 
   @Test
@@ -152,7 +156,7 @@ class FirebaseProfileRepositoryTest {
     val uploadSnapshot = mock<UploadTask.TaskSnapshot>()
     val downloadUri = mock<Uri>()
     val downloadUrl = "https://example.com/profile.jpg"
-    whenever(photoReference.putFile(photoUri)).thenReturn(uploadTask)
+    whenever(photoReference.putFile(eq(photoUri), any())).thenReturn(uploadTask)
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
@@ -163,7 +167,7 @@ class FirebaseProfileRepositoryTest {
 
     assertEquals(downloadUrl, result)
     verify(storageRoot).child("users/$uid/profile.jpg")
-    verify(photoReference).putFile(photoUri)
+    verify(photoReference).putFile(eq(photoUri), any())
   }
 
   @Test
@@ -171,13 +175,13 @@ class FirebaseProfileRepositoryTest {
     // Confirms upload failures reach the caller and the user's Storage path is used.
     val photoUri = mock<Uri>()
     val failure = IllegalStateException("Storage unavailable")
-    whenever(photoReference.putFile(photoUri)).thenThrow(failure)
+    whenever(photoReference.putFile(eq(photoUri), any())).thenThrow(failure)
 
     val result = runCatching { repository.uploadProfilePhoto(uid, photoUri) }.exceptionOrNull()
 
     assertTrue(result === failure)
     verify(storageRoot).child("users/$uid/profile.jpg")
-    verify(photoReference).putFile(photoUri)
+    verify(photoReference).putFile(eq(photoUri), any())
   }
 
   @Test
