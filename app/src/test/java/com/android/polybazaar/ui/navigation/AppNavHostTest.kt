@@ -22,7 +22,9 @@ import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -53,7 +55,6 @@ class AppNavHostTest {
 
   private val profileRepository = FakeProfileRepository(user)
 
-  // No test here opens Browse; the navigation graph only needs a repository to build.
   private val listingRepository = FakeListingRepository()
   private lateinit var navController: NavHostController
 
@@ -100,6 +101,20 @@ class AppNavHostTest {
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun browse_showsTheListingsFromTheListingRepository() {
+    listingRepository.allListings =
+        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+
+    composeTestRule.runOnIdle { navController.navigate(Routes.BROWSE) }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    assertEquals(1, listingRepository.getAllListingsCalls)
   }
 
   @Test
