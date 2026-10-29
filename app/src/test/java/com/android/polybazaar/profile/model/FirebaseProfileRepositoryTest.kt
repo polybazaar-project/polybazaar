@@ -15,6 +15,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
 import kotlinx.coroutines.async
@@ -152,22 +153,42 @@ class FirebaseProfileRepositoryTest {
   fun uploadProfilePhoto_success_returnsDownloadUrl() = runTest {
     // Confirms a completed upload returns the photo's Firebase download URL.
     val photoUri = mock<Uri>()
-    val uploadTask = mock<UploadTask>()
-    val uploadSnapshot = mock<UploadTask.TaskSnapshot>()
-    val downloadUri = mock<Uri>()
     val downloadUrl = "https://example.com/profile.jpg"
-    whenever(photoReference.putFile(eq(photoUri), any())).thenReturn(uploadTask)
-    whenever(uploadTask.isComplete).thenReturn(true)
-    whenever(uploadTask.isSuccessful).thenReturn(true)
-    whenever(uploadTask.result).thenReturn(uploadSnapshot)
-    whenever(photoReference.downloadUrl).thenReturn(Tasks.forResult(downloadUri))
-    whenever(downloadUri.toString()).thenReturn(downloadUrl)
+    whenever(stubSuccessfulUpload(photoUri).toString()).thenReturn(downloadUrl)
 
     val result = repository.uploadProfilePhoto(uid, photoUri)
 
     assertEquals(downloadUrl, result)
     verify(storageRoot).child("users/$uid/profile.jpg")
     verify(photoReference).putFile(eq(photoUri), any())
+  }
+
+  @Test
+  fun uploadProfilePhoto_sendsThePhotosContentType() = runTest {
+    // Confirms the upload carries the photo's type, which the Storage rules require to be an image.
+    val photoUri = mock<Uri>()
+    whenever(contentResolver.getType(photoUri)).thenReturn("image/png")
+    stubSuccessfulUpload(photoUri)
+
+    repository.uploadProfilePhoto(uid, photoUri)
+
+    val metadataCaptor = argumentCaptor<StorageMetadata>()
+    verify(photoReference).putFile(eq(photoUri), metadataCaptor.capture())
+    assertEquals("image/png", metadataCaptor.firstValue.contentType)
+  }
+
+  @Test
+  fun uploadProfilePhoto_unknownType_uploadsWithoutContentType() = runTest {
+    // Confirms an untyped photo is still uploaded, leaving the Storage rules to decide.
+    val photoUri = mock<Uri>()
+    whenever(contentResolver.getType(photoUri)).thenReturn(null)
+    stubSuccessfulUpload(photoUri)
+
+    repository.uploadProfilePhoto(uid, photoUri)
+
+    val metadataCaptor = argumentCaptor<StorageMetadata>()
+    verify(photoReference).putFile(eq(photoUri), metadataCaptor.capture())
+    assertNull(metadataCaptor.firstValue.contentType)
   }
 
   @Test
@@ -317,5 +338,17 @@ class FirebaseProfileRepositoryTest {
     listenerCaptor.firstValue.onEvent(snapshot, null)
 
     assertEquals("Username is missing from profile $uid", observed.await()?.message)
+  }
+
+  /** Makes uploading [photoUri] succeed, and returns the download URI the upload then gets. */
+  private fun stubSuccessfulUpload(photoUri: Uri): Uri {
+    val uploadTask = mock<UploadTask>()
+    val downloadUri = mock<Uri>()
+    whenever(photoReference.putFile(eq(photoUri), any())).thenReturn(uploadTask)
+    whenever(uploadTask.isComplete).thenReturn(true)
+    whenever(uploadTask.isSuccessful).thenReturn(true)
+    whenever(uploadTask.result).thenReturn(mock())
+    whenever(photoReference.downloadUrl).thenReturn(Tasks.forResult(downloadUri))
+    return downloadUri
   }
 }
