@@ -240,7 +240,7 @@ internal fun ListingCard(listing: BrowseListing) {
           overflow = TextOverflow.Ellipsis,
       )
       Text(
-          text = "${listing.category} · ${listing.distance}",
+          text = listOfNotNull(listing.category, listing.distance).joinToString(" · "),
           color = AuthColors.TextSecondary,
           fontSize = 15.sp,
           maxLines = 1,
