@@ -38,6 +38,8 @@ class BrowseViewModel(initialUiState: BrowseUiState = BrowseUiState()) : ViewMod
   }
 
   fun selectCategory(category: String) {
-    _uiState.update { it.copy(selectedCategory = category) }
+    _uiState.update {
+      it.copy(selectedCategory = if (it.selectedCategory == category) null else category)
+    }
   }
 }

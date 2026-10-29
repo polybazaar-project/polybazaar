@@ -254,5 +254,23 @@ private fun ListingCard(listing: BrowseListing) {
 @Preview(showBackground = true, widthDp = 412, heightDp = 844)
 @Composable
 private fun BrowseScreenPreview() {
-  BrowseScreen()
+  BrowseContent(
+      uiState =
+          BrowseUiState(
+              listings =
+                  listOf(
+                      BrowseListing("drill", "Bosch drill set", "Tools", "350 m away", "CHF 8"),
+                      BrowseListing(
+                          "projector",
+                          "Mini projector",
+                          "Electronics",
+                          "600 m away",
+                          "CHF 12",
+                      ),
+                  ),
+              categories = listOf("Tools", "Electronics"),
+          ),
+      onQueryChange = {},
+      onCategorySelected = {},
+  )
 }

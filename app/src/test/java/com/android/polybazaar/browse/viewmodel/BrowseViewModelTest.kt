@@ -31,6 +31,16 @@ class BrowseViewModelTest {
   }
 
   @Test
+  fun clearingCategory_resetsFilter() {
+    val viewModel = BrowseViewModel(BrowseUiState(listings = listings))
+
+    viewModel.selectCategory("Tools")
+    viewModel.selectCategory("Tools")
+
+    assertEquals(listings, viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
   fun queryAndCategory_filterListingsTogether() {
     val viewModel = BrowseViewModel(BrowseUiState(listings = listings))
 
