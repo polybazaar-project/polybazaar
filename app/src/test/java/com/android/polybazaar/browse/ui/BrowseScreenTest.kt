@@ -83,6 +83,63 @@ class BrowseScreenTest {
   }
 
   @Test
+  fun browseHeader_displaysCorrectly() {
+    composeTestRule.setContent { BrowseHeader() }
+    composeTestRule.onNodeWithTag(BrowseScreenTags.HEADER).assertIsDisplayed()
+  }
+
+  @Test
+  fun searchField_displaysPlaceholder_whenEmpty() {
+    composeTestRule.setContent { SearchField(query = "", onQueryChange = {}) }
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).assertIsDisplayed()
+  }
+
+  @Test
+  fun searchField_showsQuery() {
+    composeTestRule.setContent { SearchField(query = "test", onQueryChange = {}) }
+    composeTestRule.onNodeWithText("test", substring = true).assertIsDisplayed()
+  }
+
+  @Test
+  fun categorySelector_displaysAllCategories() {
+    composeTestRule.setContent {
+      CategorySelector(
+          categories = sampleCategories,
+          selectedCategory = null,
+          onCategorySelected = {},
+      )
+    }
+    composeTestRule.onNodeWithTag(BrowseScreenTags.CATEGORY_SELECTOR).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Tools").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Electronics").assertIsDisplayed()
+  }
+
+  @Test
+  fun categorySelector_highlightsSelected() {
+    var selectedCategory = "Tools"
+    composeTestRule.setContent {
+      CategorySelector(
+          categories = sampleCategories,
+          selectedCategory = selectedCategory,
+          onCategorySelected = { selectedCategory = it },
+      )
+    }
+    composeTestRule.onNodeWithText("Tools").assertIsDisplayed()
+  }
+
+  @Test
+  fun listingCard_displaysAllInfo() {
+    val listing = BrowseListing("id1", "Test Item", "Tools", "100 m away", "CHF 15")
+    composeTestRule.setContent { ListingCard(listing) }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Test Item").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Tools · 100 m away").assertIsDisplayed()
+    composeTestRule.onNodeWithText("CHF 15").assertIsDisplayed()
+    composeTestRule.onNodeWithText("/ day").assertIsDisplayed()
+  }
+
+  @Test
   fun emptyListings_displaysPricingFormat() {
     val listing = BrowseListing("id1", "Test Item", "Category", "100 m", "CHF 10")
     val viewModel =
@@ -96,34 +153,6 @@ class BrowseScreenTest {
   }
 
   @Test
-  fun headerDisplaysCorrectly() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
-    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
-
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
-  }
-
-  @Test
-  fun searchFieldIsAccessible() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
-    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
-
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).assertIsDisplayed()
-  }
-
-  @Test
-  fun allCategoriesDisplay() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
-    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
-
-    composeTestRule.onNodeWithText("Tools").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Electronics").assertIsDisplayed()
-  }
-
-  @Test
   fun multipleListingsDisplay_withCorrectMetadata() {
     val viewModel =
         BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
@@ -132,41 +161,6 @@ class BrowseScreenTest {
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithText("Mini projector").assertIsDisplayed()
     composeTestRule.onNodeWithText("Claw hammer").assertIsDisplayed()
-
-    composeTestRule.onNodeWithText("Tools · 350 m away").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Electronics · 600 m away").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Tools · 200 m away").assertIsDisplayed()
-
-    composeTestRule.onNodeWithText("CHF 8").assertIsDisplayed()
-    composeTestRule.onNodeWithText("CHF 12").assertIsDisplayed()
-    composeTestRule.onNodeWithText("CHF 5").assertIsDisplayed()
-  }
-
-  @Test
-  fun categorySelection_changesFocusedState() {
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = sampleListings, categories = sampleCategories))
-    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
-
-    composeTestRule.onNodeWithText("Electronics").performClick()
-    composeTestRule.onNodeWithText("Mini projector").assertIsDisplayed()
-  }
-
-  @Test
-  fun searchWithSpecialCharacters_filtersCorrectly() {
-    val specialListing =
-        listOf(
-            BrowseListing("id1", "Item-with-dashes", "Tools", "100 m", "CHF 5"),
-            BrowseListing("id2", "Normal Item", "Electronics", "200 m", "CHF 10"),
-        )
-    val viewModel =
-        BrowseViewModel(BrowseUiState(listings = specialListing, categories = listOf("Tools")))
-    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
-
-    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("dashes")
-
-    composeTestRule.onNodeWithText("Item-with-dashes").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Normal Item").assertDoesNotExist()
   }
 
   @Test

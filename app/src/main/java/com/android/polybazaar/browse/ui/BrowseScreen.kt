@@ -46,6 +46,9 @@ import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 object BrowseScreenTags {
   const val SCREEN = "browse_screen"
   const val SEARCH_FIELD = "browse_search_field"
+  const val HEADER = "browse_header"
+  const val CATEGORY_SELECTOR = "browse_category_selector"
+  const val LISTING_CARD = "browse_listing_card"
 }
 
 @Composable
@@ -109,8 +112,12 @@ fun BrowseContent(
 }
 
 @Composable
-private fun BrowseHeader() {
-  Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 34.dp, bottom = 20.dp)) {
+internal fun BrowseHeader() {
+  Column(
+      modifier =
+          Modifier.padding(start = 24.dp, end = 24.dp, top = 34.dp, bottom = 20.dp)
+              .testTag(BrowseScreenTags.HEADER)
+  ) {
     Text(
         text = stringResource(R.string.browse_header_title),
         color = AuthColors.TextPrimary,
@@ -127,7 +134,7 @@ private fun BrowseHeader() {
 }
 
 @Composable
-private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
+internal fun SearchField(query: String, onQueryChange: (String) -> Unit) {
   val shape = RoundedCornerShape(20.dp)
   Row(
       modifier =
@@ -162,13 +169,16 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
 }
 
 @Composable
-private fun CategorySelector(
+internal fun CategorySelector(
     categories: List<String>,
     selectedCategory: String?,
     onCategorySelected: (String) -> Unit,
 ) {
   Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
+      modifier =
+          Modifier.fillMaxWidth()
+              .padding(horizontal = 24.dp, vertical = 20.dp)
+              .testTag(BrowseScreenTags.CATEGORY_SELECTOR),
       horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     categories.forEach { category ->
@@ -194,7 +204,7 @@ private fun CategorySelector(
 }
 
 @Composable
-private fun ListingCard(listing: BrowseListing) {
+internal fun ListingCard(listing: BrowseListing) {
   val shape = RoundedCornerShape(28.dp)
   Row(
       modifier =
@@ -202,7 +212,8 @@ private fun ListingCard(listing: BrowseListing) {
               .height(118.dp)
               .background(AuthColors.CardBackground, shape)
               .border(1.dp, AuthColors.Outline, shape)
-              .padding(14.dp),
+              .padding(14.dp)
+              .testTag(BrowseScreenTags.LISTING_CARD),
       verticalAlignment = Alignment.CenterVertically,
   ) {
     Box(
