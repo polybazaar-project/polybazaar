@@ -36,7 +36,7 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 
-// Robolectric, so that Uri.parse builds the returned download URIs.
+// Robolectric, so that Uri.parse builds the photos to upload.
 @RunWith(AndroidJUnit4::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FirebaseListingRepositoryTest {
@@ -87,7 +87,6 @@ class FirebaseListingRepositoryTest {
     val imageUri = Uri.parse("content://images/0")
     val uploadTask = mock<UploadTask>()
     val uploadSnapshot = mock<UploadTask.TaskSnapshot>()
-    val downloadUri = mock<Uri>()
     val listing =
         ItemListing(
             category = "Electronics",
@@ -101,15 +100,17 @@ class FirebaseListingRepositoryTest {
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
-    whenever(downloadUri.toString()).thenReturn("https://example.com/listing.jpg")
-    whenever(imageReference.downloadUrl).thenReturn(Tasks.forResult(downloadUri))
     whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     val result = repository.createListing(listing)
 
     assertEquals(listingId, result.listingId)
-    assertEquals(listOf(Uri.parse("https://example.com/listing.jpg")), result.images)
+    assertEquals(listOf("listings/$uid/$listingId/images/0"), result.imagePaths)
+    // The photos on the phone are uploaded, and may be deleted now.
+    assertEquals(emptyList<Uri>(), result.images)
     verify(imageReference).putBytes(eq(photoBytes), any())
+    // A download URL would let anyone holding it read the photo without signing in.
+    verify(imageReference, never()).downloadUrl
     assertEquals(listOf(imageUri), compressedPhotos)
     verify(document)
         .set(
@@ -121,7 +122,7 @@ class FirebaseListingRepositoryTest {
                     "type" to "ITEM",
                     "title" to "Calculator",
                     "description" to "Graphing calculator",
-                    "imageUrls" to listOf("https://example.com/listing.jpg"),
+                    "imagePaths" to listOf("listings/$uid/$listingId/images/0"),
                     "refundValue" to 100.0,
                 )
             )
@@ -136,8 +137,6 @@ class FirebaseListingRepositoryTest {
     val secondImageReference = mock<StorageReference>()
     val uploadTask = mock<UploadTask>()
     val uploadSnapshot = mock<UploadTask.TaskSnapshot>()
-    val firstDownloadUri = mock<Uri>()
-    val secondDownloadUri = mock<Uri>()
     val documentSetFailure = IllegalStateException("Firestore unavailable")
     val listing =
         ServiceListing(
@@ -154,12 +153,8 @@ class FirebaseListingRepositoryTest {
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
-    whenever(firstDownloadUri.toString()).thenReturn("https://example.com/0.jpg")
-    whenever(secondDownloadUri.toString()).thenReturn("https://example.com/1.jpg")
     whenever(firstImageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
     whenever(secondImageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
-    whenever(firstImageReference.downloadUrl).thenReturn(Tasks.forResult(firstDownloadUri))
-    whenever(secondImageReference.downloadUrl).thenReturn(Tasks.forResult(secondDownloadUri))
     whenever(firstImageReference.delete()).thenReturn(Tasks.forResult(null))
     whenever(secondImageReference.delete()).thenReturn(Tasks.forResult(null))
     whenever(
@@ -172,8 +167,11 @@ class FirebaseListingRepositoryTest {
                         "type" to "SERVICE",
                         "title" to "Math tutoring",
                         "description" to "One-hour session",
-                        "imageUrls" to
-                            listOf("https://example.com/0.jpg", "https://example.com/1.jpg"),
+                        "imagePaths" to
+                            listOf(
+                                "listings/$uid/$listingId/images/0",
+                                "listings/$uid/$listingId/images/1",
+                            ),
                     )
                 )
             )
@@ -196,7 +194,6 @@ class FirebaseListingRepositoryTest {
     val successfulUploadTask = mock<UploadTask>()
     val failedUploadTask = mock<UploadTask>()
     val uploadSnapshot = mock<UploadTask.TaskSnapshot>()
-    val firstDownloadUri = mock<Uri>()
     val uploadFailure = IllegalStateException("Storage unavailable")
     val listing =
         ServiceListing(
@@ -213,20 +210,18 @@ class FirebaseListingRepositoryTest {
     whenever(successfulUploadTask.isComplete).thenReturn(true)
     whenever(successfulUploadTask.isSuccessful).thenReturn(true)
     whenever(successfulUploadTask.result).thenReturn(uploadSnapshot)
-    whenever(firstDownloadUri.toString()).thenReturn("https://example.com/0.jpg")
     whenever(failedUploadTask.isComplete).thenReturn(true)
     whenever(failedUploadTask.isSuccessful).thenReturn(false)
     whenever(failedUploadTask.exception).thenReturn(uploadFailure)
     whenever(firstImageReference.putBytes(eq(photoBytes), any())).thenReturn(successfulUploadTask)
     whenever(secondImageReference.putBytes(eq(photoBytes), any())).thenReturn(failedUploadTask)
-    whenever(firstImageReference.downloadUrl).thenReturn(Tasks.forResult(firstDownloadUri))
     whenever(firstImageReference.delete()).thenReturn(Tasks.forResult(null))
 
     val failure = runCatching { repository.createListing(listing) }.exceptionOrNull()
 
     assertSame(uploadFailure, failure)
     verify(firstImageReference).delete()
-    verify(secondImageReference, org.mockito.kotlin.never()).delete()
+    verify(secondImageReference, never()).delete()
   }
 
   @Test
@@ -234,7 +229,6 @@ class FirebaseListingRepositoryTest {
     val imageUri = Uri.parse("content://images/0")
     val uploadTask = mock<UploadTask>()
     val uploadSnapshot = mock<UploadTask.TaskSnapshot>()
-    val downloadUri = mock<Uri>()
     val documentSetFailure = IllegalStateException("Firestore unavailable")
     val deleteFailure = IllegalStateException("Storage cleanup unavailable")
     val listing =
@@ -249,9 +243,7 @@ class FirebaseListingRepositoryTest {
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
-    whenever(downloadUri.toString()).thenReturn("https://example.com/0.jpg")
     whenever(imageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
-    whenever(imageReference.downloadUrl).thenReturn(Tasks.forResult(downloadUri))
     whenever(imageReference.delete()).thenReturn(Tasks.forException(deleteFailure))
     whenever(document.set(any<Map<String, Any>>()))
         .thenReturn(Tasks.forException(documentSetFailure))
@@ -356,6 +348,19 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun loadListingImage_downloadsTheImageAtItsPath() = runTest {
+    val imagePath = "listings/$uid/$listingId/images/0"
+    whenever(storageRoot.child(imagePath)).thenReturn(imageReference)
+    whenever(imageReference.getBytes(any())).thenReturn(Tasks.forResult(photoBytes))
+
+    val result = repository.loadListingImage(imagePath)
+
+    assertSame(photoBytes, result)
+    // Allows the largest photo the Storage rules accept.
+    verify(imageReference).getBytes(10L * 1024 * 1024)
+  }
+
+  @Test
   fun getMyListings_queriesOwnListingsAndRebuildsItemsAndServices() = runTest {
     givenMyListings(
         listingDocument(
@@ -366,7 +371,7 @@ class FirebaseListingRepositoryTest {
                 "price" to 8.5,
                 "title" to "Bosch drill set",
                 "description" to "With bits",
-                "imageUrls" to listOf("https://example.com/drill.jpg"),
+                "imagePaths" to listOf("listings/$uid/item-1/images/0"),
                 "refundValue" to 120.0,
             ),
         ),
@@ -379,7 +384,7 @@ class FirebaseListingRepositoryTest {
                 "price" to 25L,
                 "title" to "Math tutoring",
                 "description" to "One-hour session",
-                "imageUrls" to emptyList<String>(),
+                "imagePaths" to emptyList<String>(),
             ),
         ),
     )
@@ -394,7 +399,7 @@ class FirebaseListingRepositoryTest {
                 title = "Bosch drill set",
                 description = "With bits",
                 refundValue = 120.0,
-                images = listOf(Uri.parse("https://example.com/drill.jpg")),
+                imagePaths = listOf("listings/$uid/item-1/images/0"),
                 listingId = "item-1",
             ),
             ServiceListing(
@@ -484,7 +489,7 @@ class FirebaseListingRepositoryTest {
                 "price" to 8.5,
                 "title" to "Bosch drill set",
                 "description" to "With bits",
-                "imageUrls" to listOf("https://example.com/drill.jpg"),
+                "imagePaths" to listOf("listings/someone-else/item-1/images/0"),
                 "refundValue" to 120.0,
             ),
         ),
@@ -511,7 +516,7 @@ class FirebaseListingRepositoryTest {
                 title = "Bosch drill set",
                 description = "With bits",
                 refundValue = 120.0,
-                images = listOf(Uri.parse("https://example.com/drill.jpg")),
+                imagePaths = listOf("listings/someone-else/item-1/images/0"),
                 listingId = "item-1",
             ),
             ServiceListing(

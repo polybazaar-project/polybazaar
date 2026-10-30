@@ -24,4 +24,6 @@ class FakeListingRepository(var allListings: List<Listing> = emptyList()) : List
     gate?.await()
     return failure?.let { Result.failure(it) } ?: Result.success(allListings)
   }
+
+  override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
 }

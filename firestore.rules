@@ -50,11 +50,13 @@ service cloud.firestore {
 
     // Public profile. The email is not stored here.
     match /users/{uid} {
+      // photoPath is a Storage path, not a download URL: a download URL works for anyone who has
+      // it, so only storage.rules decides who sees the photo. It can only name the user's own.
       function validProfile(data) {
         return data.keys().hasAll(['username'])
-            && data.keys().hasOnly(['username', 'bio', 'photoUrl'])
+            && data.keys().hasOnly(['username', 'bio', 'photoPath'])
             && (!('bio' in data) || data.bio is string)
-            && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 2048));
+            && (!('photoPath' in data) || data.photoPath == 'users/' + uid + '/profile.jpg');
       }
 
       // Other users' profiles are shown next to their listings. Before verifying, a user can
@@ -79,16 +81,25 @@ service cloud.firestore {
     }
 
     match /listings/{listingId} {
+      // Storage paths, not download URLs, as for photoPath. Only the listing's own images/0 to
+      // images/4, the paths storage.rules lets its owner write, each at most once: so at most 5.
+      function validImagePaths(paths) {
+        let folder = 'listings/' + request.auth.uid + '/' + listingId + '/images/';
+        return paths is list
+            && paths.hasOnly([folder + '0', folder + '1', folder + '2', folder + '3', folder + '4'])
+            && paths.toSet().size() == paths.size();
+      }
+
       function validListing(data) {
-        return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imageUrls'])
-            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imageUrls', 'refundValue'])
+        return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths'])
+            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'refundValue'])
             && data.ownerUid == request.auth.uid
             && data.category is string && data.category.size() > 0 && data.category.size() <= 50
             // Same as ListingRules.errorFor in the app: no empty or whitespace-only text.
             && data.title is string && data.title.trim().size() > 0
             && data.description is string && data.description.trim().size() > 0
             && isAmount(data.price)
-            && data.imageUrls is list && data.imageUrls.size() <= 5
+            && validImagePaths(data.imagePaths)
             && ((data.type == 'ITEM' && isAmount(data.refundValue))
                 || (data.type == 'SERVICE' && !('refundValue' in data)));
       }

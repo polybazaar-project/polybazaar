@@ -50,25 +50,29 @@ class FirebaseProfileRepository(
     val metadata =
         StorageMetadata.Builder().setContentType(contentResolver.getType(photoUri)).build()
     photoReference.putFile(photoUri, metadata).await()
-    return photoReference.downloadUrl.await().toString()
+    // The path, not a download URL: a download URL works for anyone who has it, signed in or not.
+    return profilePhotoPath(uid)
   }
+
+  override suspend fun loadProfilePhoto(photoPath: String): ByteArray =
+      storage.reference.child(photoPath).getBytes(MAX_PHOTO_BYTES).await()
 
   override suspend fun removeProfilePhoto(uid: String) {
     val profile = profileDocument(uid).get().await()
-    if (profile.getString("photoUrl") == null) return
+    if (profile.getString("photoPath") == null) return
 
     profilePhoto(uid).delete().await()
-    profileDocument(uid).update("photoUrl", FieldValue.delete()).await()
+    profileDocument(uid).update("photoPath", FieldValue.delete()).await()
   }
 
   override suspend fun updateProfile(
       uid: String,
-      photoUrl: String?,
+      photoPath: String?,
       bio: String,
   ) {
     require(bio.length <= ProfileRules.MAX_BIO_LENGTH) { ProfileRules.BIO_TOO_LONG_MESSAGE }
     val updates = mutableMapOf<String, Any?>()
-    if (photoUrl != null) updates["photoUrl"] = photoUrl
+    if (photoPath != null) updates["photoPath"] = photoPath
     // Stored as typed: spacing and line breaks are part of how the user wrote the bio.
     updates["bio"] = bio
 
@@ -84,7 +88,9 @@ class FirebaseProfileRepository(
 
   private fun profileDocument(uid: String) = firestore.collection("users").document(uid)
 
-  private fun profilePhoto(uid: String) = storage.reference.child("users/$uid/profile.jpg")
+  private fun profilePhotoPath(uid: String) = "users/$uid/profile.jpg"
+
+  private fun profilePhoto(uid: String) = storage.reference.child(profilePhotoPath(uid))
 
   private fun com.google.firebase.firestore.DocumentSnapshot.toUser(uid: String): User {
     val email =
@@ -99,8 +105,13 @@ class FirebaseProfileRepository(
         uid = uid,
         email = email,
         username = username,
-        photoUrl = getString("photoUrl"),
+        photoPath = getString("photoPath"),
         bio = getString("bio") ?: "",
     )
+  }
+
+  private companion object {
+    // The largest photo the Storage rules accept.
+    const val MAX_PHOTO_BYTES = 10L * 1024 * 1024
   }
 }

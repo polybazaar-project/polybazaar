@@ -511,11 +511,13 @@ class AppNavHostTest {
 
     override fun observeProfile(uid: String): Flow<User?> = profile
 
-    override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-url"
+    override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-path"
+
+    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
 
     override suspend fun removeProfilePhoto(uid: String) = Unit
 
-    override suspend fun updateProfile(uid: String, photoUrl: String?, bio: String) {
+    override suspend fun updateProfile(uid: String, photoPath: String?, bio: String) {
       savedBio = bio
       profile.value = profile.value?.copy(bio = bio)
     }

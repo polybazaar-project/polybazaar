@@ -950,7 +950,7 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
     composeTestRule.waitForIdle()
 
-    assertEquals(listOf(Uri.parse("https://example.com/0.jpg")), created?.images)
+    assertEquals(listOf("listings/owner/listing-1/images/0"), created?.imagePaths)
     assertTrue(takenPhotoFiles().isEmpty())
     node(CreateListingScreenTags.photo(0)).assertDoesNotExist()
   }
@@ -1122,15 +1122,19 @@ class CreateListingScreenTest {
       received = listing
       failure?.let { throw it }
       // Like the real repository, returns where the photos were uploaded.
-      val uploaded = listing.images.indices.map { Uri.parse("https://example.com/$it.jpg") }
+      val uploaded = listing.images.indices.map { "listings/owner/listing-1/images/$it" }
       return when (listing) {
-        is ItemListing -> listing.copy(listingId = "listing-1", images = uploaded)
-        is ServiceListing -> listing.copy(listingId = "listing-1", images = uploaded)
+        is ItemListing ->
+            listing.copy(listingId = "listing-1", images = emptyList(), imagePaths = uploaded)
+        is ServiceListing ->
+            listing.copy(listingId = "listing-1", images = emptyList(), imagePaths = uploaded)
       }
     }
 
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
 
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
+
+    override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
   }
 }

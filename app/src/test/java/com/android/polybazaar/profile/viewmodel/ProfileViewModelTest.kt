@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.viewmodel
 
 import android.net.Uri
@@ -33,7 +34,7 @@ class ProfileViewModelTest {
           uid = "user-1",
           email = "user@example.com",
           username = "Student",
-          photoUrl = "https://example.com/profile.jpg",
+          photoPath = "users/user-123/profile.jpg",
           bio = "Available for tutoring",
       )
 
@@ -177,8 +178,10 @@ class ProfileViewModelTest {
 
     override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri) = ""
 
+    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
+
     override suspend fun removeProfilePhoto(uid: String) = Unit
 
-    override suspend fun updateProfile(uid: String, photoUrl: String?, bio: String) = Unit
+    override suspend fun updateProfile(uid: String, photoPath: String?, bio: String) = Unit
   }
 }

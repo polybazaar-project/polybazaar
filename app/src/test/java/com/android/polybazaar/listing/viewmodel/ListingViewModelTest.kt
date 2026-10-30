@@ -195,5 +195,7 @@ class ListingViewModelTest {
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
 
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
+
+    override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
   }
 }

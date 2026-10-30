@@ -81,7 +81,7 @@ class FirebaseProfileRepositoryTest {
     whenever(snapshot.exists()).thenReturn(true)
     whenever(snapshot.getString("email")).thenReturn(email)
     whenever(snapshot.getString("username")).thenReturn(username)
-    whenever(snapshot.getString("photoUrl")).thenReturn("https://example.com/photo.jpg")
+    whenever(snapshot.getString("photoPath")).thenReturn("users/$uid/profile.jpg")
     whenever(snapshot.getString("bio")).thenReturn("Hello")
 
     val observed = async { repository.observeProfile(uid).first() }
@@ -93,7 +93,7 @@ class FirebaseProfileRepositoryTest {
             uid = uid,
             email = email,
             username = username,
-            photoUrl = "https://example.com/photo.jpg",
+            photoPath = "users/$uid/profile.jpg",
             bio = "Hello",
         ),
         observed.await(),
@@ -127,7 +127,7 @@ class FirebaseProfileRepositoryTest {
     whenever(snapshot.exists()).thenReturn(true)
     whenever(snapshot.getString("email")).thenReturn(null)
     whenever(snapshot.getString("username")).thenReturn(username)
-    whenever(snapshot.getString("photoUrl")).thenReturn(null)
+    whenever(snapshot.getString("photoPath")).thenReturn(null)
     whenever(snapshot.getString("bio")).thenReturn(null)
     whenever(auth.currentUser).thenReturn(firebaseUser)
     whenever(firebaseUser.uid).thenReturn(uid)
@@ -142,7 +142,7 @@ class FirebaseProfileRepositoryTest {
             uid = uid,
             email = email,
             username = username,
-            photoUrl = null,
+            photoPath = null,
             bio = "",
         ),
         observed.await(),
@@ -150,17 +150,31 @@ class FirebaseProfileRepositoryTest {
   }
 
   @Test
-  fun uploadProfilePhoto_success_returnsDownloadUrl() = runTest {
-    // Confirms a completed upload returns the photo's Firebase download URL.
+  fun uploadProfilePhoto_success_returnsStoragePath() = runTest {
+    // Confirms a completed upload returns the photo's Storage path and never asks for a download
+    // URL, which would let anyone holding it read the photo without signing in.
     val photoUri = mock<Uri>()
-    val downloadUrl = "https://example.com/profile.jpg"
-    whenever(stubSuccessfulUpload(photoUri).toString()).thenReturn(downloadUrl)
+    stubSuccessfulUpload(photoUri)
 
     val result = repository.uploadProfilePhoto(uid, photoUri)
 
-    assertEquals(downloadUrl, result)
+    assertEquals("users/$uid/profile.jpg", result)
     verify(storageRoot).child("users/$uid/profile.jpg")
     verify(photoReference).putFile(eq(photoUri), any())
+    verify(photoReference, never()).downloadUrl
+  }
+
+  @Test
+  fun loadProfilePhoto_downloadsThePhotoAtItsPath() = runTest {
+    // Confirms photos are read through the Storage SDK, so the Storage rules apply.
+    val bytes = byteArrayOf(1, 2, 3)
+    whenever(photoReference.getBytes(any())).thenReturn(Tasks.forResult(bytes))
+
+    val result = repository.loadProfilePhoto("users/$uid/profile.jpg")
+
+    assertTrue(result === bytes)
+    // Allows the largest photo the Storage rules accept.
+    verify(photoReference).getBytes(10L * 1024 * 1024)
   }
 
   @Test
@@ -206,23 +220,23 @@ class FirebaseProfileRepositoryTest {
   }
 
   @Test
-  fun removeProfilePhoto_deletesPhotoAndResetsFirestoreUrl() = runTest {
-    // Confirms removing a photo also resets its Firestore URL to the default image.
+  fun removeProfilePhoto_deletesPhotoAndResetsFirestorePath() = runTest {
+    // Confirms removing a photo also clears its Firestore path, so the default image is shown.
     whenever(photoReference.delete()).thenReturn(Tasks.forResult(null))
     whenever(profileDocument.set(any<Map<String, Any>>(), any<SetOptions>()))
         .thenReturn(Tasks.forResult(null))
 
     whenever(profileDocument.get()).thenReturn(Tasks.forResult(mock<DocumentSnapshot>()))
     val snapshot = mock<DocumentSnapshot>()
-    whenever(snapshot.getString("photoUrl")).thenReturn("https://example.com/profile.jpg")
+    whenever(snapshot.getString("photoPath")).thenReturn("users/$uid/profile.jpg")
     whenever(profileDocument.get()).thenReturn(Tasks.forResult(snapshot))
     whenever(photoReference.delete()).thenReturn(Tasks.forResult(null))
-    whenever(profileDocument.update(eq("photoUrl"), any())).thenReturn(Tasks.forResult(null))
+    whenever(profileDocument.update(eq("photoPath"), any())).thenReturn(Tasks.forResult(null))
 
     repository.removeProfilePhoto(uid)
 
     verify(photoReference).delete()
-    verify(profileDocument).update(eq("photoUrl"), any())
+    verify(profileDocument).update(eq("photoPath"), any())
   }
 
   @Test
@@ -231,13 +245,13 @@ class FirebaseProfileRepositoryTest {
     whenever(profileDocument.set(any<Map<String, Any?>>(), any<SetOptions>()))
         .thenReturn(Tasks.forResult(null))
 
-    repository.updateProfile(uid, "https://example.com/photo.jpg", "Hello")
+    repository.updateProfile(uid, "users/$uid/profile.jpg", "Hello")
 
     verify(profileDocument)
         .set(
             eq(
                 mapOf(
-                    "photoUrl" to "https://example.com/photo.jpg",
+                    "photoPath" to "users/$uid/profile.jpg",
                     "bio" to "Hello",
                 )
             ),
@@ -340,15 +354,12 @@ class FirebaseProfileRepositoryTest {
     assertEquals("Username is missing from profile $uid", observed.await()?.message)
   }
 
-  /** Makes uploading [photoUri] succeed, and returns the download URI the upload then gets. */
-  private fun stubSuccessfulUpload(photoUri: Uri): Uri {
+  /** Makes uploading [photoUri] succeed. */
+  private fun stubSuccessfulUpload(photoUri: Uri) {
     val uploadTask = mock<UploadTask>()
-    val downloadUri = mock<Uri>()
     whenever(photoReference.putFile(eq(photoUri), any())).thenReturn(uploadTask)
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(mock())
-    whenever(photoReference.downloadUrl).thenReturn(Tasks.forResult(downloadUri))
-    return downloadUri
   }
 }

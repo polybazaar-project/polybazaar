@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.viewmodel
 
@@ -25,13 +26,13 @@ data class EditProfileUiState(
     val isPartiallySaved: Boolean = false,
     val errorMessage: String? = null,
 ) {
-  val photoUrl: String?
+  val photoPath: String?
     get() =
         when {
-          isPartiallySaved -> profile?.photoUrl
+          isPartiallySaved -> profile?.photoPath
           isPhotoRemoved -> null
           selectedPhotoUri != null -> null
-          else -> profile?.photoUrl
+          else -> profile?.photoPath
         }
 }
 
@@ -72,14 +73,15 @@ class EditProfileViewModel(
     viewModelScope.launch {
       var profileUpdateSucceeded = false
       try {
-        val photoUrl = state.selectedPhotoUri?.let { profileRepository.uploadProfilePhoto(uid, it) }
-        profileRepository.updateProfile(uid, photoUrl = photoUrl, bio = state.bio)
+        val photoPath =
+            state.selectedPhotoUri?.let { profileRepository.uploadProfilePhoto(uid, it) }
+        profileRepository.updateProfile(uid, photoPath = photoPath, bio = state.bio)
         profileUpdateSucceeded = true
         if (state.isPhotoRemoved) {
           profileRepository.removeProfilePhoto(uid)
         }
 
-        _uiState.update { it.withSavedProfile(state, photoUrl) }
+        _uiState.update { it.withSavedProfile(state, photoPath) }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
         _uiState.update { it.withSaveFailure(state, exception, profileUpdateSucceeded) }
@@ -163,16 +165,16 @@ class EditProfileViewModel(
 
   private fun EditProfileUiState.withSavedProfile(
       state: EditProfileUiState,
-      photoUrl: String?,
+      photoPath: String?,
   ): EditProfileUiState =
       copy(
           profile =
               profile?.copy(
-                  photoUrl =
+                  photoPath =
                       when {
                         state.isPhotoRemoved -> null
-                        photoUrl != null -> photoUrl
-                        else -> profile.photoUrl
+                        photoPath != null -> photoPath
+                        else -> profile.photoPath
                       },
                   bio = state.bio,
               ),

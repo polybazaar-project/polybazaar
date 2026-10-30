@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.ui
 
@@ -163,7 +164,10 @@ class EditProfileScreenTest {
 
   @Test
   fun removePhoto_isHiddenOnceTheSavedPhotoIsMarkedRemoved() {
-    setContent(profile = profile.copy(photoUrl = "https://photo"), isPhotoRemoved = true)
+    setContent(
+        profile = profile.copy(photoPath = "users/user-123/profile.jpg"),
+        isPhotoRemoved = true,
+    )
 
     node(EditProfileScreenTags.REMOVE_PHOTO_BUTTON).assertDoesNotExist()
   }
@@ -172,7 +176,7 @@ class EditProfileScreenTest {
   fun removePhoto_isShownForASavedPhotoAndCallsItsAction() {
     var removals = 0
     setContent(
-        profile = profile.copy(photoUrl = "https://photo"),
+        profile = profile.copy(photoPath = "users/user-123/profile.jpg"),
         actions = EditProfileActions(onRemovePhoto = { removals++ }),
     )
 

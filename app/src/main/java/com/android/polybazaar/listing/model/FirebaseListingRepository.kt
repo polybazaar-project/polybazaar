@@ -2,7 +2,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.listing.model
 
-import android.net.Uri
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -32,21 +31,23 @@ class FirebaseListingRepository(
     val uploadedImages = mutableListOf<StorageReference>()
 
     try {
-      val imageUrls =
+      val imagePaths =
           listing.images.mapIndexed { index, uri ->
             // We construct the Storage path using the index, listingId and ownerUid
-            val imageReference = listingImage(ownerUid, document.id, index)
+            val imagePath = listingImagePath(ownerUid, document.id, index)
+            val imageReference = storage.reference.child(imagePath)
             // Uploading the compressed image rather than the original, which can weigh megabytes
             imageReference.putBytes(photoCompressor.compress(uri), JPEG_METADATA).await()
             // After the image is successfully uploaded we add imageReference to uploadedImages.
             uploadedImages += imageReference
-            // We retrieve the image URL to display it.
-            imageReference.downloadUrl.await().toString()
+            // The path, not a download URL: a download URL works for anyone who has it, signed in
+            // or not.
+            imagePath
           }
 
-      document.set(listing.toFirestoreData(ownerUid, imageUrls)).await()
+      document.set(listing.toFirestoreData(ownerUid, imagePaths)).await()
       // Points to the uploaded photos: the local ones may be deleted once the listing is saved.
-      return listing.saved(document.id, imageUrls.map(Uri::parse))
+      return listing.saved(document.id, imagePaths)
     } catch (exception: Exception) {
       // If listing creation fails, undo image uploads
       // Cleanup code needs to attempt deletion even if the original coroutine has been canceled.
@@ -94,12 +95,16 @@ class FirebaseListingRepository(
     }
   }
 
-  private fun listingImage(ownerUid: String, listingId: String, index: Int): StorageReference =
-      // storage.reference: Returns a reference to the root of the Firestore Storage
-      // .child: Returns a reference to a location beneath that root
-      storage.reference.child("listings/$ownerUid/$listingId/images/$index")
+  override suspend fun loadListingImage(imagePath: String): ByteArray =
+      storage.reference.child(imagePath).getBytes(MAX_IMAGE_BYTES).await()
 
-  private fun Listing.toFirestoreData(ownerUid: String, imageUrls: List<String>): Map<String, Any> =
+  private fun listingImagePath(ownerUid: String, listingId: String, index: Int): String =
+      "listings/$ownerUid/$listingId/images/$index"
+
+  private fun Listing.toFirestoreData(
+      ownerUid: String,
+      imagePaths: List<String>,
+  ): Map<String, Any> =
       // Convert a Listing to a Map of values
       buildMap {
         put("ownerUid", ownerUid)
@@ -108,16 +113,17 @@ class FirebaseListingRepository(
         put("type", type.name)
         put("title", title.trim())
         put("description", description.trim())
-        put("imageUrls", imageUrls)
+        put("imagePaths", imagePaths)
         if (this@toFirestoreData is ItemListing) {
           put("refundValue", refundValue)
         }
       }
 
-  private fun Listing.saved(listingId: String, images: List<Uri>): Listing =
+  private fun Listing.saved(listingId: String, imagePaths: List<String>): Listing =
       when (this) {
-        is ServiceListing -> copy(listingId = listingId, images = images)
-        is ItemListing -> copy(listingId = listingId, images = images)
+        is ServiceListing ->
+            copy(listingId = listingId, images = emptyList(), imagePaths = imagePaths)
+        is ItemListing -> copy(listingId = listingId, images = emptyList(), imagePaths = imagePaths)
       }
 
   /**
@@ -134,14 +140,29 @@ class FirebaseListingRepository(
     // Firestore returns a Long for a whole number such as 8, so read any Number.
     val price = (get("price") as? Number)?.toDouble()
     if (category == null || title == null || description == null || price == null) return null
-    val images = (get("imageUrls") as? List<*>).orEmpty().filterIsInstance<String>().map(Uri::parse)
+    val imagePaths = (get("imagePaths") as? List<*>).orEmpty().filterIsInstance<String>()
 
     return when (get("type")) {
       ListingType.SERVICE.name ->
-          ServiceListing(category, price, title, description, images = images, listingId = id)
+          ServiceListing(
+              category,
+              price,
+              title,
+              description,
+              imagePaths = imagePaths,
+              listingId = id,
+          )
       ListingType.ITEM.name -> {
         val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
-        ItemListing(category, price, title, description, refundValue, images, listingId = id)
+        ItemListing(
+            category,
+            price,
+            title,
+            description,
+            refundValue,
+            imagePaths = imagePaths,
+            listingId = id,
+        )
       }
       else -> null
     }
@@ -151,5 +172,7 @@ class FirebaseListingRepository(
     const val LISTINGS_COLLECTION = "listings"
     val JPEG_METADATA: StorageMetadata =
         StorageMetadata.Builder().setContentType("image/jpeg").build()
+    // The largest photo the Storage rules accept.
+    const val MAX_IMAGE_BYTES = 10L * 1024 * 1024
   }
 }

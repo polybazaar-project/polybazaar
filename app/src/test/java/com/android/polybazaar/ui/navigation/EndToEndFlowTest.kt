@@ -222,11 +222,13 @@ class EndToEndFlowTest {
 
     override fun observeProfile(uid: String): Flow<User?> = profiles.map { it[uid] }
 
-    override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-url"
+    override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-path"
+
+    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
 
     override suspend fun removeProfilePhoto(uid: String) = Unit
 
-    override suspend fun updateProfile(uid: String, photoUrl: String?, bio: String) {
+    override suspend fun updateProfile(uid: String, photoPath: String?, bio: String) {
       val current = profiles.value.getValue(uid)
       profiles.value = profiles.value + (uid to current.copy(bio = bio))
     }
