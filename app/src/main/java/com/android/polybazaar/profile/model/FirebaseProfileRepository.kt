@@ -1,6 +1,8 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.model
 
+import android.content.ContentResolver
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
 import com.google.firebase.auth.FirebaseAuth
@@ -8,12 +10,14 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
 class FirebaseProfileRepository(
+    private val contentResolver: ContentResolver,
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
@@ -42,7 +46,10 @@ class FirebaseProfileRepository(
 
   override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String {
     val photoReference = profilePhoto(uid)
-    photoReference.putFile(photoUri).await()
+    // The Storage rules only accept images, so the upload has to state the photo's type.
+    val metadata =
+        StorageMetadata.Builder().setContentType(contentResolver.getType(photoUri)).build()
+    photoReference.putFile(photoUri, metadata).await()
     return photoReference.downloadUrl.await().toString()
   }
 
