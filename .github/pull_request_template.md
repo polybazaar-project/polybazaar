@@ -5,7 +5,7 @@
 <!-- What changed. -->
 
 ## Why
-<!-- The task or issue this solves (Closes #n). -->
+<!-- The problem this solves and why it matters. -->
 
 ## Validation
 <!-- Checks you ran and their result, and any you could not run. -->
