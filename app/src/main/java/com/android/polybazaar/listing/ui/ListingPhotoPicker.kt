@@ -48,6 +48,7 @@ import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -108,9 +109,15 @@ private fun rememberPhotoPreview(uri: Uri): ImageBitmap? {
 /**
  * Decodes [uri] scaled down to at most [PHOTO_PREVIEW_MAX_SIZE] pixels on its longest side, or
  * returns null when it cannot be read. Internal so its scaling and error handling can be tested.
+ *
+ * @param ioDispatcher runs the decoding, off the main thread.
  */
-internal suspend fun loadPhotoPreview(contentResolver: ContentResolver, uri: Uri): ImageBitmap? =
-    withContext(Dispatchers.IO) {
+internal suspend fun loadPhotoPreview(
+    contentResolver: ContentResolver,
+    uri: Uri,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+): ImageBitmap? =
+    withContext(ioDispatcher) {
       try {
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) {
                 decoder,

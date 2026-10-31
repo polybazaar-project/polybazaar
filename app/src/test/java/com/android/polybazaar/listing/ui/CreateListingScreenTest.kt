@@ -49,6 +49,7 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingViewModel
 import java.io.File
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -941,7 +942,12 @@ class CreateListingScreenTest {
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   fun loadPhotoPreview_downscalesLargePhotos() = runTest {
-    val preview = loadPhotoPreview(context.contentResolver, writeImage(2048, 1024))
+    val preview =
+        loadPhotoPreview(
+            context.contentResolver,
+            writeImage(2048, 1024),
+            StandardTestDispatcher(testScheduler),
+        )
 
     assertNotNull(preview)
     assertEquals(PHOTO_PREVIEW_MAX_SIZE, preview!!.width)
@@ -951,7 +957,12 @@ class CreateListingScreenTest {
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   fun loadPhotoPreview_keepsSmallPhotosAtTheirSize() = runTest {
-    val preview = loadPhotoPreview(context.contentResolver, writeImage(100, 60))
+    val preview =
+        loadPhotoPreview(
+            context.contentResolver,
+            writeImage(100, 60),
+            StandardTestDispatcher(testScheduler),
+        )
 
     assertEquals(100, preview?.width)
     assertEquals(60, preview?.height)
@@ -963,7 +974,9 @@ class CreateListingScreenTest {
   fun loadPhotoPreview_returnsNullForUnreadablePhoto() = runTest {
     val missing = Uri.fromFile(File(context.cacheDir, "does-not-exist.png"))
 
-    assertNull(loadPhotoPreview(context.contentResolver, missing))
+    assertNull(
+        loadPhotoPreview(context.contentResolver, missing, StandardTestDispatcher(testScheduler))
+    )
   }
 
   /** The other PhotoPicker tests pass a fake preview; this one covers the default loader. */
