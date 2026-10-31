@@ -4,9 +4,12 @@
 package com.android.polybazaar.ui.navigation
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -26,9 +29,11 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.CreateAccountScreen
 import com.android.polybazaar.auth.ui.ForgotPasswordScreen
 import com.android.polybazaar.auth.ui.SignInScreen
@@ -54,8 +59,8 @@ object AppNavHostTags {
 
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
- * checked, then routes a signed-in user to the profile, or to the verify email screen while their
- * email is not verified, and everyone else to sign-in.
+ * checked, then routes a signed-in user to Browse, or to the verify email screen while their email
+ * is not verified, and everyone else to sign-in. Browse and Profile share a bottom bar.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
@@ -75,6 +80,7 @@ fun AppNavHost(
   val uiState by authViewModel.uiState.collectAsState()
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
+  val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
   val showMessage: (String) -> Unit = { message ->
     scope.launch {
       snackbarHostState.currentSnackbarData?.dismiss()
@@ -87,172 +93,188 @@ fun AppNavHost(
   LaunchedEffect(uiState.sessionChecked, uiState.user) {
     val route = navController.currentBackStackEntry?.destination?.route
     if (uiState.sessionChecked && uiState.user == null && route in signedInRoutes) {
+      // The next user must not inherit this user's saved Profile entry and its ViewModels.
+      navController.clearBackStack(Routes.PROFILE)
       navController.navigate(Routes.SIGN_IN) {
         popUpTo(navController.graph.id) { inclusive = true }
       }
     }
   }
 
-  Box(modifier = Modifier.fillMaxSize()) {
-    NavHost(navController = navController, startDestination = Routes.LOADING) {
-      composable(Routes.LOADING) {
-        LaunchedEffect(uiState.sessionChecked, uiState.user) {
-          if (uiState.sessionChecked) {
-            val destination = uiState.user?.let(::signedInRoute) ?: Routes.SIGN_IN
-            navController.navigate(destination) {
-              popUpTo(Routes.LOADING) { inclusive = true }
-              launchSingleTop = true
-            }
-          }
+  Scaffold(
+      containerColor = AuthColors.Background,
+      bottomBar = {
+        if (showsBottomBar(currentRoute)) {
+          AppBottomBar(currentRoute = currentRoute, onTabSelected = navController::navigateToTab)
         }
-        Box(
-            modifier = Modifier.fillMaxSize().testTag(AppNavHostTags.LOADING),
-            contentAlignment = Alignment.Center,
-        ) {
-          CircularProgressIndicator()
-        }
-      }
-      composable(Routes.SIGN_IN) {
-        SignInScreen(
-            authViewModel = authViewModel,
-            onCreateAccount = {
-              navController.navigate(Routes.CREATE_ACCOUNT) { launchSingleTop = true }
-            },
-            onForgotPassword = {
-              navController.navigate(Routes.FORGOT_PASSWORD) { launchSingleTop = true }
-            },
-            onSignedIn = {
-              authViewModel.uiState.value.user?.let { navController.navigateFromAuth(it) }
-            },
-        )
-      }
-      composable(Routes.CREATE_ACCOUNT) {
-        CreateAccountScreen(
-            authViewModel = authViewModel,
-            onBack = { navController.popBackStack() },
-            onSignedIn = {
-              authViewModel.uiState.value.user?.let { navController.navigateFromAuth(it) }
-            },
-        )
-      }
-      composable(Routes.FORGOT_PASSWORD) {
-        // Scoped to this destination: leaving and coming back starts with an empty form.
-        val forgotPasswordViewModel: ForgotPasswordViewModel =
-            viewModel(
-                factory =
-                    viewModelFactory { initializer { ForgotPasswordViewModel(authRepository) } }
-            )
-        ForgotPasswordScreen(
-            forgotPasswordViewModel = forgotPasswordViewModel,
-            onBack = { navController.popBackStack() },
-        )
-      }
-      composable(Routes.VERIFY_EMAIL) {
-        // Renders nothing for the frame between sign-out and the redirect to sign-in.
-        val email = uiState.user?.email ?: return@composable
-        val verifyEmailViewModel: VerifyEmailViewModel =
-            viewModel(
-                factory = viewModelFactory { initializer { VerifyEmailViewModel(authRepository) } }
-            )
-        // Checks on arrival and whenever the user comes back to the app, for example from the
-        // verification link in their mail app, so they do not have to tap the button themselves.
-        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-          verifyEmailViewModel.refresh(automatic = true)
-        }
-
-        VerifyEmailScreen(
-            verifyEmailViewModel = verifyEmailViewModel,
-            email = email,
-            onVerified = {
-              authViewModel.onEmailVerified()
-              navController.navigate(Routes.PROFILE) {
-                popUpTo(Routes.VERIFY_EMAIL) { inclusive = true }
+      },
+  ) { innerPadding ->
+    Box(modifier = Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)) {
+      NavHost(navController = navController, startDestination = Routes.LOADING) {
+        composable(Routes.LOADING) {
+          LaunchedEffect(uiState.sessionChecked, uiState.user) {
+            if (uiState.sessionChecked) {
+              val destination = uiState.user?.let(::signedInRoute) ?: Routes.SIGN_IN
+              navController.navigate(destination) {
+                popUpTo(Routes.LOADING) { inclusive = true }
                 launchSingleTop = true
               }
-            },
-            // Signing out is enough: the redirect above takes the user back to sign-in.
-            onUseAnotherAccount = authViewModel::signOut,
-        )
-      }
-      composable(Routes.BROWSE) {
-        val browseViewModel: BrowseViewModel =
-            viewModel(
-                factory = viewModelFactory { initializer { BrowseViewModel(listingRepository) } }
-            )
-        BrowseScreen(viewModel = browseViewModel)
-      }
-      composable(Routes.PROFILE) {
-        // Renders nothing for the frame between sign-out and the redirect to sign-in.
-        val uid = uiState.user?.uid ?: return@composable
-        val profileViewModel: ProfileViewModel =
-            viewModel(
-                key = uid,
-                factory = viewModelFactory { initializer { ProfileViewModel(profileRepository) } },
-            )
-        val profileState by profileViewModel.uiState.collectAsState()
-        LaunchedEffect(uid) { profileViewModel.observeProfile(uid) }
-
-        ProfileContent(
-            profile = profileState.profile,
-            isLoading = profileState.isLoading,
-            errorMessage = profileState.errorMessage,
-            onEditProfile = {
-              navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true }
-            },
-            onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-        )
-      }
-      composable(Routes.EDIT_PROFILE) {
-        // Renders nothing for the frame between sign-out and the redirect to sign-in.
-        val uid = uiState.user?.uid ?: return@composable
-        val editViewModel: EditProfileViewModel =
-            viewModel(
-                key = uid,
-                factory =
-                    viewModelFactory {
-                      initializer { EditProfileViewModel(profileRepository, uid) }
-                    },
-            )
-        val editState by editViewModel.uiState.collectAsState()
-        LaunchedEffect(editState.isSaved) { if (editState.isSaved) navController.popBackStack() }
-
-        EditProfileContent(
-            profile = editState.profile,
-            bio = editState.bio,
-            selectedPhotoUri = editState.selectedPhotoUri,
-            isPhotoRemoved = editState.isPhotoRemoved,
-            isSaving = editState.isSaving,
-            errorMessage = editState.errorMessage,
-            actions =
-                EditProfileActions(
-                    onBioChange = editViewModel::updateBio,
-                    onPhotoSelected = editViewModel::selectProfilePhoto,
-                    onRemovePhoto = editViewModel::removeProfilePhoto,
-                    onSave = editViewModel::saveProfile,
-                    onCancel = { navController.popBackStack() },
-                ),
-        )
-      }
-      composable(Routes.SETTINGS) {
-        // Signing out sets the user to null, and the redirect above returns to sign-in. Signing out
-        // rarely fails, and when it does the user stays here, so the error is shown here too. It is
-        // cleared once shown, so it does not come back on the next visit and a repeat still shows.
-        LaunchedEffect(uiState.errorMessage) {
-          uiState.errorMessage?.let {
-            showMessage(it)
-            authViewModel.clearError()
+            }
+          }
+          Box(
+              modifier = Modifier.fillMaxSize().testTag(AppNavHostTags.LOADING),
+              contentAlignment = Alignment.Center,
+          ) {
+            CircularProgressIndicator()
           }
         }
-        SettingsContent(
-            onBack = { navController.popBackStack() },
-            onSignOut = authViewModel::signOut,
-        )
+        composable(Routes.SIGN_IN) {
+          SignInScreen(
+              authViewModel = authViewModel,
+              onCreateAccount = {
+                navController.navigate(Routes.CREATE_ACCOUNT) { launchSingleTop = true }
+              },
+              onForgotPassword = {
+                navController.navigate(Routes.FORGOT_PASSWORD) { launchSingleTop = true }
+              },
+              onSignedIn = {
+                authViewModel.uiState.value.user?.let { navController.navigateFromAuth(it) }
+              },
+          )
+        }
+        composable(Routes.CREATE_ACCOUNT) {
+          CreateAccountScreen(
+              authViewModel = authViewModel,
+              onBack = { navController.popBackStack() },
+              onSignedIn = {
+                authViewModel.uiState.value.user?.let { navController.navigateFromAuth(it) }
+              },
+          )
+        }
+        composable(Routes.FORGOT_PASSWORD) {
+          // Scoped to this destination: leaving and coming back starts with an empty form.
+          val forgotPasswordViewModel: ForgotPasswordViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory { initializer { ForgotPasswordViewModel(authRepository) } }
+              )
+          ForgotPasswordScreen(
+              forgotPasswordViewModel = forgotPasswordViewModel,
+              onBack = { navController.popBackStack() },
+          )
+        }
+        composable(Routes.VERIFY_EMAIL) {
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val email = uiState.user?.email ?: return@composable
+          val verifyEmailViewModel: VerifyEmailViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory { initializer { VerifyEmailViewModel(authRepository) } }
+              )
+          // Checks on arrival and whenever the user comes back to the app, for example from the
+          // verification link in their mail app, so they do not have to tap the button themselves.
+          LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+            verifyEmailViewModel.refresh(automatic = true)
+          }
+
+          VerifyEmailScreen(
+              verifyEmailViewModel = verifyEmailViewModel,
+              email = email,
+              onVerified = {
+                authViewModel.onEmailVerified()
+                navController.navigate(Routes.BROWSE) {
+                  popUpTo(Routes.VERIFY_EMAIL) { inclusive = true }
+                  launchSingleTop = true
+                }
+              },
+              // Signing out is enough: the redirect above takes the user back to sign-in.
+              onUseAnotherAccount = authViewModel::signOut,
+          )
+        }
+        composable(Routes.BROWSE) {
+          val browseViewModel: BrowseViewModel =
+              viewModel(
+                  factory = viewModelFactory { initializer { BrowseViewModel(listingRepository) } }
+              )
+          BrowseScreen(viewModel = browseViewModel)
+        }
+        composable(Routes.PROFILE) {
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val uid = uiState.user?.uid ?: return@composable
+          val profileViewModel: ProfileViewModel =
+              viewModel(
+                  key = uid,
+                  factory =
+                      viewModelFactory { initializer { ProfileViewModel(profileRepository) } },
+              )
+          val profileState by profileViewModel.uiState.collectAsState()
+          LaunchedEffect(uid) { profileViewModel.observeProfile(uid) }
+
+          ProfileContent(
+              profile = profileState.profile,
+              isLoading = profileState.isLoading,
+              errorMessage = profileState.errorMessage,
+              onEditProfile = {
+                navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true }
+              },
+              onOpenSettings = {
+                navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+              },
+          )
+        }
+        composable(Routes.EDIT_PROFILE) {
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val uid = uiState.user?.uid ?: return@composable
+          val editViewModel: EditProfileViewModel =
+              viewModel(
+                  key = uid,
+                  factory =
+                      viewModelFactory {
+                        initializer { EditProfileViewModel(profileRepository, uid) }
+                      },
+              )
+          val editState by editViewModel.uiState.collectAsState()
+          LaunchedEffect(editState.isSaved) { if (editState.isSaved) navController.popBackStack() }
+
+          EditProfileContent(
+              profile = editState.profile,
+              bio = editState.bio,
+              selectedPhotoUri = editState.selectedPhotoUri,
+              isPhotoRemoved = editState.isPhotoRemoved,
+              isSaving = editState.isSaving,
+              errorMessage = editState.errorMessage,
+              actions =
+                  EditProfileActions(
+                      onBioChange = editViewModel::updateBio,
+                      onPhotoSelected = editViewModel::selectProfilePhoto,
+                      onRemovePhoto = editViewModel::removeProfilePhoto,
+                      onSave = editViewModel::saveProfile,
+                      onCancel = { navController.popBackStack() },
+                  ),
+          )
+        }
+        composable(Routes.SETTINGS) {
+          // Signing out sets the user to null, and the redirect above returns to sign-in. Signing
+          // out rarely fails, and when it does the user stays here, so the error is shown here too.
+          // It is cleared once shown, so it does not come back on the next visit and a repeat still
+          // shows.
+          LaunchedEffect(uiState.errorMessage) {
+            uiState.errorMessage?.let {
+              showMessage(it)
+              authViewModel.clearError()
+            }
+          }
+          SettingsContent(
+              onBack = { navController.popBackStack() },
+              onSignOut = authViewModel::signOut,
+          )
+        }
       }
+      SnackbarHost(
+          hostState = snackbarHostState,
+          modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding(),
+      )
     }
-    SnackbarHost(
-        hostState = snackbarHostState,
-        modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding(),
-    )
   }
 }
 
@@ -260,14 +282,25 @@ private val signedInRoutes =
     setOf(Routes.VERIFY_EMAIL, Routes.BROWSE, Routes.PROFILE, Routes.EDIT_PROFILE, Routes.SETTINGS)
 
 /**
- * Where a signed-in [user] belongs: the app once their email is verified, the verify screen before.
+ * Where a signed-in [user] belongs: Browse once their email is verified, the verify screen before.
  */
 private fun signedInRoute(user: User): String =
-    if (user.isEmailVerified) Routes.PROFILE else Routes.VERIFY_EMAIL
+    if (user.isEmailVerified) Routes.BROWSE else Routes.VERIFY_EMAIL
 
 private fun NavHostController.navigateFromAuth(user: User) {
   navigate(signedInRoute(user)) {
     popUpTo(Routes.SIGN_IN) { inclusive = true }
     launchSingleTop = true
+  }
+}
+
+private fun NavHostController.navigateToTab(route: String) {
+  if (currentBackStackEntry?.destination?.route == route) return
+  navigate(route) {
+    // Browse is the root of the signed-in back stack, since Loading is popped on the way in.
+    // Popping to it keeps a single Browse entry and saves Profile for restoreState.
+    popUpTo(Routes.BROWSE) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
   }
 }
