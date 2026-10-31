@@ -37,18 +37,18 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.core.app.ActivityOptionsCompat
+import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
-import com.android.polybazaar.listing.model.ListingRules
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
-import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
-import com.android.polybazaar.listing.viewmodel.ListingUiState
 import com.android.polybazaar.listing.viewmodel.ListingViewModel
 import java.io.File
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -67,13 +67,22 @@ class CreateListingScreenTest {
 
   @get:Rule val composeTestRule = createComposeRule()
 
+  private val context = ApplicationProvider.getApplicationContext<Context>()
+
+  /**
+   * Shows the screen driven by a real [ListingViewModel], so typing in the form goes through it.
+   * The listing it creates can be read from [repository].
+   */
   private fun setContent(
-      uiState: ListingUiState = ListingUiState(),
-      onCreateListing: (Listing) -> Unit = {},
-  ) {
-    composeTestRule.setContent {
-      CreateListingContent(uiState = uiState, onCreateListing = onCreateListing)
+      repository: RecordingListingRepository = RecordingListingRepository(),
+      registry: FakePickerRegistry = FakePickerRegistry(),
+      onListingCreated: (Listing) -> Unit = {},
+  ): ListingViewModel {
+    val viewModel = ListingViewModel(repository, FilePhotoStorage(context), SavedStateHandle())
+    setContentWithRegistry(registry) {
+      CreateListingScreen(listingViewModel = viewModel, onListingCreated = onListingCreated)
     }
+    return viewModel
   }
 
   private fun node(tag: String) = composeTestRule.onNodeWithTag(tag)
@@ -158,9 +167,9 @@ class CreateListingScreenTest {
   }
 
   @Test
-  fun submittingItemForm_emitsItemListing() {
-    var created: Listing? = null
-    setContent(onCreateListing = { created = it })
+  fun submittingItemForm_sendsItemListing() {
+    val repository = RecordingListingRepository()
+    setContent(repository)
 
     fillForm("  Bosch drill  ", "Comes with bits", "12,50", "Tools")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
@@ -172,22 +181,23 @@ class CreateListingScreenTest {
             title = "Bosch drill",
             description = "Comes with bits",
         ),
-        created,
+        repository.received,
     )
   }
 
   @Test
-  fun submittingServiceForm_emitsServiceListing() {
-    var created: Listing? = null
-    setContent(onCreateListing = { created = it })
+  fun submittingServiceForm_sendsServiceListing() {
+    val repository = RecordingListingRepository()
+    setContent(repository)
 
     node(CreateListingScreenTags.TYPE_SERVICE).performClick()
     fillForm("Math help", "Analysis I", "20", "Tutoring")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
 
-    assertTrue(created is ServiceListing)
-    assertEquals(20.0, created!!.price, 0.0)
-    assertEquals("Tutoring", created.category)
+    val sent = repository.received
+    assertTrue(sent is ServiceListing)
+    assertEquals(20.0, sent!!.price, 0.0)
+    assertEquals("Tutoring", sent.category)
   }
 
   @Test
@@ -218,14 +228,14 @@ class CreateListingScreenTest {
 
   @Test
   fun priceField_acceptsMaxPrice() {
-    var created: Listing? = null
-    setContent(onCreateListing = { created = it })
+    val repository = RecordingListingRepository()
+    setContent(repository)
     fillForm("Drill", "Works well", "10000", "Tools")
     node(CreateListingScreenTags.TITLE_FIELD).performClick()
 
     node(CreateListingScreenTags.PRICE_ERROR).assertDoesNotExist()
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
-    assertEquals(10_000.0, created?.price)
+    assertEquals(10_000.0, repository.received?.price)
   }
 
   @Test
@@ -258,8 +268,8 @@ class CreateListingScreenTest {
 
   @Test
   fun refundField_acceptsSixDigitsUpToMax() {
-    var created: Listing? = null
-    setContent(onCreateListing = { created = it })
+    val repository = RecordingListingRepository()
+    setContent(repository)
     fillForm("Drill", "Works well", "5", "Tools")
 
     node(CreateListingScreenTags.REFUND_FIELD).performScrollTo().performTextInput("100000")
@@ -274,7 +284,7 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.TITLE_FIELD).performScrollTo().performClick()
     node(CreateListingScreenTags.REFUND_ERROR).assertDoesNotExist()
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
-    assertEquals(100_000.0, (created as ItemListing).refundValue, 0.0)
+    assertEquals(100_000.0, (repository.received as ItemListing).refundValue, 0.0)
   }
 
   @Test
@@ -320,29 +330,6 @@ class CreateListingScreenTest {
   }
 
   @Test
-  fun isValidPriceInput_allowsOneSeparatorAndTwoDecimals() {
-    listOf("", "5", "12.5", "12,50", "0.", ".5").forEach { assertTrue(it, isValidPriceInput(it)) }
-    listOf("10000.00", "99999").forEach { assertTrue(it, isValidPriceInput(it)) }
-    assertTrue(isValidRefundInput("100000.00"))
-    assertFalse(isValidRefundInput("1000000"))
-    listOf("1.2.3", "1,000.50", "1.234", "abc", "-5", "5 ", "100000").forEach {
-      assertFalse(it, isValidPriceInput(it))
-    }
-  }
-
-  @Test
-  fun showAmountError_onlyFlagsTouchedInvalidAmounts() {
-    assertTrue(showAmountError(touched = true, input = "0"))
-    assertFalse(showAmountError(touched = false, input = "0"))
-    assertFalse(showAmountError(touched = true, input = ""))
-    assertFalse(showAmountError(touched = true, input = "12,50"))
-    assertFalse(showAmountError(touched = true, input = "10000"))
-    assertTrue(showAmountError(touched = true, input = "10000.01"))
-    assertFalse(showAmountError(true, "100000", ListingRules.MAX_REFUND_VALUE))
-    assertTrue(showAmountError(true, "100000.01", ListingRules.MAX_REFUND_VALUE))
-  }
-
-  @Test
   fun priceField_rejectsNonNumericInput() {
     setContent()
 
@@ -353,20 +340,15 @@ class CreateListingScreenTest {
   }
 
   @Test
-  fun whileCreating_buttonIsDisabled() {
-    setContent(uiState = ListingUiState(isCreating = true))
+  fun whileCreating_buttonAndPhotoButtonsAreDisabled() {
+    setContent(RecordingListingRepository(hang = true))
     fillForm("Drill", "Works well", "5", "Tools")
 
-    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().assertIsNotEnabled()
-  }
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
 
-  @Test
-  fun errorMessage_isDisplayed() {
-    setContent(uiState = ListingUiState(errorMessage = "Network error"))
-
-    node(CreateListingScreenTags.ERROR_MESSAGE)
-        .performScrollTo()
-        .assertTextContains("Network error")
+    node(CreateListingScreenTags.CREATE_BUTTON).assertIsNotEnabled().assertTextContains("Creating…")
+    node(CreateListingScreenTags.TAKE_PHOTO).performScrollTo().assertIsNotEnabled()
+    node(CreateListingScreenTags.PHOTO_PICKER).performScrollTo().assertIsNotEnabled()
   }
 
   private fun uris(count: Int) = (1..count).map { Uri.parse("content://photos/$it") }
@@ -414,14 +396,6 @@ class CreateListingScreenTest {
         .forEach { node(it).performScrollTo().assertIsNotEnabled().performClick() }
 
     assertEquals(0, clicks)
-  }
-
-  @Test
-  fun whileCreating_photoButtonsAreDisabled() {
-    setContent(uiState = ListingUiState(isCreating = true))
-
-    node(CreateListingScreenTags.TAKE_PHOTO).performScrollTo().assertIsNotEnabled()
-    node(CreateListingScreenTags.PHOTO_PICKER).performScrollTo().assertIsNotEnabled()
   }
 
   @Test
@@ -495,21 +469,6 @@ class CreateListingScreenTest {
   }
 
   @Test
-  fun withTakenPhoto_addsNewPhotosAndReplacesRetakenOnes() {
-    val photos = uris(3)
-    val taken = Uri.parse("content://photos/taken")
-
-    assertEquals(photos + taken, withTakenPhoto(photos, taken, retakeIndex = null))
-    assertEquals(
-        listOf(photos[0], taken, photos[2]),
-        withTakenPhoto(photos, taken, retakeIndex = 1),
-    )
-    // A retake of a photo removed in the meantime is kept as a new photo.
-    assertEquals(photos + taken, withTakenPhoto(photos, taken, retakeIndex = 7))
-    assertEquals(uris(MAX_PHOTOS), withTakenPhoto(uris(MAX_PHOTOS), taken, retakeIndex = null))
-  }
-
-  @Test
   fun photoPicker_removeButtonReportsThatPhoto() {
     val photos = uris(3)
     var removed: Uri? = null
@@ -521,36 +480,15 @@ class CreateListingScreenTest {
   }
 
   @Test
-  fun buildListing_putsPhotosOnBothTypes() {
-    val photos = uris(3)
-
-    val item = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", photos)
-    val service = buildListing(ListingType.SERVICE, "t", "d", "5", "Tutoring", photos)
-
-    assertEquals(photos, item?.images)
-    assertEquals(photos, service?.images)
-  }
-
-  @Test
-  fun buildListing_refundValueDefaultsToPrice() {
-    val blank = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), " ")
-    val given = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "80,50")
-
-    assertEquals(5.0, (blank as ItemListing).refundValue, 0.0)
-    assertEquals(80.5, (given as ItemListing).refundValue, 0.0)
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "0"))
-  }
-
-  @Test
   fun submittingItemForm_includesRefundValue() {
-    var created: Listing? = null
-    setContent(onCreateListing = { created = it })
+    val repository = RecordingListingRepository()
+    setContent(repository)
 
     fillForm("Drill", "Works well", "5", "Tools")
     node(CreateListingScreenTags.REFUND_FIELD).performScrollTo().performTextInput("120")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
 
-    assertEquals(120.0, (created as ItemListing).refundValue, 0.0)
+    assertEquals(120.0, (repository.received as ItemListing).refundValue, 0.0)
   }
 
   @Test
@@ -584,11 +522,8 @@ class CreateListingScreenTest {
   @Test
   fun screen_sendsListingToViewModelAndReportsCreation() {
     val repository = RecordingListingRepository()
-    val viewModel = ListingViewModel(repository)
     var created: Listing? = null
-    composeTestRule.setContent {
-      CreateListingScreen(listingViewModel = viewModel, onListingCreated = { created = it })
-    }
+    setContent(repository, onListingCreated = { created = it })
 
     node(CreateListingScreenTags.TYPE_SERVICE).performClick()
     fillForm("Math help", "Analysis I", "20", "Tutoring")
@@ -602,8 +537,7 @@ class CreateListingScreenTest {
 
   @Test
   fun screen_showsViewModelError() {
-    val viewModel = ListingViewModel(RecordingListingRepository(failure = Exception("Offline")))
-    composeTestRule.setContent { CreateListingScreen(listingViewModel = viewModel) }
+    setContent(RecordingListingRepository(failure = Exception("Offline")))
 
     fillForm("Drill", "Works well", "5", "Tools")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
@@ -612,23 +546,8 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.ERROR_MESSAGE).performScrollTo().assertTextContains("Offline")
   }
 
-  @Test
-  fun buildListing_returnsNullForIncompleteOrInvalidInput() {
-    assertNull(buildListing(ListingType.ITEM, "", "d", "5", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", " ", "5", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "0", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "1.2.3", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null, emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "10000.01", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000.01"))
-    assertNotNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000"))
-    assertNull(buildListing(ListingType.SERVICE, "t", "d", "10000.01", "Tutoring", emptyList()))
-  }
-
   // Photo picking: these tests use a fake system picker to reach the code that handles its result,
   // which the PhotoPicker tests above cannot.
-
-  private val context = ApplicationProvider.getApplicationContext<Context>()
 
   /**
    * These are file:// URIs to files that do not exist: the screen loads a thumbnail for every
@@ -680,12 +599,8 @@ class CreateListingScreenTest {
 
   private fun setContentWithPicker(
       registry: FakePickerRegistry,
-      onCreateListing: (Listing) -> Unit = {},
-  ) {
-    setContentWithRegistry(registry) {
-      CreateListingContent(uiState = ListingUiState(), onCreateListing = onCreateListing)
-    }
-  }
+      repository: RecordingListingRepository = RecordingListingRepository(),
+  ) = setContent(repository, registry)
 
   @Test
   fun pickedPhotos_areShownAndDuplicatesIgnored() {
@@ -757,15 +672,15 @@ class CreateListingScreenTest {
   fun submittedListing_containsPickedPhotosInOrder() {
     val registry = FakePickerRegistry()
     registry.results.add(pickedPhotos(1..3))
-    var created: Listing? = null
-    setContentWithPicker(registry, onCreateListing = { created = it })
+    val repository = RecordingListingRepository()
+    setContentWithPicker(registry, repository)
 
     node(CreateListingScreenTags.PHOTO_PICKER).performClick()
     node(CreateListingScreenTags.removePhoto(1)).performClick()
     fillForm("Drill", "Works well", "5", "Tools")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
 
-    assertEquals(pickedPhotos(1..3) - pickedPhotos(2..2), created?.images)
+    assertEquals(pickedPhotos(1..3) - pickedPhotos(2..2), repository.received?.images)
   }
 
   // Camera: the fake registry also answers the permission request and stands in for the camera
@@ -790,8 +705,9 @@ class CreateListingScreenTest {
     grantCameraPermission()
     val registry = FakePickerRegistry()
     registry.results.add(true) // The camera app saved a photo.
-    var created: Listing? = null
-    setContentWithPicker(registry, onCreateListing = { created = it })
+    // Never answers, so the photo is not deleted as uploaded before it is checked.
+    val repository = RecordingListingRepository(hang = true)
+    setContentWithPicker(registry, repository)
 
     node(CreateListingScreenTags.TAKE_PHOTO).performClick()
     composeTestRule.onNodeWithText("1/$MAX_PHOTOS").assertIsDisplayed()
@@ -799,19 +715,8 @@ class CreateListingScreenTest {
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
 
     assertTrue(registry.launched.single() is ActivityResultContracts.TakePicture)
-    val photo = created?.images?.single()
+    val photo = repository.received?.images?.single()
     assertTrue(photo != null && isTakenPhoto(photo) && File(photo.path!!).exists())
-  }
-
-  /** The camera app writes through this URI, so it must follow res/xml/file_paths.xml. */
-  @Test
-  fun contentUriFor_pointsAtTheFileProviderPhotoRoot() {
-    val uri = contentUriFor(context, File(photoDirectory, "photo_1.jpg"))
-
-    assertEquals(
-        "content://${context.packageName}.fileprovider/listing_photos/photo_1.jpg",
-        uri.toString(),
-    )
   }
 
   @Test
@@ -842,38 +747,8 @@ class CreateListingScreenTest {
     assertTrue(takenPhotoFiles().isEmpty())
   }
 
-  // Taken photos are kept in app storage, which Android never clears, so the screen deletes them
-  // once they are no longer needed.
-
-  @Test
-  fun deleteTakenPhoto_deletesOnlyCameraPhotos() {
-    val taken = File(photoDirectory.apply { mkdirs() }, "photo_1.jpg").apply { createNewFile() }
-    val other = File(context.filesDir, "photo_2.jpg").apply { createNewFile() }
-
-    deleteTakenPhoto(context, Uri.fromFile(other))
-    deleteTakenPhoto(context, Uri.parse("content://media/external/images/media/1"))
-    deleteTakenPhoto(context, Uri.fromFile(taken))
-
-    assertFalse(taken.exists())
-    assertTrue(other.exists())
-  }
-
-  @Test
-  fun deleteAbandonedPhotos_keepsPhotosInUseAndOtherFiles() {
-    val directory = photoDirectory.apply { mkdirs() }
-    val inUse = File(directory, "photo_1.jpg").apply { createNewFile() }
-    val abandoned = File(directory, "photo_2.jpg").apply { createNewFile() }
-    val other = File(context.filesDir, "photo_3.jpg").apply { createNewFile() }
-
-    deleteAbandonedPhotos(
-        context,
-        keep = listOf(Uri.fromFile(inUse), Uri.parse("content://media/external/images/media/1")),
-    )
-
-    assertTrue(inUse.exists())
-    assertFalse(abandoned.exists())
-    assertTrue(other.exists())
-  }
+  // Taken photos are kept in app storage, which Android never clears, so they are deleted once no
+  // longer needed. FilePhotoStorageTest covers the deletion itself; these check when it happens.
 
   @Test
   fun openingForm_deletesPhotosOfAFormThatWasLeft() {
@@ -939,11 +814,8 @@ class CreateListingScreenTest {
     grantCameraPermission()
     val registry = FakePickerRegistry()
     registry.results.add(true) // The camera app saved a photo.
-    val viewModel = ListingViewModel(RecordingListingRepository())
     var created: Listing? = null
-    setContentWithRegistry(registry) {
-      CreateListingScreen(listingViewModel = viewModel, onListingCreated = { created = it })
-    }
+    setContent(registry = registry, onListingCreated = { created = it })
 
     node(CreateListingScreenTags.TAKE_PHOTO).performClick()
     fillForm("Drill", "Works well", "5", "Tools")
@@ -960,7 +832,12 @@ class CreateListingScreenTest {
   fun createdListing_isHandledOnlyOnceAcrossRecreation() {
     val registry = FakePickerRegistry()
     registry.results.add(pickedPhotos(1..2))
-    val viewModel = ListingViewModel(RecordingListingRepository())
+    val viewModel =
+        ListingViewModel(
+            RecordingListingRepository(),
+            FilePhotoStorage(context),
+            SavedStateHandle(),
+        )
     var createdCount = 0
     val owner =
         object : ActivityResultRegistryOwner {
@@ -992,15 +869,15 @@ class CreateListingScreenTest {
     val registry = FakePickerRegistry()
     registry.results.add(pickedPhotos(1..2))
     registry.results.add(true) // The camera app saved the new photo.
-    var created: Listing? = null
-    setContentWithPicker(registry, onCreateListing = { created = it })
+    val repository = RecordingListingRepository()
+    setContentWithPicker(registry, repository)
 
     node(CreateListingScreenTags.PHOTO_PICKER).performClick()
     node(CreateListingScreenTags.photo(0)).performClick()
     fillForm("Drill", "Works well", "5", "Tools")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
 
-    val images = created?.images.orEmpty()
+    val images = repository.received?.images.orEmpty()
     assertEquals(2, images.size)
     assertTrue(isTakenPhoto(images[0]))
     assertEquals(pickedPhotos(2..2).single(), images[1])
@@ -1114,13 +991,20 @@ class CreateListingScreenTest {
     composeTestRule.onNodeWithContentDescription("Photo 1").assertIsDisplayed()
   }
 
-  private class RecordingListingRepository(private val failure: Exception? = null) :
-      ListingRepository {
+  /**
+   * @param failure thrown instead of saving the listing.
+   * @param hang never answers, leaving the screen creating.
+   */
+  private class RecordingListingRepository(
+      private val failure: Exception? = null,
+      private val hang: Boolean = false,
+  ) : ListingRepository {
     var received: Listing? = null
 
     override suspend fun createListing(listing: Listing): Listing {
       received = listing
       failure?.let { throw it }
+      if (hang) awaitCancellation()
       // Like the real repository, returns where the photos were uploaded.
       val uploaded = listing.images.indices.map { "listings/owner/listing-1/images/$it" }
       return when (listing) {

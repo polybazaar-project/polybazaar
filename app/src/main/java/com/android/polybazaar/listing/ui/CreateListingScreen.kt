@@ -40,8 +40,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,19 +64,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
-import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.ui.AuthCard
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
-import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRules
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
-import com.android.polybazaar.listing.model.ListingRules.categoriesFor
 import com.android.polybazaar.listing.model.ListingType
-import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingUiState
 import com.android.polybazaar.listing.viewmodel.ListingViewModel
 import java.io.IOException
@@ -116,74 +110,6 @@ object CreateListingScreenTags {
   fun categoryOption(category: String) = "create_listing_category_option_$category"
 }
 
-/**
- * Up to five integer digits (10000.00 is the largest valid amount), at most one decimal separator
- * and two decimals: what the price field accepts.
- */
-private val PRICE_INPUT = Regex("""\d{0,5}([.,]\d{0,2})?""")
-
-/** Same as [PRICE_INPUT] with a sixth integer digit, since 100000.00 is the largest refund. */
-private val REFUND_INPUT = Regex("""\d{0,6}([.,]\d{0,2})?""")
-
-internal fun isValidPriceInput(input: String): Boolean = PRICE_INPUT.matches(input)
-
-internal fun isValidRefundInput(input: String): Boolean = REFUND_INPUT.matches(input)
-
-/** Parses a user-typed price, accepting either "." or "," as decimal separator. */
-internal fun parsePrice(input: String, max: Double = ListingRules.MAX_PRICE): Double? =
-    input.trim().replace(',', '.').toDoubleOrNull()?.takeIf { ListingRules.isValidAmount(it, max) }
-
-/** Builds the listing described by the form, or returns null while the form is incomplete. */
-internal fun buildListing(
-    type: ListingType,
-    title: String,
-    description: String,
-    price: String,
-    category: String?,
-    photos: List<Uri>,
-    refundValue: String = "",
-): Listing? {
-  val parsedPrice = parsePrice(price) ?: return null
-  if (title.isBlank() || description.isBlank() || category == null) return null
-  return when (type) {
-    ListingType.ITEM ->
-        ItemListing(
-            category = category,
-            price = parsedPrice,
-            title = title.trim(),
-            description = description.trim(),
-            // Left blank, the refund value falls back to the price, like in ItemListing.
-            refundValue =
-                if (refundValue.isBlank()) parsedPrice
-                else parsePrice(refundValue, ListingRules.MAX_REFUND_VALUE) ?: return null,
-            images = photos,
-        )
-    ListingType.SERVICE ->
-        ServiceListing(
-            category = category,
-            price = parsedPrice,
-            title = title.trim(),
-            description = description.trim(),
-            images = photos,
-        )
-  }
-}
-
-/** Adds a camera [photo], or swaps it in for the photo at [retakeIndex] when retaking one. */
-internal fun withTakenPhoto(photos: List<Uri>, photo: Uri, retakeIndex: Int?): List<Uri> =
-    if (retakeIndex != null && retakeIndex in photos.indices) {
-      photos.toMutableList().apply { set(retakeIndex, photo) }
-    } else {
-      (photos + photo).take(MAX_PHOTOS)
-    }
-
-/** Whether to flag [input] as an invalid amount: only once the user has left a non-empty field. */
-internal fun showAmountError(
-    touched: Boolean,
-    input: String,
-    max: Double = ListingRules.MAX_PRICE,
-): Boolean = touched && input.isNotEmpty() && parsePrice(input, max) == null
-
 /** Form texts that differ between items and services. */
 private data class ListingFormTexts(
     val titlePlaceholder: String,
@@ -209,6 +135,24 @@ private fun formTextsFor(type: ListingType): ListingFormTexts =
           )
     }
 
+/** What the user can do on the "Create listing" screen. */
+class CreateListingActions(
+    val onTypeSelected: (ListingType) -> Unit = {},
+    val onTitleChange: (String) -> Unit = {},
+    val onDescriptionChange: (String) -> Unit = {},
+    val onPriceChange: (String) -> Unit = {},
+    val onPriceFieldLeft: () -> Unit = {},
+    val onRefundValueChange: (String) -> Unit = {},
+    val onRefundFieldLeft: () -> Unit = {},
+    val onCategorySelected: (String) -> Unit = {},
+    val onPhotosPicked: (List<Uri>) -> Unit = {},
+    val onPhotoRemoved: (Uri) -> Unit = {},
+    /** Returns the URI the camera app writes the photo to, or null when none can be created. */
+    val startTakingPhoto: (retakeIndex: Int?) -> Uri? = { null },
+    val finishTakingPhoto: (saved: Boolean) -> Unit = {},
+    val onCreate: () -> Unit = {},
+)
+
 /**
  * "Create listing" screen.
  *
@@ -219,86 +163,63 @@ fun CreateListingScreen(
     listingViewModel: ListingViewModel,
     onListingCreated: (Listing) -> Unit = {},
 ) {
-  val uiState by listingViewModel.uiState.collectAsState()
+  // Collected without dispatching, so each keystroke reaches the text fields before the next
+  // one: a field that lags behind its input can jump its cursor or drop characters.
+  val uiState by listingViewModel.uiState.collectAsState(context = Dispatchers.Main.immediate)
+  val actions =
+      remember(listingViewModel) {
+        CreateListingActions(
+            onTypeSelected = listingViewModel::selectType,
+            onTitleChange = listingViewModel::updateTitle,
+            onDescriptionChange = listingViewModel::updateDescription,
+            onPriceChange = listingViewModel::updatePrice,
+            onPriceFieldLeft = listingViewModel::leavePriceField,
+            onRefundValueChange = listingViewModel::updateRefundValue,
+            onRefundFieldLeft = listingViewModel::leaveRefundField,
+            onCategorySelected = listingViewModel::selectCategory,
+            onPhotosPicked = listingViewModel::addPhotos,
+            onPhotoRemoved = listingViewModel::removePhoto,
+            startTakingPhoto = listingViewModel::startTakingPhoto,
+            finishTakingPhoto = listingViewModel::finishTakingPhoto,
+            onCreate = listingViewModel::createListing,
+        )
+      }
+  LaunchedEffect(uiState.createdListing) {
+    uiState.createdListing?.let { createdListing ->
+      onListingCreated(createdListing)
+      // Handled, so recreating the screen (on rotation, say) must not handle it again.
+      listingViewModel.clearCreatedListing()
+    }
+  }
 
-  CreateListingContent(
-      uiState = uiState,
-      onCreateListing = listingViewModel::createListing,
-      onListingCreated = { listing ->
-        onListingCreated(listing)
-        // Handled, so recreating the screen (on rotation, say) must not handle it again.
-        listingViewModel.clearCreatedListing()
-      },
-  )
+  CreateListingContent(uiState = uiState, actions = actions)
 }
 
 /**
- * "Create listing" form. The fields shown depend on the selected [ListingType]: items get a daily
- * price and a refund value, services an hourly price.
+ * "Create listing" form, drawn from [uiState]. The fields shown depend on the selected
+ * [ListingType]: items get a daily price and a refund value, services an hourly price.
  *
- * @param onCreateListing called with the listing built from the form.
- * @param onListingCreated called with [ListingUiState.createdListing] once the form has cleared its
- *   photos.
+ * @param actions called when the user edits the form, adds photos or creates the listing.
  */
 @Composable
-fun CreateListingContent(
-    uiState: ListingUiState,
-    onCreateListing: (Listing) -> Unit,
-    onListingCreated: (Listing) -> Unit = {},
-) {
-  var type by rememberSaveable { mutableStateOf(ListingType.ITEM) }
-  var title by rememberSaveable { mutableStateOf("") }
-  var description by rememberSaveable { mutableStateOf("") }
-  var price by rememberSaveable { mutableStateOf("") }
-  var refundValue by rememberSaveable { mutableStateOf("") }
-  var priceTouched by rememberSaveable { mutableStateOf(false) }
-  var refundTouched by rememberSaveable { mutableStateOf(false) }
-  var category by rememberSaveable { mutableStateOf<String?>(null) }
-  var photos by
-      rememberSaveable(saver = listSaver(save = { it.value }, restore = { mutableStateOf(it) })) {
-        mutableStateOf(emptyList<Uri>())
-      }
-  val remainingPhotos = MAX_PHOTOS - photos.size
-  val addPhotos = { picked: List<Uri> ->
-    photos = (photos + picked.filterNot { it in photos }).take(MAX_PHOTOS)
-  }
+fun CreateListingContent(uiState: ListingUiState, actions: CreateListingActions) {
+  val remainingPhotos = MAX_PHOTOS - uiState.photos.size
 
   // PickMultipleVisualMedia needs a limit above 1, so the last free slot uses the single picker.
   val singlePhotoPicker =
       rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) addPhotos(listOf(uri))
+        if (uri != null) actions.onPhotosPicked(listOf(uri))
       }
   val multiplePhotoPicker =
       rememberLauncherForActivityResult(
           ActivityResultContracts.PickMultipleVisualMedia(maxOf(remainingPhotos, 2))
       ) { uris ->
-        addPhotos(uris)
+        actions.onPhotosPicked(uris)
       }
-  val context = LocalContext.current
-  val camera =
-      rememberPhotoCamera(photosInUse = { photos }) { photo, retakeIndex ->
-        val retaken = retakeIndex?.let(photos::getOrNull)
-        photos = withTakenPhoto(photos, photo, retakeIndex)
-        retaken?.let { deleteTakenPhoto(context, it) }
-      }
-  LaunchedEffect(uiState.createdListing) {
-    uiState.createdListing?.let { createdListing ->
-      // Uploaded, so the camera photos are no longer needed on the phone or in the form.
-      photos.forEach { deleteTakenPhoto(context, it) }
-      photos = emptyList()
-      onListingCreated(createdListing)
-    }
-  }
+  val camera = rememberPhotoCamera(actions.startTakingPhoto, actions.finishTakingPhoto)
 
-  // Categories differ between items and services, so drop one that no longer applies.
-  val selectType = { newType: ListingType ->
-    type = newType
-    if (category !in categoriesFor(newType)) category = null
-  }
-
-  val listing = buildListing(type, title, description, price, category, photos, refundValue)
-  val isItem = type == ListingType.ITEM
-  val texts = formTextsFor(type)
+  val isItem = uiState.type == ListingType.ITEM
+  val texts = formTextsFor(uiState.type)
 
   Column(
       modifier =
@@ -341,7 +262,7 @@ fun CreateListingContent(
           subtitle = "Share your skills",
           icon = R.drawable.ic_service,
           selected = !isItem,
-          onClick = { selectType(ListingType.SERVICE) },
+          onClick = { actions.onTypeSelected(ListingType.SERVICE) },
           tag = CreateListingScreenTags.TYPE_SERVICE,
           modifier = Modifier.weight(1f),
       )
@@ -350,14 +271,14 @@ fun CreateListingContent(
           subtitle = "Lend something",
           icon = R.drawable.ic_item,
           selected = isItem,
-          onClick = { selectType(ListingType.ITEM) },
+          onClick = { actions.onTypeSelected(ListingType.ITEM) },
           tag = CreateListingScreenTags.TYPE_ITEM,
           modifier = Modifier.weight(1f),
       )
     }
     AuthCard {
       PhotoPicker(
-          photos = photos,
+          photos = uiState.photos,
           onAddPhotos = {
             val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             if (remainingPhotos > 1) multiplePhotoPicker.launch(request)
@@ -365,33 +286,30 @@ fun CreateListingContent(
           },
           onTakePhoto = camera::takePhoto,
           onRetakePhoto = camera::retakePhoto,
-          onRemovePhoto = { removed ->
-            photos = photos - removed
-            deleteTakenPhoto(context, removed)
-          },
+          onRemovePhoto = actions.onPhotoRemoved,
           // The repository is still reading these photos, so none may be removed or replaced.
           enabled = !uiState.isCreating,
       )
       FormField(
           label = "Title",
-          counter = "${title.length}/$MAX_TITLE_LENGTH",
+          counter = "${uiState.title.length}/$MAX_TITLE_LENGTH",
           counterTag = CreateListingScreenTags.TITLE_COUNTER,
       ) {
         FormTextField(
-            value = title,
-            onValueChange = { title = AuthRules.limitInput(it, MAX_TITLE_LENGTH) },
+            value = uiState.title,
+            onValueChange = actions.onTitleChange,
             placeholder = texts.titlePlaceholder,
             tag = CreateListingScreenTags.TITLE_FIELD,
         )
       }
       FormField(
           label = "Description",
-          counter = "${description.length}/$MAX_DESCRIPTION_LENGTH",
+          counter = "${uiState.description.length}/$MAX_DESCRIPTION_LENGTH",
           counterTag = CreateListingScreenTags.DESCRIPTION_COUNTER,
       ) {
         FormTextField(
-            value = description,
-            onValueChange = { description = AuthRules.limitInput(it, MAX_DESCRIPTION_LENGTH) },
+            value = uiState.description,
+            onValueChange = actions.onDescriptionChange,
             placeholder = texts.descriptionPlaceholder,
             tag = CreateListingScreenTags.DESCRIPTION_FIELD,
             singleLine = false,
@@ -405,24 +323,24 @@ fun CreateListingContent(
             modifier = Modifier.weight(1f),
         ) {
           FormTextField(
-              value = price,
-              onValueChange = { input -> if (isValidPriceInput(input)) price = input },
+              value = uiState.price,
+              onValueChange = actions.onPriceChange,
               placeholder = "0.00",
               tag = CreateListingScreenTags.PRICE_FIELD,
               keyboardType = KeyboardType.Decimal,
               prefix = "CHF",
-              onFocusLost = { priceTouched = true },
+              onFocusLost = actions.onPriceFieldLeft,
           )
         }
         FormField(label = "Category", modifier = Modifier.weight(1f)) {
           CategoryDropdown(
-              selected = category,
-              options = categoriesFor(type),
-              onSelect = { category = it },
+              selected = uiState.category,
+              options = uiState.categories,
+              onSelect = actions.onCategorySelected,
           )
         }
       }
-      if (showAmountError(priceTouched, price)) {
+      if (uiState.showPriceError) {
         FieldError(
             text = ListingRules.PRICE_RANGE_MESSAGE,
             tag = CreateListingScreenTags.PRICE_ERROR,
@@ -430,10 +348,10 @@ fun CreateListingContent(
       }
       if (isItem) {
         RefundValueField(
-            value = refundValue,
-            onValueChange = { refundValue = it },
-            showError = showAmountError(refundTouched, refundValue, ListingRules.MAX_REFUND_VALUE),
-            onFocusLost = { refundTouched = true },
+            value = uiState.refundValue,
+            onValueChange = actions.onRefundValueChange,
+            showError = uiState.showRefundError,
+            onFocusLost = actions.onRefundFieldLeft,
         )
       }
     }
@@ -448,8 +366,8 @@ fun CreateListingContent(
     }
     AuthPrimaryButton(
         text = if (uiState.isCreating) "Creating…" else "+  Create listing",
-        onClick = { listing?.let(onCreateListing) },
-        enabled = listing != null && !uiState.isCreating,
+        onClick = actions.onCreate,
+        enabled = uiState.canCreate,
         modifier =
             Modifier.fillMaxWidth()
                 .padding(horizontal = 18.dp, vertical = 10.dp)
@@ -479,7 +397,7 @@ private fun RefundValueField(
   FormField(label = "Refund value") {
     FormTextField(
         value = value,
-        onValueChange = { input -> if (isValidRefundInput(input)) onValueChange(input) },
+        onValueChange = onValueChange,
         placeholder = "Same as the price if left empty",
         tag = CreateListingScreenTags.REFUND_FIELD,
         keyboardType = KeyboardType.Decimal,
@@ -966,5 +884,5 @@ private fun CategoryDropdown(selected: String?, options: List<String>, onSelect:
 @Preview(showBackground = true, widthDp = 412, heightDp = 924)
 @Composable
 private fun CreateListingContentPreview() {
-  CreateListingContent(uiState = ListingUiState(), onCreateListing = {})
+  CreateListingContent(uiState = ListingUiState(), actions = CreateListingActions())
 }
