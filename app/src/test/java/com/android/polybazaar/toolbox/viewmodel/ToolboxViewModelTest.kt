@@ -31,13 +31,12 @@ class ToolboxViewModelTest {
           ServiceListing("Tutoring", 25.0, "Math tutoring", "One hour", listingId = "math"),
       )
 
-  private val repository = FakeListingRepository()
+  private val repository = FakeListingRepository(myListings = myListings)
 
   @Before
   fun setUp() {
     // init loads the listings on Dispatchers.Main; run it before each test's assertions.
     Dispatchers.setMain(UnconfinedTestDispatcher())
-    repository.myListings = myListings
   }
 
   @After
