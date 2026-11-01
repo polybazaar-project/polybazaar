@@ -196,6 +196,12 @@ class ListingViewModelTest {
 
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
 
+    override suspend fun getListing(listingId: String): Result<Listing> = error("Not used here")
+
+    override suspend fun updateListing(listing: Listing): Listing = error("Not used here")
+
+    override suspend fun deleteListing(listingId: String): Result<Unit> = error("Not used here")
+
     override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
   }
 }
