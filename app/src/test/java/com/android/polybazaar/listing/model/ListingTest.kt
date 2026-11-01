@@ -5,6 +5,7 @@ package com.android.polybazaar.listing.model
 import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.mockito.kotlin.mock
 
 class ListingTest {
 
@@ -48,5 +49,32 @@ class ListingTest {
     assertEquals(emptyList<Uri>(), listing.images)
     // Not saved yet, so not stored anywhere.
     assertEquals(emptyList<String>(), listing.imagePaths)
+    // Not saved yet, so nobody owns it.
+    assertEquals(null, listing.ownerUid)
+  }
+
+  @Test
+  fun saved_pointsToTheStoredPhotosAndDropsTheLocalOnes() {
+    val listing =
+        ItemListing(
+            category = "Tools",
+            price = 8.0,
+            title = "Drill",
+            description = "Cordless",
+            refundValue = 120.0,
+            images = listOf(mock<Uri>()),
+        )
+
+    val saved = listing.saved("l1", listOf("listings/u1/l1/images/0"), "u1")
+
+    assertEquals(
+        listing.copy(
+            images = emptyList(),
+            imagePaths = listOf("listings/u1/l1/images/0"),
+            listingId = "l1",
+            ownerUid = "u1",
+        ),
+        saved,
+    )
   }
 }
