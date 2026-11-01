@@ -31,6 +31,7 @@ object ListingRules {
 
   const val PRICE_RANGE_MESSAGE = "Enter a price between CHF 0 and CHF 10,000"
   const val REFUND_RANGE_MESSAGE = "Enter a refund value between CHF 0 and CHF 100,000"
+  const val PHOTOS_LIMIT_MESSAGE = "A listing can have at most $MAX_PHOTOS photos"
 
   /** Whether [amount] is above zero and at most [max]. */
   fun isValidAmount(amount: Double, max: Double = MAX_PRICE): Boolean = amount > 0 && amount <= max
@@ -45,6 +46,8 @@ object ListingRules {
     return when {
       title.isEmpty() -> "Title is required"
       title.length > MAX_TITLE_LENGTH -> "Title must be at most $MAX_TITLE_LENGTH characters"
+      // Stored photos kept plus new ones: storage.rules only allow images/0 to images/4.
+      listing.imagePaths.size + listing.images.size > MAX_PHOTOS -> PHOTOS_LIMIT_MESSAGE
       description.isEmpty() -> "Description is required"
       description.length > MAX_DESCRIPTION_LENGTH ->
           "Description must be at most $MAX_DESCRIPTION_LENGTH characters"
