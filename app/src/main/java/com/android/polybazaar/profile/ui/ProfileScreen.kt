@@ -1,4 +1,5 @@
 // Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.ui
 
 import androidx.compose.foundation.background
@@ -58,6 +59,7 @@ object ProfileScreenTags {
  * Profile screen of the signed-in user.
  *
  * @param profile the profile to show, or null while it loads or if it could not be loaded.
+ * @param photo the encoded bytes of the saved profile photo, or null to show the default photo.
  * @param isLoading whether the profile is loading.
  * @param errorMessage the error to show, if any.
  * @param onEditProfile called when the user taps "Edit profile".
@@ -70,6 +72,7 @@ fun ProfileContent(
     errorMessage: String?,
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
+    photo: ByteArray? = null,
 ) {
   BoxWithConstraints(
       modifier =
@@ -89,7 +92,12 @@ fun ProfileContent(
     ) {
       Header(onOpenSettings = onOpenSettings)
       Spacer(modifier = Modifier.height(10.dp))
-      IdentityCard(profile = profile, isLoading = isLoading, errorMessage = errorMessage)
+      IdentityCard(
+          profile = profile,
+          photo = photo,
+          isLoading = isLoading,
+          errorMessage = errorMessage,
+      )
       // Only the spacers are weighted: they share the leftover height (spreading the cards like
       // the Figma frame) and shrink to zero on short screens, so the page scrolls. A weighted
       // content Column would instead be squeezed to the leftover height and hide the button.
@@ -120,7 +128,12 @@ private fun Header(onOpenSettings: () -> Unit) {
 
 /** The avatar, name and bio, or a loading indicator or an error while there is no profile. */
 @Composable
-private fun IdentityCard(profile: User?, isLoading: Boolean, errorMessage: String?) {
+private fun IdentityCard(
+    profile: User?,
+    photo: ByteArray?,
+    isLoading: Boolean,
+    errorMessage: String?,
+) {
   val shape = RoundedCornerShape(20.dp)
   Column(
       modifier =
@@ -139,7 +152,7 @@ private fun IdentityCard(profile: User?, isLoading: Boolean, errorMessage: Strin
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-      ProfileAvatar()
+      ProfileAvatar(savedPhoto = photo)
       if (isLoading && profile == null) {
         CircularProgressIndicator(
             color = AuthColors.Accent,

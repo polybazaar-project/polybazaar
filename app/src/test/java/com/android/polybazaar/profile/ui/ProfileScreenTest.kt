@@ -1,4 +1,5 @@
 // Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.ui
 
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class ProfileScreenTest {
@@ -37,6 +39,7 @@ class ProfileScreenTest {
 
   private fun setContent(
       profile: User? = this.profile,
+      photo: ByteArray? = null,
       isLoading: Boolean = false,
       errorMessage: String? = null,
       onEditProfile: () -> Unit = {},
@@ -45,6 +48,7 @@ class ProfileScreenTest {
     composeTestRule.setContent {
       ProfileContent(
           profile = profile,
+          photo = photo,
           isLoading = isLoading,
           errorMessage = errorMessage,
           onEditProfile = onEditProfile,
@@ -68,6 +72,14 @@ class ProfileScreenTest {
     node(ProfileScreenTags.EDIT_PROFILE_BUTTON).performScrollTo().assertIsEnabled()
     node(ProfileScreenTags.LOADING_INDICATOR).assertDoesNotExist()
     node(ProfileScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Decoding and drawing the photo need real bitmaps.
+  fun savedPhoto_largerThanTheDecodeSize_isDrawnInTheAvatar() {
+    setContent(photo = redPhoto(sizePx = 600))
+
+    composeTestRule.waitForAvatar(isRed = true)
   }
 
   @Test
