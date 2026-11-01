@@ -58,6 +58,9 @@ object BrowseScreenTags {
   const val RETRY_BUTTON = "browse_retry_button"
 }
 
+/** Space kept above and below the search field, part of the gaps around it when not pinned. */
+private val SEARCH_PINNED_MARGIN = 8.dp
+
 @Composable
 fun BrowseScreen(viewModel: BrowseViewModel) {
   val uiState by viewModel.uiState.collectAsState()
@@ -76,16 +79,26 @@ fun BrowseContent(
     onCategorySelected: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
-  // The heading scrolls with the listings: its fixed height would otherwise leave them no room on
-  // a short window, such as a phone in landscape.
+  // Only the search field stays pinned: the full heading would leave the listings no room on a
+  // short window, such as a phone in landscape.
   LazyColumn(
       modifier =
           Modifier.fillMaxSize().background(AuthColors.Background).testTag(BrowseScreenTags.SCREEN),
       contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
   ) {
+    item { BrowseHeader() }
+    stickyHeader {
+      // Opaque, with its own margin, so listings pass cleanly behind the pinned field.
+      Box(
+          modifier =
+              Modifier.fillMaxWidth()
+                  .background(AuthColors.Background)
+                  .padding(vertical = SEARCH_PINNED_MARGIN)
+      ) {
+        SearchField(query = uiState.query, onQueryChange = onQueryChange)
+      }
+    }
     item {
-      BrowseHeader()
-      SearchField(query = uiState.query, onQueryChange = onQueryChange)
       CategorySelector(
           categories = uiState.categories,
           selectedCategory = uiState.selectedCategory,
@@ -164,7 +177,12 @@ internal fun BrowseError(error: AppError, onRetry: () -> Unit) {
 internal fun BrowseHeader() {
   Column(
       modifier =
-          Modifier.padding(start = 24.dp, end = 24.dp, top = 34.dp, bottom = 20.dp)
+          Modifier.padding(
+                  start = 24.dp,
+                  end = 24.dp,
+                  top = 34.dp,
+                  bottom = 20.dp - SEARCH_PINNED_MARGIN,
+              )
               .testTag(BrowseScreenTags.HEADER)
   ) {
     Text(
@@ -226,7 +244,12 @@ internal fun CategorySelector(
   Row(
       modifier =
           Modifier.fillMaxWidth()
-              .padding(horizontal = 24.dp, vertical = 20.dp)
+              .padding(
+                  start = 24.dp,
+                  end = 24.dp,
+                  top = 20.dp - SEARCH_PINNED_MARGIN,
+                  bottom = 20.dp,
+              )
               .testTag(BrowseScreenTags.CATEGORY_SELECTOR),
       horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
