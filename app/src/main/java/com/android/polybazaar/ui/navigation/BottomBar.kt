@@ -41,6 +41,7 @@ import com.android.polybazaar.auth.ui.AuthColors
 object BottomBarTags {
   const val BAR = "bottom_bar"
   const val BROWSE_TAB = "bottom_bar_browse_tab"
+  const val CREATE_LISTING_TAB = "bottom_bar_create_listing_tab"
   const val PROFILE_TAB = "bottom_bar_profile_tab"
 }
 
@@ -60,6 +61,12 @@ private val tabs =
             BottomBarTags.BROWSE_TAB,
         ),
         BottomBarTab(
+            Routes.CREATE_LISTING,
+            R.string.nav_create_listing,
+            R.drawable.ic_nav_create_listing,
+            BottomBarTags.CREATE_LISTING_TAB,
+        ),
+        BottomBarTab(
             Routes.PROFILE,
             R.string.nav_profile,
             R.drawable.ic_nav_profile,
@@ -67,10 +74,12 @@ private val tabs =
         ),
     )
 
+internal val tabRoutes = tabs.map { it.route }
+
 private val barShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
 
 /** Whether [route] is one of the top-level destinations that show the bottom bar. */
-internal fun showsBottomBar(route: String?): Boolean = tabs.any { it.route == route }
+internal fun showsBottomBar(route: String?): Boolean = route in tabRoutes
 
 /**
  * The app's main navigation bar, with one destination per entry in [tabs].

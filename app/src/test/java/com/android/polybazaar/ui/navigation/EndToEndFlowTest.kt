@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
@@ -22,9 +23,11 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
+import com.android.polybazaar.settings.ui.SettingsScreenTags
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -36,9 +39,10 @@ import org.junit.runner.RunWith
 
 /**
  * End-to-end tests of what a user can do in the app today: create an account, verify the email,
- * edit the profile, sign out and sign back in. The real navigation graph, screens and
- * [AuthViewModel] run together; only the data layer is replaced by [InMemoryBackend], so state
- * written by one screen is read back by the others as it would be from Firebase.
+ * edit the profile, publish a listing, sign out and sign back in. The real navigation graph,
+ * screens and [AuthViewModel] run together; only the data layer is replaced, by [InMemoryBackend]
+ * and [FakeListingRepository], so state written by one screen is read back by the others as it
+ * would be from Firebase.
  */
 @RunWith(AndroidJUnit4::class)
 class EndToEndFlowTest {
@@ -47,7 +51,7 @@ class EndToEndFlowTest {
 
   private val backend = InMemoryBackend()
 
-  // Signed-in users land on Browse, which has no listings in these flows.
+  // Signed-in users land on Browse, which starts empty; publishing adds to it.
   private val listingRepository = FakeListingRepository()
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
@@ -154,6 +158,58 @@ class EndToEndFlowTest {
 
     openProfileFromBrowse()
     composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Back again")
+  }
+
+  @Test
+  fun verifiedUser_publishesAListingAndSeesItOnBrowse() {
+    val user = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
+    backend.setSignedIn(user.uid)
+    launchApp()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .performTextInput("Bosch drill set")
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.DESCRIPTION_FIELD)
+        .performTextInput("Comes with bits")
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.PRICE_FIELD).performTextInput("8")
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.CATEGORY_FIELD).performClick()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.categoryOption("Tools")).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+  }
+
+  @Test
+  fun signOutFromSettingsWithADraftListing_nextUserGetsAnEmptyForm() {
+    val ada = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
+    backend.register(email = "grace@epfl.ch", password = "secret456", username = "grace")
+    backend.setSignedIn(ada.uid)
+    launchApp()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .performTextInput("Ada's draft")
+
+    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+
+    signIn("grace@epfl.ch", "secret456")
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
+
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Ada's draft").assertDoesNotExist()
   }
 
   @Test
