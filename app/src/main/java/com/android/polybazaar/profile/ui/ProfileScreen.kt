@@ -1,4 +1,5 @@
 // Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.ui
 
 import androidx.compose.foundation.background
@@ -62,6 +63,7 @@ object ProfileScreenTags {
  * @param errorMessage the error to show, if any.
  * @param onEditProfile called when the user taps "Edit profile".
  * @param onOpenSettings called when the user taps the settings button.
+ * @param toolbox the user's Toolbox, shown under the identity card.
  */
 @Composable
 fun ProfileContent(
@@ -70,6 +72,7 @@ fun ProfileContent(
     errorMessage: String?,
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
+    toolbox: @Composable () -> Unit = {},
 ) {
   BoxWithConstraints(
       modifier =
@@ -90,6 +93,8 @@ fun ProfileContent(
       Header(onOpenSettings = onOpenSettings)
       Spacer(modifier = Modifier.height(10.dp))
       IdentityCard(profile = profile, isLoading = isLoading, errorMessage = errorMessage)
+      Spacer(modifier = Modifier.height(24.dp))
+      toolbox()
       // Only the spacers are weighted: they share the leftover height (spreading the cards like
       // the Figma frame) and shrink to zero on short screens, so the page scrolls. A weighted
       // content Column would instead be squeezed to the leftover height and hide the button.

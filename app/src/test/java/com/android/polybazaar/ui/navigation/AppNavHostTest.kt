@@ -29,6 +29,7 @@ import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
+import com.android.polybazaar.toolbox.ui.ToolboxScreenTags
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,6 +116,18 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     assertEquals(1, listingRepository.getAllListingsCalls)
+  }
+
+  @Test
+  fun profile_showsTheUsersListingsInTheToolbox() {
+    listingRepository.myListings =
+        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ToolboxScreenTags.LISTING_ROW).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    assertEquals(1, listingRepository.getMyListingsCalls)
   }
 
   @Test

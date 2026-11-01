@@ -46,6 +46,8 @@ import com.android.polybazaar.profile.ui.ProfileContent
 import com.android.polybazaar.profile.viewmodel.EditProfileViewModel
 import com.android.polybazaar.profile.viewmodel.ProfileViewModel
 import com.android.polybazaar.settings.ui.SettingsContent
+import com.android.polybazaar.toolbox.ui.ToolboxScreen
+import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import kotlinx.coroutines.launch
 
 object AppNavHostTags {
@@ -191,6 +193,12 @@ fun AppNavHost(
             )
         val profileState by profileViewModel.uiState.collectAsState()
         LaunchedEffect(uid) { profileViewModel.observeProfile(uid) }
+        // Keyed by uid too: the listings belong to the signed-in user.
+        val toolboxViewModel: ToolboxViewModel =
+            viewModel(
+                key = "toolbox_$uid",
+                factory = viewModelFactory { initializer { ToolboxViewModel(listingRepository) } },
+            )
 
         ProfileContent(
             profile = profileState.profile,
@@ -200,6 +208,7 @@ fun AppNavHost(
               navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true }
             },
             onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+            toolbox = { ToolboxScreen(viewModel = toolboxViewModel) },
         )
       }
       composable(Routes.EDIT_PROFILE) {
