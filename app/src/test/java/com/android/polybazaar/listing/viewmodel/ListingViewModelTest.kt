@@ -352,6 +352,35 @@ class ListingViewModelTest {
   }
 
   @Test
+  fun createListing_retakeFinishingDuringTheUploadKeepsThePhotoBeingUploaded() = runTest {
+    repository.pendingResult = CompletableDeferred()
+    fillForm()
+    viewModel.addPhotos(uris(1))
+    viewModel.startTakingPhoto(retakeIndex = 0)
+
+    viewModel.createListing()
+    testDispatcher.scheduler.runCurrent()
+    viewModel.finishTakingPhoto(saved = true)
+
+    assertEquals(uris(1), viewModel.uiState.value.photos)
+    assertEquals(listOf(photoStorage.taken[0].uri), photoStorage.deleted)
+  }
+
+  @Test
+  fun createListing_photoFinishingAfterTheUploadStaysOutOfTheNewForm() = runTest {
+    repository.result = listing
+    fillForm()
+    viewModel.startTakingPhoto(retakeIndex = null)
+
+    viewModel.createListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.finishTakingPhoto(saved = true)
+
+    assertTrue(viewModel.uiState.value.photos.isEmpty())
+    assertEquals(listOf(photoStorage.taken[0].uri), photoStorage.deleted)
+  }
+
+  @Test
   fun takingPhoto_twiceBeforeTheCameraOpensDeletesTheFirstFile() {
     viewModel.startTakingPhoto(retakeIndex = null)
     viewModel.startTakingPhoto(retakeIndex = null)

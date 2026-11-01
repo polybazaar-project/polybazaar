@@ -196,6 +196,12 @@ class ListingViewModel(
     val listing = state.listing ?: return
     if (state.isCreating) return
 
+    // Submitting ends a photo still being taken: it is not part of this listing, and a retake must
+    // not delete a photo the repository is reading.
+    pendingPhoto?.let(photoStorage::delete)
+    pendingPhoto = null
+    retakeIndex = null
+
     updateState { it.copy(createdListing = null, isCreating = true, errorMessage = null) }
     viewModelScope.launch {
       try {

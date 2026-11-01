@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.R
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,6 +14,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.xmlpull.v1.XmlPullParser
 
 // Taken photos are kept in app storage, which Android never clears, so they are deleted by hand.
 @RunWith(AndroidJUnit4::class)
@@ -34,6 +36,19 @@ class FilePhotoStorageTest {
         "content://${context.packageName}.fileprovider/listing_photos/${file.name}",
         photo.cameraUri.toString(),
     )
+  }
+
+  // The camera URI is built by hand, so nothing else fails if it stops matching the FileProvider.
+  @Test
+  fun cameraUri_matchesTheFileProviderPaths() {
+    val parser = context.resources.getXml(R.xml.file_paths)
+    while (parser.eventType != XmlPullParser.END_DOCUMENT && parser.name != "files-path") {
+      parser.next()
+    }
+
+    assertEquals("files-path", parser.name)
+    assertEquals("listing_photos", parser.getAttributeValue(null, "name"))
+    assertEquals("listing_photos/", parser.getAttributeValue(null, "path"))
   }
 
   @Test

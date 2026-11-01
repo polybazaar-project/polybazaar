@@ -68,7 +68,7 @@ class FilePhotoStorage(context: Context) : PhotoStorage {
    * hand because FileProvider.getUriForFile compares paths using "/" separators, which fails in
    * Robolectric tests on Windows.
    */
-  internal fun cameraUriFor(file: File): Uri =
+  private fun cameraUriFor(file: File): Uri =
       Uri.Builder()
           .scheme(ContentResolver.SCHEME_CONTENT)
           .authority(authority)
