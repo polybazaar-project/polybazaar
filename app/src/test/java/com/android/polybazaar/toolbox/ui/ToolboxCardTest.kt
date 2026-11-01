@@ -26,7 +26,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class ToolboxScreenTest {
+class ToolboxCardTest {
 
   @get:Rule val composeTestRule = createComposeRule()
 
@@ -40,30 +40,38 @@ class ToolboxScreenTest {
   fun loading_showsTheSpinner() {
     setContent(ToolboxUiState(isLoading = true))
 
-    composeTestRule.onNodeWithTag(ToolboxScreenTags.LOADING_INDICATOR).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ToolboxScreenTags.EMPTY).assertDoesNotExist()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LOADING_INDICATOR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.EMPTY).assertDoesNotExist()
   }
 
   @Test
   fun noListings_showsTheEmptyMessage() {
     setContent(ToolboxUiState())
 
-    composeTestRule.onNodeWithTag(ToolboxScreenTags.EMPTY).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ToolboxScreenTags.LOADING_INDICATOR).assertDoesNotExist()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.EMPTY).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LOADING_INDICATOR).assertDoesNotExist()
   }
 
   @Test
   fun listings_showOneRowEachWithTitleTypeAndPrice() {
     setContent(ToolboxUiState(listings = myListings))
 
-    composeTestRule.onAllNodesWithTag(ToolboxScreenTags.LISTING_ROW).assertCountEquals(2)
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithText(string(R.string.toolbox_type_item)).assertIsDisplayed()
     composeTestRule.onNodeWithText("CHF 8").assertIsDisplayed()
     composeTestRule.onNodeWithText("Math tutoring").assertIsDisplayed()
     composeTestRule.onNodeWithText(string(R.string.toolbox_type_service)).assertIsDisplayed()
     composeTestRule.onNodeWithText("CHF 25.50").assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ToolboxScreenTags.EMPTY).assertDoesNotExist()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.EMPTY).assertDoesNotExist()
+  }
+
+  @Test
+  fun reloadWithListings_keepsTheRowsAndShowsNoSpinner() {
+    setContent(ToolboxUiState(listings = myListings, isLoading = true))
+
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LOADING_INDICATOR).assertDoesNotExist()
   }
 
   @Test
@@ -73,26 +81,28 @@ class ToolboxScreenTest {
 
     composeTestRule
         .onNode(
-            hasAnyAncestor(hasTestTag(ToolboxScreenTags.ERROR)) and
+            hasAnyAncestor(hasTestTag(ToolboxCardTags.ERROR)) and
                 hasText(string(R.string.error_network))
         )
         .assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ToolboxScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.RETRY_BUTTON).performClick()
     assertEquals(1, retries)
+    // A failed load must not claim the user has no listings.
+    composeTestRule.onNodeWithTag(ToolboxCardTags.EMPTY).assertDoesNotExist()
   }
 
   @Test
   fun errorWithListings_keepsTheRows() {
     setContent(ToolboxUiState(listings = myListings, error = AppError.NETWORK))
 
-    composeTestRule.onNodeWithTag(ToolboxScreenTags.ERROR).assertIsDisplayed()
-    composeTestRule.onAllNodesWithTag(ToolboxScreenTags.LISTING_ROW).assertCountEquals(2)
+    composeTestRule.onNodeWithTag(ToolboxCardTags.ERROR).assertIsDisplayed()
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
   }
 
   @Test
-  fun screen_showsTheListingsLoadedByTheViewModel() {
+  fun card_showsTheListingsLoadedByTheViewModel() {
     val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings))
-    composeTestRule.setContent { ToolboxScreen(viewModel = viewModel) }
+    composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText(string(R.string.toolbox_title)).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()

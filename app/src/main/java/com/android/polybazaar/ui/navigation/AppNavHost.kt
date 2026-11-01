@@ -46,7 +46,7 @@ import com.android.polybazaar.profile.ui.ProfileContent
 import com.android.polybazaar.profile.viewmodel.EditProfileViewModel
 import com.android.polybazaar.profile.viewmodel.ProfileViewModel
 import com.android.polybazaar.settings.ui.SettingsContent
-import com.android.polybazaar.toolbox.ui.ToolboxScreen
+import com.android.polybazaar.toolbox.ui.ToolboxCard
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import kotlinx.coroutines.launch
 
@@ -208,7 +208,7 @@ fun AppNavHost(
               navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true }
             },
             onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-            toolbox = { ToolboxScreen(viewModel = toolboxViewModel) },
+            toolbox = { ToolboxCard(viewModel = toolboxViewModel) },
         )
       }
       composable(Routes.EDIT_PROFILE) {

@@ -39,7 +39,7 @@ import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import java.util.Locale
 
-object ToolboxScreenTags {
+object ToolboxCardTags {
   const val LISTING_ROW = "toolbox_listing_row"
   const val LOADING_INDICATOR = "toolbox_loading_indicator"
   const val ERROR = "toolbox_error"
@@ -48,7 +48,7 @@ object ToolboxScreenTags {
 }
 
 @Composable
-fun ToolboxScreen(viewModel: ToolboxViewModel) {
+fun ToolboxCard(viewModel: ToolboxViewModel) {
   val uiState by viewModel.uiState.collectAsState()
   ToolboxContent(uiState = uiState, onRetry = viewModel::loadListings)
 }
@@ -79,7 +79,7 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
     )
     uiState.error?.let { error ->
       Row(
-          modifier = Modifier.fillMaxWidth().testTag(ToolboxScreenTags.ERROR),
+          modifier = Modifier.fillMaxWidth().testTag(ToolboxCardTags.ERROR),
           verticalAlignment = Alignment.CenterVertically,
       ) {
         Text(
@@ -88,7 +88,7 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
             fontSize = 14.sp,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onRetry, modifier = Modifier.testTag(ToolboxScreenTags.RETRY_BUTTON)) {
+        TextButton(onClick = onRetry, modifier = Modifier.testTag(ToolboxCardTags.RETRY_BUTTON)) {
           Text(
               text = stringResource(R.string.browse_retry),
               color = AuthColors.Accent,
@@ -102,7 +102,7 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
       Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             color = AuthColors.Accent,
-            modifier = Modifier.size(32.dp).testTag(ToolboxScreenTags.LOADING_INDICATOR),
+            modifier = Modifier.size(32.dp).testTag(ToolboxCardTags.LOADING_INDICATOR),
         )
       }
     } else if (uiState.listings.isEmpty() && uiState.error == null) {
@@ -110,7 +110,7 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
           text = stringResource(R.string.toolbox_empty),
           color = AuthColors.TextSecondary,
           fontSize = 15.sp,
-          modifier = Modifier.testTag(ToolboxScreenTags.EMPTY),
+          modifier = Modifier.testTag(ToolboxCardTags.EMPTY),
       )
     }
     uiState.listings.forEach { ToolboxListingRow(it) }
@@ -120,7 +120,7 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
 @Composable
 private fun ToolboxListingRow(listing: Listing) {
   Row(
-      modifier = Modifier.fillMaxWidth().testTag(ToolboxScreenTags.LISTING_ROW),
+      modifier = Modifier.fillMaxWidth().testTag(ToolboxCardTags.LISTING_ROW),
       verticalAlignment = Alignment.CenterVertically,
   ) {
     Column(modifier = Modifier.weight(1f)) {
