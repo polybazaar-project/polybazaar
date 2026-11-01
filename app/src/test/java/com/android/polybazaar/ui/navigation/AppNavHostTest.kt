@@ -4,6 +4,7 @@
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -28,8 +29,12 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
@@ -41,6 +46,7 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
@@ -78,6 +84,7 @@ class AppNavHostTest {
   private val profileRepository = FakeProfileRepository(user)
 
   private val listingRepository = FakeListingRepository()
+  private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
   private lateinit var navController: NavHostController
 
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
@@ -89,13 +96,17 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
     return viewModel
   }
 
-  /** Rebuilds the UI from its saved state with a new [AuthViewModel], as after process death. */
+  /**
+   * Rebuilds the UI from its saved state with a new [AuthViewModel] and new ViewModel stores, as
+   * after process death.
+   */
   private fun restoreSavedState(
       before: FakeAuthRepository,
       after: FakeAuthRepository = before,
@@ -103,21 +114,31 @@ class AppNavHostTest {
   ) {
     val tester = StateRestorationTester(composeTestRule)
     var repository = before
+    var storeOwner = newViewModelStoreOwner()
     tester.setContent {
-      val viewModel = remember { AuthViewModel(repository) }
-      navController = rememberNavController()
-      AppNavHost(
-          authViewModel = viewModel,
-          authRepository = repository,
-          profileRepository = profileRepository,
-          listingRepository = listingRepository,
-          navController = navController,
-      )
+      CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
+        val viewModel = remember { AuthViewModel(repository) }
+        navController = rememberNavController()
+        AppNavHost(
+            authViewModel = viewModel,
+            authRepository = repository,
+            profileRepository = profileRepository,
+            listingRepository = listingRepository,
+            photoStorage = photoStorage,
+            navController = navController,
+        )
+      }
     }
     actions()
     repository = after
+    storeOwner = newViewModelStoreOwner()
     tester.emulateSavedInstanceStateRestore()
   }
+
+  private fun newViewModelStoreOwner() =
+      object : ViewModelStoreOwner {
+        override val viewModelStore = ViewModelStore()
+      }
 
   private fun openProfile() {
     composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).performClick()
@@ -259,6 +280,7 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
@@ -453,6 +475,7 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
@@ -525,6 +548,7 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
@@ -883,6 +907,18 @@ class AppNavHostTest {
 
     assertEquals(Routes.BROWSE, navController.previousBackStackEntry?.destination?.route)
     composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).assertIsSelected()
+  }
+
+  @Test
+  fun restoredStateOnCreateListing_keepsTheDraft() {
+    restoreSavedState(before = FakeAuthRepository(currentUser = user)) {
+      composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+      openCreateListing()
+      composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextInput("Drill")
+    }
+
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).assertTextEquals("Drill")
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).assertIsSelected()
   }
 
   @Test
