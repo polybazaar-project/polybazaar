@@ -1,11 +1,13 @@
-// Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Sonnet 5.5, Claude Opus 5.5)
 package com.android.polybazaar.listing.model
 
+import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.kotlin.mock
 
 class ListingRulesTest {
 
@@ -78,6 +80,18 @@ class ListingRulesTest {
     assertEquals(
         "Enter a price between CHF 0 and CHF 10,000",
         ListingRules.errorFor(item(price = 10_000.01, refundValue = 100_000.0)),
+    )
+  }
+
+  @Test
+  fun errorFor_countsStoredAndNewPhotosTogether() {
+    val paths = List(3) { "listings/uid/l1/images/$it" }
+    val photos = List(2) { mock<Uri>() }
+
+    assertNull(ListingRules.errorFor(service().copy(imagePaths = paths, images = photos)))
+    assertEquals(
+        "A listing can have at most 5 photos",
+        ListingRules.errorFor(service().copy(imagePaths = paths, images = photos + photos)),
     )
   }
 
