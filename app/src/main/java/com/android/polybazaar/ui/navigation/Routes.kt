@@ -10,6 +10,7 @@ object Routes {
   const val FORGOT_PASSWORD = "forgot_password"
   const val VERIFY_EMAIL = "verify_email"
   const val BROWSE = "browse"
+  const val CREATE_LISTING = "create_listing"
   const val PROFILE = "profile"
   const val EDIT_PROFILE = "edit_profile"
   const val SETTINGS = "settings"

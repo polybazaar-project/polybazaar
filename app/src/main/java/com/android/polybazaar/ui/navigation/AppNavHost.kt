@@ -3,6 +3,7 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +45,8 @@ import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.ui.CreateListingScreen
+import com.android.polybazaar.listing.viewmodel.ListingViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -60,14 +63,15 @@ object AppNavHostTags {
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
  * checked, then routes a signed-in user to Browse, or to the verify email screen while their email
- * is not verified, and everyone else to sign-in. Browse and Profile share a bottom bar.
+ * is not verified, and everyone else to sign-in. Browse, Create listing and Profile share a bottom
+ * bar.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
  *
  * @param authRepository used by the screens that need their own ViewModel, such as forgot password.
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
- * @param listingRepository gives the Browse screen the listings to show.
+ * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
  */
 @Composable
 fun AppNavHost(
@@ -93,8 +97,8 @@ fun AppNavHost(
   LaunchedEffect(uiState.sessionChecked, uiState.user) {
     val route = navController.currentBackStackEntry?.destination?.route
     if (uiState.sessionChecked && uiState.user == null && route in signedInRoutes) {
-      // The next user must not inherit this user's saved Profile entry and its ViewModels.
-      navController.clearBackStack(Routes.PROFILE)
+      // The next user must not inherit this user's saved tabs: their draft listing, for one.
+      tabRoutes.forEach { navController.clearBackStack(it) }
       navController.navigate(Routes.SIGN_IN) {
         popUpTo(navController.graph.id) { inclusive = true }
       }
@@ -198,6 +202,18 @@ fun AppNavHost(
               )
           BrowseScreen(viewModel = browseViewModel)
         }
+        composable(Routes.CREATE_LISTING) {
+          val listingViewModel: ListingViewModel =
+              viewModel(
+                  factory = viewModelFactory { initializer { ListingViewModel(listingRepository) } }
+              )
+          // Leaves like a tab switch, so an unfinished form is still there on coming back.
+          BackHandler { navController.navigateToTab(Routes.BROWSE) }
+          CreateListingScreen(
+              listingViewModel = listingViewModel,
+              onListingCreated = { navController.openNewBrowse() },
+          )
+        }
         composable(Routes.PROFILE) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
@@ -279,7 +295,14 @@ fun AppNavHost(
 }
 
 private val signedInRoutes =
-    setOf(Routes.VERIFY_EMAIL, Routes.BROWSE, Routes.PROFILE, Routes.EDIT_PROFILE, Routes.SETTINGS)
+    setOf(
+        Routes.VERIFY_EMAIL,
+        Routes.BROWSE,
+        Routes.CREATE_LISTING,
+        Routes.PROFILE,
+        Routes.EDIT_PROFILE,
+        Routes.SETTINGS,
+    )
 
 /**
  * Where a signed-in [user] belongs: Browse once their email is verified, the verify screen before.
@@ -298,9 +321,17 @@ private fun NavHostController.navigateToTab(route: String) {
   if (currentBackStackEntry?.destination?.route == route) return
   navigate(route) {
     // Browse is the root of the signed-in back stack, since Loading is popped on the way in.
-    // Popping to it keeps a single Browse entry and saves Profile for restoreState.
+    // Popping to it keeps a single Browse entry and saves the tab being left for restoreState.
     popUpTo(Routes.BROWSE) { saveState = true }
     launchSingleTop = true
     restoreState = true
   }
+}
+
+/**
+ * Replaces Browse, so its new ViewModel loads the listings again and no search or filter left from
+ * before can hide the listing just published.
+ */
+private fun NavHostController.openNewBrowse() {
+  navigate(Routes.BROWSE) { popUpTo(Routes.BROWSE) { inclusive = true } }
 }

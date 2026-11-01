@@ -6,6 +6,7 @@
 
     <!-- Bottom navigation -->
     <string name="nav_browse">Browse</string>
+    <string name="nav_create_listing">Create listing</string>
     <string name="nav_profile">Profile</string>
 
     <!-- Browse screen -->
