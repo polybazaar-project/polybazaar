@@ -7,10 +7,11 @@ import kotlinx.coroutines.CompletableDeferred
 /**
  * A [ListingRepository] for tests.
  *
- * [getAllListings] answers with [allListings] and [getMyListings] with [myListings]. [getListing]
- * looks the id up in both, [updateListing] replaces the listing in both, and [deleteListing]
- * removes it from both. Every call except [createListing] fails with [failure] when it is set. Set
- * [gate] to keep the call waiting until the test completes it, to look at a call in progress.
+ * [getAllListings] answers with [allListings] and [getMyListings] with [myListings].
+ * [createListing] adds to [allListings], [getListing] looks the id up in both lists,
+ * [updateListing] replaces the listing in both, and [deleteListing] removes it from both. Every
+ * call except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of
+ * these calls waiting until the test completes it, to look at one in progress.
  */
 class FakeListingRepository(
     var allListings: List<Listing> = emptyList(),
@@ -30,7 +31,18 @@ class FakeListingRepository(
   /** The ids passed to [deleteListing], in order. */
   val deletedListingIds = mutableListOf<String>()
 
-  override suspend fun createListing(listing: Listing): Listing = listing
+  override suspend fun createListing(listing: Listing): Listing {
+    gate?.await()
+    failure?.let { throw it }
+    val listingId = "created-${allListings.size}"
+    val created =
+        when (listing) {
+          is ItemListing -> listing.copy(listingId = listingId)
+          is ServiceListing -> listing.copy(listingId = listingId)
+        }
+    allListings = allListings + created
+    return created
+  }
 
   override suspend fun getMyListings(): Result<List<Listing>> {
     getMyListingsCalls++
