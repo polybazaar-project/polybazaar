@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,6 +58,9 @@ object BrowseScreenTags {
   const val RETRY_BUTTON = "browse_retry_button"
 }
 
+/** Space kept above and below the search field, part of the gaps around it when not pinned. */
+private val SEARCH_PINNED_MARGIN = 8.dp
+
 @Composable
 fun BrowseScreen(viewModel: BrowseViewModel) {
   val uiState by viewModel.uiState.collectAsState()
@@ -76,59 +79,70 @@ fun BrowseContent(
     onCategorySelected: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
-  Column(
+  // Only the search field stays pinned: the full heading would leave the listings no room on a
+  // short window, such as a phone in landscape.
+  LazyColumn(
       modifier =
-          Modifier.fillMaxSize().background(AuthColors.Background).testTag(BrowseScreenTags.SCREEN)
+          Modifier.fillMaxSize().background(AuthColors.Background).testTag(BrowseScreenTags.SCREEN),
+      contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
   ) {
-    BrowseHeader()
-    SearchField(query = uiState.query, onQueryChange = onQueryChange)
-    CategorySelector(
-        categories = uiState.categories,
-        selectedCategory = uiState.selectedCategory,
-        onCategorySelected = onCategorySelected,
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Text(
-          text = stringResource(R.string.browse_nearby_title),
-          color = AuthColors.TextPrimary,
-          fontSize = 22.sp,
-          fontWeight = FontWeight.Bold,
-      )
-      Text(
-          text = stringResource(R.string.browse_nearby_location),
-          color = AuthColors.TextSecondary,
-          fontSize = 14.sp,
-      )
-      // The location will be done later using the map etc, for now I would keep it this way.
-    }
-    uiState.error?.let { BrowseError(error = it, onRetry = onRetry) }
-    // Once listings are shown, a reload keeps them on screen instead of a spinner.
-    if (uiState.isLoading && uiState.listings.isEmpty()) {
+    item { BrowseHeader() }
+    stickyHeader {
+      // Opaque, with its own margin, so listings pass cleanly behind the pinned field.
       Box(
-          modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
-          contentAlignment = Alignment.Center,
+          modifier =
+              Modifier.fillMaxWidth()
+                  .background(AuthColors.Background)
+                  .padding(vertical = SEARCH_PINNED_MARGIN)
       ) {
-        CircularProgressIndicator(
-            color = AuthColors.Accent,
-            modifier = Modifier.size(32.dp).testTag(BrowseScreenTags.LOADING_INDICATOR),
-        )
+        SearchField(query = uiState.query, onQueryChange = onQueryChange)
       }
     }
-    LazyColumn(
-        modifier = Modifier.weight(1f),
-        contentPadding =
-            androidx.compose.foundation.layout.PaddingValues(
-                start = 24.dp,
-                end = 24.dp,
-                bottom = 16.dp,
-            ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-      items(uiState.filteredListings, key = { it.id }) { ListingCard(it) }
+    item {
+      CategorySelector(
+          categories = uiState.categories,
+          selectedCategory = uiState.selectedCategory,
+          onCategorySelected = onCategorySelected,
+      )
+      Row(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+            text = stringResource(R.string.browse_nearby_title),
+            color = AuthColors.TextPrimary,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = stringResource(R.string.browse_nearby_location),
+            color = AuthColors.TextSecondary,
+            fontSize = 14.sp,
+        )
+        // The location will be done later using the map etc, for now I would keep it this way.
+      }
+      uiState.error?.let { BrowseError(error = it, onRetry = onRetry) }
+      // Once listings are shown, a reload keeps them on screen instead of a spinner.
+      if (uiState.isLoading && uiState.listings.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+          CircularProgressIndicator(
+              color = AuthColors.Accent,
+              modifier = Modifier.size(32.dp).testTag(BrowseScreenTags.LOADING_INDICATOR),
+          )
+        }
+      }
+    }
+    itemsIndexed(uiState.filteredListings, key = { _, listing -> listing.id }) { index, listing ->
+      Box(
+          modifier =
+              Modifier.padding(start = 24.dp, end = 24.dp, top = if (index == 0) 0.dp else 14.dp)
+      ) {
+        ListingCard(listing)
+      }
     }
   }
 }
@@ -163,7 +177,12 @@ internal fun BrowseError(error: AppError, onRetry: () -> Unit) {
 internal fun BrowseHeader() {
   Column(
       modifier =
-          Modifier.padding(start = 24.dp, end = 24.dp, top = 34.dp, bottom = 20.dp)
+          Modifier.padding(
+                  start = 24.dp,
+                  end = 24.dp,
+                  top = 34.dp,
+                  bottom = 20.dp - SEARCH_PINNED_MARGIN,
+              )
               .testTag(BrowseScreenTags.HEADER)
   ) {
     Text(
@@ -225,7 +244,12 @@ internal fun CategorySelector(
   Row(
       modifier =
           Modifier.fillMaxWidth()
-              .padding(horizontal = 24.dp, vertical = 20.dp)
+              .padding(
+                  start = 24.dp,
+                  end = 24.dp,
+                  top = 20.dp - SEARCH_PINNED_MARGIN,
+                  bottom = 20.dp,
+              )
               .testTag(BrowseScreenTags.CATEGORY_SELECTOR),
       horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {

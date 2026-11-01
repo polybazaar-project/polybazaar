@@ -48,6 +48,7 @@ internal object AuthColors {
   val CardBackground = Color(0xFFFFFDF9)
   val Outline = Color(0xFFF1E1D5)
   val Accent = Color(0xFFC86A3B)
+  val AccentContainer = Color(0xFFF7E6D8)
   val TextPrimary = Color(0xFF20231F)
   val TextSecondary = Color(0xFF70756D)
   val Danger = Color(0xFFA63D2B)
