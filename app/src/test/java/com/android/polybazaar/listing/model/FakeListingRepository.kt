@@ -11,8 +11,8 @@ import kotlinx.coroutines.CompletableDeferred
  * to keep any of these calls waiting until the test completes it, to look at one in progress.
  */
 class FakeListingRepository(
-  var allListings: List<Listing> = emptyList(),
-  var myListings: List<Listing> = emptyList(),
+    var allListings: List<Listing> = emptyList(),
+    var myListings: List<Listing> = emptyList(),
 ) : ListingRepository {
   var failure: Exception? = null
   var gate: CompletableDeferred<Unit>? = null
@@ -27,10 +27,10 @@ class FakeListingRepository(
     failure?.let { throw it }
     val listingId = "created-${allListings.size}"
     val created =
-      when (listing) {
-        is ItemListing -> listing.copy(listingId = listingId)
-        is ServiceListing -> listing.copy(listingId = listingId)
-      }
+        when (listing) {
+          is ItemListing -> listing.copy(listingId = listingId)
+          is ServiceListing -> listing.copy(listingId = listingId)
+        }
     allListings = allListings + created
     return created
   }
