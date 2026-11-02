@@ -9,6 +9,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
@@ -46,7 +47,7 @@ class ListingViewModelTest {
 
   private val listing =
       ServiceListing(
-          category = "Tutoring",
+          category = ListingCategory.SERVICE_TUTORING,
           price = 25.0,
           title = "Math tutoring",
           description = "One-hour session",
@@ -72,7 +73,7 @@ class ListingViewModelTest {
     viewModel.updateTitle("Math tutoring")
     viewModel.updateDescription("One-hour session")
     viewModel.updatePrice("25")
-    viewModel.selectCategory("Tutoring")
+    viewModel.selectCategory(ListingCategory.SERVICE_TUTORING)
   }
 
   private fun uris(count: Int) = (1..count).map { Uri.parse("content://photos/$it") }
@@ -109,12 +110,12 @@ class ListingViewModelTest {
   }
 
   @Test
-  fun selectType_dropsCategoryThatDoesNotApply() {
-    viewModel.selectCategory("Other")
+  fun selectType_dropsCategoriesThatDoNotApply() {
+    viewModel.selectCategory(ListingCategory.ITEM_OTHER)
     viewModel.selectType(ListingType.SERVICE)
-    assertEquals("Other", viewModel.uiState.value.category)
+    assertNull(viewModel.uiState.value.category)
 
-    viewModel.selectCategory("Tutoring")
+    viewModel.selectCategory(ListingCategory.SERVICE_TUTORING)
     viewModel.selectType(ListingType.ITEM)
     assertNull(viewModel.uiState.value.category)
   }
@@ -521,7 +522,7 @@ class ListingViewModelTest {
     viewModel.updateDescription("Works well")
     viewModel.updatePrice("5")
     viewModel.updateRefundValue("120")
-    viewModel.selectCategory("Tools")
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
 
     viewModel.createListing()
     testDispatcher.scheduler.advanceUntilIdle()

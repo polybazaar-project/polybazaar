@@ -12,7 +12,7 @@ class ListingTest {
   fun serviceListingHasServiceType() {
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
@@ -25,7 +25,7 @@ class ListingTest {
   fun itemListingDefaultsRefundValueToPrice() {
     val listing =
         ItemListing(
-            category = "Electronics",
+            category = ListingCategory.ITEM_ELECTRONICS,
             price = 100.0,
             title = "Calculator",
             description = "Graphing calculator",
@@ -39,7 +39,7 @@ class ListingTest {
   fun listingImagesAreOptional() {
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",

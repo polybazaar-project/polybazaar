@@ -24,6 +24,7 @@ import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
@@ -40,9 +41,15 @@ class BrowseScreenTest {
 
   private val sampleListings =
       listOf(
-          ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"),
-          ItemListing("Electronics", 12.0, "Mini projector", "", listingId = "projector"),
-          ItemListing("Tools", 5.0, "Claw hammer", "", listingId = "hammer"),
+          ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill"),
+          ItemListing(
+              ListingCategory.ITEM_ELECTRONICS,
+              12.0,
+              "Mini projector",
+              "",
+              listingId = "projector",
+          ),
+          ItemListing(ListingCategory.ITEM_TOOLS, 5.0, "Claw hammer", "", listingId = "hammer"),
       )
   private val sampleCategories = listOf("Tools", "Electronics")
 
@@ -155,7 +162,7 @@ class BrowseScreenTest {
 
   @Test
   fun emptyListings_displaysPricingFormat() {
-    val listing = ItemListing("Category", 10.0, "Test Item", "", listingId = "id1")
+    val listing = ItemListing(ListingCategory.ITEM_OTHER, 10.0, "Test Item", "", listingId = "id1")
     val viewModel = BrowseViewModel(FakeListingRepository(listOf(listing)))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
@@ -311,7 +318,9 @@ class BrowseScreenTest {
 
   private fun showManyListingsScrolledToTheLast() {
     val listings =
-        List(12) { ItemListing("Tools", 8.0, "Listing $it", "", listingId = "listing-$it") }
+        List(12) {
+          ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Listing $it", "", listingId = "listing-$it")
+        }
     val viewModel = BrowseViewModel(FakeListingRepository(listings))
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
     composeTestRule

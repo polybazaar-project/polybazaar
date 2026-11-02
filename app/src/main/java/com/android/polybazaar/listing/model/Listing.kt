@@ -9,13 +9,36 @@ enum class ListingType {
   ITEM,
 }
 
+enum class ListingCategory(
+    val id: String,
+    val type: ListingType,
+    val displayName: String,
+) {
+  ITEM_TOOLS("item_tools", ListingType.ITEM, "Tools"),
+  ITEM_ELECTRONICS("item_electronics", ListingType.ITEM, "Electronics"),
+  ITEM_BOOKS("item_books", ListingType.ITEM, "Books"),
+  ITEM_SPORTS("item_sports", ListingType.ITEM, "Sports"),
+  ITEM_KITCHEN("item_kitchen", ListingType.ITEM, "Kitchen"),
+  ITEM_OTHER("item_other", ListingType.ITEM, "Other"),
+  SERVICE_TUTORING("service_tutoring", ListingType.SERVICE, "Tutoring"),
+  SERVICE_REPAIRS("service_repairs", ListingType.SERVICE, "Repairs"),
+  SERVICE_MOVING_HELP("service_moving_help", ListingType.SERVICE, "Moving help"),
+  SERVICE_GARDENING("service_gardening", ListingType.SERVICE, "Gardening"),
+  SERVICE_CLEANING("service_cleaning", ListingType.SERVICE, "Cleaning"),
+  SERVICE_OTHER("service_other", ListingType.SERVICE, "Other");
+
+  companion object {
+    fun fromId(id: String): ListingCategory? = entries.find { it.id == id }
+  }
+}
+
 /**
  * @property images photos on this device, to upload when the listing is created.
  * @property imagePaths where the photos are stored once the listing is saved, as Storage paths to
  *   read through the repository. Empty until then.
  */
 sealed class Listing(
-    open val category: String,
+    open val category: ListingCategory,
     open val price: Double,
     open val title: String,
     open val description: String,
@@ -27,7 +50,7 @@ sealed class Listing(
 }
 
 data class ServiceListing(
-    override val category: String,
+    override val category: ListingCategory,
     override val price: Double,
     override val title: String,
     override val description: String,
@@ -36,10 +59,14 @@ data class ServiceListing(
     override val listingId: String? = null,
 ) : Listing(category, price, title, description, images, imagePaths, listingId) {
   override val type = ListingType.SERVICE
+
+  init {
+    require(category.type == type) { "A service listing requires a service category" }
+  }
 }
 
 data class ItemListing(
-    override val category: String,
+    override val category: ListingCategory,
     override val price: Double,
     override val title: String,
     override val description: String,
@@ -49,4 +76,8 @@ data class ItemListing(
     override val listingId: String? = null,
 ) : Listing(category, price, title, description, images, imagePaths, listingId) {
   override val type = ListingType.ITEM
+
+  init {
+    require(category.type == type) { "An item listing requires an item category" }
+  }
 }
