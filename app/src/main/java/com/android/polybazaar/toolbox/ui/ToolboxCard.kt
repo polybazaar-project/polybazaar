@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -40,6 +43,7 @@ import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import java.util.Locale
 
 object ToolboxCardTags {
+  const val LISTINGS = "toolbox_listings"
   const val LISTING_ROW = "toolbox_listing_row"
   const val LOADING_INDICATOR = "toolbox_loading_indicator"
   const val ERROR = "toolbox_error"
@@ -56,8 +60,9 @@ fun ToolboxCard(viewModel: ToolboxViewModel) {
 /**
  * The "My toolbox" card of the profile, listing the user's own listings.
  *
- * A plain [Column] rather than a LazyColumn, so it can sit inside the scrolling profile. Opening a
- * listing, its status and the user's rentals are follow-ups for #20.
+ * Fills the height it is given: the title stays in place and the rows scroll inside the card, so it
+ * needs a bounded height. Opening a listing, its status and the user's rentals are follow-ups
+ * for #20.
  */
 @Composable
 fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modifier = Modifier) {
@@ -65,7 +70,7 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
   Column(
       modifier =
           modifier
-              .fillMaxWidth()
+              .fillMaxSize()
               .background(AuthColors.CardBackground, shape)
               .border(1.dp, AuthColors.Outline, shape)
               .padding(16.dp),
@@ -113,7 +118,14 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
           modifier = Modifier.testTag(ToolboxCardTags.EMPTY),
       )
     }
-    uiState.listings.forEach { ToolboxListingRow(it) }
+    if (uiState.listings.isNotEmpty()) {
+      LazyColumn(
+          modifier = Modifier.fillMaxWidth().weight(1f).testTag(ToolboxCardTags.LISTINGS),
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        items(uiState.listings) { ToolboxListingRow(it) }
+      }
+    }
   }
 }
 
@@ -161,7 +173,7 @@ private fun ToolboxListingRow(listing: Listing) {
   }
 }
 
-@Preview(showBackground = true, widthDp = 412)
+@Preview(showBackground = true, widthDp = 412, heightDp = 240)
 @Composable
 internal fun ToolboxContentPreview() {
   ToolboxContent(

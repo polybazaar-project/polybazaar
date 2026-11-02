@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.toolbox.ui
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
@@ -11,6 +13,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
@@ -64,6 +68,25 @@ class ToolboxCardTest {
     composeTestRule.onNodeWithText(string(R.string.toolbox_type_service)).assertIsDisplayed()
     composeTestRule.onNodeWithText("CHF 25.50").assertIsDisplayed()
     composeTestRule.onNodeWithTag(ToolboxCardTags.EMPTY).assertDoesNotExist()
+  }
+
+  @Test
+  fun manyListings_scrollInsideTheCardAndKeepTheTitle() {
+    val listings = List(30) { ItemListing("Tools", 8.0, "Listing $it", "", listingId = "id-$it") }
+    composeTestRule.setContent {
+      ToolboxContent(
+          uiState = ToolboxUiState(listings = listings),
+          onRetry = {},
+          modifier = Modifier.height(240.dp),
+      )
+    }
+
+    composeTestRule
+        .onNodeWithTag(ToolboxCardTags.LISTINGS)
+        .performScrollToNode(hasText("Listing 29"))
+
+    composeTestRule.onNodeWithText("Listing 29").assertIsDisplayed()
+    composeTestRule.onNodeWithText(string(R.string.toolbox_title)).assertIsDisplayed()
   }
 
   @Test
