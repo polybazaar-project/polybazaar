@@ -23,7 +23,8 @@ class ListingRulesTest {
       description: String = "Works well",
       price: Double = 5.0,
       refundValue: Double = price,
-  ) = ItemListing("Tools", price, title, description, refundValue)
+      maxRentalDays: Int? = null,
+  ) = ItemListing("Tools", price, title, description, refundValue, maxRentalDays)
 
   private fun service(
       title: String = "Tutoring",
@@ -87,6 +88,22 @@ class ListingRulesTest {
     assertEquals(
         "Enter a price between CHF 0 and CHF 10,000",
         ListingRules.errorFor(item(price = 10_000.01, refundValue = 100_000.0)),
+    )
+  }
+
+  @Test
+  fun errorFor_rentalDaysBounds() {
+    val message = ListingRules.RENTAL_DAYS_RANGE_MESSAGE
+    assertEquals("Enter a rental duration between 1 and 180 days", message)
+    // Null means the lender set no limit.
+    assertNull(ListingRules.errorFor(item(maxRentalDays = null)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = 1)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = 0)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = -3)))
+    assertEquals(
+        message,
+        ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS + 1)),
     )
   }
 

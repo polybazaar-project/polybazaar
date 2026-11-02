@@ -22,6 +22,7 @@ import com.google.firebase.storage.UploadTask
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -32,6 +33,7 @@ import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
@@ -54,6 +56,18 @@ class FirebaseListingRepositoryTest {
   private val listingId = "listing-456"
   private val photoBytes = byteArrayOf(1, 2, 3)
   private val compressedPhotos = mutableListOf<Uri>()
+
+  /** A valid stored ITEM without a rental duration. */
+  private val itemFields =
+      mapOf(
+          "ownerUid" to uid,
+          "type" to "ITEM",
+          "category" to "Tools",
+          "price" to 8.0,
+          "title" to "Bosch drill set",
+          "description" to "With bits",
+          "refundValue" to 120.0,
+      )
 
   @Before
   fun setUp() {
@@ -341,6 +355,20 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun createListing_storesTheRentalDurationOnlyWhenSet() = runTest {
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits", maxRentalDays = 14))
+    repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits"))
+
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(document, times(2)).set(stored.capture())
+    assertEquals(14, stored.firstValue["maxRentalDays"])
+    // No limit: the key is left out, like on a listing written before the field existed.
+    assertFalse(stored.secondValue.containsKey("maxRentalDays"))
+  }
+
+  @Test
   fun createListing_withoutAuthenticatedUser_throwsError() = runTest {
     whenever(auth.currentUser).thenReturn(null)
 
@@ -587,6 +615,43 @@ class FirebaseListingRepositoryTest {
         ),
         result,
     )
+  }
+
+  @Test
+  fun getAllListings_readsTheRentalDuration() = runTest {
+    givenAllListings(
+        // Firestore returns whole numbers as Long.
+        listingDocument("as-long", itemFields + ("maxRentalDays" to 14L)),
+        listingDocument("as-int", itemFields + ("maxRentalDays" to 180)),
+        // Written before the field existed, or without a limit.
+        listingDocument("absent", itemFields),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(
+        listOf(
+            "as-long" to 14,
+            "as-int" to 180,
+            "absent" to null,
+        ),
+        result.map { it.listingId to (it as ItemListing).maxRentalDays },
+    )
+  }
+
+  @Test
+  fun getAllListings_skipsItemsWhoseRentalDurationIsNotAWholeNumber() = runTest {
+    givenAllListings(
+        listingDocument("as-text", itemFields + ("maxRentalDays" to "7")),
+        listingDocument("fraction", itemFields + ("maxRentalDays" to 1.5)),
+        // The rules only accept an int, so even a whole Double is malformed.
+        listingDocument("whole-double", itemFields + ("maxRentalDays" to 7.0)),
+        listingDocument("valid", itemFields + ("maxRentalDays" to 7L)),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(listOf("valid"), result.map { it.listingId })
   }
 
   @Test
