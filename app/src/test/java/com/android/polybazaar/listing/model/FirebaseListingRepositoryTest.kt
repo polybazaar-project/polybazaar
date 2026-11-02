@@ -646,6 +646,159 @@ class FirebaseListingRepositoryTest {
     assertTrue(thrown is CancellationException)
   }
 
+  @Test
+  fun getListing_readsTheDocumentAndRebuildsAnItem() = runTest {
+    val reference =
+        givenListing(
+            "item-1",
+            Tasks.forResult(
+                listingDocument(
+                    "item-1",
+                    mapOf(
+                        "ownerUid" to "someone-else",
+                        "type" to "ITEM",
+                        "category" to "Tools",
+                        "price" to 8.5,
+                        "title" to "Bosch drill set",
+                        "description" to "With bits",
+                        "imagePaths" to listOf("listings/someone-else/item-1/images/0"),
+                        "refundValue" to 120.0,
+                    ),
+                )
+            ),
+        )
+
+    val result = repository.getListing("item-1").getOrThrow()
+
+    assertEquals(
+        ItemListing(
+            category = "Tools",
+            price = 8.5,
+            title = "Bosch drill set",
+            description = "With bits",
+            refundValue = 120.0,
+            imagePaths = listOf("listings/someone-else/item-1/images/0"),
+            listingId = "item-1",
+            ownerUid = "someone-else",
+        ),
+        result,
+    )
+    verify(firestore).collection("listings")
+    verify(listings).document("item-1")
+    verify(reference).get()
+  }
+
+  @Test
+  fun getListing_rebuildsAService() = runTest {
+    givenListing(
+        "service-1",
+        Tasks.forResult(
+            listingDocument(
+                "service-1",
+                mapOf(
+                    "ownerUid" to uid,
+                    "type" to "SERVICE",
+                    "category" to "Tutoring",
+                    "price" to 25L,
+                    "title" to "Math tutoring",
+                    "description" to "One-hour session",
+                ),
+            )
+        ),
+    )
+
+    val result = repository.getListing("service-1").getOrThrow()
+
+    assertEquals(
+        ServiceListing(
+            category = "Tutoring",
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            listingId = "service-1",
+            ownerUid = uid,
+        ),
+        result,
+    )
+  }
+
+  @Test
+  fun getListing_whenTheDocumentDoesNotExist_failsAsNotFound() = runTest {
+    // Firestore answers a missing document with a snapshot that has no fields.
+    givenListing("missing", Tasks.forResult(listingDocument("missing", emptyMap())))
+
+    val failure = repository.getListing("missing").exceptionOrNull()
+
+    assertTrue(failure is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.NOT_FOUND,
+        (failure as FirebaseFirestoreException).code,
+    )
+    assertEquals(AppError.NOT_FOUND, failure.toAppError())
+  }
+
+  @Test
+  fun getListing_whenTheDocumentIsMalformed_failsAsNotFound() = runTest {
+    // An ITEM without a refund value: toListing() cannot rebuild it.
+    givenListing(
+        "broken",
+        Tasks.forResult(
+            listingDocument(
+                "broken",
+                mapOf(
+                    "ownerUid" to uid,
+                    "type" to "ITEM",
+                    "category" to "Tools",
+                    "price" to 8.5,
+                    "title" to "Bosch drill set",
+                    "description" to "With bits",
+                ),
+            )
+        ),
+    )
+
+    val failure = repository.getListing("broken").exceptionOrNull()
+
+    assertEquals(AppError.NOT_FOUND, failure?.toAppError())
+  }
+
+  @Test
+  fun getListing_whenFirestoreFails_returnsTheFailure() = runTest {
+    listOf(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED to AppError.PERMISSION_DENIED,
+            // What Firestore raises offline when the listing is not in the local cache.
+            FirebaseFirestoreException.Code.UNAVAILABLE to AppError.NETWORK,
+        )
+        .forEach { (code, expected) ->
+          val exception = FirebaseFirestoreException(code.name, code)
+          givenListing("item-1", Tasks.forException(exception))
+
+          val failure = repository.getListing("item-1").exceptionOrNull()
+
+          assertSame(exception, failure)
+          assertEquals(expected, failure?.toAppError())
+        }
+  }
+
+  @Test
+  fun getListing_whenCancelled_rethrowsInsteadOfReturningAFailure() = runTest {
+    givenListing("item-1", Tasks.forCanceled())
+
+    val thrown = runCatching { repository.getListing("item-1") }.exceptionOrNull()
+
+    assertTrue(thrown is CancellationException)
+  }
+
+  private fun givenListing(
+      id: String,
+      result: com.google.android.gms.tasks.Task<DocumentSnapshot>,
+  ): DocumentReference {
+    val reference = mock<DocumentReference>()
+    whenever(listings.document(id)).thenReturn(reference)
+    whenever(reference.get()).thenReturn(result)
+    return reference
+  }
+
   private fun givenAllListings(vararg documents: DocumentSnapshot) {
     val snapshot = mock<QuerySnapshot>()
     whenever(snapshot.documents).thenReturn(documents.toList())
