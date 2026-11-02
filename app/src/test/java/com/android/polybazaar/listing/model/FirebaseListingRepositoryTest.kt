@@ -366,6 +366,7 @@ class FirebaseListingRepositoryTest {
         listingDocument(
             "item-1",
             mapOf(
+                "ownerUid" to uid,
                 "type" to "ITEM",
                 "category" to "Tools",
                 "price" to 8.5,
@@ -379,6 +380,7 @@ class FirebaseListingRepositoryTest {
         listingDocument(
             "service-1",
             mapOf(
+                "ownerUid" to uid,
                 "type" to "SERVICE",
                 "category" to "Tutoring",
                 "price" to 25L,
@@ -401,6 +403,7 @@ class FirebaseListingRepositoryTest {
                 refundValue = 120.0,
                 imagePaths = listOf("listings/$uid/item-1/images/0"),
                 listingId = "item-1",
+                ownerUid = uid,
             ),
             ServiceListing(
                 category = "Tutoring",
@@ -408,6 +411,7 @@ class FirebaseListingRepositoryTest {
                 title = "Math tutoring",
                 description = "One-hour session",
                 listingId = "service-1",
+                ownerUid = uid,
             ),
         ),
         result,
@@ -426,6 +430,7 @@ class FirebaseListingRepositoryTest {
   fun getMyListings_skipsMalformedDocumentsAndKeepsTheOthers() = runTest {
     val valid =
         mapOf(
+            "ownerUid" to uid,
             "type" to "SERVICE",
             "category" to "Tutoring",
             "price" to 25.0,
@@ -518,6 +523,7 @@ class FirebaseListingRepositoryTest {
                 refundValue = 120.0,
                 imagePaths = listOf("listings/someone-else/item-1/images/0"),
                 listingId = "item-1",
+                ownerUid = "someone-else",
             ),
             ServiceListing(
                 category = "Tutoring",
@@ -525,6 +531,7 @@ class FirebaseListingRepositoryTest {
                 title = "Math tutoring",
                 description = "One-hour session",
                 listingId = "service-1",
+                ownerUid = uid,
             ),
         ),
         result,
@@ -540,6 +547,7 @@ class FirebaseListingRepositoryTest {
         listingDocument(
             "item-1",
             mapOf(
+                "ownerUid" to uid,
                 "type" to "ITEM",
                 "category" to "Tools",
                 "price" to 8L,
@@ -554,7 +562,15 @@ class FirebaseListingRepositoryTest {
 
     assertEquals(
         listOf(
-            ItemListing("Tools", 8.0, "Bosch drill set", "With bits", 120.0, listingId = "item-1")
+            ItemListing(
+                "Tools",
+                8.0,
+                "Bosch drill set",
+                "With bits",
+                120.0,
+                listingId = "item-1",
+                ownerUid = uid,
+            )
         ),
         result,
     )
@@ -571,6 +587,7 @@ class FirebaseListingRepositoryTest {
   fun getAllListings_skipsMalformedDocumentsAndKeepsTheOthers() = runTest {
     val valid =
         mapOf(
+            "ownerUid" to uid,
             "type" to "SERVICE",
             "category" to "Tutoring",
             "price" to 25.0,

@@ -47,7 +47,7 @@ class FirebaseListingRepository(
 
       document.set(listing.toFirestoreData(ownerUid, imagePaths)).await()
       // Points to the uploaded photos: the local ones may be deleted once the listing is saved.
-      return listing.saved(document.id, imagePaths)
+      return listing.saved(document.id, imagePaths, ownerUid)
     } catch (exception: Exception) {
       // If listing creation fails, undo image uploads
       // Cleanup code needs to attempt deletion even if the original coroutine has been canceled.
@@ -119,11 +119,26 @@ class FirebaseListingRepository(
         }
       }
 
-  private fun Listing.saved(listingId: String, imagePaths: List<String>): Listing =
+  private fun Listing.saved(
+      listingId: String,
+      imagePaths: List<String>,
+      ownerUid: String,
+  ): Listing =
       when (this) {
         is ServiceListing ->
-            copy(listingId = listingId, images = emptyList(), imagePaths = imagePaths)
-        is ItemListing -> copy(listingId = listingId, images = emptyList(), imagePaths = imagePaths)
+            copy(
+                listingId = listingId,
+                images = emptyList(),
+                imagePaths = imagePaths,
+                ownerUid = ownerUid,
+            )
+        is ItemListing ->
+            copy(
+                listingId = listingId,
+                images = emptyList(),
+                imagePaths = imagePaths,
+                ownerUid = ownerUid,
+            )
       }
 
   /**
@@ -139,7 +154,16 @@ class FirebaseListingRepository(
     val description = get("description") as? String
     // Firestore returns a Long for a whole number such as 8, so read any Number.
     val price = (get("price") as? Number)?.toDouble()
-    if (category == null || title == null || description == null || price == null) return null
+    // The rules require it on every listing, so a document without it is malformed.
+    val ownerUid = get("ownerUid") as? String
+    if (
+        category == null ||
+            title == null ||
+            description == null ||
+            price == null ||
+            ownerUid == null
+    )
+        return null
     val imagePaths = (get("imagePaths") as? List<*>).orEmpty().filterIsInstance<String>()
 
     return when (get("type")) {
@@ -151,6 +175,7 @@ class FirebaseListingRepository(
               description,
               imagePaths = imagePaths,
               listingId = id,
+              ownerUid = ownerUid,
           )
       ListingType.ITEM.name -> {
         val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
@@ -162,6 +187,7 @@ class FirebaseListingRepository(
             refundValue,
             imagePaths = imagePaths,
             listingId = id,
+            ownerUid = ownerUid,
         )
       }
       else -> null
