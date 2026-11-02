@@ -4,9 +4,31 @@ package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ListingTest {
+
+  @Test
+  fun listingCategoryIdsMatchPersistedIds() {
+    assertEquals(
+        listOf(
+            "item_tools",
+            "item_electronics",
+            "item_books",
+            "item_sports",
+            "item_kitchen",
+            "item_other",
+            "service_tutoring",
+            "service_repairs",
+            "service_moving_help",
+            "service_gardening",
+            "service_cleaning",
+            "service_other",
+        ),
+        ListingCategory.entries.map { it.id },
+    )
+  }
 
   @Test
   fun serviceListingHasServiceType() {
@@ -22,6 +44,18 @@ class ListingTest {
   }
 
   @Test
+  fun serviceListingRejectsItemCategory() {
+    assertThrows(IllegalArgumentException::class.java) {
+      ServiceListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 25.0,
+          title = "Math tutoring",
+          description = "One-hour session",
+      )
+    }
+  }
+
+  @Test
   fun itemListingDefaultsRefundValueToPrice() {
     val listing =
         ItemListing(
@@ -33,6 +67,18 @@ class ListingTest {
 
     assertEquals(ListingType.ITEM, listing.type)
     assertEquals(100.0, listing.refundValue, 0.0)
+  }
+
+  @Test
+  fun itemListingRejectsServiceCategory() {
+    assertThrows(IllegalArgumentException::class.java) {
+      ItemListing(
+          category = ListingCategory.SERVICE_TUTORING,
+          price = 100.0,
+          title = "Calculator",
+          description = "Graphing calculator",
+      )
+    }
   }
 
   @Test

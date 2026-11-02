@@ -9,6 +9,7 @@ enum class ListingType {
   ITEM,
 }
 
+// These IDs are persisted in Firestore and must match the category lists in firestore.rules.
 enum class ListingCategory(
     val id: String,
     val type: ListingType,

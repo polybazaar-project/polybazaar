@@ -332,6 +332,30 @@ describe("listings", () => {
     await assertFails(setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ type: "CAR" })));
   });
 
+  test("every supported category can be used for its listing type", async () => {
+    const db = verified(ALICE);
+    const validCategories = [
+      ["item_tools", itemListing],
+      ["item_electronics", itemListing],
+      ["item_books", itemListing],
+      ["item_sports", itemListing],
+      ["item_kitchen", itemListing],
+      ["item_other", itemListing],
+      ["service_tutoring", serviceListing],
+      ["service_repairs", serviceListing],
+      ["service_moving_help", serviceListing],
+      ["service_gardening", serviceListing],
+      ["service_cleaning", serviceListing],
+      ["service_other", serviceListing],
+    ];
+
+    for (const [index, [category, listing]] of validCategories.entries()) {
+      await assertSucceeds(
+        setDoc(doc(db, `listings/category-${index}`), listing({ category })),
+      );
+    }
+  });
+
   test("a listing category must belong to its type", async () => {
     const db = verified(ALICE);
     await assertFails(

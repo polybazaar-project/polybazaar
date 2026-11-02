@@ -446,6 +446,7 @@ class FirebaseListingRepositoryTest {
         listingDocument("missing-title", valid - "title"),
         listingDocument("unknown-type", valid + ("type" to "RENTAL")),
         listingDocument("price-as-text", valid + ("price" to "25")),
+        listingDocument("unknown-category", valid + ("category" to "Tutoring")),
         listingDocument("item-without-refund", valid + ("type" to "ITEM")),
         listingDocument("valid", valid),
     )
@@ -599,6 +600,7 @@ class FirebaseListingRepositoryTest {
         listingDocument("missing-description", valid - "description"),
         listingDocument("missing-price", valid - "price"),
         listingDocument("unknown-type", valid + ("type" to "RENTAL")),
+        listingDocument("unknown-category", valid + ("category" to "Tutoring")),
         listingDocument("item-without-refund", valid + ("type" to "ITEM")),
         listingDocument("valid", valid),
     )
