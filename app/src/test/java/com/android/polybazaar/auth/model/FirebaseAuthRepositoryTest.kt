@@ -15,9 +15,11 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -508,12 +510,34 @@ class FirebaseAuthRepositoryTest {
     whenever(collectionRef.whereEqualTo("uid", uid)).thenReturn(query)
     whenever(query.limit(1)).thenReturn(query)
     whenever(querySnapshot.isEmpty).thenReturn(true)
+    val metadata = snapshotMetadata(isFromCache = false)
+    whenever(querySnapshot.metadata).thenReturn(metadata)
     whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
 
     val result = runCatching { repository.getCurrentUser() }
 
     assertTrue(result.isFailure)
     assertEquals("Username not found for the current user", result.exceptionOrNull()?.message)
+  }
+
+  @Test
+  fun usernameForUid_emptySnapshotFromOfflineCache_throwsUnavailable() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+
+    val query = mock<Query>()
+    val querySnapshot = mock<QuerySnapshot>()
+
+    whenever(collectionRef.whereEqualTo("uid", uid)).thenReturn(query)
+    whenever(query.limit(1)).thenReturn(query)
+    whenever(querySnapshot.isEmpty).thenReturn(true)
+    val metadata = snapshotMetadata(isFromCache = true)
+    whenever(querySnapshot.metadata).thenReturn(metadata)
+    whenever(query.get()).thenReturn(Tasks.forResult(querySnapshot))
+
+    val result = runCatching { repository.getCurrentUser() }
+
+    val exception = result.exceptionOrNull() as FirebaseFirestoreException
+    assertEquals(FirebaseFirestoreException.Code.UNAVAILABLE, exception.code)
   }
 
   @Test
@@ -747,4 +771,8 @@ class FirebaseAuthRepositoryTest {
     whenever(auth.createUserWithEmailAndPassword(email, password))
         .thenReturn(Tasks.forResult(authResult))
   }
+
+  /** [SnapshotMetadata]'s constructor is package-private, so tests mock it instead. */
+  private fun snapshotMetadata(isFromCache: Boolean): SnapshotMetadata =
+      mock<SnapshotMetadata>().also { whenever(it.isFromCache).thenReturn(isFromCache) }
 }

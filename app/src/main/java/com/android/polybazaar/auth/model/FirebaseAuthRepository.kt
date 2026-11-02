@@ -10,6 +10,7 @@ import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -207,6 +208,14 @@ class FirebaseAuthRepository(
         firestore.collection("usernames").whereEqualTo("uid", uid).limit(1).get().await()
 
     if (querySnapshot.isEmpty) {
+      // Offline, Firestore answers from its cache, so an empty result may only mean the username
+      // was never cached. Report it as the network failure it is, not as a missing username.
+      if (querySnapshot.metadata.isFromCache) {
+        throw FirebaseFirestoreException(
+            "Username not in the offline cache",
+            FirebaseFirestoreException.Code.UNAVAILABLE,
+        )
+      }
       throw Exception("Username not found for the current user")
     }
 

@@ -54,6 +54,7 @@ import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
 import java.io.IOException
+import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -220,6 +221,29 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     assertEquals(1, listingRepository.getAllListingsCalls)
+  }
+
+  @Test
+  fun sessionCheckOffline_offersRetryInsteadOfSignIn() {
+    setContent(
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    )
+
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertDoesNotExist()
+  }
+
+  @Test
+  fun sessionCheckOffline_retryOnceOnline_startsOnBrowse() {
+    val repository =
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    setContent(repository)
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+
+    repository.currentUserError = null
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_RETRY).performClick()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
@@ -961,6 +985,7 @@ class AppNavHostTest {
       private val signInResult: Result<User> = Result.failure(IllegalStateException("Not set")),
       var refreshUserResult: Result<User> = Result.failure(IllegalStateException("Not set")),
       private val signOutError: Exception? = null,
+      var currentUserError: Exception? = null,
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> = signInResult
 
@@ -972,6 +997,7 @@ class AppNavHostTest {
     }
 
     override suspend fun getCurrentUser(): User {
+      currentUserError?.let { throw it }
       val result = if (currentUserGate != null) currentUserGate.await() else currentUser
       return result ?: throw IllegalStateException("No user is currently logged in")
     }

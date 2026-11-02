@@ -3,6 +3,8 @@ package com.android.polybazaar.auth.viewmodel
 
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
+import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -184,6 +186,50 @@ class AuthViewModelTest {
   }
 
   @Test
+  fun restoreSession_networkFailure_keepsSessionUncheckedWithNetworkError() = runTest {
+    repository.currentUser = User("user-1", "user@example.com", "User")
+    repository.getCurrentUserError = UnknownHostException("offline")
+
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.user)
+    assertFalse(viewModel.uiState.value.sessionChecked)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.sessionError)
+  }
+
+  @Test
+  fun restoreSession_retryAfterNetworkFailure_restoresUserAndClearsError() = runTest {
+    val user = User("user-1", "user@example.com", "User")
+    repository.currentUser = user
+    repository.getCurrentUserError = UnknownHostException("offline")
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    repository.getCurrentUserError = null
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(user, viewModel.uiState.value.user)
+    assertTrue(viewModel.uiState.value.sessionChecked)
+    assertNull(viewModel.uiState.value.sessionError)
+  }
+
+  @Test
+  fun restoreSession_otherFailure_signsOutWithoutSessionError() = runTest {
+    repository.currentUser = User("user-1", "user@example.com", "User")
+    repository.getCurrentUserError = IllegalStateException("Username not found")
+
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.user)
+    assertTrue(viewModel.uiState.value.sessionChecked)
+    assertNull(viewModel.uiState.value.sessionError)
+  }
+
+  @Test
   fun restoreSession_runsOnlyOnce() = runTest {
     viewModel.restoreSession()
     testDispatcher.scheduler.advanceUntilIdle()
@@ -247,6 +293,7 @@ class AuthViewModelTest {
     var currentUser: User? = null
     var getCurrentUserCalls = 0
     var getCurrentUserGate: CompletableDeferred<User?>? = null
+    var getCurrentUserError: Exception? = null
 
     override suspend fun signIn(email: String, password: String): Result<User> {
       signInCredentials = email to password
@@ -265,6 +312,7 @@ class AuthViewModelTest {
 
     override suspend fun getCurrentUser(): User {
       getCurrentUserCalls++
+      getCurrentUserError?.let { throw it }
       getCurrentUserGate?.let { gate ->
         return gate.await() ?: throw IllegalStateException("No user is currently logged in")
       }

@@ -5,6 +5,7 @@ package com.android.polybazaar.ui.navigation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -13,6 +14,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -22,6 +25,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.createSavedStateHandle
@@ -33,6 +41,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.AuthColors
@@ -45,6 +54,8 @@ import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
@@ -60,6 +71,8 @@ import kotlinx.coroutines.launch
 
 object AppNavHostTags {
   const val LOADING = "app_nav_loading"
+  const val SESSION_ERROR = "app_nav_session_error"
+  const val SESSION_RETRY = "app_nav_session_retry"
 }
 
 /**
@@ -133,7 +146,14 @@ fun AppNavHost(
               modifier = Modifier.fillMaxSize().testTag(AppNavHostTags.LOADING),
               contentAlignment = Alignment.Center,
           ) {
-            CircularProgressIndicator()
+            // Offline the session cannot be checked, but it may still be valid: offer a retry
+            // instead of sending the user to sign in.
+            val sessionError = uiState.sessionError
+            if (sessionError != null) {
+              SessionError(error = sessionError, onRetry = authViewModel::restoreSession)
+            } else {
+              CircularProgressIndicator()
+            }
           }
         }
         composable(Routes.SIGN_IN) {
@@ -347,4 +367,27 @@ private fun NavHostController.navigateToTab(route: String) {
  */
 private fun NavHostController.openNewBrowse() {
   navigate(Routes.BROWSE) { popUpTo(Routes.BROWSE) { inclusive = true } }
+}
+
+@Composable
+private fun SessionError(error: AppError, onRetry: () -> Unit) {
+  Column(
+      modifier = Modifier.padding(horizontal = 24.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    Text(
+        text = error.message(),
+        color = AuthColors.TextSecondary,
+        fontSize = 14.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.testTag(AppNavHostTags.SESSION_ERROR),
+    )
+    TextButton(onClick = onRetry, modifier = Modifier.testTag(AppNavHostTags.SESSION_RETRY)) {
+      Text(
+          text = stringResource(R.string.session_retry),
+          color = AuthColors.Accent,
+          fontWeight = FontWeight.Bold,
+      )
+    }
+  }
 }
