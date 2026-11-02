@@ -135,6 +135,9 @@ class FirebaseListingRepository(
         put("imagePaths", imagePaths)
         if (this@toFirestoreData is ItemListing) {
           put("refundValue", refundValue)
+          // Left out when there is no limit, so the document looks like one written before the
+          // field existed.
+          maxRentalDays?.let { put("maxRentalDays", it) }
         }
       }
 
@@ -198,12 +201,22 @@ class FirebaseListingRepository(
           )
       ListingType.ITEM.name -> {
         val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
+        // Optional: absent means no limit. Firestore returns a whole number as a Long, and the
+        // rules only accept an int, so anything else (text, a fraction) is malformed.
+        val maxRentalDays =
+            when (val days = get("maxRentalDays")) {
+              null -> null
+              is Long -> days.toInt()
+              is Int -> days
+              else -> return null
+            }
         ItemListing(
             category,
             price,
             title,
             description,
             refundValue,
+            maxRentalDays,
             imagePaths = imagePaths,
             listingId = id,
             ownerUid = ownerUid,

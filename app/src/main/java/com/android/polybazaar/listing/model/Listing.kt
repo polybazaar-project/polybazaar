@@ -43,12 +43,18 @@ data class ServiceListing(
   override val type = ListingType.SERVICE
 }
 
+/**
+ * @property maxRentalDays the longest a renter can keep the item, in days. Null means the lender
+ *   set no limit, which is also what older listings without the field read as. Services don't have
+ *   it: they aren't rented by the day.
+ */
 data class ItemListing(
     override val category: String,
     override val price: Double,
     override val title: String,
     override val description: String,
     val refundValue: Double = price,
+    val maxRentalDays: Int? = null,
     override val images: List<Uri> = emptyList(),
     override val imagePaths: List<String> = emptyList(),
     override val listingId: String? = null,
