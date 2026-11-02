@@ -49,4 +49,13 @@ class ListingTest {
     // Not saved yet, so not stored anywhere.
     assertEquals(emptyList<String>(), listing.imagePaths)
   }
+
+  @Test
+  fun newListingsHaveNoOwnerUntilSaved() {
+    val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One-hour session")
+    val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits")
+
+    assertEquals(null, service.ownerUid)
+    assertEquals(null, item.ownerUid)
+  }
 }

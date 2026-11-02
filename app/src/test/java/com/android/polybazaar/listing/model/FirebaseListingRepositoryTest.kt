@@ -328,6 +328,19 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun createListing_returnsTheListingOwnedByTheSignedInUser() = runTest {
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One-hour session")
+    val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits")
+
+    val createdService = repository.createListing(service)
+    val createdItem = repository.createListing(item)
+
+    assertEquals(service.copy(listingId = listingId, ownerUid = uid), createdService)
+    assertEquals(item.copy(listingId = listingId, ownerUid = uid), createdItem)
+  }
+
+  @Test
   fun createListing_withoutAuthenticatedUser_throwsError() = runTest {
     whenever(auth.currentUser).thenReturn(null)
 
@@ -600,6 +613,9 @@ class FirebaseListingRepositoryTest {
         listingDocument("missing-price", valid - "price"),
         listingDocument("unknown-type", valid + ("type" to "RENTAL")),
         listingDocument("item-without-refund", valid + ("type" to "ITEM")),
+        // The rules require a string owner on every listing.
+        listingDocument("missing-owner", valid - "ownerUid"),
+        listingDocument("owner-as-number", valid + ("ownerUid" to 123L)),
         listingDocument("valid", valid),
     )
 
