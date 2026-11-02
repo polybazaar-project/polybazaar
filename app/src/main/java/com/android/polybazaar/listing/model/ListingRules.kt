@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.listing.model
 
+import android.net.Uri
+
 /** Constraints a listing must respect, shared by every screen that creates or edits one. */
 object ListingRules {
   /** Maximum number of photos a listing can have. */
@@ -52,6 +54,59 @@ object ListingRules {
       listing is ItemListing && !isValidAmount(listing.refundValue, MAX_REFUND_VALUE) ->
           REFUND_RANGE_MESSAGE
       else -> null
+    }
+  }
+
+  /**
+   * Up to five integer digits (10000.00 is the largest valid amount), at most one decimal separator
+   * and two decimals: what the price field accepts.
+   */
+  private val PRICE_INPUT = Regex("""\d{0,5}([.,]\d{0,2})?""")
+
+  /** Same as [PRICE_INPUT] with a sixth integer digit, since 100000.00 is the largest refund. */
+  private val REFUND_INPUT = Regex("""\d{0,6}([.,]\d{0,2})?""")
+
+  fun isValidPriceInput(input: String): Boolean = PRICE_INPUT.matches(input)
+
+  fun isValidRefundInput(input: String): Boolean = REFUND_INPUT.matches(input)
+
+  /** Parses a user-typed amount, accepting either "." or "," as decimal separator. */
+  fun parsePrice(input: String, max: Double = MAX_PRICE): Double? =
+      input.trim().replace(',', '.').toDoubleOrNull()?.takeIf { isValidAmount(it, max) }
+
+  /** Builds the listing described by a form, or returns null while the form is incomplete. */
+  fun buildListing(
+      type: ListingType,
+      title: String,
+      description: String,
+      price: String,
+      category: String?,
+      photos: List<Uri>,
+      refundValue: String = "",
+  ): Listing? {
+    val parsedPrice = parsePrice(price) ?: return null
+    if (title.isBlank() || description.isBlank() || category == null) return null
+    return when (type) {
+      ListingType.ITEM ->
+          ItemListing(
+              category = category,
+              price = parsedPrice,
+              title = title.trim(),
+              description = description.trim(),
+              // Left blank, the refund value falls back to the price, like in ItemListing.
+              refundValue =
+                  if (refundValue.isBlank()) parsedPrice
+                  else parsePrice(refundValue, MAX_REFUND_VALUE) ?: return null,
+              images = photos,
+          )
+      ListingType.SERVICE ->
+          ServiceListing(
+              category = category,
+              price = parsedPrice,
+              title = title.trim(),
+              description = description.trim(),
+              images = photos,
+          )
     }
   }
 }

@@ -15,6 +15,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
 import com.android.polybazaar.listing.model.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
                         JpegPhotoCompressor(applicationContext.contentResolver)
                     )
                   },
+              photoStorage = remember { FilePhotoStorage(applicationContext) },
           )
         }
       }

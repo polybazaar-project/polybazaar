@@ -4,16 +4,38 @@
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
@@ -24,21 +46,27 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
 import com.android.polybazaar.toolbox.ui.ToolboxCardTags
+import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
 class AppNavHostTest {
@@ -57,6 +85,7 @@ class AppNavHostTest {
   private val profileRepository = FakeProfileRepository(user)
 
   private val listingRepository = FakeListingRepository()
+  private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
   private lateinit var navController: NavHostController
 
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
@@ -68,15 +97,94 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
     return viewModel
   }
 
+  /**
+   * Rebuilds the UI from its saved state with a new [AuthViewModel] and new ViewModel stores, as
+   * after process death.
+   */
+  private fun restoreSavedState(
+      before: FakeAuthRepository,
+      after: FakeAuthRepository = before,
+      actions: () -> Unit,
+  ) {
+    val tester = StateRestorationTester(composeTestRule)
+    var repository = before
+    var storeOwner = newViewModelStoreOwner()
+    tester.setContent {
+      CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
+        val viewModel = remember { AuthViewModel(repository) }
+        navController = rememberNavController()
+        AppNavHost(
+            authViewModel = viewModel,
+            authRepository = repository,
+            profileRepository = profileRepository,
+            listingRepository = listingRepository,
+            photoStorage = photoStorage,
+            navController = navController,
+        )
+      }
+    }
+    actions()
+    repository = after
+    storeOwner = newViewModelStoreOwner()
+    tester.emulateSavedInstanceStateRestore()
+  }
+
+  private fun newViewModelStoreOwner() =
+      object : ViewModelStoreOwner {
+        override val viewModelStore = ViewModelStore()
+      }
+
   private fun openProfile() {
-    composeTestRule.runOnIdle { navController.navigate(Routes.PROFILE) { launchSingleTop = true } }
+    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).performClick()
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  private fun openCreateListing() {
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  private fun publishListing(title: String) {
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextInput(title)
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.DESCRIPTION_FIELD)
+        .performTextInput("Works well")
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.PRICE_FIELD).performTextInput("5")
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.CATEGORY_FIELD).performClick()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.categoryOption("Tools")).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
+        .performScrollTo()
+        .performClick()
+  }
+
+  private fun openBrowse() {
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).performClick()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  private fun profileScrollPosition(): Float =
+      composeTestRule
+          .onNode(hasScrollAction())
+          .fetchSemanticsNode()
+          .config[SemanticsProperties.VerticalScrollAxisRange]
+          .value()
+
+  private fun assertBottomBarHidden() {
+    composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertDoesNotExist()
+  }
+
+  private fun assertEndsAboveBottomBar(screenTag: String) {
+    val content = composeTestRule.onNodeWithTag(screenTag).getBoundsInRoot()
+    val bar = composeTestRule.onNodeWithTag(BottomBarTags.BAR).getBoundsInRoot()
+    assertTrue(content.bottom <= bar.top)
   }
 
   private fun openSettings() {
@@ -98,10 +206,10 @@ class AppNavHostTest {
   }
 
   @Test
-  fun persistedUser_startsOnProfile() {
+  fun persistedUser_startsOnBrowse() {
     setContent(FakeAuthRepository(currentUser = user))
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
@@ -109,9 +217,6 @@ class AppNavHostTest {
     listingRepository.allListings =
         listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
     setContent(FakeAuthRepository(currentUser = user))
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
-
-    composeTestRule.runOnIdle { navController.navigate(Routes.BROWSE) }
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
@@ -123,11 +228,26 @@ class AppNavHostTest {
     listingRepository.myListings =
         listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
     setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
-    assertEquals(1, listingRepository.getMyListingsCalls)
+  }
+
+  @Test
+  fun toolbox_showsAListingPublishedSinceProfileWasLastOpen() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertDoesNotExist()
+
+    openCreateListing()
+    listingRepository.myListings =
+        listOf(ItemListing("Tools", 5.0, "Bosch drill set", "Works well", listingId = "drill"))
+    publishListing("Bosch drill set")
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertIsDisplayed()
   }
 
   @Test
@@ -138,7 +258,7 @@ class AppNavHostTest {
   }
 
   @Test
-  fun signIn_navigatesToProfile() {
+  fun signIn_navigatesToBrowse() {
     val repository = FakeAuthRepository(currentUser = null, signInResult = Result.success(user))
     setContent(repository)
 
@@ -146,7 +266,7 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("secret1")
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
@@ -188,6 +308,7 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
@@ -197,7 +318,7 @@ class AppNavHostTest {
     viewModel.signIn("ada@epfl.ch", "secret1")
     composeTestRule.waitForIdle()
 
-    assertEquals(Routes.PROFILE, navController.currentBackStackEntry?.destination?.route)
+    assertEquals(Routes.BROWSE, navController.currentBackStackEntry?.destination?.route)
     assertNull(navController.previousBackStackEntry)
   }
 
@@ -382,6 +503,7 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
@@ -429,17 +551,17 @@ class AppNavHostTest {
   }
 
   @Test
-  fun emailVerifiedOutsideTheApp_opensProfileWithoutSigningInAgain() {
+  fun emailVerifiedOutsideTheApp_opensBrowseWithoutSigningInAgain() {
     // The cached session still says unverified, but the server already knows about the link.
     setContent(
         FakeAuthRepository(currentUser = unverifiedUser, refreshUserResult = Result.success(user))
     )
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
   }
 
   @Test
-  fun checkButton_onceVerified_opensProfileAndClearsBackStack() {
+  fun checkButton_onceVerified_opensBrowseAndClearsBackStack() {
     lateinit var navController: NavHostController
     val repository =
         FakeAuthRepository(
@@ -454,6 +576,7 @@ class AppNavHostTest {
           authRepository = repository,
           profileRepository = profileRepository,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }
@@ -462,8 +585,8 @@ class AppNavHostTest {
     repository.refreshUserResult = Result.success(user)
     composeTestRule.onNodeWithTag(VerifyEmailScreenTags.CHECK_BUTTON).performClick()
 
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
-    assertEquals(Routes.PROFILE, navController.currentBackStackEntry?.destination?.route)
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(Routes.BROWSE, navController.currentBackStackEntry?.destination?.route)
     assertNull(navController.previousBackStackEntry)
     assertEquals(true, viewModel.uiState.value.user?.isEmailVerified)
   }
@@ -515,6 +638,330 @@ class AppNavHostTest {
 
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
     assertNull(viewModel.uiState.value.user)
+  }
+
+  @Test
+  fun bottomBar_isShownOnEveryTab() {
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
+
+    openCreateListing()
+    composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
+
+    openProfile()
+    composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
+  }
+
+  @Test
+  fun bottomBar_isHiddenOnLoading() {
+    setContent(FakeAuthRepository(currentUserGate = CompletableDeferred()))
+
+    composeTestRule.onNodeWithTag(AppNavHostTags.LOADING).assertIsDisplayed()
+    assertBottomBarHidden()
+  }
+
+  @Test
+  fun bottomBar_isHiddenOnAuthScreens() {
+    setContent(FakeAuthRepository(currentUser = null))
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).performClick()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SignInScreenTags.FORGOT_PASSWORD_LINK).performClick()
+    composeTestRule.onNodeWithTag(ForgotPasswordScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+  }
+
+  @Test
+  fun bottomBar_isHiddenOnVerifyEmail() {
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+  }
+
+  @Test
+  fun bottomBar_isHiddenOnEditProfileAndSettings() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.CANCEL_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+  }
+
+  @Test
+  fun tabContent_endsAboveTheBottomBar() {
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertEndsAboveBottomBar(BrowseScreenTags.SCREEN)
+
+    openCreateListing()
+    assertEndsAboveBottomBar(CreateListingScreenTags.SCREEN)
+
+    openProfile()
+    assertEndsAboveBottomBar(ProfileScreenTags.SCREEN)
+  }
+
+  @Test
+  fun selectedTab_reportsSelectedSemantics() {
+    val isTab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsSelected().assert(isTab)
+    composeTestRule
+        .onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB)
+        .assertIsNotSelected()
+        .assert(isTab)
+    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).assertIsNotSelected().assert(isTab)
+
+    openCreateListing()
+
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsNotSelected()
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).assertIsSelected()
+
+    openProfile()
+
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).assertIsNotSelected()
+    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).assertIsSelected()
+  }
+
+  @Test
+  fun repeatedTabSwitches_doNotGrowTheBackStack() {
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+
+    repeat(3) {
+      openCreateListing()
+      openProfile()
+      openBrowse()
+    }
+
+    assertEquals(Routes.BROWSE, navController.currentBackStackEntry?.destination?.route)
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun tappingTheCurrentTab_doesNothing() {
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+
+    val browseEntry = navController.currentBackStackEntry
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).performClick()
+    composeTestRule.waitForIdle()
+    assertSame(browseEntry, navController.currentBackStackEntry)
+    assertNull(navController.previousBackStackEntry)
+
+    openProfile()
+    val profileEntry = navController.currentBackStackEntry
+    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).performClick()
+    composeTestRule.waitForIdle()
+    assertSame(profileEntry, navController.currentBackStackEntry)
+    assertSame(browseEntry, navController.previousBackStackEntry)
+  }
+
+  // Profile fills the default test screen exactly, so it only scrolls on a shorter one.
+  @Config(qualifiers = "h400dp")
+  @Test
+  fun switchingAwayFromProfileAndBack_restoresItsEntryAndScrollPosition() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    val entryId = navController.currentBackStackEntry?.id
+    val scrollable = composeTestRule.onNode(hasScrollAction())
+    scrollable.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 40f) }
+    composeTestRule.waitForIdle()
+    val scrolled = profileScrollPosition()
+    assertTrue(scrolled > 0f)
+
+    openBrowse()
+    openProfile()
+
+    assertEquals(entryId, navController.currentBackStackEntry?.id)
+    assertEquals(scrolled, profileScrollPosition(), 0f)
+  }
+
+  @Test
+  fun createListingForm_survivesSwitchingTabs() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openCreateListing()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextInput("Drill")
+
+    openProfile()
+    openCreateListing()
+
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).assertTextEquals("Drill")
+  }
+
+  @Test
+  fun backFromCreateListing_returnsToBrowseAndKeepsTheForm() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openCreateListing()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextInput("Drill")
+
+    Espresso.pressBack()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(navController.previousBackStackEntry)
+    openCreateListing()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).assertTextEquals("Drill")
+  }
+
+  @Test
+  fun publishing_opensBrowseShowingTheListingAndLeavesAnEmptyForm() {
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    openCreateListing()
+
+    publishListing("Bosch drill set")
+
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsSelected()
+    assertNull(navController.previousBackStackEntry)
+    assertEquals(2, listingRepository.getAllListingsCalls)
+
+    openCreateListing()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON).assertIsNotEnabled()
+    composeTestRule.onNodeWithText("Bosch drill set").assertDoesNotExist()
+  }
+
+  @Test
+  fun publishingFailure_staysOnTheFormWithTheError() {
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    openCreateListing()
+    listingRepository.failure = IOException("Network down")
+
+    publishListing("Bosch drill set")
+
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Network down")
+    assertEquals(Routes.CREATE_LISTING, navController.currentBackStackEntry?.destination?.route)
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .assertTextEquals("Bosch drill set")
+  }
+
+  @Test
+  fun publishingFinishedWhileOnAnotherTab_opensBrowseOnComingBack() {
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    openCreateListing()
+    val upload = CompletableDeferred<Unit>()
+    listingRepository.gate = upload
+
+    publishListing("Bosch drill set")
+    openProfile()
+    composeTestRule.runOnIdle { upload.complete(Unit) }
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
+
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsSelected()
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun signOutOnCreateListing_returnsToSignIn() {
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    openCreateListing()
+
+    viewModel.signOut()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun backFromProfile_returnsToBrowse() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    Espresso.pressBack()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsSelected()
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun browseSearchText_survivesSwitchingToProfileAndBack() {
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("drill")
+    openProfile()
+    openBrowse()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).assertTextEquals("drill")
+    assertEquals(1, listingRepository.getAllListingsCalls)
+  }
+
+  @Config(qualifiers = "w640dp-h360dp-land")
+  @Test
+  fun browseListing_isReachableOnAShortWindow() {
+    listingRepository.allListings =
+        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("Bosch drill set"))
+
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+  }
+
+  @Test
+  fun restoredStateWithSession_keepsProfileOverBrowseAndTabsStillSwitch() {
+    restoreSavedState(before = FakeAuthRepository(currentUser = user)) { openProfile() }
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+
+    openBrowse()
+    openProfile()
+
+    assertEquals(Routes.BROWSE, navController.previousBackStackEntry?.destination?.route)
+    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).assertIsSelected()
+  }
+
+  @Test
+  fun restoredStateOnCreateListing_keepsTheDraft() {
+    restoreSavedState(before = FakeAuthRepository(currentUser = user)) {
+      composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+      openCreateListing()
+      composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextInput("Drill")
+    }
+
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).assertTextEquals("Drill")
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).assertIsSelected()
+  }
+
+  @Test
+  fun restoredStateWithoutSession_returnsToSignInAndClearsBackStack() {
+    restoreSavedState(
+        before = FakeAuthRepository(currentUser = user),
+        after = FakeAuthRepository(currentUser = null),
+    ) {
+      openProfile()
+      openBrowse()
+    }
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+    assertNull(navController.previousBackStackEntry)
   }
 
   private class FakeProfileRepository(initial: User) : ProfileRepository {

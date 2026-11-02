@@ -4,11 +4,11 @@ package com.android.polybazaar.listing.model
 import kotlinx.coroutines.CompletableDeferred
 
 /**
- * A [ListingRepository] for tests that read listings.
+ * A [ListingRepository] for tests.
  *
  * [getAllListings] answers with [allListings] and [getMyListings] with [myListings], or either with
- * [failure] when it is set. Set [gate] to keep the call waiting until the test completes it, to
- * look at a load in progress.
+ * [failure] when it is set. [createListing] adds to [allListings], or throws [failure]. Set [gate]
+ * to keep any of these calls waiting until the test completes it, to look at one in progress.
  */
 class FakeListingRepository(
     var allListings: List<Listing> = emptyList(),
@@ -22,7 +22,18 @@ class FakeListingRepository(
   var getMyListingsCalls = 0
     private set
 
-  override suspend fun createListing(listing: Listing): Listing = listing
+  override suspend fun createListing(listing: Listing): Listing {
+    gate?.await()
+    failure?.let { throw it }
+    val listingId = "created-${allListings.size}"
+    val created =
+        when (listing) {
+          is ItemListing -> listing.copy(listingId = listingId)
+          is ServiceListing -> listing.copy(listingId = listingId)
+        }
+    allListings = allListings + created
+    return created
+  }
 
   override suspend fun getMyListings(): Result<List<Listing>> {
     getMyListingsCalls++

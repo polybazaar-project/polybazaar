@@ -4,6 +4,11 @@
     <string name="title_activity_main">MainActivity</string>
     <string name="title_activity_second">SecondActivity</string>
 
+    <!-- Bottom navigation -->
+    <string name="nav_browse">Browse</string>
+    <string name="nav_create_listing">Create listing</string>
+    <string name="nav_profile">Profile</string>
+
     <!-- Browse screen -->
     <string name="browse_header_title">Polybazaar</string>
     <string name="browse_header_subtitle">Good tools. Great neighbours.</string>
