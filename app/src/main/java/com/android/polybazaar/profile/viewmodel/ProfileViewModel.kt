@@ -47,39 +47,8 @@ class ProfileViewModel(private val profileRepository: ProfileRepository) : ViewM
     val shouldClearProfile = observedUid != null && observedUid != uid
     observedUid = uid
     profileObservation = viewModelScope.launch {
-      _uiState.update {
-        it.copy(
-            profile = if (shouldClearProfile) null else it.profile,
-            photo = if (shouldClearProfile) null else it.photo,
-            isLoading = true,
-            errorMessage = null,
-        )
-      }
-      try {
-        profileRepository
-            .observeProfile(uid)
-            .onEach { profile ->
-              _uiState.update {
-                it.copy(
-                    profile = profile,
-                    photo = if (profile?.photoPath == null) null else it.photo,
-                    isLoading = false,
-                )
-              }
-            }
-            .map { it?.photoPath }
-            .distinctUntilChanged()
-            .combine(photoReloads) { photoPath, _ -> photoPath }
-            .collectLatest { photoPath -> photoPath?.let { loadPhoto(it) } }
-      } catch (exception: Exception) {
-        if (exception is CancellationException) throw exception
-        _uiState.update {
-          it.copy(
-              isLoading = false,
-              errorMessage = exception.message ?: "Unable to load profile",
-          )
-        }
-      }
+      showLoading(clearProfile = shouldClearProfile)
+      collectProfile(uid)
     }
   }
 
@@ -89,6 +58,48 @@ class ProfileViewModel(private val profileRepository: ProfileRepository) : ViewM
    */
   fun reloadPhoto() {
     photoReloads.update { it + 1 }
+  }
+
+  private fun showLoading(clearProfile: Boolean) {
+    _uiState.update {
+      it.copy(
+          profile = if (clearProfile) null else it.profile,
+          photo = if (clearProfile) null else it.photo,
+          isLoading = true,
+          errorMessage = null,
+      )
+    }
+  }
+
+  /** Follows the profile of [uid], and downloads its photo whenever the path or a reload asks. */
+  private suspend fun collectProfile(uid: String) {
+    try {
+      profileRepository
+          .observeProfile(uid)
+          .onEach { showProfile(it) }
+          .map { it?.photoPath }
+          .distinctUntilChanged()
+          .combine(photoReloads) { photoPath, _ -> photoPath }
+          .collectLatest { photoPath -> photoPath?.let { loadPhoto(it) } }
+    } catch (exception: Exception) {
+      if (exception is CancellationException) throw exception
+      _uiState.update {
+        it.copy(
+            isLoading = false,
+            errorMessage = exception.message ?: "Unable to load profile",
+        )
+      }
+    }
+  }
+
+  private fun showProfile(profile: User?) {
+    _uiState.update {
+      it.copy(
+          profile = profile,
+          photo = if (profile?.photoPath == null) null else it.photo,
+          isLoading = false,
+      )
+    }
   }
 
   /** On failure (when offline, for example) the avatar keeps what it was showing. */

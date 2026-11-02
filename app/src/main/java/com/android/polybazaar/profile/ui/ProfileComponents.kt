@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import java.nio.ByteBuffer
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -45,18 +46,25 @@ private const val AVATAR_DECODE_SIZE_PX = 288
  *
  * Shows [selectedPhotoUri] (a photo picked on this device) when there is one, then [savedPhoto]
  * (the encoded bytes of the photo stored in Firebase), and the default photo otherwise.
+ *
+ * @param ioDispatcher runs the decoding, off the main thread.
  */
 @Composable
 internal fun ProfileAvatar(
     modifier: Modifier = Modifier,
     selectedPhotoUri: Uri? = null,
     savedPhoto: ByteArray? = null,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
   val contentResolver = LocalContext.current.contentResolver
   val decodedSelectedPhoto =
-      rememberDecodedPhoto(selectedPhotoUri) { ImageDecoder.createSource(contentResolver, it) }
+      rememberDecodedPhoto(selectedPhotoUri, ioDispatcher) {
+        ImageDecoder.createSource(contentResolver, it)
+      }
   val decodedSavedPhoto =
-      rememberDecodedPhoto(savedPhoto) { ImageDecoder.createSource(ByteBuffer.wrap(it)) }
+      rememberDecodedPhoto(savedPhoto, ioDispatcher) {
+        ImageDecoder.createSource(ByteBuffer.wrap(it))
+      }
   Box(modifier = modifier.size(72.dp).testTag(ProfileComponentTags.AVATAR)) {
     Image(
         painter =
@@ -89,11 +97,12 @@ internal fun ProfileAvatar(
 @Composable
 private fun <T : Any> rememberDecodedPhoto(
     photo: T?,
+    ioDispatcher: CoroutineDispatcher,
     createSource: (T) -> ImageDecoder.Source,
 ): ImageBitmap? {
   val decoded by
       produceState<ImageBitmap?>(initialValue = null, photo) {
-        value = photo?.let { withContext(Dispatchers.IO) { decodeScaledPhoto(createSource(it)) } }
+        value = photo?.let { withContext(ioDispatcher) { decodeScaledPhoto(createSource(it)) } }
       }
   return decoded
 }
