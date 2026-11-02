@@ -25,6 +25,15 @@ interface ListingRepository {
    */
   suspend fun getAllListings(): Result<List<Listing>>
 
+  /**
+   * Returns the listing with this id, for the listing detail screen (#22).
+   *
+   * Offline, the answer comes from the local cache. Fails with a Firestore `NOT_FOUND` error when
+   * the listing does not exist or is malformed, and when Firestore cannot answer or the security
+   * rules deny the read; the caller maps the failure with `toAppError()`.
+   */
+  suspend fun getListing(listingId: String): Result<Listing>
+
   /** Downloads one of a listing's images by its Storage path, as the signed-in user. */
   suspend fun loadListingImage(imagePath: String): ByteArray
 }
