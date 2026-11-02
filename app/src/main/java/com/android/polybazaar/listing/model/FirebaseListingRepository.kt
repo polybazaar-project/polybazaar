@@ -95,6 +95,25 @@ class FirebaseListingRepository(
     }
   }
 
+  override suspend fun getListing(listingId: String): Result<Listing> {
+    return try {
+      // Offline, get() answers from the local cache.
+      val document = firestore.collection(LISTINGS_COLLECTION).document(listingId).get().await()
+      // A missing document has no fields, so toListing() returns null for it as for a malformed
+      // one. Both become NOT_FOUND, which toAppError() maps to AppError.NOT_FOUND.
+      val listing =
+          document.toListing()
+              ?: throw FirebaseFirestoreException(
+                  "Listing not found",
+                  FirebaseFirestoreException.Code.NOT_FOUND,
+              )
+      Result.success(listing)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(e)
+    }
+  }
+
   override suspend fun loadListingImage(imagePath: String): ByteArray =
       storage.reference.child(imagePath).getBytes(MAX_IMAGE_BYTES).await()
 
