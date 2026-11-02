@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 import {
@@ -66,7 +67,7 @@ function signUp(db, uid, username, usernameData = { uid }) {
 function itemListing(overrides = {}) {
   return {
     ownerUid: ALICE,
-    category: "Tools",
+    category: "item_tools",
     price: 12.5,
     type: "ITEM",
     title: "Drill",
@@ -78,7 +79,10 @@ function itemListing(overrides = {}) {
 }
 
 function serviceListing(overrides = {}) {
-  const { refundValue, ...service } = itemListing({ type: "SERVICE", category: "Tutoring" });
+  const { refundValue, ...service } = itemListing({
+    type: "SERVICE",
+    category: "service_tutoring",
+  });
   return { ...service, ...overrides };
 }
 
@@ -326,6 +330,17 @@ describe("listings", () => {
 
   test("a listing is an ITEM or a SERVICE", async () => {
     await assertFails(setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ type: "CAR" })));
+  });
+
+  test("a listing category must belong to its type", async () => {
+    const db = verified(ALICE);
+    await assertFails(
+      setDoc(doc(db, "listings/l1"), itemListing({ category: "service_tutoring" })),
+    );
+    await assertFails(
+      setDoc(doc(db, "listings/l2"), serviceListing({ category: "item_tools" })),
+    );
+    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ category: "unknown" })));
   });
 
   test("a listing has at most 5 images", async () => {
