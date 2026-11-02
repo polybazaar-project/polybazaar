@@ -169,7 +169,7 @@ class BrowseScreenTest {
     composeTestRule.onNodeWithText("Test Item").assertIsDisplayed()
     // Without a distance the card shows only the category, which is also a selector chip.
     composeTestRule
-        .onNode(hasText("Category") and hasAnyAncestor(hasTestTag(BrowseScreenTags.LISTING_CARD)))
+        .onNode(hasText("Other") and hasAnyAncestor(hasTestTag(BrowseScreenTags.LISTING_CARD)))
         .assertIsDisplayed()
     composeTestRule.onNodeWithText("CHF 10").assertIsDisplayed()
     composeTestRule.onNodeWithText("/ day").assertIsDisplayed()
