@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
@@ -23,6 +24,7 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -53,6 +55,7 @@ class EndToEndFlowTest {
 
   // Signed-in users land on Browse, which starts empty; publishing adds to it.
   private val listingRepository = FakeListingRepository()
+  private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
 
@@ -65,6 +68,7 @@ class EndToEndFlowTest {
           authRepository = backend,
           profileRepository = backend,
           listingRepository = listingRepository,
+          photoStorage = photoStorage,
           navController = navController,
       )
     }

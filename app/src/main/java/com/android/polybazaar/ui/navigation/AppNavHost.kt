@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -45,6 +46,7 @@ import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
 import com.android.polybazaar.listing.viewmodel.ListingViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
@@ -72,6 +74,7 @@ object AppNavHostTags {
  * @param authRepository used by the screens that need their own ViewModel, such as forgot password.
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
+ * @param photoStorage keeps the photos of the listing being created.
  */
 @Composable
 fun AppNavHost(
@@ -79,6 +82,7 @@ fun AppNavHost(
     authRepository: AuthRepository,
     profileRepository: ProfileRepository,
     listingRepository: ListingRepository,
+    photoStorage: PhotoStorage,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -205,7 +209,16 @@ fun AppNavHost(
         composable(Routes.CREATE_LISTING) {
           val listingViewModel: ListingViewModel =
               viewModel(
-                  factory = viewModelFactory { initializer { ListingViewModel(listingRepository) } }
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          ListingViewModel(
+                              listingRepository,
+                              photoStorage,
+                              createSavedStateHandle(),
+                          )
+                        }
+                      }
               )
           // Leaves like a tab switch, so an unfinished form is still there on coming back.
           BackHandler { navController.navigateToTab(Routes.BROWSE) }
