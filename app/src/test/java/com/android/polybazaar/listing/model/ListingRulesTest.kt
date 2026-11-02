@@ -3,7 +3,9 @@ package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.listing.model.ListingRules.buildListing
+import com.android.polybazaar.listing.model.ListingRules.canContactLender
 import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
 import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
@@ -105,6 +107,33 @@ class ListingRulesTest {
         message,
         ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS + 1)),
     )
+  }
+
+  private fun viewer(verified: Boolean) =
+      User(
+          uid = "viewer",
+          email = "viewer@epfl.ch",
+          username = "viewer",
+          isEmailVerified = verified,
+      )
+
+  private val lendersListing = item().copy(ownerUid = "lender")
+  private val viewersListing = item().copy(ownerUid = "viewer")
+
+  @Test
+  fun canContactLender_verifiedViewerOnSomeoneElsesListing() {
+    assertTrue(canContactLender(viewer(verified = true), lendersListing))
+    // Same rule for services.
+    assertTrue(canContactLender(viewer(verified = true), service().copy(ownerUid = "lender")))
+  }
+
+  @Test
+  fun canContactLender_refusesUnverifiedViewersAndOwnListings() {
+    assertFalse(canContactLender(viewer(verified = false), lendersListing))
+    assertFalse(canContactLender(viewer(verified = true), viewersListing))
+    assertFalse(canContactLender(viewer(verified = false), viewersListing))
+    // Not saved yet, so there is nobody to contact.
+    assertFalse(canContactLender(viewer(verified = true), item()))
   }
 
   @Test
