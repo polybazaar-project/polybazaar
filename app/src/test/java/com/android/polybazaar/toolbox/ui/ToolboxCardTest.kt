@@ -24,6 +24,7 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
+import java.net.UnknownHostException
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -130,6 +131,25 @@ class ToolboxCardTest {
     composeTestRule.onNodeWithText(string(R.string.toolbox_title)).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithText("Math tutoring").assertIsDisplayed()
+  }
+
+  @Test
+  fun retry_reloadsTheListingsAndHidesTheError() {
+    val repository =
+        FakeListingRepository(myListings = myListings).apply {
+          failure = UnknownHostException("offline")
+        }
+    val viewModel = ToolboxViewModel(repository)
+    composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
+    composeTestRule.onNodeWithTag(ToolboxCardTags.ERROR).assertIsDisplayed()
+
+    repository.failure = null
+    composeTestRule.onNodeWithTag(ToolboxCardTags.RETRY_BUTTON).performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(2, repository.getMyListingsCalls)
+    composeTestRule.onNodeWithTag(ToolboxCardTags.ERROR).assertDoesNotExist()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
   }
 
   private fun setContent(uiState: ToolboxUiState, onRetry: () -> Unit = {}) {

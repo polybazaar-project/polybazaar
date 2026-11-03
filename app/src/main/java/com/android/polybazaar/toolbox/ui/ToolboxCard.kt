@@ -61,8 +61,7 @@ fun ToolboxCard(viewModel: ToolboxViewModel) {
  * The "My toolbox" card of the profile, listing the user's own listings.
  *
  * Fills the height it is given: the title stays in place and the rows scroll inside the card, so it
- * needs a bounded height. Opening a listing, its status and the user's rentals are follow-ups
- * for #20.
+ * needs a bounded height.
  */
 @Composable
 fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modifier = Modifier) {
@@ -157,7 +156,7 @@ private fun ToolboxListingRow(listing: Listing) {
       )
     }
     Spacer(modifier = Modifier.width(12.dp))
-    // Same format as the Browse cards: whole prices stay short, and Locale.ROOT keeps the point.
+    // Whole prices stay short, and Locale.ROOT keeps the decimal point.
     Text(
         text = "CHF " + String.format(Locale.ROOT, "%.2f", listing.price).removeSuffix(".00"),
         color = AuthColors.Accent,
