@@ -13,7 +13,9 @@ enum class ListingType {
  * @property images photos on this device, to upload when the listing is created.
  * @property imagePaths where the photos are stored once the listing is saved, as Storage paths to
  *   read through the repository. Empty until then. When editing, the stored photos to keep.
- * @property ownerUid the uid of the user who created the listing. Null until it is saved.
+ * @property ownerUid uid of the user who created the listing. Null until the listing is saved; the
+ *   repository sets it from the stored `ownerUid`. The security rules only let a user with a
+ *   verified EPFL email create a listing, so every owner was verified when creating it.
  */
 sealed class Listing(
     open val category: String,
@@ -55,12 +57,18 @@ data class ServiceListing(
       )
 }
 
+/**
+ * @property maxRentalDays the longest a renter can keep the item, in days. Null means the lender
+ *   set no limit, which is also what older listings without the field read as. Services don't have
+ *   it: they aren't rented by the day.
+ */
 data class ItemListing(
     override val category: String,
     override val price: Double,
     override val title: String,
     override val description: String,
     val refundValue: Double = price,
+    val maxRentalDays: Int? = null,
     override val images: List<Uri> = emptyList(),
     override val imagePaths: List<String> = emptyList(),
     override val listingId: String? = null,

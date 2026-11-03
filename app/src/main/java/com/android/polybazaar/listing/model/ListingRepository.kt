@@ -26,10 +26,11 @@ interface ListingRepository {
   suspend fun getAllListings(): Result<List<Listing>>
 
   /**
-   * Returns the listing with this id, for the detail and edit screens.
+   * Returns the listing with this id, for the listing detail (#22) and edit screens.
    *
-   * Fails with a Firestore NOT_FOUND error when the listing does not exist or is malformed, and
-   * when Firestore cannot answer; the caller maps the failure with `toAppError()`.
+   * Offline, the answer comes from the local cache. Fails with a Firestore `NOT_FOUND` error when
+   * the listing does not exist or is malformed, and when Firestore cannot answer or the security
+   * rules deny the read; the caller maps the failure with `toAppError()`.
    */
   suspend fun getListing(listingId: String): Result<Listing>
 

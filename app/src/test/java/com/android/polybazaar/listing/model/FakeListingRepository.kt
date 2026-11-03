@@ -8,10 +8,11 @@ import kotlinx.coroutines.CompletableDeferred
  * A [ListingRepository] for tests.
  *
  * [getAllListings] answers with [allListings] and [getMyListings] with [myListings].
- * [createListing] adds to [allListings], [getListing] looks the id up in both lists,
- * [updateListing] replaces the listing in both, and [deleteListing] removes it from both. Every
- * call except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of
- * these calls waiting until the test completes it, to look at one in progress.
+ * [createListing] adds to [allListings], [getListing] looks the id up in both lists and fails with
+ * a Firestore `NOT_FOUND` error like the real repository when neither has it, [updateListing]
+ * replaces the listing in both, and [deleteListing] removes it from both. Every call except
+ * [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these calls
+ * waiting until the test completes it, to look at one in progress.
  */
 class FakeListingRepository(
     var allListings: List<Listing> = emptyList(),

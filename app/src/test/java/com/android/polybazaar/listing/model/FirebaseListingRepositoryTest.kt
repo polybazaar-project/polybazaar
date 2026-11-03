@@ -22,6 +22,7 @@ import com.google.firebase.storage.UploadTask
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -33,6 +34,7 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
@@ -55,6 +57,18 @@ class FirebaseListingRepositoryTest {
   private val listingId = "listing-456"
   private val photoBytes = byteArrayOf(1, 2, 3)
   private val compressedPhotos = mutableListOf<Uri>()
+
+  /** A valid stored ITEM without a rental duration. */
+  private val itemFields =
+      mapOf(
+          "ownerUid" to uid,
+          "type" to "ITEM",
+          "category" to "Tools",
+          "price" to 8.0,
+          "title" to "Bosch drill set",
+          "description" to "With bits",
+          "refundValue" to 120.0,
+      )
 
   @Before
   fun setUp() {
@@ -331,6 +345,33 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun createListing_returnsTheListingOwnedByTheSignedInUser() = runTest {
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One-hour session")
+    val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits")
+
+    val createdService = repository.createListing(service)
+    val createdItem = repository.createListing(item)
+
+    assertEquals(service.copy(listingId = listingId, ownerUid = uid), createdService)
+    assertEquals(item.copy(listingId = listingId, ownerUid = uid), createdItem)
+  }
+
+  @Test
+  fun createListing_storesTheRentalDurationOnlyWhenSet() = runTest {
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits", maxRentalDays = 14))
+    repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits"))
+
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(document, times(2)).set(stored.capture())
+    assertEquals(14, stored.firstValue["maxRentalDays"])
+    // No limit: the key is left out, like on a listing written before the field existed.
+    assertFalse(stored.secondValue.containsKey("maxRentalDays"))
+  }
+
+  @Test
   fun createListing_withoutAuthenticatedUser_throwsError() = runTest {
     whenever(auth.currentUser).thenReturn(null)
 
@@ -369,6 +410,7 @@ class FirebaseListingRepositoryTest {
         listingDocument(
             "item-1",
             mapOf(
+                "ownerUid" to uid,
                 "type" to "ITEM",
                 "category" to "Tools",
                 "price" to 8.5,
@@ -382,6 +424,7 @@ class FirebaseListingRepositoryTest {
         listingDocument(
             "service-1",
             mapOf(
+                "ownerUid" to uid,
                 "type" to "SERVICE",
                 "category" to "Tutoring",
                 "price" to 25L,
@@ -404,6 +447,7 @@ class FirebaseListingRepositoryTest {
                 refundValue = 120.0,
                 imagePaths = listOf("listings/$uid/item-1/images/0"),
                 listingId = "item-1",
+                ownerUid = uid,
             ),
             ServiceListing(
                 category = "Tutoring",
@@ -411,6 +455,7 @@ class FirebaseListingRepositoryTest {
                 title = "Math tutoring",
                 description = "One-hour session",
                 listingId = "service-1",
+                ownerUid = uid,
             ),
         ),
         result,
@@ -429,6 +474,7 @@ class FirebaseListingRepositoryTest {
   fun getMyListings_skipsMalformedDocumentsAndKeepsTheOthers() = runTest {
     val valid =
         mapOf(
+            "ownerUid" to uid,
             "type" to "SERVICE",
             "category" to "Tutoring",
             "price" to 25.0,
@@ -545,6 +591,7 @@ class FirebaseListingRepositoryTest {
         listingDocument(
             "item-1",
             mapOf(
+                "ownerUid" to uid,
                 "type" to "ITEM",
                 "category" to "Tools",
                 "price" to 8L,
@@ -559,10 +606,55 @@ class FirebaseListingRepositoryTest {
 
     assertEquals(
         listOf(
-            ItemListing("Tools", 8.0, "Bosch drill set", "With bits", 120.0, listingId = "item-1")
+            ItemListing(
+                "Tools",
+                8.0,
+                "Bosch drill set",
+                "With bits",
+                120.0,
+                listingId = "item-1",
+                ownerUid = uid,
+            )
         ),
         result,
     )
+  }
+
+  @Test
+  fun getAllListings_readsTheRentalDuration() = runTest {
+    givenAllListings(
+        // Firestore returns whole numbers as Long.
+        listingDocument("as-long", itemFields + ("maxRentalDays" to 14L)),
+        listingDocument("as-int", itemFields + ("maxRentalDays" to 180)),
+        // Written before the field existed, or without a limit.
+        listingDocument("absent", itemFields),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(
+        listOf(
+            "as-long" to 14,
+            "as-int" to 180,
+            "absent" to null,
+        ),
+        result.map { it.listingId to (it as ItemListing).maxRentalDays },
+    )
+  }
+
+  @Test
+  fun getAllListings_skipsItemsWhoseRentalDurationIsNotAWholeNumber() = runTest {
+    givenAllListings(
+        listingDocument("as-text", itemFields + ("maxRentalDays" to "7")),
+        listingDocument("fraction", itemFields + ("maxRentalDays" to 1.5)),
+        // The rules only accept an int, so even a whole Double is malformed.
+        listingDocument("whole-double", itemFields + ("maxRentalDays" to 7.0)),
+        listingDocument("valid", itemFields + ("maxRentalDays" to 7L)),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(listOf("valid"), result.map { it.listingId })
   }
 
   @Test
@@ -576,6 +668,7 @@ class FirebaseListingRepositoryTest {
   fun getAllListings_skipsMalformedDocumentsAndKeepsTheOthers() = runTest {
     val valid =
         mapOf(
+            "ownerUid" to uid,
             "type" to "SERVICE",
             "category" to "Tutoring",
             "price" to 25.0,
@@ -588,6 +681,9 @@ class FirebaseListingRepositoryTest {
         listingDocument("missing-price", valid - "price"),
         listingDocument("unknown-type", valid + ("type" to "RENTAL")),
         listingDocument("item-without-refund", valid + ("type" to "ITEM")),
+        // The rules require a string owner on every listing.
+        listingDocument("missing-owner", valid - "ownerUid"),
+        listingDocument("owner-as-number", valid + ("ownerUid" to 123L)),
         listingDocument("valid", valid),
     )
 
@@ -619,7 +715,7 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
-  fun getListing_rebuildsTheListingWithItsOwner() = runTest {
+  fun getListing_rebuildsAServiceWithItsOwner() = runTest {
     givenStoredListing(storedService(listOf(path(0))))
 
     val result = repository.getListing(listingId).getOrThrow()
@@ -636,30 +732,85 @@ class FirebaseListingRepositoryTest {
         ),
         result,
     )
+    verify(firestore).collection("listings")
+    verify(listings).document(listingId)
+    verify(document).get()
+  }
+
+  @Test
+  fun getListing_rebuildsSomeoneElsesItem() = runTest {
+    givenStoredListing(
+        mapOf(
+            "ownerUid" to "someone-else",
+            "type" to "ITEM",
+            "category" to "Tools",
+            "price" to 8.5,
+            "title" to "Bosch drill set",
+            "description" to "With bits",
+            "imagePaths" to listOf("listings/someone-else/$listingId/images/0"),
+            "refundValue" to 120.0,
+            "maxRentalDays" to 14L,
+        )
+    )
+
+    val result = repository.getListing(listingId).getOrThrow()
+
+    assertEquals(
+        ItemListing(
+            category = "Tools",
+            price = 8.5,
+            title = "Bosch drill set",
+            description = "With bits",
+            refundValue = 120.0,
+            maxRentalDays = 14,
+            imagePaths = listOf("listings/someone-else/$listingId/images/0"),
+            listingId = listingId,
+            ownerUid = "someone-else",
+        ),
+        result,
+    )
   }
 
   @Test
   fun getListing_whenMissingOrMalformed_failsAsNotFound() = runTest {
     givenStoredListing(null)
+    val missing = repository.getListing(listingId).exceptionOrNull()
     assertEquals(
-        AppError.NOT_FOUND,
-        repository.getListing(listingId).exceptionOrNull()?.toAppError(),
+        FirebaseFirestoreException.Code.NOT_FOUND,
+        (missing as? FirebaseFirestoreException)?.code,
     )
+    assertEquals(AppError.NOT_FOUND, missing?.toAppError())
 
     givenStoredListing(storedService() - "title")
     assertEquals(
         AppError.NOT_FOUND,
         repository.getListing(listingId).exceptionOrNull()?.toAppError(),
     )
+
+    // The rules require an owner on every listing, so one without it is malformed.
+    givenStoredListing(storedService() - "ownerUid")
+    assertEquals(
+        AppError.NOT_FOUND,
+        repository.getListing(listingId).exceptionOrNull()?.toAppError(),
+    )
   }
 
   @Test
-  fun getListing_whenTheReadFails_returnsTheFailure() = runTest {
-    val unavailable =
-        FirebaseFirestoreException("offline", FirebaseFirestoreException.Code.UNAVAILABLE)
-    whenever(document.get()).thenReturn(Tasks.forException(unavailable))
+  fun getListing_whenFirestoreFails_returnsTheFailure() = runTest {
+    listOf(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED to AppError.PERMISSION_DENIED,
+            // What Firestore raises offline when the listing is not in the local cache.
+            FirebaseFirestoreException.Code.UNAVAILABLE to AppError.NETWORK,
+        )
+        .forEach { (code, expected) ->
+          val exception = FirebaseFirestoreException(code.name, code)
+          whenever(document.get()).thenReturn(Tasks.forException(exception))
 
-    assertSame(unavailable, repository.getListing(listingId).exceptionOrNull())
+          val failure = repository.getListing(listingId).exceptionOrNull()
+
+          assertSame(exception, failure)
+          assertEquals(expected, failure?.toAppError())
+        }
   }
 
   @Test

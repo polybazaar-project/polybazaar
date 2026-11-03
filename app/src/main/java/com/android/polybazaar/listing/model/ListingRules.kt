@@ -2,6 +2,7 @@
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
+import com.android.polybazaar.auth.model.User
 
 /** Constraints a listing must respect, shared by every screen that creates or edits one. */
 object ListingRules {
@@ -20,6 +21,12 @@ object ListingRules {
    */
   const val MAX_REFUND_VALUE = 100_000.0
 
+  /**
+   * Upper bound, in days, for [ItemListing.maxRentalDays]: long enough to rent an item for a whole
+   * semester, exams included. Change it here and in `firestore.rules` together.
+   */
+  const val MAX_RENTAL_DAYS = 180
+
   // Temporary lists until the team agrees on the final categories.
   val ITEM_CATEGORIES = listOf("Tools", "Electronics", "Books", "Sports", "Kitchen", "Other")
   val SERVICE_CATEGORIES =
@@ -34,6 +41,8 @@ object ListingRules {
   const val PRICE_RANGE_MESSAGE = "Enter a price between CHF 0 and CHF 10,000"
   const val REFUND_RANGE_MESSAGE = "Enter a refund value between CHF 0 and CHF 100,000"
   const val PHOTOS_LIMIT_MESSAGE = "A listing can have at most $MAX_PHOTOS photos"
+  const val RENTAL_DAYS_RANGE_MESSAGE =
+      "Enter a rental duration between 1 and $MAX_RENTAL_DAYS days"
 
   /** Whether [amount] is above zero and at most [max]. */
   fun isValidAmount(amount: Double, max: Double = MAX_PRICE): Boolean = amount > 0 && amount <= max
@@ -56,9 +65,23 @@ object ListingRules {
       !isValidAmount(listing.price) -> PRICE_RANGE_MESSAGE
       listing is ItemListing && !isValidAmount(listing.refundValue, MAX_REFUND_VALUE) ->
           REFUND_RANGE_MESSAGE
+      // Null means no limit, so only a set duration is checked.
+      listing is ItemListing && listing.maxRentalDays?.let { it !in 1..MAX_RENTAL_DAYS } == true ->
+          RENTAL_DAYS_RANGE_MESSAGE
       else -> null
     }
   }
+
+  /**
+   * Whether [viewer] may contact the lender of [listing]: true only when the viewer's email is
+   * verified and the listing belongs to someone else. A listing without an owner (not saved yet)
+   * has nobody to contact.
+   *
+   * One rule for both the "Message" and "Request booking" actions of the listing detail (#22). The
+   * ViewModel exposes the result in its UI state, and the screen never recomputes it.
+   */
+  fun canContactLender(viewer: User, listing: Listing): Boolean =
+      viewer.isEmailVerified && listing.ownerUid != null && listing.ownerUid != viewer.uid
 
   /**
    * Up to five integer digits (10000.00 is the largest valid amount), at most one decimal separator

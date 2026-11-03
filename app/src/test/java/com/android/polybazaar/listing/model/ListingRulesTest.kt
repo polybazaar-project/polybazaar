@@ -3,7 +3,9 @@ package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.listing.model.ListingRules.buildListing
+import com.android.polybazaar.listing.model.ListingRules.canContactLender
 import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
 import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
@@ -24,7 +26,8 @@ class ListingRulesTest {
       description: String = "Works well",
       price: Double = 5.0,
       refundValue: Double = price,
-  ) = ItemListing("Tools", price, title, description, refundValue)
+      maxRentalDays: Int? = null,
+  ) = ItemListing("Tools", price, title, description, refundValue, maxRentalDays)
 
   private fun service(
       title: String = "Tutoring",
@@ -101,6 +104,48 @@ class ListingRulesTest {
         "A listing can have at most 5 photos",
         ListingRules.errorFor(service().copy(imagePaths = paths, images = photos + photos)),
     )
+  }
+
+  fun errorFor_rentalDaysBounds() {
+    val message = ListingRules.RENTAL_DAYS_RANGE_MESSAGE
+    assertEquals("Enter a rental duration between 1 and 180 days", message)
+    // Null means the lender set no limit.
+    assertNull(ListingRules.errorFor(item(maxRentalDays = null)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = 1)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = 0)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = -3)))
+    assertEquals(
+        message,
+        ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS + 1)),
+    )
+  }
+
+  private fun viewer(verified: Boolean) =
+      User(
+          uid = "viewer",
+          email = "viewer@epfl.ch",
+          username = "viewer",
+          isEmailVerified = verified,
+      )
+
+  private val lendersListing = item().copy(ownerUid = "lender")
+  private val viewersListing = item().copy(ownerUid = "viewer")
+
+  @Test
+  fun canContactLender_verifiedViewerOnSomeoneElsesListing() {
+    assertTrue(canContactLender(viewer(verified = true), lendersListing))
+    // Same rule for services.
+    assertTrue(canContactLender(viewer(verified = true), service().copy(ownerUid = "lender")))
+  }
+
+  @Test
+  fun canContactLender_refusesUnverifiedViewersAndOwnListings() {
+    assertFalse(canContactLender(viewer(verified = false), lendersListing))
+    assertFalse(canContactLender(viewer(verified = true), viewersListing))
+    assertFalse(canContactLender(viewer(verified = false), viewersListing))
+    // Not saved yet, so there is nobody to contact.
+    assertFalse(canContactLender(viewer(verified = true), item()))
   }
 
   @Test

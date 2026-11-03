@@ -92,7 +92,7 @@ service cloud.firestore {
 
       function validListing(data) {
         return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths'])
-            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'refundValue'])
+            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'refundValue', 'maxRentalDays'])
             && data.ownerUid == request.auth.uid
             && data.category is string && data.category.size() > 0 && data.category.size() <= 50
             // Same as ListingRules.errorFor in the app: no empty or whitespace-only text.
@@ -101,7 +101,12 @@ service cloud.firestore {
             && isAmount(data.price)
             && validImagePaths(data.imagePaths)
             && ((data.type == 'ITEM' && isAmount(data.refundValue))
-                || (data.type == 'SERVICE' && !('refundValue' in data)));
+                || (data.type == 'SERVICE' && !('refundValue' in data)))
+            // Optional rental duration in days, items only. Same bounds as
+            // ListingRules.MAX_RENTAL_DAYS in the app (a semester, exams included).
+            && (!('maxRentalDays' in data)
+                || (data.type == 'ITEM' && data.maxRentalDays is int
+                    && data.maxRentalDays >= 1 && data.maxRentalDays <= 180));
       }
 
       allow read: if isVerified();
