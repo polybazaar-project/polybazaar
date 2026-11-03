@@ -25,6 +25,9 @@ class FakeListingRepository(
   var getMyListingsCalls = 0
     private set
 
+  var getListingCalls = 0
+    private set
+
   override suspend fun createListing(listing: Listing): Listing {
     gate?.await()
     failure?.let { throw it }
@@ -48,14 +51,16 @@ class FakeListingRepository(
     return answer(allListings)
   }
 
-  override suspend fun getListing(listingId: String): Result<Listing> =
-      answer(allListings.find { it.listingId == listingId }).mapCatching {
-        it
-            ?: throw FirebaseFirestoreException(
-                "Listing not found",
-                FirebaseFirestoreException.Code.NOT_FOUND,
-            )
-      }
+  override suspend fun getListing(listingId: String): Result<Listing> {
+    getListingCalls++
+    return answer(allListings.find { it.listingId == listingId }).mapCatching {
+      it
+          ?: throw FirebaseFirestoreException(
+              "Listing not found",
+              FirebaseFirestoreException.Code.NOT_FOUND,
+          )
+    }
+  }
 
   override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
 
