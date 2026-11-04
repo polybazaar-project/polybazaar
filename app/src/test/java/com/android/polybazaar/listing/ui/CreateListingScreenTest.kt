@@ -81,7 +81,7 @@ class CreateListingScreenTest {
       registry: FakePickerRegistry = FakePickerRegistry(),
       onListingCreated: (Listing) -> Unit = {},
   ): ListingViewModel {
-    val viewModel = ListingViewModel(repository, FilePhotoStorage(context), SavedStateHandle())
+    val viewModel = ListingViewModel(repository, createStorage(), SavedStateHandle())
     setContentWithRegistry(registry) {
       CreateListingScreen(listingViewModel = viewModel, onListingCreated = onListingCreated)
     }
@@ -699,7 +699,9 @@ class CreateListingScreenTest {
       shadowOf(context as Application).grantPermissions(Manifest.permission.CAMERA)
 
   private val photoDirectory
-    get() = File(context.filesDir, "listing_photos")
+    get() = File(context.filesDir, "listing_photos/${FilePhotoStorage.CREATE_FORM}")
+
+  private fun createStorage() = FilePhotoStorage(context, FilePhotoStorage.CREATE_FORM)
 
   /** Whether [photo] is one the screen took with the camera. */
   private fun isTakenPhoto(photo: Uri) =
@@ -772,6 +774,7 @@ class CreateListingScreenTest {
   fun takingPhoto_whenFileCannotBeCreated_showsMessageAndKeepsTheForm() {
     grantCameraPermission()
     // A file where the photo directory should be, so no photo file can be created in it.
+    photoDirectory.parentFile!!.mkdirs()
     photoDirectory.createNewFile()
     val registry = FakePickerRegistry()
     setContentWithPicker(registry)
@@ -843,7 +846,7 @@ class CreateListingScreenTest {
     val viewModel =
         ListingViewModel(
             RecordingListingRepository(),
-            FilePhotoStorage(context),
+            createStorage(),
             SavedStateHandle(),
         )
     var createdCount = 0

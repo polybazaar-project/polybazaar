@@ -88,7 +88,11 @@ class AppNavHostTest {
   private val profileRepository = FakeProfileRepository(user)
 
   private val listingRepository = FakeListingRepository()
-  private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
+  private val photoStorage =
+      FilePhotoStorage(
+          ApplicationProvider.getApplicationContext(),
+          FilePhotoStorage.CREATE_FORM,
+      )
   private lateinit var navController: NavHostController
 
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {

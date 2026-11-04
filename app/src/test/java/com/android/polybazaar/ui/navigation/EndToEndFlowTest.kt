@@ -56,7 +56,11 @@ class EndToEndFlowTest {
 
   // Signed-in users land on Browse, which starts empty; publishing adds to it.
   private val listingRepository = FakeListingRepository()
-  private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
+  private val photoStorage =
+      FilePhotoStorage(
+          ApplicationProvider.getApplicationContext(),
+          FilePhotoStorage.CREATE_FORM,
+      )
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
 

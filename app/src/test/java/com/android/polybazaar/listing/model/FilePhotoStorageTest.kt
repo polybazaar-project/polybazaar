@@ -21,8 +21,9 @@ import org.xmlpull.v1.XmlPullParser
 class FilePhotoStorageTest {
 
   private val context = ApplicationProvider.getApplicationContext<Context>()
-  private val storage = FilePhotoStorage(context)
-  private val photoDirectory = File(context.filesDir, "listing_photos")
+  private val storage = FilePhotoStorage(context, FilePhotoStorage.CREATE_FORM)
+  private val photoDirectory =
+      File(context.filesDir, "listing_photos/${FilePhotoStorage.CREATE_FORM}")
 
   @Test
   fun newPhoto_createsAFileSharedWithTheCameraApp() {
@@ -33,7 +34,8 @@ class FilePhotoStorageTest {
     assertTrue(file.exists())
     assertEquals(photoDirectory.canonicalFile, file.canonicalFile.parentFile)
     assertEquals(
-        "content://${context.packageName}.fileprovider/listing_photos/${file.name}",
+        "content://${context.packageName}.fileprovider/listing_photos/" +
+            "${FilePhotoStorage.CREATE_FORM}/${file.name}",
         photo.cameraUri.toString(),
     )
   }
@@ -54,6 +56,7 @@ class FilePhotoStorageTest {
   @Test
   fun newPhoto_returnsNullWhenTheFileCannotBeCreated() {
     // A file where the photo directory should be, so no photo file can be created in it.
+    photoDirectory.parentFile!!.mkdirs()
     photoDirectory.createNewFile()
 
     assertNull(storage.newPhoto())
@@ -86,5 +89,32 @@ class FilePhotoStorageTest {
     assertTrue(inUse.exists())
     assertFalse(abandoned.exists())
     assertTrue(other.exists())
+  }
+
+  // The create draft lives on as a saved tab while the user edits a listing, so opening the edit
+  // form must not delete the draft's photos, nor the reverse.
+  @Test
+  fun deleteAllExcept_leavesThePhotosOfOtherForms() {
+    val editStorage = FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM)
+    val draftPhoto = storage.newPhoto()!!
+    val editPhoto = editStorage.newPhoto()!!
+
+    editStorage.deleteAllExcept(emptyList())
+
+    assertTrue(File(draftPhoto.uri.path!!).exists())
+    assertFalse(File(editPhoto.uri.path!!).exists())
+
+    storage.deleteAllExcept(emptyList())
+
+    assertFalse(File(draftPhoto.uri.path!!).exists())
+  }
+
+  @Test
+  fun delete_ignoresThePhotosOfOtherForms() {
+    val editPhoto = FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM).newPhoto()!!
+
+    storage.delete(editPhoto.uri)
+
+    assertTrue(File(editPhoto.uri.path!!).exists())
   }
 }
