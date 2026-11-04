@@ -1,4 +1,5 @@
 // Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.ui
 
 import androidx.compose.foundation.background
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -54,6 +54,9 @@ object ProfileScreenTags {
   const val EDIT_PROFILE_BUTTON = "profile_edit_profile_button"
 }
 
+/** The fixed cards take about 450 dp; the rest leaves the Toolbox room to show a few rows. */
+private val MinPageHeight = 640.dp
+
 /**
  * Profile screen of the signed-in user.
  *
@@ -62,6 +65,7 @@ object ProfileScreenTags {
  * @param errorMessage the error to show, if any.
  * @param onEditProfile called when the user taps "Edit profile".
  * @param onOpenSettings called when the user taps the settings button.
+ * @param toolbox the user's Toolbox, shown under the identity card in a bounded height.
  */
 @Composable
 fun ProfileContent(
@@ -70,6 +74,7 @@ fun ProfileContent(
     errorMessage: String?,
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
+    toolbox: @Composable () -> Unit = {},
 ) {
   BoxWithConstraints(
       modifier =
@@ -78,24 +83,22 @@ fun ProfileContent(
               .safeDrawingPadding()
               .testTag(ProfileScreenTags.SCREEN)
   ) {
-    // At least screen-high, so "Edit profile" sits at the bottom as in the Figma frame, and the
-    // page scrolls instead of overlapping on short screens.
+    // Exactly screen-high when the page fits, so it stays fixed and only the Toolbox scrolls. On a
+    // shorter window, such as in landscape, the page scrolls so "Edit profile" stays reachable.
     Column(
         modifier =
             Modifier.fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .heightIn(min = maxHeight)
+                .height(maxOf(maxHeight, MinPageHeight))
                 .padding(start = 18.dp, end = 18.dp, bottom = 14.dp)
     ) {
       Header(onOpenSettings = onOpenSettings)
       Spacer(modifier = Modifier.height(10.dp))
       IdentityCard(profile = profile, isLoading = isLoading, errorMessage = errorMessage)
-      // Only the spacers are weighted: they share the leftover height (spreading the cards like
-      // the Figma frame) and shrink to zero on short screens, so the page scrolls. A weighted
-      // content Column would instead be squeezed to the leftover height and hide the button.
-      Spacer(modifier = Modifier.weight(1f))
+      Spacer(modifier = Modifier.height(24.dp))
+      // Takes the height the other cards leave, and its content scrolls inside that height.
+      Box(modifier = Modifier.fillMaxWidth().weight(1f)) { toolbox() }
       RecentActivityCard(modifier = Modifier.padding(vertical = 24.dp))
-      Spacer(modifier = Modifier.weight(1f))
       EditProfileButton(onClick = onEditProfile, enabled = profile != null)
     }
   }
