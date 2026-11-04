@@ -1,12 +1,23 @@
-// Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.listing.model
 
+import android.net.Uri
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.listing.model.ListingRules.buildListing
+import com.android.polybazaar.listing.model.ListingRules.canContactLender
+import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
+import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
+import com.android.polybazaar.listing.model.ListingRules.parsePrice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
 
+@RunWith(AndroidJUnit4::class)
 class ListingRulesTest {
 
   private fun item(
@@ -14,7 +25,8 @@ class ListingRulesTest {
       description: String = "Works well",
       price: Double = 5.0,
       refundValue: Double = price,
-  ) = ItemListing("Tools", price, title, description, refundValue)
+      maxRentalDays: Int? = null,
+  ) = ItemListing("Tools", price, title, description, refundValue, maxRentalDays)
 
   private fun service(
       title: String = "Tutoring",
@@ -82,9 +94,111 @@ class ListingRulesTest {
   }
 
   @Test
+  fun errorFor_rentalDaysBounds() {
+    val message = ListingRules.RENTAL_DAYS_RANGE_MESSAGE
+    assertEquals("Enter a rental duration between 1 and 180 days", message)
+    // Null means the lender set no limit.
+    assertNull(ListingRules.errorFor(item(maxRentalDays = null)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = 1)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = 0)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = -3)))
+    assertEquals(
+        message,
+        ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS + 1)),
+    )
+  }
+
+  private fun viewer(verified: Boolean) =
+      User(
+          uid = "viewer",
+          email = "viewer@epfl.ch",
+          username = "viewer",
+          isEmailVerified = verified,
+      )
+
+  private val lendersListing = item().copy(ownerUid = "lender")
+  private val viewersListing = item().copy(ownerUid = "viewer")
+
+  @Test
+  fun canContactLender_verifiedViewerOnSomeoneElsesListing() {
+    assertTrue(canContactLender(viewer(verified = true), lendersListing))
+    // Same rule for services.
+    assertTrue(canContactLender(viewer(verified = true), service().copy(ownerUid = "lender")))
+  }
+
+  @Test
+  fun canContactLender_refusesUnverifiedViewersAndOwnListings() {
+    assertFalse(canContactLender(viewer(verified = false), lendersListing))
+    assertFalse(canContactLender(viewer(verified = true), viewersListing))
+    assertFalse(canContactLender(viewer(verified = false), viewersListing))
+    // Not saved yet, so there is nobody to contact.
+    assertFalse(canContactLender(viewer(verified = true), item()))
+  }
+
+  @Test
   fun isValidAmount_rejectsNonFiniteValues() {
     assertFalse(ListingRules.isValidAmount(Double.NaN))
     assertFalse(ListingRules.isValidAmount(Double.POSITIVE_INFINITY))
     assertTrue(ListingRules.isValidAmount(1.0))
+  }
+
+  private fun uris(count: Int) = (1..count).map { Uri.parse("content://photos/$it") }
+
+  @Test
+  fun isValidPriceInput_allowsOneSeparatorAndTwoDecimals() {
+    listOf("", "5", "12.5", "12,50", "0.", ".5").forEach { assertTrue(it, isValidPriceInput(it)) }
+    listOf("10000.00", "99999").forEach { assertTrue(it, isValidPriceInput(it)) }
+    listOf("1.2.3", "1,000.50", "1.234", "abc", "-5", "5 ", "100000").forEach {
+      assertFalse(it, isValidPriceInput(it))
+    }
+  }
+
+  @Test
+  fun isValidRefundInput_allowsASixthIntegerDigit() {
+    assertTrue(isValidRefundInput("100000.00"))
+    assertFalse(isValidRefundInput("1000000"))
+  }
+
+  @Test
+  fun parsePrice_respectsTheGivenMaximum() {
+    assertEquals(10_000.0, parsePrice("10000")!!, 0.0)
+    assertNull(parsePrice("10000.01"))
+    assertEquals(100_000.0, parsePrice("100000", ListingRules.MAX_REFUND_VALUE)!!, 0.0)
+    assertNull(parsePrice("100000.01", ListingRules.MAX_REFUND_VALUE))
+  }
+
+  @Test
+  fun buildListing_putsPhotosOnBothTypes() {
+    val photos = uris(3)
+
+    val item = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", photos)
+    val service = buildListing(ListingType.SERVICE, "t", "d", "5", "Tutoring", photos)
+
+    assertEquals(photos, item?.images)
+    assertEquals(photos, service?.images)
+  }
+
+  @Test
+  fun buildListing_refundValueDefaultsToPrice() {
+    val blank = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), " ")
+    val given = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "80,50")
+
+    assertEquals(5.0, (blank as ItemListing).refundValue, 0.0)
+    assertEquals(80.5, (given as ItemListing).refundValue, 0.0)
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "0"))
+  }
+
+  @Test
+  fun buildListing_returnsNullForIncompleteOrInvalidInput() {
+    assertNull(buildListing(ListingType.ITEM, "", "d", "5", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", " ", "5", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "0", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "1.2.3", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null, emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "10000.01", "Tools", emptyList()))
+    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000.01"))
+    assertNotNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000"))
+    assertNull(buildListing(ListingType.SERVICE, "t", "d", "10000.01", "Tutoring", emptyList()))
   }
 }

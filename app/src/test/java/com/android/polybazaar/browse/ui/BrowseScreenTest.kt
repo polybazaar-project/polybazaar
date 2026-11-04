@@ -4,13 +4,16 @@ package com.android.polybazaar.browse.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -24,9 +27,11 @@ import com.android.polybazaar.listing.model.ItemListing
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
 class BrowseScreenTest {
@@ -273,8 +278,60 @@ class BrowseScreenTest {
     composeTestRule.onNodeWithText("·", substring = true).assertDoesNotExist()
   }
 
+  @Test
+  fun scrollingToTheLastListing_keepsTheSearchFieldAndScrollsTheHeaderAway() {
+    showManyListingsScrolledToTheLast()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.HEADER).assertDoesNotExist()
+    assertLastListingIsClearOfTheSearchField()
+  }
+
+  @Config(qualifiers = "w640dp-h360dp-land")
+  @Test
+  fun scrollingToTheLastListingOnAShortWindow_showsItBelowTheSearchField() {
+    showManyListingsScrolledToTheLast()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).assertIsDisplayed()
+    assertLastListingIsClearOfTheSearchField()
+  }
+
+  @Test
+  fun typingAfterScrolling_filtersTheListings() {
+    showManyListingsScrolledToTheLast()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("10")
+
+    composeTestRule.onNodeWithText("Listing 10").assertIsDisplayed()
+    composeTestRule.onNodeWithText(LAST_LISTING).assertDoesNotExist()
+  }
+
   private val drillCard =
       BrowseListing(id = "drill", title = "Bosch drill set", category = "Tools", price = "CHF 8")
+
+  private fun showManyListingsScrolledToTheLast() {
+    val listings =
+        List(12) { ItemListing("Tools", 8.0, "Listing $it", "", listingId = "listing-$it") }
+    val viewModel = BrowseViewModel(FakeListingRepository(listings))
+    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
+    composeTestRule
+        .onNodeWithTag(BrowseScreenTags.SCREEN)
+        .performScrollToNode(hasText(LAST_LISTING))
+  }
+
+  private fun assertLastListingIsClearOfTheSearchField() {
+    val card =
+        composeTestRule
+            .onNode(
+                hasTestTag(BrowseScreenTags.LISTING_CARD) and
+                    hasAnyDescendant(hasText(LAST_LISTING))
+            )
+            .getBoundsInRoot()
+    val search = composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).getBoundsInRoot()
+    val screen = composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).getBoundsInRoot()
+    assertTrue(card.top >= search.bottom)
+    assertTrue(card.bottom <= screen.bottom)
+  }
 
   private fun string(id: Int): String =
       ApplicationProvider.getApplicationContext<android.content.Context>().getString(id)
@@ -288,3 +345,5 @@ class BrowseScreenTest {
         .performClick()
   }
 }
+
+private const val LAST_LISTING = "Listing 11"
