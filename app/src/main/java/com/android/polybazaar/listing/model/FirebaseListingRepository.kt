@@ -47,7 +47,7 @@ class FirebaseListingRepository(
 
       document.set(listing.toFirestoreData(ownerUid, imagePaths)).await()
       // Points to the uploaded photos: the local ones may be deleted once the listing is saved.
-      return listing.saved(document.id, imagePaths)
+      return listing.saved(document.id, imagePaths, ownerUid)
     } catch (exception: Exception) {
       // If listing creation fails, undo image uploads
       // Cleanup code needs to attempt deletion even if the original coroutine has been canceled.
@@ -95,6 +95,25 @@ class FirebaseListingRepository(
     }
   }
 
+  override suspend fun getListing(listingId: String): Result<Listing> {
+    return try {
+      // Offline, get() answers from the local cache.
+      val document = firestore.collection(LISTINGS_COLLECTION).document(listingId).get().await()
+      // A missing document has no fields, so toListing() returns null for it as for a malformed
+      // one. Both become NOT_FOUND, which toAppError() maps to AppError.NOT_FOUND.
+      val listing =
+          document.toListing()
+              ?: throw FirebaseFirestoreException(
+                  "Listing not found",
+                  FirebaseFirestoreException.Code.NOT_FOUND,
+              )
+      Result.success(listing)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(e)
+    }
+  }
+
   override suspend fun loadListingImage(imagePath: String): ByteArray =
       storage.reference.child(imagePath).getBytes(MAX_IMAGE_BYTES).await()
 
@@ -116,14 +135,32 @@ class FirebaseListingRepository(
         put("imagePaths", imagePaths)
         if (this@toFirestoreData is ItemListing) {
           put("refundValue", refundValue)
+          // Left out when there is no limit, so the document looks like one written before the
+          // field existed.
+          maxRentalDays?.let { put("maxRentalDays", it) }
         }
       }
 
-  private fun Listing.saved(listingId: String, imagePaths: List<String>): Listing =
+  private fun Listing.saved(
+      listingId: String,
+      imagePaths: List<String>,
+      ownerUid: String,
+  ): Listing =
       when (this) {
         is ServiceListing ->
-            copy(listingId = listingId, images = emptyList(), imagePaths = imagePaths)
-        is ItemListing -> copy(listingId = listingId, images = emptyList(), imagePaths = imagePaths)
+            copy(
+                listingId = listingId,
+                images = emptyList(),
+                imagePaths = imagePaths,
+                ownerUid = ownerUid,
+            )
+        is ItemListing ->
+            copy(
+                listingId = listingId,
+                images = emptyList(),
+                imagePaths = imagePaths,
+                ownerUid = ownerUid,
+            )
       }
 
   /**
@@ -139,7 +176,16 @@ class FirebaseListingRepository(
     val description = get("description") as? String
     // Firestore returns a Long for a whole number such as 8, so read any Number.
     val price = (get("price") as? Number)?.toDouble()
-    if (category == null || title == null || description == null || price == null) return null
+    // The rules require it on every listing, so a document without it is malformed.
+    val ownerUid = get("ownerUid") as? String
+    if (
+        category == null ||
+            title == null ||
+            description == null ||
+            price == null ||
+            ownerUid == null
+    )
+        return null
     val imagePaths = (get("imagePaths") as? List<*>).orEmpty().filterIsInstance<String>()
 
     return when (get("type")) {
@@ -151,17 +197,29 @@ class FirebaseListingRepository(
               description,
               imagePaths = imagePaths,
               listingId = id,
+              ownerUid = ownerUid,
           )
       ListingType.ITEM.name -> {
         val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
+        // Optional: absent means no limit. Firestore returns a whole number as a Long, and the
+        // rules only accept an int, so anything else (text, a fraction) is malformed.
+        val maxRentalDays =
+            when (val days = get("maxRentalDays")) {
+              null -> null
+              is Long -> days.toInt()
+              is Int -> days
+              else -> return null
+            }
         ItemListing(
             category,
             price,
             title,
             description,
             refundValue,
+            maxRentalDays,
             imagePaths = imagePaths,
             listingId = id,
+            ownerUid = ownerUid,
         )
       }
       else -> null

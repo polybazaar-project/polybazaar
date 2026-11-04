@@ -29,6 +29,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -54,6 +56,7 @@ import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
+import com.android.polybazaar.toolbox.ui.ToolboxCardTags
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
@@ -225,6 +228,82 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     assertEquals(1, listingRepository.getAllListingsCalls)
+  }
+
+  @Test
+  fun profile_showsTheUsersListingsInTheToolbox() {
+    listingRepository.myListings =
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill")
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+  }
+
+  private fun manyListings() =
+      List(30) {
+        ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Listing $it", "", listingId = "listing-$it")
+      }
+
+  @Config(qualifiers = "h900dp")
+  @Test
+  fun profile_staysFixedWhileTheToolboxScrolls() {
+    listingRepository.myListings = manyListings()
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    val editButton = composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON)
+    val editBounds = editButton.getBoundsInRoot()
+    composeTestRule.onNodeWithText("Listing 0").assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTINGS).performTouchInput { swipeUp() }
+
+    composeTestRule.onNodeWithText("Listing 0").assertDoesNotExist()
+    editButton.assertIsDisplayed()
+    assertEquals(editBounds, editButton.getBoundsInRoot())
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).assertIsDisplayed()
+  }
+
+  @Config(qualifiers = "h900dp")
+  @Test
+  fun switchingTabs_keepsTheToolboxScrollPosition() {
+    listingRepository.myListings = manyListings()
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule
+        .onNodeWithTag(ToolboxCardTags.LISTINGS)
+        .performScrollToNode(hasText("Listing 29"))
+
+    openBrowse()
+    openProfile()
+
+    composeTestRule.onNodeWithText("Listing 29").assertIsDisplayed()
+  }
+
+  @Test
+  fun toolbox_showsAListingPublishedSinceProfileWasLastOpen() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertDoesNotExist()
+
+    openCreateListing()
+    listingRepository.myListings =
+        listOf(
+            ItemListing(
+                ListingCategory.ITEM_TOOLS,
+                5.0,
+                "Bosch drill set",
+                "Works well",
+                listingId = "drill",
+            )
+        )
+    publishListing("Bosch drill set")
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertIsDisplayed()
   }
 
   @Test
@@ -755,7 +834,7 @@ class AppNavHostTest {
     assertSame(browseEntry, navController.previousBackStackEntry)
   }
 
-  // Profile fills the default test screen exactly, so it only scrolls on a shorter one.
+  // Profile only scrolls as a page on a window too short to fit it, like this one.
   @Config(qualifiers = "h400dp")
   @Test
   fun switchingAwayFromProfileAndBack_restoresItsEntryAndScrollPosition() {

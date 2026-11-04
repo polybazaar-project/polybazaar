@@ -1039,6 +1039,9 @@ class CreateListingScreenTest {
 
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
 
+    override suspend fun getListing(listingId: String): Result<Listing> =
+        Result.failure(UnsupportedOperationException("Not used by these tests"))
+
     override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
   }
 }
