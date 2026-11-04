@@ -1,9 +1,12 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.listing.model.ListingRules.buildListing
+import com.android.polybazaar.listing.model.ListingRules.canContactLender
 import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
 import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
@@ -14,6 +17,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.mock
 
 @RunWith(AndroidJUnit4::class)
 class ListingRulesTest {
@@ -23,13 +27,14 @@ class ListingRulesTest {
       description: String = "Works well",
       price: Double = 5.0,
       refundValue: Double = price,
-  ) = ItemListing("Tools", price, title, description, refundValue)
+      maxRentalDays: Int? = null,
+  ) = ItemListing(ListingCategory.ITEM_TOOLS, price, title, description, refundValue, maxRentalDays)
 
   private fun service(
       title: String = "Tutoring",
       description: String = "One hour",
       price: Double = 25.0,
-  ) = ServiceListing("Tutoring", price, title, description)
+  ) = ServiceListing(ListingCategory.SERVICE_TUTORING, price, title, description)
 
   @Test
   fun errorFor_validListings_returnNull() {
@@ -91,6 +96,61 @@ class ListingRulesTest {
   }
 
   @Test
+  fun errorFor_countsStoredAndNewPhotosTogether() {
+    val paths = List(3) { "listings/uid/l1/images/$it" }
+    val photos = List(2) { mock<Uri>() }
+
+    assertNull(ListingRules.errorFor(service().copy(imagePaths = paths, images = photos)))
+    assertEquals(
+        "A listing can have at most 5 photos",
+        ListingRules.errorFor(service().copy(imagePaths = paths, images = photos + photos)),
+    )
+  }
+
+  @Test
+  fun errorFor_rentalDaysBounds() {
+    val message = ListingRules.RENTAL_DAYS_RANGE_MESSAGE
+    assertEquals("Enter a rental duration between 1 and 180 days", message)
+    // Null means the lender set no limit.
+    assertNull(ListingRules.errorFor(item(maxRentalDays = null)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = 1)))
+    assertNull(ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = 0)))
+    assertEquals(message, ListingRules.errorFor(item(maxRentalDays = -3)))
+    assertEquals(
+        message,
+        ListingRules.errorFor(item(maxRentalDays = ListingRules.MAX_RENTAL_DAYS + 1)),
+    )
+  }
+
+  private fun viewer(verified: Boolean) =
+      User(
+          uid = "viewer",
+          email = "viewer@epfl.ch",
+          username = "viewer",
+          isEmailVerified = verified,
+      )
+
+  private val lendersListing = item().copy(ownerUid = "lender")
+  private val viewersListing = item().copy(ownerUid = "viewer")
+
+  @Test
+  fun canContactLender_verifiedViewerOnSomeoneElsesListing() {
+    assertTrue(canContactLender(viewer(verified = true), lendersListing))
+    // Same rule for services.
+    assertTrue(canContactLender(viewer(verified = true), service().copy(ownerUid = "lender")))
+  }
+
+  @Test
+  fun canContactLender_refusesUnverifiedViewersAndOwnListings() {
+    assertFalse(canContactLender(viewer(verified = false), lendersListing))
+    assertFalse(canContactLender(viewer(verified = true), viewersListing))
+    assertFalse(canContactLender(viewer(verified = false), viewersListing))
+    // Not saved yet, so there is nobody to contact.
+    assertFalse(canContactLender(viewer(verified = true), item()))
+  }
+
+  @Test
   fun isValidAmount_rejectsNonFiniteValues() {
     assertFalse(ListingRules.isValidAmount(Double.NaN))
     assertFalse(ListingRules.isValidAmount(Double.POSITIVE_INFINITY))
@@ -123,11 +183,22 @@ class ListingRulesTest {
   }
 
   @Test
+  fun categoriesFor_returnsCategoriesForOnlyThatListingType() {
+    val itemCategories = ListingRules.categoriesFor(ListingType.ITEM)
+    val serviceCategories = ListingRules.categoriesFor(ListingType.SERVICE)
+
+    assertTrue(itemCategories.all { it.type == ListingType.ITEM })
+    assertTrue(serviceCategories.all { it.type == ListingType.SERVICE })
+    assertEquals(ListingCategory.entries.toSet(), (itemCategories + serviceCategories).toSet())
+  }
+
+  @Test
   fun buildListing_putsPhotosOnBothTypes() {
     val photos = uris(3)
 
-    val item = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", photos)
-    val service = buildListing(ListingType.SERVICE, "t", "d", "5", "Tutoring", photos)
+    val item = buildListing(ListingType.ITEM, "t", "d", "5", ListingCategory.ITEM_TOOLS, photos)
+    val service =
+        buildListing(ListingType.SERVICE, "t", "d", "5", ListingCategory.SERVICE_TUTORING, photos)
 
     assertEquals(photos, item?.images)
     assertEquals(photos, service?.images)
@@ -135,24 +206,100 @@ class ListingRulesTest {
 
   @Test
   fun buildListing_refundValueDefaultsToPrice() {
-    val blank = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), " ")
-    val given = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "80,50")
+    val blank =
+        buildListing(ListingType.ITEM, "t", "d", "5", ListingCategory.ITEM_TOOLS, emptyList(), " ")
+    val given =
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "80,50",
+        )
 
     assertEquals(5.0, (blank as ItemListing).refundValue, 0.0)
     assertEquals(80.5, (given as ItemListing).refundValue, 0.0)
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "0"))
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "0",
+        )
+    )
   }
 
   @Test
   fun buildListing_returnsNullForIncompleteOrInvalidInput() {
-    assertNull(buildListing(ListingType.ITEM, "", "d", "5", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", " ", "5", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "0", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "1.2.3", "Tools", emptyList()))
+    assertNull(
+        buildListing(ListingType.ITEM, "", "d", "5", ListingCategory.ITEM_TOOLS, emptyList())
+    )
+    assertNull(
+        buildListing(ListingType.ITEM, "t", " ", "5", ListingCategory.ITEM_TOOLS, emptyList())
+    )
+    assertNull(
+        buildListing(ListingType.ITEM, "t", "d", "0", ListingCategory.ITEM_TOOLS, emptyList())
+    )
+    assertNull(
+        buildListing(ListingType.ITEM, "t", "d", "1.2.3", ListingCategory.ITEM_TOOLS, emptyList())
+    )
     assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null, emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "10000.01", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000.01"))
-    assertNotNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000"))
-    assertNull(buildListing(ListingType.SERVICE, "t", "d", "10000.01", "Tutoring", emptyList()))
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+        )
+    )
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "10000.01",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+        )
+    )
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "100000.01",
+        )
+    )
+    assertNotNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "100000",
+        )
+    )
+    assertNull(
+        buildListing(
+            ListingType.SERVICE,
+            "t",
+            "d",
+            "10000.01",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+        )
+    )
   }
 }

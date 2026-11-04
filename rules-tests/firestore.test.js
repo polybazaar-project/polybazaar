@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 import {
@@ -66,7 +67,7 @@ function signUp(db, uid, username, usernameData = { uid }) {
 function itemListing(overrides = {}) {
   return {
     ownerUid: ALICE,
-    category: "Tools",
+    category: "item_tools",
     price: 12.5,
     type: "ITEM",
     title: "Drill",
@@ -78,7 +79,10 @@ function itemListing(overrides = {}) {
 }
 
 function serviceListing(overrides = {}) {
-  const { refundValue, ...service } = itemListing({ type: "SERVICE", category: "Tutoring" });
+  const { refundValue, ...service } = itemListing({
+    type: "SERVICE",
+    category: "service_tutoring",
+  });
   return { ...service, ...overrides };
 }
 
@@ -324,8 +328,75 @@ describe("listings", () => {
     );
   });
 
+  // Same bounds as ListingRules.MAX_RENTAL_DAYS in the app. Without it (no limit), an item is
+  // still valid: see "a verified user can create an item listing".
+  test("an item can have a rental duration of 1 to 180 days", async () => {
+    const db = verified(ALICE);
+    await assertSucceeds(setDoc(doc(db, "listings/l1"), itemListing({ maxRentalDays: 1 })));
+    await assertSucceeds(setDoc(doc(db, "listings/l2"), itemListing({ maxRentalDays: 180 })));
+  });
+
+  test("a rental duration is a whole number of days from 1 to 180", async () => {
+    const db = verified(ALICE);
+    await assertFails(setDoc(doc(db, "listings/l1"), itemListing({ maxRentalDays: 0 })));
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ maxRentalDays: 181 })));
+    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ maxRentalDays: 1.5 })));
+    await assertFails(setDoc(doc(db, "listings/l4"), itemListing({ maxRentalDays: "7" })));
+  });
+
+  test("a service cannot have a rental duration", async () => {
+    await assertFails(
+      setDoc(doc(verified(ALICE), "listings/l1"), serviceListing({ maxRentalDays: 7 })),
+    );
+  });
+
+  test("an edit keeps the rental duration checks", async () => {
+    await seed("listings/l1", itemListing());
+    await seed("listings/s1", serviceListing());
+    const db = verified(ALICE);
+    await assertSucceeds(updateDoc(doc(db, "listings/l1"), { maxRentalDays: 14 }));
+    await assertFails(updateDoc(doc(db, "listings/l1"), { maxRentalDays: 181 }));
+    await assertFails(updateDoc(doc(db, "listings/l1"), { maxRentalDays: 1.5 }));
+    await assertFails(updateDoc(doc(db, "listings/s1"), { maxRentalDays: 7 }));
+  });
+
   test("a listing is an ITEM or a SERVICE", async () => {
     await assertFails(setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ type: "CAR" })));
+  });
+
+  test("every supported category can be used for its listing type", async () => {
+    const db = verified(ALICE);
+    const validCategories = [
+      ["item_tools", itemListing],
+      ["item_electronics", itemListing],
+      ["item_books", itemListing],
+      ["item_sports", itemListing],
+      ["item_kitchen", itemListing],
+      ["item_other", itemListing],
+      ["service_tutoring", serviceListing],
+      ["service_repairs", serviceListing],
+      ["service_moving_help", serviceListing],
+      ["service_gardening", serviceListing],
+      ["service_cleaning", serviceListing],
+      ["service_other", serviceListing],
+    ];
+
+    for (const [index, [category, listing]] of validCategories.entries()) {
+      await assertSucceeds(
+        setDoc(doc(db, `listings/category-${index}`), listing({ category })),
+      );
+    }
+  });
+
+  test("a listing category must belong to its type", async () => {
+    const db = verified(ALICE);
+    await assertFails(
+      setDoc(doc(db, "listings/l1"), itemListing({ category: "service_tutoring" })),
+    );
+    await assertFails(
+      setDoc(doc(db, "listings/l2"), serviceListing({ category: "item_tools" })),
+    );
+    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ category: "unknown" })));
   });
 
   test("a listing has at most 5 images", async () => {
@@ -409,6 +480,28 @@ describe("listings", () => {
     await seed("listings/l1", itemListing());
     await assertSucceeds(
       updateDoc(doc(verified(ALICE), "listings/l1"), { description: "Cordless drill, 18 V" }),
+    );
+  });
+
+  test("the owner can save their whole listing again with changed photos", async () => {
+    // What updateListing writes: images/1 removed, a new photo in the unused images/2.
+    const image = (i) => `listings/${ALICE}/l1/images/${i}`;
+    await seed("listings/l1", itemListing({ imagePaths: [image(0), image(1)] }));
+    await assertSucceeds(
+      setDoc(
+        doc(verified(ALICE), "listings/l1"),
+        itemListing({ title: "Hammer drill", imagePaths: [image(0), image(2)] }),
+      ),
+    );
+  });
+
+  test("an edit cannot point to an image outside images/0 to images/4", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      setDoc(
+        doc(verified(ALICE), "listings/l1"),
+        itemListing({ imagePaths: [`listings/${ALICE}/l1/images/5`] }),
+      ),
     );
   });
 

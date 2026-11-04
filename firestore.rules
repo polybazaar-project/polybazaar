@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 rules_version = '2';
 
 service cloud.firestore {
@@ -90,18 +91,44 @@ service cloud.firestore {
             && paths.toSet().size() == paths.size();
       }
 
+      function validCategory(type, category) {
+        return (type == 'ITEM'
+                    && category in [
+                      'item_tools',
+                      'item_electronics',
+                      'item_books',
+                      'item_sports',
+                      'item_kitchen',
+                      'item_other'
+                    ])
+            || (type == 'SERVICE'
+                    && category in [
+                      'service_tutoring',
+                      'service_repairs',
+                      'service_moving_help',
+                      'service_gardening',
+                      'service_cleaning',
+                      'service_other'
+                    ]);
+      }
+
       function validListing(data) {
         return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths'])
-            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'refundValue'])
+            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'refundValue', 'maxRentalDays'])
             && data.ownerUid == request.auth.uid
-            && data.category is string && data.category.size() > 0 && data.category.size() <= 50
+            && data.category is string && validCategory(data.type, data.category)
             // Same as ListingRules.errorFor in the app: no empty or whitespace-only text.
             && data.title is string && data.title.trim().size() > 0
             && data.description is string && data.description.trim().size() > 0
             && isAmount(data.price)
             && validImagePaths(data.imagePaths)
             && ((data.type == 'ITEM' && isAmount(data.refundValue))
-                || (data.type == 'SERVICE' && !('refundValue' in data)));
+                || (data.type == 'SERVICE' && !('refundValue' in data)))
+            // Optional rental duration in days, items only. Same bounds as
+            // ListingRules.MAX_RENTAL_DAYS in the app (a semester, exams included).
+            && (!('maxRentalDays' in data)
+                || (data.type == 'ITEM' && data.maxRentalDays is int
+                    && data.maxRentalDays >= 1 && data.maxRentalDays <= 180));
       }
 
       allow read: if isVerified();

@@ -26,6 +26,7 @@ import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -181,7 +182,9 @@ class EndToEndFlowTest {
         .performTextInput("Comes with bits")
     composeTestRule.onNodeWithTag(CreateListingScreenTags.PRICE_FIELD).performTextInput("8")
     composeTestRule.onNodeWithTag(CreateListingScreenTags.CATEGORY_FIELD).performClick()
-    composeTestRule.onNodeWithTag(CreateListingScreenTags.categoryOption("Tools")).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.categoryOption(ListingCategory.ITEM_TOOLS))
+        .performClick()
     composeTestRule
         .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
         .performScrollTo()
