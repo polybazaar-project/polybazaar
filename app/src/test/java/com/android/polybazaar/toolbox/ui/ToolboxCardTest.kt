@@ -79,6 +79,15 @@ class ToolboxCardTest {
   }
 
   @Test
+  fun previewSampleData_rendersBothListingRows() {
+    composeTestRule.setContent { ToolboxContentPreview() }
+
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Math tutoring").assertIsDisplayed()
+  }
+
+  @Test
   fun manyListings_scrollInsideTheCardAndKeepTheTitle() {
     val listings =
         List(30) {
