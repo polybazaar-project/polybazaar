@@ -133,6 +133,10 @@ fun AppNavHost(
     Box(modifier = Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)) {
       NavHost(navController = navController, startDestination = Routes.LOADING) {
         composable(Routes.LOADING) {
+          // Back from turning the connection on, retry for the user instead of waiting for a tap.
+          LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+            if (uiState.sessionError != null) authViewModel.restoreSession()
+          }
           LaunchedEffect(uiState.sessionChecked, uiState.user) {
             if (uiState.sessionChecked) {
               val destination = uiState.user?.let(::signedInRoute) ?: Routes.SIGN_IN

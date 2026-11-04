@@ -29,8 +29,12 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
@@ -89,20 +93,35 @@ class AppNavHostTest {
   private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
   private lateinit var navController: NavHostController
 
-  private fun setContent(repository: FakeAuthRepository): AuthViewModel {
+  /** Shows the app, under [lifecycleOwner] when given so a test can pause and resume it. */
+  private fun setContent(
+      repository: FakeAuthRepository,
+      lifecycleOwner: LifecycleOwner? = null,
+  ): AuthViewModel {
     val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
       navController = rememberNavController()
-      AppNavHost(
-          authViewModel = viewModel,
-          authRepository = repository,
-          profileRepository = profileRepository,
-          listingRepository = listingRepository,
-          photoStorage = photoStorage,
-          navController = navController,
-      )
+      val owner = lifecycleOwner ?: LocalLifecycleOwner.current
+      CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+        AppNavHost(
+            authViewModel = viewModel,
+            authRepository = repository,
+            profileRepository = profileRepository,
+            listingRepository = listingRepository,
+            photoStorage = photoStorage,
+            navController = navController,
+        )
+      }
     }
     return viewModel
+  }
+
+  /** A lifecycle the test moves by hand, starting resumed. */
+  private class ManualLifecycleOwner : LifecycleOwner {
+    val registry =
+        LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
+    override val lifecycle: Lifecycle
+      get() = registry
   }
 
   /**
@@ -245,6 +264,36 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_RETRY).performClick()
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  // Coming back to the app after turning the connection on must not need a tap on Retry.
+  @Test
+  fun sessionCheckOffline_retriesWhenTheAppResumes() {
+    val repository =
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    val lifecycleOwner = ManualLifecycleOwner()
+    setContent(repository, lifecycleOwner)
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+
+    repository.currentUserError = null
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.STARTED }
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun sessionCheckOffline_resumingWhileStillOfflineKeepsTheRetryOffer() {
+    val repository =
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    val lifecycleOwner = ManualLifecycleOwner()
+    setContent(repository, lifecycleOwner)
+
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.STARTED }
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED }
+
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertDoesNotExist()
   }
 
   @Test
