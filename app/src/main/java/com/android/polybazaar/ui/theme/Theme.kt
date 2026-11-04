@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.ui.theme
 
 import android.app.Activity
@@ -36,7 +37,7 @@ private val LightColorScheme =
     )
 
 @Composable
-fun SampleAppTheme(
+fun PolyBazaarTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = true,
