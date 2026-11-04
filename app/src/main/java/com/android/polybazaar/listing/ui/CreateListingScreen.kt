@@ -43,6 +43,7 @@ import com.android.polybazaar.auth.ui.AuthCard
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRules
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
@@ -79,7 +80,7 @@ object CreateListingScreenTags {
   const val ERROR_MESSAGE = "create_listing_error_message"
   const val CREATE_BUTTON = "create_listing_create_button"
 
-  fun categoryOption(category: String) = "create_listing_category_option_$category"
+  fun categoryOption(category: ListingCategory) = "create_listing_category_option_${category.id}"
 }
 
 /** Form texts that differ between items and services. */
@@ -116,7 +117,7 @@ class CreateListingActions(
     val onPriceFieldLeft: () -> Unit = {},
     val onRefundValueChange: (String) -> Unit = {},
     val onRefundFieldLeft: () -> Unit = {},
-    val onCategorySelected: (String) -> Unit = {},
+    val onCategorySelected: (ListingCategory) -> Unit = {},
     val onPhotosPicked: (List<Uri>) -> Unit = {},
     val onPhotoRemoved: (Uri) -> Unit = {},
     /** Returns the URI the camera app writes the photo to, or null when none can be created. */

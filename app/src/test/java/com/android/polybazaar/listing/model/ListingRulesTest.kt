@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
@@ -27,13 +28,13 @@ class ListingRulesTest {
       price: Double = 5.0,
       refundValue: Double = price,
       maxRentalDays: Int? = null,
-  ) = ItemListing("Tools", price, title, description, refundValue, maxRentalDays)
+  ) = ItemListing(ListingCategory.ITEM_TOOLS, price, title, description, refundValue, maxRentalDays)
 
   private fun service(
       title: String = "Tutoring",
       description: String = "One hour",
       price: Double = 25.0,
-  ) = ServiceListing("Tutoring", price, title, description)
+  ) = ServiceListing(ListingCategory.SERVICE_TUTORING, price, title, description)
 
   @Test
   fun errorFor_validListings_returnNull() {
@@ -182,11 +183,22 @@ class ListingRulesTest {
   }
 
   @Test
+  fun categoriesFor_returnsCategoriesForOnlyThatListingType() {
+    val itemCategories = ListingRules.categoriesFor(ListingType.ITEM)
+    val serviceCategories = ListingRules.categoriesFor(ListingType.SERVICE)
+
+    assertTrue(itemCategories.all { it.type == ListingType.ITEM })
+    assertTrue(serviceCategories.all { it.type == ListingType.SERVICE })
+    assertEquals(ListingCategory.entries.toSet(), (itemCategories + serviceCategories).toSet())
+  }
+
+  @Test
   fun buildListing_putsPhotosOnBothTypes() {
     val photos = uris(3)
 
-    val item = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", photos)
-    val service = buildListing(ListingType.SERVICE, "t", "d", "5", "Tutoring", photos)
+    val item = buildListing(ListingType.ITEM, "t", "d", "5", ListingCategory.ITEM_TOOLS, photos)
+    val service =
+        buildListing(ListingType.SERVICE, "t", "d", "5", ListingCategory.SERVICE_TUTORING, photos)
 
     assertEquals(photos, item?.images)
     assertEquals(photos, service?.images)
@@ -194,24 +206,100 @@ class ListingRulesTest {
 
   @Test
   fun buildListing_refundValueDefaultsToPrice() {
-    val blank = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), " ")
-    val given = buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "80,50")
+    val blank =
+        buildListing(ListingType.ITEM, "t", "d", "5", ListingCategory.ITEM_TOOLS, emptyList(), " ")
+    val given =
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "80,50",
+        )
 
     assertEquals(5.0, (blank as ItemListing).refundValue, 0.0)
     assertEquals(80.5, (given as ItemListing).refundValue, 0.0)
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "0"))
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "0",
+        )
+    )
   }
 
   @Test
   fun buildListing_returnsNullForIncompleteOrInvalidInput() {
-    assertNull(buildListing(ListingType.ITEM, "", "d", "5", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", " ", "5", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "0", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "1.2.3", "Tools", emptyList()))
+    assertNull(
+        buildListing(ListingType.ITEM, "", "d", "5", ListingCategory.ITEM_TOOLS, emptyList())
+    )
+    assertNull(
+        buildListing(ListingType.ITEM, "t", " ", "5", ListingCategory.ITEM_TOOLS, emptyList())
+    )
+    assertNull(
+        buildListing(ListingType.ITEM, "t", "d", "0", ListingCategory.ITEM_TOOLS, emptyList())
+    )
+    assertNull(
+        buildListing(ListingType.ITEM, "t", "d", "1.2.3", ListingCategory.ITEM_TOOLS, emptyList())
+    )
     assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null, emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "10000.01", "Tools", emptyList()))
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000.01"))
-    assertNotNull(buildListing(ListingType.ITEM, "t", "d", "5", "Tools", emptyList(), "100000"))
-    assertNull(buildListing(ListingType.SERVICE, "t", "d", "10000.01", "Tutoring", emptyList()))
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+        )
+    )
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "10000.01",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+        )
+    )
+    assertNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "100000.01",
+        )
+    )
+    assertNotNull(
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            "100000",
+        )
+    )
+    assertNull(
+        buildListing(
+            ListingType.SERVICE,
+            "t",
+            "d",
+            "10000.01",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+        )
+    )
   }
 }

@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.ui
 
 import androidx.compose.foundation.background
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
+import com.android.polybazaar.listing.model.ListingCategory
 
 @Composable
 internal fun FieldError(text: String, tag: String) {
@@ -151,9 +153,9 @@ internal fun FormTextField(
 
 @Composable
 internal fun CategoryDropdown(
-    selected: String?,
-    options: List<String>,
-    onSelect: (String) -> Unit,
+    selected: ListingCategory?,
+    options: List<ListingCategory>,
+    onSelect: (ListingCategory) -> Unit,
 ) {
   var expanded by remember { mutableStateOf(false) }
   Box {
@@ -168,7 +170,7 @@ internal fun CategoryDropdown(
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-          text = selected ?: "Choose category",
+          text = selected?.displayName ?: "Choose category",
           color = if (selected == null) AuthColors.TextSecondary else AuthColors.TextPrimary,
           fontSize = 13.sp,
           maxLines = 1,
@@ -188,7 +190,9 @@ internal fun CategoryDropdown(
     ) {
       options.forEach { option ->
         DropdownMenuItem(
-            text = { Text(text = option, color = AuthColors.TextPrimary, fontSize = 13.sp) },
+            text = {
+              Text(text = option.displayName, color = AuthColors.TextPrimary, fontSize = 13.sp)
+            },
             onClick = {
               onSelect(option)
               expanded = false

@@ -1,10 +1,12 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.toolbox.viewmodel
 
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ServiceListing
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
@@ -27,8 +29,21 @@ class ToolboxViewModelTest {
 
   private val myListings =
       listOf(
-          ItemListing("Tools", 8.0, "Bosch drill set", "With bits", 120.0, listingId = "drill"),
-          ServiceListing("Tutoring", 25.0, "Math tutoring", "One hour", listingId = "math"),
+          ItemListing(
+              ListingCategory.ITEM_TOOLS,
+              8.0,
+              "Bosch drill set",
+              "With bits",
+              120.0,
+              listingId = "drill",
+          ),
+          ServiceListing(
+              ListingCategory.SERVICE_TUTORING,
+              25.0,
+              "Math tutoring",
+              "One hour",
+              listingId = "math",
+          ),
       )
 
   private val repository = FakeListingRepository(myListings = myListings)
@@ -141,7 +156,7 @@ class ToolboxViewModelTest {
   @Test
   fun loadListings_afterANewListing_showsIt() {
     val viewModel = ToolboxViewModel(repository)
-    val newListing = ItemListing("Books", 3.0, "Novel", "", listingId = "novel")
+    val newListing = ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Novel", "", listingId = "novel")
     repository.myListings = myListings + newListing
 
     viewModel.loadListings()

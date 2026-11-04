@@ -49,7 +49,12 @@ internal fun Listing.toBrowseListing(): BrowseListing? {
   val id = listingId ?: return null
   // Locale.ROOT keeps the decimal point, whatever the device language.
   val amount = String.format(Locale.ROOT, "%.2f", price).removeSuffix(".00")
-  return BrowseListing(id = id, title = title, category = category, price = "CHF $amount")
+  return BrowseListing(
+      id = id,
+      title = title,
+      category = category.displayName,
+      price = "CHF $amount",
+  )
 }
 
 class BrowseViewModel(private val listingRepository: ListingRepository) : ViewModel() {

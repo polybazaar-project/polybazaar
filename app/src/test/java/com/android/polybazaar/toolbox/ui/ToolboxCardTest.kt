@@ -21,6 +21,7 @@ import com.android.polybazaar.R
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
@@ -37,8 +38,14 @@ class ToolboxCardTest {
 
   private val myListings =
       listOf(
-          ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"),
-          ServiceListing("Tutoring", 25.5, "Math tutoring", "", listingId = "math"),
+          ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill"),
+          ServiceListing(
+              ListingCategory.SERVICE_TUTORING,
+              25.5,
+              "Math tutoring",
+              "",
+              listingId = "math",
+          ),
       )
 
   @Test
@@ -72,8 +79,20 @@ class ToolboxCardTest {
   }
 
   @Test
+  fun previewSampleData_rendersBothListingRows() {
+    composeTestRule.setContent { ToolboxContentPreview() }
+
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Math tutoring").assertIsDisplayed()
+  }
+
+  @Test
   fun manyListings_scrollInsideTheCardAndKeepTheTitle() {
-    val listings = List(30) { ItemListing("Tools", 8.0, "Listing $it", "", listingId = "id-$it") }
+    val listings =
+        List(30) {
+          ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Listing $it", "", listingId = "id-$it")
+        }
     composeTestRule.setContent {
       ToolboxContent(
           uiState = ToolboxUiState(listings = listings),

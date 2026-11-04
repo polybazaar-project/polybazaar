@@ -50,6 +50,7 @@ import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -160,7 +161,9 @@ class AppNavHostTest {
         .performTextInput("Works well")
     composeTestRule.onNodeWithTag(CreateListingScreenTags.PRICE_FIELD).performTextInput("5")
     composeTestRule.onNodeWithTag(CreateListingScreenTags.CATEGORY_FIELD).performClick()
-    composeTestRule.onNodeWithTag(CreateListingScreenTags.categoryOption("Tools")).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.categoryOption(ListingCategory.ITEM_TOOLS))
+        .performClick()
     composeTestRule
         .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
         .performScrollTo()
@@ -217,7 +220,9 @@ class AppNavHostTest {
   @Test
   fun browse_showsTheListingsFromTheListingRepository() {
     listingRepository.allListings =
-        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill")
+        )
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
@@ -228,7 +233,9 @@ class AppNavHostTest {
   @Test
   fun profile_showsTheUsersListingsInTheToolbox() {
     listingRepository.myListings =
-        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill")
+        )
     setContent(FakeAuthRepository(currentUser = user))
     openProfile()
 
@@ -237,7 +244,9 @@ class AppNavHostTest {
   }
 
   private fun manyListings() =
-      List(30) { ItemListing("Tools", 8.0, "Listing $it", "", listingId = "listing-$it") }
+      List(30) {
+        ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Listing $it", "", listingId = "listing-$it")
+      }
 
   @Config(qualifiers = "h900dp")
   @Test
@@ -281,7 +290,15 @@ class AppNavHostTest {
 
     openCreateListing()
     listingRepository.myListings =
-        listOf(ItemListing("Tools", 5.0, "Bosch drill set", "Works well", listingId = "drill"))
+        listOf(
+            ItemListing(
+                ListingCategory.ITEM_TOOLS,
+                5.0,
+                "Bosch drill set",
+                "Works well",
+                listingId = "drill",
+            )
+        )
     publishListing("Bosch drill set")
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
 
@@ -956,7 +973,9 @@ class AppNavHostTest {
   @Test
   fun browseListing_isReachableOnAShortWindow() {
     listingRepository.allListings =
-        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill")
+        )
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("Bosch drill set"))

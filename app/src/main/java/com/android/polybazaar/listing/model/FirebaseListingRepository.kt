@@ -205,7 +205,7 @@ class FirebaseListingRepository(
       // Convert a Listing to a Map of values
       buildMap {
         put("ownerUid", ownerUid)
-        put("category", category)
+        put("category", category.id)
         put("price", price)
         put("type", type.name)
         put("title", title.trim())
@@ -230,7 +230,7 @@ class FirebaseListingRepository(
    * `get() as?` is used instead of getString/getDouble, which throw on a field of the wrong type.
    */
   private fun DocumentSnapshot.toListing(): Listing? {
-    val category = get("category") as? String
+    val category = (get("category") as? String)?.let(ListingCategory::fromId)
     val title = get("title") as? String
     val description = get("description") as? String
     // Firestore returns a Long for a whole number such as 8, so read any Number.

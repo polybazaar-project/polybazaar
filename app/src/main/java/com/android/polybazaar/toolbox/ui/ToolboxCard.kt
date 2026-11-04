@@ -36,6 +36,7 @@ import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
@@ -180,8 +181,20 @@ internal fun ToolboxContentPreview() {
           ToolboxUiState(
               listings =
                   listOf(
-                      ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"),
-                      ServiceListing("Tutoring", 25.0, "Math tutoring", "", listingId = "math"),
+                      ItemListing(
+                          ListingCategory.ITEM_TOOLS,
+                          8.0,
+                          "Bosch drill set",
+                          "",
+                          listingId = "drill",
+                      ),
+                      ServiceListing(
+                          ListingCategory.SERVICE_TUTORING,
+                          25.0,
+                          "Math tutoring",
+                          "",
+                          listingId = "math",
+                      ),
                   )
           ),
       onRetry = {},

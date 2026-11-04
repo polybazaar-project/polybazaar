@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
@@ -43,7 +44,7 @@ data class ListingUiState(
     val refundValue: String = "",
     val priceTouched: Boolean = false,
     val refundTouched: Boolean = false,
-    val category: String? = null,
+    val category: ListingCategory? = null,
     val photos: List<Uri> = emptyList(),
     val createdListing: Listing? = null,
     val isCreating: Boolean = false,
@@ -56,7 +57,7 @@ data class ListingUiState(
   val canCreate: Boolean
     get() = listing != null && !isCreating
 
-  val categories: List<String>
+  val categories: List<ListingCategory>
     get() = categoriesFor(type)
 
   val showPriceError: Boolean
@@ -137,7 +138,7 @@ class ListingViewModel(
 
   fun leaveRefundField() = updateState { it.copy(refundTouched = true) }
 
-  fun selectCategory(category: String) = updateState { it.copy(category = category) }
+  fun selectCategory(category: ListingCategory) = updateState { it.copy(category = category) }
 
   /** Adds photos picked in the gallery, skipping duplicates and those beyond [MAX_PHOTOS]. */
   fun addPhotos(picked: List<Uri>) {
@@ -254,7 +255,7 @@ class ListingViewModel(
       set(REFUND_VALUE, state.refundValue)
       set(PRICE_TOUCHED, state.priceTouched)
       set(REFUND_TOUCHED, state.refundTouched)
-      set(CATEGORY, state.category)
+      set(CATEGORY, state.category?.id)
       set(PHOTOS, ArrayList(state.photos))
     }
 
@@ -267,7 +268,7 @@ class ListingViewModel(
             refundValue = get(REFUND_VALUE) ?: "",
             priceTouched = get(PRICE_TOUCHED) ?: false,
             refundTouched = get(REFUND_TOUCHED) ?: false,
-            category = get(CATEGORY),
+            category = get<String>(CATEGORY)?.let(ListingCategory::fromId),
             photos = get<List<Uri>>(PHOTOS).orEmpty(),
         )
   }

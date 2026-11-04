@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
@@ -27,16 +28,8 @@ object ListingRules {
    */
   const val MAX_RENTAL_DAYS = 180
 
-  // Temporary lists until the team agrees on the final categories.
-  val ITEM_CATEGORIES = listOf("Tools", "Electronics", "Books", "Sports", "Kitchen", "Other")
-  val SERVICE_CATEGORIES =
-      listOf("Tutoring", "Repairs", "Moving help", "Gardening", "Cleaning", "Other")
-
-  fun categoriesFor(type: ListingType): List<String> =
-      when (type) {
-        ListingType.ITEM -> ITEM_CATEGORIES
-        ListingType.SERVICE -> SERVICE_CATEGORIES
-      }
+  fun categoriesFor(type: ListingType): List<ListingCategory> =
+      ListingCategory.entries.filter { it.type == type }
 
   const val PRICE_RANGE_MESSAGE = "Enter a price between CHF 0 and CHF 10,000"
   const val REFUND_RANGE_MESSAGE = "Enter a refund value between CHF 0 and CHF 100,000"
@@ -106,12 +99,12 @@ object ListingRules {
       title: String,
       description: String,
       price: String,
-      category: String?,
+      category: ListingCategory?,
       photos: List<Uri>,
       refundValue: String = "",
   ): Listing? {
     val parsedPrice = parsePrice(price) ?: return null
-    if (title.isBlank() || description.isBlank() || category == null) return null
+    if (title.isBlank() || description.isBlank() || category?.type != type) return null
     return when (type) {
       ListingType.ITEM ->
           ItemListing(

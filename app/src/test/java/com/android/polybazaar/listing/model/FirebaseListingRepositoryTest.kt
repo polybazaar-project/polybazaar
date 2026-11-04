@@ -67,7 +67,7 @@ class FirebaseListingRepositoryTest {
       mapOf(
           "ownerUid" to uid,
           "type" to "ITEM",
-          "category" to "Tools",
+          "category" to "item_tools",
           "price" to 8.0,
           "title" to "Bosch drill set",
           "description" to "With bits",
@@ -111,7 +111,7 @@ class FirebaseListingRepositoryTest {
     val uploadSnapshot = mock<UploadTask.TaskSnapshot>()
     val listing =
         ItemListing(
-            category = "Electronics",
+            category = ListingCategory.ITEM_ELECTRONICS,
             price = 100.0,
             title = "Calculator",
             description = "Graphing calculator",
@@ -140,7 +140,7 @@ class FirebaseListingRepositoryTest {
             eq(
                 mapOf(
                     "ownerUid" to uid,
-                    "category" to "Electronics",
+                    "category" to "item_electronics",
                     "price" to 100.0,
                     "type" to "ITEM",
                     "title" to "Calculator",
@@ -163,7 +163,7 @@ class FirebaseListingRepositoryTest {
     val documentSetFailure = IllegalStateException("Firestore unavailable")
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
@@ -185,7 +185,7 @@ class FirebaseListingRepositoryTest {
                 eq(
                     mapOf(
                         "ownerUid" to uid,
-                        "category" to "Tutoring",
+                        "category" to "service_tutoring",
                         "price" to 25.0,
                         "type" to "SERVICE",
                         "title" to "Math tutoring",
@@ -220,7 +220,7 @@ class FirebaseListingRepositoryTest {
     val uploadFailure = IllegalStateException("Storage unavailable")
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
@@ -256,7 +256,7 @@ class FirebaseListingRepositoryTest {
     val deleteFailure = IllegalStateException("Storage cleanup unavailable")
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
@@ -283,19 +283,29 @@ class FirebaseListingRepositoryTest {
     val photos = listOf(Uri.parse("content://images/0"))
     val overLimit =
         listOf(
-            ServiceListing("Tutoring", 25.0, "t".repeat(81), "One-hour session", images = photos) to
-                "Title must be at most 80 characters",
-            ServiceListing("Tutoring", 25.0, "Math tutoring", "d".repeat(1001), images = photos) to
-                "Description must be at most 1000 characters",
             ServiceListing(
-                "Tutoring",
+                ListingCategory.SERVICE_TUTORING,
+                25.0,
+                "t".repeat(81),
+                "One-hour session",
+                images = photos,
+            ) to "Title must be at most 80 characters",
+            ServiceListing(
+                ListingCategory.SERVICE_TUTORING,
+                25.0,
+                "Math tutoring",
+                "d".repeat(1001),
+                images = photos,
+            ) to "Description must be at most 1000 characters",
+            ServiceListing(
+                ListingCategory.SERVICE_TUTORING,
                 10_000.01,
                 "Math tutoring",
                 "One-hour session",
                 images = photos,
             ) to "Enter a price between CHF 0 and CHF 10,000",
             ItemListing(
-                "Tools",
+                ListingCategory.ITEM_TOOLS,
                 5.0,
                 "Drill",
                 "Works well",
@@ -318,7 +328,7 @@ class FirebaseListingRepositoryTest {
   fun createListing_atLimits_succeeds() = runTest {
     val listing =
         ItemListing(
-            category = "Tools",
+            category = ListingCategory.ITEM_TOOLS,
             price = 10_000.0,
             title = "t".repeat(80),
             description = "d".repeat(1000),
@@ -335,7 +345,7 @@ class FirebaseListingRepositoryTest {
   fun createListing_storesTrimmedTitleAndDescription() = runTest {
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "  " + "t".repeat(80),
             description = "  Padded description \n",
@@ -353,8 +363,9 @@ class FirebaseListingRepositoryTest {
   @Test
   fun createListing_returnsTheListingOwnedByTheSignedInUser() = runTest {
     whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
-    val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One-hour session")
-    val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits")
+    val service =
+        ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, "Math tutoring", "One-hour session")
+    val item = ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "With bits")
 
     val createdService = repository.createListing(service)
     val createdItem = repository.createListing(item)
@@ -367,8 +378,10 @@ class FirebaseListingRepositoryTest {
   fun createListing_storesTheRentalDurationOnlyWhenSet() = runTest {
     whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
-    repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits", maxRentalDays = 14))
-    repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits"))
+    repository.createListing(
+        ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Drill", "With bits", maxRentalDays = 14)
+    )
+    repository.createListing(ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Drill", "With bits"))
 
     val stored = argumentCaptor<Map<String, Any>>()
     verify(newDocument, times(2)).set(stored.capture())
@@ -384,7 +397,7 @@ class FirebaseListingRepositoryTest {
     val failure = runCatching {
       repository.createListing(
           ServiceListing(
-              category = "Tutoring",
+              category = ListingCategory.SERVICE_TUTORING,
               price = 25.0,
               title = "Math tutoring",
               description = "One-hour session",
@@ -418,7 +431,7 @@ class FirebaseListingRepositoryTest {
             mapOf(
                 "ownerUid" to uid,
                 "type" to "ITEM",
-                "category" to "Tools",
+                "category" to "item_tools",
                 "price" to 8.5,
                 "title" to "Bosch drill set",
                 "description" to "With bits",
@@ -432,7 +445,7 @@ class FirebaseListingRepositoryTest {
             mapOf(
                 "ownerUid" to uid,
                 "type" to "SERVICE",
-                "category" to "Tutoring",
+                "category" to "service_tutoring",
                 "price" to 25L,
                 "title" to "Math tutoring",
                 "description" to "One-hour session",
@@ -446,7 +459,7 @@ class FirebaseListingRepositoryTest {
     assertEquals(
         listOf(
             ItemListing(
-                category = "Tools",
+                category = ListingCategory.ITEM_TOOLS,
                 price = 8.5,
                 title = "Bosch drill set",
                 description = "With bits",
@@ -456,7 +469,7 @@ class FirebaseListingRepositoryTest {
                 ownerUid = uid,
             ),
             ServiceListing(
-                category = "Tutoring",
+                category = ListingCategory.SERVICE_TUTORING,
                 price = 25.0,
                 title = "Math tutoring",
                 description = "One-hour session",
@@ -482,7 +495,7 @@ class FirebaseListingRepositoryTest {
         mapOf(
             "ownerUid" to uid,
             "type" to "SERVICE",
-            "category" to "Tutoring",
+            "category" to "service_tutoring",
             "price" to 25.0,
             "title" to "Math tutoring",
             "description" to "One-hour session",
@@ -491,6 +504,7 @@ class FirebaseListingRepositoryTest {
         listingDocument("missing-title", valid - "title"),
         listingDocument("unknown-type", valid + ("type" to "RENTAL")),
         listingDocument("price-as-text", valid + ("price" to "25")),
+        listingDocument("unknown-category", valid + ("category" to "Tutoring")),
         listingDocument("item-without-refund", valid + ("type" to "ITEM")),
         listingDocument("valid", valid),
     )
@@ -540,7 +554,7 @@ class FirebaseListingRepositoryTest {
             mapOf(
                 "ownerUid" to "someone-else",
                 "type" to "ITEM",
-                "category" to "Tools",
+                "category" to "item_tools",
                 "price" to 8.5,
                 "title" to "Bosch drill set",
                 "description" to "With bits",
@@ -553,7 +567,7 @@ class FirebaseListingRepositoryTest {
             mapOf(
                 "ownerUid" to uid,
                 "type" to "SERVICE",
-                "category" to "Tutoring",
+                "category" to "service_tutoring",
                 "price" to 25.0,
                 "title" to "Math tutoring",
                 "description" to "One-hour session",
@@ -566,7 +580,7 @@ class FirebaseListingRepositoryTest {
     assertEquals(
         listOf(
             ItemListing(
-                category = "Tools",
+                category = ListingCategory.ITEM_TOOLS,
                 price = 8.5,
                 title = "Bosch drill set",
                 description = "With bits",
@@ -576,7 +590,7 @@ class FirebaseListingRepositoryTest {
                 ownerUid = "someone-else",
             ),
             ServiceListing(
-                category = "Tutoring",
+                category = ListingCategory.SERVICE_TUTORING,
                 price = 25.0,
                 title = "Math tutoring",
                 description = "One-hour session",
@@ -599,7 +613,7 @@ class FirebaseListingRepositoryTest {
             mapOf(
                 "ownerUid" to uid,
                 "type" to "ITEM",
-                "category" to "Tools",
+                "category" to "item_tools",
                 "price" to 8L,
                 "title" to "Bosch drill set",
                 "description" to "With bits",
@@ -613,7 +627,7 @@ class FirebaseListingRepositoryTest {
     assertEquals(
         listOf(
             ItemListing(
-                "Tools",
+                ListingCategory.ITEM_TOOLS,
                 8.0,
                 "Bosch drill set",
                 "With bits",
@@ -676,7 +690,7 @@ class FirebaseListingRepositoryTest {
         mapOf(
             "ownerUid" to uid,
             "type" to "SERVICE",
-            "category" to "Tutoring",
+            "category" to "service_tutoring",
             "price" to 25.0,
             "title" to "Math tutoring",
             "description" to "One-hour session",
@@ -686,6 +700,7 @@ class FirebaseListingRepositoryTest {
         listingDocument("missing-description", valid - "description"),
         listingDocument("missing-price", valid - "price"),
         listingDocument("unknown-type", valid + ("type" to "RENTAL")),
+        listingDocument("unknown-category", valid + ("category" to "Tutoring")),
         listingDocument("item-without-refund", valid + ("type" to "ITEM")),
         // The rules require a string owner on every listing.
         listingDocument("missing-owner", valid - "ownerUid"),
@@ -728,7 +743,7 @@ class FirebaseListingRepositoryTest {
 
     assertEquals(
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
@@ -749,7 +764,7 @@ class FirebaseListingRepositoryTest {
         mapOf(
             "ownerUid" to "someone-else",
             "type" to "ITEM",
-            "category" to "Tools",
+            "category" to "item_tools",
             "price" to 8.5,
             "title" to "Bosch drill set",
             "description" to "With bits",
@@ -763,7 +778,7 @@ class FirebaseListingRepositoryTest {
 
     assertEquals(
         ItemListing(
-            category = "Tools",
+            category = ListingCategory.ITEM_TOOLS,
             price = 8.5,
             title = "Bosch drill set",
             description = "With bits",
@@ -843,7 +858,7 @@ class FirebaseListingRepositoryTest {
             eq(
                 mapOf(
                     "ownerUid" to uid,
-                    "category" to "Tutoring",
+                    "category" to "service_tutoring",
                     "price" to 30.0,
                     "type" to "SERVICE",
                     "title" to "Math tutoring",
@@ -1124,7 +1139,7 @@ class FirebaseListingRepositoryTest {
       mapOf(
           "ownerUid" to uid,
           "type" to "SERVICE",
-          "category" to "Tutoring",
+          "category" to "service_tutoring",
           "price" to 25.0,
           "title" to "Math tutoring",
           "description" to "One-hour session",
@@ -1133,7 +1148,7 @@ class FirebaseListingRepositoryTest {
 
   private fun editedService(imagePaths: List<String>, images: List<Uri> = emptyList()) =
       ServiceListing(
-          category = "Tutoring",
+          category = ListingCategory.SERVICE_TUTORING,
           price = 30.0,
           title = "Math tutoring",
           description = "Two-hour session",

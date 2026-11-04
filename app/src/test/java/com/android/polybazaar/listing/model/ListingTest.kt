@@ -4,16 +4,38 @@ package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.mockito.kotlin.mock
 
 class ListingTest {
 
   @Test
+  fun listingCategoryIdsMatchPersistedIds() {
+    assertEquals(
+        listOf(
+            "item_tools",
+            "item_electronics",
+            "item_books",
+            "item_sports",
+            "item_kitchen",
+            "item_other",
+            "service_tutoring",
+            "service_repairs",
+            "service_moving_help",
+            "service_gardening",
+            "service_cleaning",
+            "service_other",
+        ),
+        ListingCategory.entries.map { it.id },
+    )
+  }
+
+  @Test
   fun serviceListingHasServiceType() {
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
@@ -23,10 +45,22 @@ class ListingTest {
   }
 
   @Test
+  fun serviceListingRejectsItemCategory() {
+    assertThrows(IllegalArgumentException::class.java) {
+      ServiceListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 25.0,
+          title = "Math tutoring",
+          description = "One-hour session",
+      )
+    }
+  }
+
+  @Test
   fun itemListingDefaultsRefundValueToPrice() {
     val listing =
         ItemListing(
-            category = "Electronics",
+            category = ListingCategory.ITEM_ELECTRONICS,
             price = 100.0,
             title = "Calculator",
             description = "Graphing calculator",
@@ -37,10 +71,22 @@ class ListingTest {
   }
 
   @Test
+  fun itemListingRejectsServiceCategory() {
+    assertThrows(IllegalArgumentException::class.java) {
+      ItemListing(
+          category = ListingCategory.SERVICE_TUTORING,
+          price = 100.0,
+          title = "Calculator",
+          description = "Graphing calculator",
+      )
+    }
+  }
+
+  @Test
   fun listingImagesAreOptional() {
     val listing =
         ServiceListing(
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = 25.0,
             title = "Math tutoring",
             description = "One-hour session",
@@ -57,7 +103,7 @@ class ListingTest {
   fun saved_pointsToTheStoredPhotosAndDropsTheLocalOnes() {
     val listing =
         ItemListing(
-            category = "Tools",
+            category = ListingCategory.ITEM_TOOLS,
             price = 8.0,
             title = "Drill",
             description = "Cordless",
@@ -80,8 +126,9 @@ class ListingTest {
 
   @Test
   fun newListingsHaveNoOwnerUntilSaved() {
-    val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One-hour session")
-    val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits")
+    val service =
+        ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, "Math tutoring", "One-hour session")
+    val item = ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "With bits")
 
     assertEquals(null, service.ownerUid)
     assertEquals(null, item.ownerUid)
