@@ -17,6 +17,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.mock
 
 @RunWith(AndroidJUnit4::class)
 class ListingRulesTest {
@@ -91,6 +92,18 @@ class ListingRulesTest {
     assertEquals(
         "Enter a price between CHF 0 and CHF 10,000",
         ListingRules.errorFor(item(price = 10_000.01, refundValue = 100_000.0)),
+    )
+  }
+
+  @Test
+  fun errorFor_countsStoredAndNewPhotosTogether() {
+    val paths = List(3) { "listings/uid/l1/images/$it" }
+    val photos = List(2) { mock<Uri>() }
+
+    assertNull(ListingRules.errorFor(service().copy(imagePaths = paths, images = photos)))
+    assertEquals(
+        "A listing can have at most 5 photos",
+        ListingRules.errorFor(service().copy(imagePaths = paths, images = photos + photos)),
     )
   }
 

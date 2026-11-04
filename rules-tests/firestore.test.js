@@ -483,6 +483,28 @@ describe("listings", () => {
     );
   });
 
+  test("the owner can save their whole listing again with changed photos", async () => {
+    // What updateListing writes: images/1 removed, a new photo in the unused images/2.
+    const image = (i) => `listings/${ALICE}/l1/images/${i}`;
+    await seed("listings/l1", itemListing({ imagePaths: [image(0), image(1)] }));
+    await assertSucceeds(
+      setDoc(
+        doc(verified(ALICE), "listings/l1"),
+        itemListing({ title: "Hammer drill", imagePaths: [image(0), image(2)] }),
+      ),
+    );
+  });
+
+  test("an edit cannot point to an image outside images/0 to images/4", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      setDoc(
+        doc(verified(ALICE), "listings/l1"),
+        itemListing({ imagePaths: [`listings/${ALICE}/l1/images/5`] }),
+      ),
+    );
+  });
+
   test("the owner cannot hand their listing to someone else", async () => {
     await seed("listings/l1", itemListing());
     await assertFails(updateDoc(doc(verified(ALICE), "listings/l1"), { ownerUid: BOB }));
