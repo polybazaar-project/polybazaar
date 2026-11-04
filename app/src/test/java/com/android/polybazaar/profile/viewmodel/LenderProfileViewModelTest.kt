@@ -10,6 +10,7 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.net.UnknownHostException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -102,6 +103,30 @@ class LenderProfileViewModelTest {
 
     val state = viewModel.uiState.value
     assertEquals(otherLender, state.profile)
+    assertEquals(listOf("projector"), state.listings.map { it.id })
+  }
+
+  @Test
+  fun loadLender_cancelledDelayedRequest_doesNotClearLoadingForTheNewLender() {
+    val firstListings = CompletableDeferred<Unit>()
+    val secondListings = CompletableDeferred<Unit>()
+    listings.gate = firstListings
+    viewModel.loadLender(lender.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    listings.gate = secondListings
+    viewModel.loadLender(otherLender.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    // The first request was cancelled while it waited; it must not end the new request's loading.
+    assertEquals(otherLender, viewModel.uiState.value.profile)
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    secondListings.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertEquals(false, state.isLoading)
     assertEquals(listOf("projector"), state.listings.map { it.id })
   }
 

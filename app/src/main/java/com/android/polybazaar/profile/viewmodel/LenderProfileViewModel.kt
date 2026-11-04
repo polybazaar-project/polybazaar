@@ -37,6 +37,10 @@ class LenderProfileViewModel(
   private var profileJob: Job? = null
   private var listingsJob: Job? = null
 
+  // A cancelled job can still resume and finish, so each job writes state only while it is the
+  // latest request.
+  private var latestRequest = 0
+
   /**
    * Loads the profile and listings of [uid], dropping whatever was shown for a previous lender. The
    * profile keeps updating while the screen is open.
@@ -44,39 +48,44 @@ class LenderProfileViewModel(
   fun loadLender(uid: String) {
     profileJob?.cancel()
     listingsJob?.cancel()
+    val request = ++latestRequest
     _uiState.value = LenderProfileUiState(isLoading = true)
-    profileJob = viewModelScope.launch { loadProfile(uid) }
-    listingsJob = viewModelScope.launch {
-      try {
-        loadListings(uid)
-      } finally {
-        _uiState.update { it.copy(isLoading = false) }
-      }
-    }
+    profileJob = viewModelScope.launch { loadProfile(request, uid) }
+    listingsJob = viewModelScope.launch { loadListings(request, uid) }
   }
 
-  private suspend fun loadProfile(uid: String) {
+  private suspend fun loadProfile(request: Int, uid: String) {
     try {
       profileRepository.observeProfile(uid).collect { profile ->
-        _uiState.update { it.copy(profile = profile) }
+        updateIfLatest(request) { it.copy(profile = profile) }
       }
     } catch (exception: Exception) {
       if (exception is CancellationException) throw exception
-      _uiState.update { it.copy(error = exception.toAppError()) }
+      updateIfLatest(request) { it.copy(error = exception.toAppError()) }
     }
   }
 
-  private suspend fun loadListings(uid: String) {
+  private suspend fun loadListings(request: Int, uid: String) {
     listingRepository
         .getListingsByOwner(uid)
         .onSuccess { listings ->
-          _uiState.update {
-            it.copy(listings = listings.mapNotNull { listing -> listing.toBrowseListing() })
+          updateIfLatest(request) {
+            it.copy(
+                listings = listings.mapNotNull { listing -> listing.toBrowseListing() },
+                isLoading = false,
+            )
           }
         }
         .onFailure { exception ->
           if (exception is CancellationException) throw exception
-          _uiState.update { it.copy(error = exception.toAppError()) }
+          updateIfLatest(request) { it.copy(error = exception.toAppError(), isLoading = false) }
         }
+  }
+
+  private fun updateIfLatest(
+      request: Int,
+      transform: (LenderProfileUiState) -> LenderProfileUiState,
+  ) {
+    if (request == latestRequest) _uiState.update(transform)
   }
 }
