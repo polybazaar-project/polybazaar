@@ -48,7 +48,7 @@ import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
-import com.android.polybazaar.listing.viewmodel.ListingViewModel
+import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -209,15 +209,16 @@ fun AppNavHost(
           BrowseScreen(viewModel = browseViewModel)
         }
         composable(Routes.CREATE_LISTING) {
-          val listingViewModel: ListingViewModel =
+          val listingViewModel: ListingFormViewModel =
               viewModel(
                   factory =
                       viewModelFactory {
                         initializer {
-                          ListingViewModel(
-                              listingRepository,
-                              photoStorage,
-                              createSavedStateHandle(),
+                          ListingFormViewModel(
+                              listingId = null,
+                              listingRepository = listingRepository,
+                              photoStorage = photoStorage,
+                              savedStateHandle = createSavedStateHandle(),
                           )
                         }
                       }

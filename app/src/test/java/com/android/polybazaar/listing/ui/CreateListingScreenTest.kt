@@ -48,7 +48,7 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ServiceListing
-import com.android.polybazaar.listing.viewmodel.ListingViewModel
+import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import java.io.File
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -73,15 +73,15 @@ class CreateListingScreenTest {
   private val context = ApplicationProvider.getApplicationContext<Context>()
 
   /**
-   * Shows the screen driven by a real [ListingViewModel], so typing in the form goes through it.
-   * The listing it creates can be read from [repository].
+   * Shows the screen driven by a real [ListingFormViewModel], so typing in the form goes through
+   * it. The listing it creates can be read from [repository].
    */
   private fun setContent(
       repository: RecordingListingRepository = RecordingListingRepository(),
       registry: FakePickerRegistry = FakePickerRegistry(),
       onListingCreated: (Listing) -> Unit = {},
-  ): ListingViewModel {
-    val viewModel = ListingViewModel(repository, createStorage(), SavedStateHandle())
+  ): ListingFormViewModel {
+    val viewModel = ListingFormViewModel(null, repository, createStorage(), SavedStateHandle())
     setContentWithRegistry(registry) {
       CreateListingScreen(listingViewModel = viewModel, onListingCreated = onListingCreated)
     }
@@ -844,7 +844,8 @@ class CreateListingScreenTest {
     val registry = FakePickerRegistry()
     registry.results.add(pickedPhotos(1..2))
     val viewModel =
-        ListingViewModel(
+        ListingFormViewModel(
+            null,
             RecordingListingRepository(),
             createStorage(),
             SavedStateHandle(),
@@ -869,7 +870,7 @@ class CreateListingScreenTest {
     restorationTester.emulateSavedInstanceStateRestore()
 
     assertEquals(1, createdCount)
-    assertNull(viewModel.uiState.value.createdListing)
+    assertNull(viewModel.uiState.value.savedListing)
     node(CreateListingScreenTags.photo(1)).assertExists()
   }
 

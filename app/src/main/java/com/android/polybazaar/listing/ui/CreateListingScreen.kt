@@ -48,8 +48,8 @@ import com.android.polybazaar.listing.model.ListingRules
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingType
-import com.android.polybazaar.listing.viewmodel.ListingUiState
-import com.android.polybazaar.listing.viewmodel.ListingViewModel
+import com.android.polybazaar.listing.viewmodel.ListingFormUiState
+import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import kotlinx.coroutines.Dispatchers
 
 object CreateListingScreenTags {
@@ -133,7 +133,7 @@ class CreateListingActions(
  */
 @Composable
 fun CreateListingScreen(
-    listingViewModel: ListingViewModel,
+    listingViewModel: ListingFormViewModel,
     onListingCreated: (Listing) -> Unit = {},
 ) {
   // Collected without dispatching, so each keystroke reaches the text fields before the next
@@ -154,14 +154,14 @@ fun CreateListingScreen(
             onPhotoRemoved = listingViewModel::removePhoto,
             startTakingPhoto = listingViewModel::startTakingPhoto,
             finishTakingPhoto = listingViewModel::finishTakingPhoto,
-            onCreate = listingViewModel::createListing,
+            onCreate = listingViewModel::save,
         )
       }
-  LaunchedEffect(uiState.createdListing) {
-    uiState.createdListing?.let { createdListing ->
+  LaunchedEffect(uiState.savedListing) {
+    uiState.savedListing?.let { createdListing ->
       onListingCreated(createdListing)
       // Handled, so recreating the screen (on rotation, say) must not handle it again.
-      listingViewModel.clearCreatedListing()
+      listingViewModel.clearSavedListing()
     }
   }
 
@@ -175,7 +175,7 @@ fun CreateListingScreen(
  * @param actions called when the user edits the form, adds photos or creates the listing.
  */
 @Composable
-fun CreateListingContent(uiState: ListingUiState, actions: CreateListingActions) {
+fun CreateListingContent(uiState: ListingFormUiState, actions: CreateListingActions) {
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -191,7 +191,7 @@ fun CreateListingContent(uiState: ListingUiState, actions: CreateListingActions)
           photos = uiState.photos,
           actions = actions,
           // The repository is still reading these photos, so none may be removed or replaced.
-          enabled = !uiState.isCreating,
+          enabled = !uiState.isSaving,
       )
       ListingDetailsFields(uiState = uiState, actions = actions)
     }
@@ -257,7 +257,7 @@ private fun ListingTypeSelector(selected: ListingType, onSelect: (ListingType) -
 
 /** Title, description, price, category and, for items, the refund value. */
 @Composable
-private fun ListingDetailsFields(uiState: ListingUiState, actions: CreateListingActions) {
+private fun ListingDetailsFields(uiState: ListingFormUiState, actions: CreateListingActions) {
   val texts = formTextsFor(uiState.type)
   FormField(
       label = "Title",
@@ -304,7 +304,7 @@ private fun ListingDetailsFields(uiState: ListingUiState, actions: CreateListing
 
 @Composable
 private fun PriceAndCategoryRow(
-    uiState: ListingUiState,
+    uiState: ListingFormUiState,
     actions: CreateListingActions,
     priceLabel: String,
 ) {
@@ -336,7 +336,7 @@ private fun PriceAndCategoryRow(
 
 /** The creation error, if any, the "Create listing" button and the closing tagline. */
 @Composable
-private fun ColumnScope.CreateListingFooter(uiState: ListingUiState, onCreate: () -> Unit) {
+private fun ColumnScope.CreateListingFooter(uiState: ListingFormUiState, onCreate: () -> Unit) {
   uiState.errorMessage?.let {
     Text(
         text = it,
@@ -347,9 +347,9 @@ private fun ColumnScope.CreateListingFooter(uiState: ListingUiState, onCreate: (
     )
   }
   AuthPrimaryButton(
-      text = if (uiState.isCreating) "Creating…" else "+  Create listing",
+      text = if (uiState.isSaving) "Creating…" else "+  Create listing",
       onClick = onCreate,
-      enabled = uiState.canCreate,
+      enabled = uiState.canSave,
       modifier =
           Modifier.fillMaxWidth()
               .padding(horizontal = 18.dp, vertical = 10.dp)
@@ -451,5 +451,5 @@ private fun TypeOption(
 @Preview(showBackground = true, widthDp = 412, heightDp = 924)
 @Composable
 private fun CreateListingContentPreview() {
-  CreateListingContent(uiState = ListingUiState(), actions = CreateListingActions())
+  CreateListingContent(uiState = ListingFormUiState(), actions = CreateListingActions())
 }
