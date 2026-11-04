@@ -106,7 +106,7 @@ class FirebaseAuthRepository(
   }
 
   override suspend fun getCurrentUser(): User {
-    val firebaseUser = auth.currentUser ?: throw Exception("No user is currently logged in")
+    val firebaseUser = auth.currentUser ?: throw NoSessionException()
     return signedInUser(firebaseUser)
   }
 

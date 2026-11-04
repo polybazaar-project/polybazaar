@@ -38,6 +38,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
@@ -999,7 +1000,7 @@ class AppNavHostTest {
     override suspend fun getCurrentUser(): User {
       currentUserError?.let { throw it }
       val result = if (currentUserGate != null) currentUserGate.await() else currentUser
-      return result ?: throw IllegalStateException("No user is currently logged in")
+      return result ?: throw NoSessionException()
     }
 
     override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)

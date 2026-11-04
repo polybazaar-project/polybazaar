@@ -1,6 +1,12 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.model
 
+/**
+ * Thrown by [AuthRepository.getCurrentUser] when no session is saved on the device. That is the
+ * normal state of a signed-out user, not a failure, so callers can tell it apart from real errors.
+ */
+class NoSessionException : Exception("No user is currently logged in")
+
 interface AuthRepository {
 
   suspend fun signIn(email: String, password: String): Result<User>
@@ -9,6 +15,12 @@ interface AuthRepository {
 
   suspend fun signOut()
 
+  /**
+   * Returns the user of the session saved on the device.
+   *
+   * Throws [NoSessionException] when there is none, and other exceptions when the session cannot be
+   * checked, for example offline.
+   */
   suspend fun getCurrentUser(): User
 
   suspend fun sendVerificationEmail(): Result<Unit>

@@ -480,13 +480,13 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
-  fun getCurrentUser_noUserLoggedIn_throwsException() = runTest {
+  fun getCurrentUser_noUserLoggedIn_throwsNoSessionException() = runTest {
     whenever(auth.currentUser).thenReturn(null)
 
     val result = runCatching { repository.getCurrentUser() }
 
-    assertTrue(result.isFailure)
-    assertEquals("No user is currently logged in", result.exceptionOrNull()?.message)
+    // Its own type, so the session check can tell a signed-out user from a real failure.
+    assertTrue(result.exceptionOrNull() is NoSessionException)
   }
 
   @Test

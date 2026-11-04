@@ -1,9 +1,11 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
@@ -22,7 +24,16 @@ data class AuthUiState(
     val sessionError: AppError? = null,
 )
 
-class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
+/**
+ * @param logUnexpectedError receives the session check failures nobody expects, such as a missing
+ *   username, so they leave a trace before the user is signed out. Logs to Logcat by default.
+ */
+class AuthViewModel(
+    private val authRepository: AuthRepository,
+    private val logUnexpectedError: (Throwable) -> Unit = {
+      Log.e(TAG, "Session check failed", it)
+    },
+) : ViewModel() {
 
   private val _uiState = MutableStateFlow(AuthUiState())
   val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
@@ -43,11 +54,14 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         finishSessionCheck { it.copy(user = user, sessionChecked = true) }
       } catch (exception: Exception) {
         if (exception is kotlinx.coroutines.CancellationException) throw exception
-        // No persisted session also ends up here, so only a network failure is worth a retry.
-        if (exception.toAppError(log = {}) == AppError.NETWORK) {
-          finishSessionCheck { it.copy(sessionError = AppError.NETWORK) }
-        } else {
-          finishSessionCheck { it.copy(user = null, sessionChecked = true) }
+        when {
+          // A signed-out user: expected, so not logged.
+          exception is NoSessionException ->
+              finishSessionCheck { it.copy(user = null, sessionChecked = true) }
+          // The session may still be valid, so only a network failure is worth a retry.
+          exception.toAppError(log = logUnexpectedError) == AppError.NETWORK ->
+              finishSessionCheck { it.copy(sessionError = AppError.NETWORK) }
+          else -> finishSessionCheck { it.copy(user = null, sessionChecked = true) }
         }
       }
     }
@@ -109,3 +123,5 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         )
   }
 }
+
+private const val TAG = "AuthViewModel"
