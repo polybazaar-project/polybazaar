@@ -7,11 +7,12 @@ import kotlinx.coroutines.CompletableDeferred
 /**
  * A [ListingRepository] for tests.
  *
- * [getAllListings] answers with [allListings] and [getMyListings] with [myListings], or either with
- * [failure] when it is set. [getListing] answers with the listing of [allListings] that has the id,
- * fails with a Firestore `NOT_FOUND` error like the real repository when none has it, or with
- * [failure] when it is set. [createListing] adds to [allListings], or throws [failure]. Set [gate]
- * to keep any of these calls waiting until the test completes it, to look at one in progress.
+ * [getAllListings] answers with [allListings] and [getMyListings] with [myListings].
+ * [createListing] adds to [allListings], [getListing] looks the id up in both lists and fails with
+ * a Firestore `NOT_FOUND` error like the real repository when neither has it, [updateListing]
+ * replaces the listing in both, and [deleteListing] removes it from both. Every call except
+ * [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these calls
+ * waiting until the test completes it, to look at one in progress.
  */
 class FakeListingRepository(
     var allListings: List<Listing> = emptyList(),
@@ -24,6 +25,12 @@ class FakeListingRepository(
 
   var getMyListingsCalls = 0
     private set
+
+  /** The listings passed to [updateListing], in order. */
+  val updatedListings = mutableListOf<Listing>()
+
+  /** The ids passed to [deleteListing], in order. */
+  val deletedListingIds = mutableListOf<String>()
 
   override suspend fun createListing(listing: Listing): Listing {
     gate?.await()
@@ -49,12 +56,36 @@ class FakeListingRepository(
   }
 
   override suspend fun getListing(listingId: String): Result<Listing> =
-      answer(allListings.find { it.listingId == listingId }).mapCatching {
-        it
+      answer(Unit).mapCatching {
+        (allListings + myListings).firstOrNull { it.listingId == listingId }
             ?: throw FirebaseFirestoreException(
-                "Listing not found",
+                "Listing $listingId not found",
                 FirebaseFirestoreException.Code.NOT_FOUND,
             )
+      }
+
+  /** Stores the new photos under fake paths after the kept ones, like the real repository. */
+  override suspend fun updateListing(listing: Listing): Listing {
+    answer(Unit).getOrThrow()
+    updatedListings += listing
+    val newPaths = listing.images.indices.map { "fake/${listing.listingId}/new-$it" }
+    val saved =
+        when (listing) {
+          is ServiceListing ->
+              listing.copy(images = emptyList(), imagePaths = listing.imagePaths + newPaths)
+          is ItemListing ->
+              listing.copy(images = emptyList(), imagePaths = listing.imagePaths + newPaths)
+        }
+    allListings = allListings.map { if (it.listingId == saved.listingId) saved else it }
+    myListings = myListings.map { if (it.listingId == saved.listingId) saved else it }
+    return saved
+  }
+
+  override suspend fun deleteListing(listingId: String): Result<Unit> =
+      answer(Unit).onSuccess {
+        deletedListingIds += listingId
+        allListings = allListings.filterNot { it.listingId == listingId }
+        myListings = myListings.filterNot { it.listingId == listingId }
       }
 
   override suspend fun loadListingImage(imagePath: String) = ByteArray(0)

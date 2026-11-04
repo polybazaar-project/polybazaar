@@ -12,7 +12,7 @@ enum class ListingType {
 /**
  * @property images photos on this device, to upload when the listing is created.
  * @property imagePaths where the photos are stored once the listing is saved, as Storage paths to
- *   read through the repository. Empty until then.
+ *   read through the repository. Empty until then. When editing, the stored photos to keep.
  * @property ownerUid uid of the user who created the listing. Null until the listing is saved; the
  *   repository sets it from the stored `ownerUid`. The security rules only let a user with a
  *   verified EPFL email create a listing, so every owner was verified when creating it.
@@ -28,6 +28,12 @@ sealed class Listing(
     open val ownerUid: String?,
 ) {
   abstract val type: ListingType
+
+  /**
+   * This listing as saved under [listingId] by [ownerUid], with its photos at [imagePaths]. The
+   * photos on the device are uploaded by then, so [images] is empty.
+   */
+  abstract fun saved(listingId: String, imagePaths: List<String>, ownerUid: String): Listing
 }
 
 data class ServiceListing(
@@ -41,6 +47,14 @@ data class ServiceListing(
     override val ownerUid: String? = null,
 ) : Listing(category, price, title, description, images, imagePaths, listingId, ownerUid) {
   override val type = ListingType.SERVICE
+
+  override fun saved(listingId: String, imagePaths: List<String>, ownerUid: String) =
+      copy(
+          listingId = listingId,
+          images = emptyList(),
+          imagePaths = imagePaths,
+          ownerUid = ownerUid,
+      )
 }
 
 /**
@@ -61,4 +75,12 @@ data class ItemListing(
     override val ownerUid: String? = null,
 ) : Listing(category, price, title, description, images, imagePaths, listingId, ownerUid) {
   override val type = ListingType.ITEM
+
+  override fun saved(listingId: String, imagePaths: List<String>, ownerUid: String) =
+      copy(
+          listingId = listingId,
+          images = emptyList(),
+          imagePaths = imagePaths,
+          ownerUid = ownerUid,
+      )
 }
