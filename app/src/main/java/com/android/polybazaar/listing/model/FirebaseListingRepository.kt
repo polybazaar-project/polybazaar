@@ -23,7 +23,7 @@ class FirebaseListingRepository(
 ) : ListingRepository {
 
   override suspend fun createListing(listing: Listing): Listing {
-    val ownerUid = auth.currentUser?.uid ?: throw IllegalStateException("No authenticated user")
+    val ownerUid = auth.currentUser?.uid ?: throw unauthenticated()
     ListingRules.errorFor(listing)?.let { throw IllegalArgumentException(it) }
     // Creates a reference to a new Firestore document.
     // Represents where we want to store the listing.
@@ -38,7 +38,7 @@ class FirebaseListingRepository(
   }
 
   override suspend fun updateListing(listing: Listing): Listing {
-    val ownerUid = auth.currentUser?.uid ?: throw IllegalStateException("No authenticated user")
+    val ownerUid = auth.currentUser?.uid ?: throw unauthenticated()
     val listingId =
         listing.listingId ?: throw IllegalArgumentException("Only a saved listing can be updated")
     ListingRules.errorFor(listing)?.let { throw IllegalArgumentException(it) }

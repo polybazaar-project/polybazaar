@@ -106,6 +106,7 @@ class ListingRulesTest {
     )
   }
 
+  @Test
   fun errorFor_rentalDaysBounds() {
     val message = ListingRules.RENTAL_DAYS_RANGE_MESSAGE
     assertEquals("Enter a rental duration between 1 and 180 days", message)

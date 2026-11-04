@@ -48,7 +48,11 @@ class FirebaseListingRepositoryTest {
   private lateinit var storage: FirebaseStorage
   private lateinit var auth: FirebaseAuth
   private lateinit var listings: CollectionReference
+  // The listing at listingId, which get, update and delete use.
   private lateinit var document: DocumentReference
+  // A new document, which only createListing uses: a separate mock, so a test fails if an update
+  // writes to a new document instead of the existing one.
+  private lateinit var newDocument: DocumentReference
   private lateinit var storageRoot: StorageReference
   private lateinit var imageReference: StorageReference
   private lateinit var repository: FirebaseListingRepository
@@ -77,6 +81,7 @@ class FirebaseListingRepositoryTest {
     auth = mock()
     listings = mock()
     document = mock()
+    newDocument = mock()
     storageRoot = mock()
     imageReference = mock()
 
@@ -84,8 +89,9 @@ class FirebaseListingRepositoryTest {
     whenever(user.uid).thenReturn(uid)
     whenever(auth.currentUser).thenReturn(user)
     whenever(firestore.collection("listings")).thenReturn(listings)
-    whenever(listings.document()).thenReturn(document)
+    whenever(listings.document()).thenReturn(newDocument)
     whenever(listings.document(listingId)).thenReturn(document)
+    whenever(newDocument.id).thenReturn(listingId)
     whenever(document.id).thenReturn(listingId)
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child("listings/$uid/$listingId/images/0")).thenReturn(imageReference)
@@ -116,7 +122,7 @@ class FirebaseListingRepositoryTest {
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     val result = repository.createListing(listing)
 
@@ -129,7 +135,7 @@ class FirebaseListingRepositoryTest {
     // A download URL would let anyone holding it read the photo without signing in.
     verify(imageReference, never()).downloadUrl
     assertEquals(listOf(imageUri), compressedPhotos)
-    verify(document)
+    verify(newDocument)
         .set(
             eq(
                 mapOf(
@@ -175,7 +181,7 @@ class FirebaseListingRepositoryTest {
     whenever(firstImageReference.delete()).thenReturn(Tasks.forResult(null))
     whenever(secondImageReference.delete()).thenReturn(Tasks.forResult(null))
     whenever(
-            document.set(
+            newDocument.set(
                 eq(
                     mapOf(
                         "ownerUid" to uid,
@@ -262,7 +268,7 @@ class FirebaseListingRepositoryTest {
     whenever(uploadTask.result).thenReturn(uploadSnapshot)
     whenever(imageReference.putBytes(eq(photoBytes), any())).thenReturn(uploadTask)
     whenever(imageReference.delete()).thenReturn(Tasks.forException(deleteFailure))
-    whenever(document.set(any<Map<String, Any>>()))
+    whenever(newDocument.set(any<Map<String, Any>>()))
         .thenReturn(Tasks.forException(documentSetFailure))
 
     val failure = runCatching { repository.createListing(listing) }.exceptionOrNull()
@@ -318,7 +324,7 @@ class FirebaseListingRepositoryTest {
             description = "d".repeat(1000),
             refundValue = 100_000.0,
         )
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     val created = repository.createListing(listing)
 
@@ -334,19 +340,19 @@ class FirebaseListingRepositoryTest {
             title = "  " + "t".repeat(80),
             description = "  Padded description \n",
         )
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     repository.createListing(listing)
 
     val stored = argumentCaptor<Map<String, Any>>()
-    verify(document).set(stored.capture())
+    verify(newDocument).set(stored.capture())
     assertEquals("t".repeat(80), stored.firstValue["title"])
     assertEquals("Padded description", stored.firstValue["description"])
   }
 
   @Test
   fun createListing_returnsTheListingOwnedByTheSignedInUser() = runTest {
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
     val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One-hour session")
     val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits")
 
@@ -359,13 +365,13 @@ class FirebaseListingRepositoryTest {
 
   @Test
   fun createListing_storesTheRentalDurationOnlyWhenSet() = runTest {
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits", maxRentalDays = 14))
     repository.createListing(ItemListing("Tools", 8.0, "Drill", "With bits"))
 
     val stored = argumentCaptor<Map<String, Any>>()
-    verify(document, times(2)).set(stored.capture())
+    verify(newDocument, times(2)).set(stored.capture())
     assertEquals(14, stored.firstValue["maxRentalDays"])
     // No limit: the key is left out, like on a listing written before the field existed.
     assertFalse(stored.secondValue.containsKey("maxRentalDays"))
@@ -387,8 +393,8 @@ class FirebaseListingRepositoryTest {
     }
         .exceptionOrNull()
 
-    assertTrue(failure is IllegalStateException)
-    assertEquals("No authenticated user", failure?.message)
+    assertEquals(AppError.UNAUTHENTICATED, failure?.toAppError())
+    verifyNoInteractions(firestore, storage)
   }
 
   @Test
@@ -941,28 +947,44 @@ class FirebaseListingRepositoryTest {
   fun updateListing_refusesBeforeUploadingWhenTheUpdateCannotSucceed() = runTest {
     givenImageSlots()
     val photo = listOf(Uri.parse("content://images/new"))
+    val ownPhotosOnly = "Only the listing's own photos can be kept, each once"
+    // Each case with the message it must fail with, so it is refused for the right reason.
     val cases =
         listOf(
             // Someone else's listing: the rules would refuse it.
-            storedService(listOf(path(0))) + ("ownerUid" to "someone-else") to
+            Triple(
+                storedService(listOf(path(0))) + ("ownerUid" to "someone-else"),
                 editedService(listOf(path(0)), photo),
+                "Only the owner can edit a listing",
+            ),
             // The rules forbid changing the type.
-            storedService(listOf(path(0))) + ("type" to "ITEM") + ("refundValue" to 50.0) to
+            Triple(
+                storedService(listOf(path(0))) + ("type" to "ITEM") + ("refundValue" to 50.0),
                 editedService(listOf(path(0)), photo),
+                "A listing's type cannot change",
+            ),
             // A photo the listing does not have.
-            storedService(listOf(path(0))) to editedService(listOf(path(3)), photo),
+            Triple(
+                storedService(listOf(path(0))),
+                editedService(listOf(path(3)), photo),
+                ownPhotosOnly,
+            ),
             // The same photo twice.
-            storedService(listOf(path(0))) to editedService(listOf(path(0), path(0)), photo),
+            Triple(
+                storedService(listOf(path(0))),
+                editedService(listOf(path(0), path(0)), photo),
+                ownPhotosOnly,
+            ),
             // The listing no longer exists.
-            null to editedService(emptyList(), photo),
+            Triple(null, editedService(emptyList(), photo), "Listing $listingId not found"),
         )
 
-    cases.forEach { (stored, edited) ->
+    cases.forEach { (stored, edited, expectedMessage) ->
       givenStoredListing(stored)
 
       val failure = runCatching { repository.updateListing(edited) }.exceptionOrNull()
 
-      assertTrue("$stored should be refused", failure != null)
+      assertEquals("$stored", expectedMessage, failure?.message)
     }
     verify(document, never()).set(any<Map<String, Any>>())
     assertTrue(compressedPhotos.isEmpty())
@@ -999,7 +1021,7 @@ class FirebaseListingRepositoryTest {
 
     val failure = runCatching { repository.updateListing(editedService(emptyList())) }
 
-    assertTrue(failure.exceptionOrNull() is IllegalStateException)
+    assertEquals(AppError.UNAUTHENTICATED, failure.exceptionOrNull()?.toAppError())
     verifyNoInteractions(firestore, storage)
   }
 
