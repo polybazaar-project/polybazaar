@@ -268,6 +268,21 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun deletedLenderProfile_clearsTheLender_withoutError() {
+    val viewModel = loadedViewModel()
+    assertEquals(lender, viewModel.uiState.value.lender)
+
+    // observeProfile emits null once the profile document no longer exists.
+    profiles.profile(lender.uid).value = null
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertNull(state.lender)
+    assertNull(state.lenderError)
+    assertEquals(listing, state.listing)
+  }
+
+  @Test
   fun lenderFailure_showsALenderError_andKeepsTheListing() {
     profiles.failure =
         FirebaseFirestoreException("Denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
