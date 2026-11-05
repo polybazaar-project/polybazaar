@@ -23,6 +23,8 @@ data class EditProfileUiState(
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val isSaved: Boolean = false,
+    /** Whether the save that set [isSaved] uploaded a new photo. */
+    val isNewPhotoSaved: Boolean = false,
     val isPartiallySaved: Boolean = false,
     val errorMessage: String? = null,
 ) {
@@ -183,6 +185,7 @@ class EditProfileViewModel(
           isPhotoRemoved = false,
           isSaving = false,
           isSaved = true,
+          isNewPhotoSaved = photoPath != null,
           isPartiallySaved = false,
       )
 

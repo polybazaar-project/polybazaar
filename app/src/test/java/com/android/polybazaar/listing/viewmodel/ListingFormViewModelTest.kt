@@ -884,6 +884,9 @@ class ListingFormViewModelTest {
 
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
 
+    override suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>> =
+        Result.success(emptyList())
+
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
 
     /** What [getListing] answers, for the edit form. */

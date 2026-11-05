@@ -18,6 +18,13 @@ interface ListingRepository {
   suspend fun getMyListings(): Result<List<Listing>>
 
   /**
+   * Returns the listings created by [ownerUid], for a lender's profile.
+   *
+   * Fails when Firestore cannot answer; the caller maps the failure with `toAppError()`.
+   */
+  suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>>
+
+  /**
    * Returns every listing on the marketplace, for the Browse screen.
    *
    * Fails when Firestore cannot answer or the security rules deny the read; the caller maps the

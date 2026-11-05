@@ -490,6 +490,46 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun getListingsByOwner_queriesTheGivenOwnersListings() = runTest {
+    val lenderUid = "lender-uid"
+    val document =
+        listingDocument(
+            "service-9",
+            mapOf(
+                "ownerUid" to lenderUid,
+                "type" to "SERVICE",
+                "category" to "service_tutoring",
+                "price" to 30L,
+                "title" to "Piano lessons",
+                "description" to "Beginners welcome",
+                "imagePaths" to emptyList<String>(),
+            ),
+        )
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(listOf(document))
+    val query = mock<Query>()
+    whenever(listings.whereEqualTo("ownerUid", lenderUid)).thenReturn(query)
+    whenever(query.get()).thenReturn(Tasks.forResult(snapshot))
+
+    val result = repository.getListingsByOwner(lenderUid).getOrThrow()
+
+    assertEquals(
+        listOf(
+            ServiceListing(
+                category = ListingCategory.SERVICE_TUTORING,
+                price = 30.0,
+                title = "Piano lessons",
+                description = "Beginners welcome",
+                listingId = "service-9",
+                ownerUid = lenderUid,
+            ),
+        ),
+        result,
+    )
+    verify(listings).whereEqualTo("ownerUid", lenderUid)
+  }
+
+  @Test
   fun getMyListings_skipsMalformedDocumentsAndKeepsTheOthers() = runTest {
     val valid =
         mapOf(

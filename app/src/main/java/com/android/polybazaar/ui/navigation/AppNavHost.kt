@@ -98,6 +98,10 @@ fun AppNavHost(
     }
   }
 
+  val profileViewModelFactory = viewModelFactory {
+    initializer { ProfileViewModel(profileRepository) }
+  }
+
   LaunchedEffect(Unit) { authViewModel.restoreSession() }
 
   LaunchedEffect(uiState.sessionChecked, uiState.user) {
@@ -234,11 +238,7 @@ fun AppNavHost(
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
           val profileViewModel: ProfileViewModel =
-              viewModel(
-                  key = uid,
-                  factory =
-                      viewModelFactory { initializer { ProfileViewModel(profileRepository) } },
-              )
+              viewModel(key = uid, factory = profileViewModelFactory)
           val profileState by profileViewModel.uiState.collectAsState()
           LaunchedEffect(uid) { profileViewModel.observeProfile(uid) }
           // Keyed by uid too: the listings belong to the signed-in user.
@@ -254,6 +254,7 @@ fun AppNavHost(
 
           ProfileContent(
               profile = profileState.profile,
+              photo = profileState.photo,
               isLoading = profileState.isLoading,
               errorMessage = profileState.errorMessage,
               onEditProfile = {
@@ -277,7 +278,22 @@ fun AppNavHost(
                       },
               )
           val editState by editViewModel.uiState.collectAsState()
-          LaunchedEffect(editState.isSaved) { if (editState.isSaved) navController.popBackStack() }
+          // Edit profile only opens from the profile screen, whose ViewModel below it in the back
+          // stack already holds the saved photo, so the photo is not downloaded a second time.
+          val profileEntry = remember(it) { navController.getBackStackEntry(Routes.PROFILE) }
+          val profileViewModel: ProfileViewModel =
+              viewModel(
+                  viewModelStoreOwner = profileEntry,
+                  key = uid,
+                  factory = profileViewModelFactory,
+              )
+          val profileState by profileViewModel.uiState.collectAsState()
+          LaunchedEffect(editState.isSaved) {
+            if (editState.isSaved) {
+              if (editState.isNewPhotoSaved) profileViewModel.reloadPhoto()
+              navController.popBackStack()
+            }
+          }
 
           EditProfileContent(
               profile = editState.profile,
@@ -294,6 +310,7 @@ fun AppNavHost(
                       onSave = editViewModel::saveProfile,
                       onCancel = { navController.popBackStack() },
                   ),
+              photo = profileState.photo,
           )
         }
         composable(Routes.SETTINGS) {
