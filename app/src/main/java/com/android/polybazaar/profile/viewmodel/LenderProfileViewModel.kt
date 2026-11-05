@@ -1,4 +1,5 @@
 // Co-authored-by: GitHub Copilot CLI (Claude Haiku 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.viewmodel
 
 import androidx.lifecycle.ViewModel
@@ -72,7 +73,11 @@ class LenderProfileViewModel(
         .onSuccess { listings ->
           _uiState.update {
             it.copy(
-                listings = listings.mapNotNull { listing -> listing.toBrowseListing() },
+                // A paused listing is hidden from other users; its owner sees it in the Toolbox.
+                listings =
+                    listings
+                        .filterNot { listing -> listing.isPaused }
+                        .mapNotNull { listing -> listing.toBrowseListing() },
                 listingsLoaded = true,
             )
           }
