@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.ui
 
 import android.Manifest
@@ -43,6 +44,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ServiceListing
@@ -97,8 +99,11 @@ class CreateListingScreenTest {
 
   private fun selectCategory(category: String) {
     node(CreateListingScreenTags.CATEGORY_FIELD).performClick()
-    node(CreateListingScreenTags.categoryOption(category)).performClick()
+    node(CreateListingScreenTags.categoryOption(category(category))).performClick()
   }
+
+  private fun category(displayName: String) =
+      ListingCategory.entries.single { it.displayName == displayName }
 
   @Test
   fun itemIsSelectedByDefault_andShowsItemFields() {
@@ -131,15 +136,17 @@ class CreateListingScreenTest {
     setContent()
 
     node(CreateListingScreenTags.CATEGORY_FIELD).performClick()
-    node(CreateListingScreenTags.categoryOption("Tools")).assertIsDisplayed()
-    node(CreateListingScreenTags.categoryOption("Tutoring")).assertDoesNotExist()
+    node(CreateListingScreenTags.categoryOption(ListingCategory.ITEM_TOOLS)).assertIsDisplayed()
+    node(CreateListingScreenTags.categoryOption(ListingCategory.SERVICE_TUTORING))
+        .assertDoesNotExist()
 
     node(CreateListingScreenTags.CATEGORY_FIELD).performClick()
     node(CreateListingScreenTags.TYPE_SERVICE).performClick()
     node(CreateListingScreenTags.CATEGORY_FIELD).performClick()
 
-    node(CreateListingScreenTags.categoryOption("Tutoring")).assertIsDisplayed()
-    node(CreateListingScreenTags.categoryOption("Tools")).assertDoesNotExist()
+    node(CreateListingScreenTags.categoryOption(ListingCategory.SERVICE_TUTORING))
+        .assertIsDisplayed()
+    node(CreateListingScreenTags.categoryOption(ListingCategory.ITEM_TOOLS)).assertDoesNotExist()
   }
 
   @Test
@@ -177,7 +184,7 @@ class CreateListingScreenTest {
 
     assertEquals(
         ItemListing(
-            category = "Tools",
+            category = ListingCategory.ITEM_TOOLS,
             price = 12.5,
             title = "Bosch drill",
             description = "Comes with bits",
@@ -198,7 +205,7 @@ class CreateListingScreenTest {
     val sent = repository.received
     assertTrue(sent is ServiceListing)
     assertEquals(20.0, sent!!.price, 0.0)
-    assertEquals("Tutoring", sent.category)
+    assertEquals(ListingCategory.SERVICE_TUTORING, sent.category)
   }
 
   @Test
@@ -1029,6 +1036,9 @@ class CreateListingScreenTest {
     }
 
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
+
+    override suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>> =
+        Result.success(emptyList())
 
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
 

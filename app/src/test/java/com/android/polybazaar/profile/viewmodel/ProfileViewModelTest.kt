@@ -2,8 +2,10 @@
 package com.android.polybazaar.profile.viewmodel
 
 import android.net.Uri
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.profile.model.ProfileRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -18,10 +20,14 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.shadows.ShadowLog
 
+@RunWith(AndroidJUnit4::class) // Robolectric, for ShadowLog.
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProfileViewModelTest {
 
@@ -40,6 +46,7 @@ class ProfileViewModelTest {
 
   @Before
   fun setUp() {
+    ShadowLog.reset()
     Dispatchers.setMain(testDispatcher)
     repository = FakeProfileRepository()
     viewModel = ProfileViewModel(repository)
@@ -123,6 +130,7 @@ class ProfileViewModelTest {
     testDispatcher.scheduler.runCurrent()
 
     assertNull(viewModel.uiState.value.profile)
+    assertNull(viewModel.uiState.value.photo)
     assertTrue(viewModel.uiState.value.isLoading)
     assertNull(viewModel.uiState.value.errorMessage)
   }
@@ -164,7 +172,111 @@ class ProfileViewModelTest {
     assertEquals(profile, viewModel.uiState.value.profile)
   }
 
+  @Test
+  fun observeProfile_loadsThePhotoOnceTheProfileHasOne() = runTest {
+    // Also the first photo a user saves. Without a photo, Storage is not touched.
+    observe(profile.copy(photoPath = null))
+    assertTrue(repository.loadedPhotoPaths.isEmpty())
+
+    repository.profiles.value = profile
+    testDispatcher.scheduler.runCurrent()
+
+    assertEquals(listOf(profile.photoPath), repository.loadedPhotoPaths)
+    assertSame(repository.photo, viewModel.uiState.value.photo)
+  }
+
+  @Test
+  fun unchangedPhoto_isNotDownloadedAgain() = runTest {
+    // Neither by a bio change, nor by coming back from another screen, which observes again.
+    observe()
+
+    repository.profiles.value = profile.copy(bio = "New bio")
+    testDispatcher.scheduler.runCurrent()
+    observe()
+
+    assertEquals(listOf(profile.photoPath), repository.loadedPhotoPaths)
+  }
+
+  @Test
+  fun observeProfile_again_retriesAPhotoThatFailedToLoad() = runTest {
+    repository.photoFailure = IllegalStateException("Offline")
+    observe()
+    repository.photoFailure = null
+
+    observe()
+
+    assertSame(repository.photo, viewModel.uiState.value.photo)
+  }
+
+  @Test
+  fun observeProfile_again_afterTheObservationFailed_observesAgain() = runTest {
+    repository.observationFlow = flow { throw IllegalStateException("Profile unavailable") }
+    observe()
+    repository.observationFlow = repository.profiles
+
+    observe()
+
+    assertEquals(profile, viewModel.uiState.value.profile)
+    assertNull(viewModel.uiState.value.errorMessage)
+  }
+
+  @Test
+  fun reloadPhoto_showsThePhotoThatReplacedTheOldOne() = runTest {
+    // A new photo overwrites the same path, so the document is unchanged and only this picks it up.
+    observe()
+    val replacement = byteArrayOf(9, 9)
+    repository.photo = replacement
+
+    viewModel.reloadPhoto()
+    testDispatcher.scheduler.runCurrent()
+
+    assertSame(replacement, viewModel.uiState.value.photo)
+  }
+
+  @Test
+  fun photoRemovedDuringADownload_clearsThePhotoAndCancelsTheDownload() = runTest {
+    observe()
+    val slowDownload = CompletableDeferred<Unit>()
+    repository.photoGate = slowDownload
+    viewModel.reloadPhoto()
+    testDispatcher.scheduler.runCurrent()
+
+    repository.profiles.value = profile.copy(photoPath = null)
+    testDispatcher.scheduler.runCurrent()
+    slowDownload.complete(Unit)
+    testDispatcher.scheduler.runCurrent()
+
+    assertNull(viewModel.uiState.value.photo)
+    // A cancelled download is not a failure.
+    assertTrue(ShadowLog.getLogsForTag("ProfileViewModel").isEmpty())
+  }
+
+  @Test
+  fun photoFailsToLoad_keepsTheShownPhotoAndLogsInsteadOfReportingAnError() = runTest {
+    observe()
+    val failure = IllegalStateException("Permission denied")
+    repository.photoFailure = failure
+
+    viewModel.reloadPhoto()
+    testDispatcher.scheduler.runCurrent()
+
+    assertSame(repository.photo, viewModel.uiState.value.photo)
+    assertNull(viewModel.uiState.value.errorMessage)
+    assertSame(failure, ShadowLog.getLogsForTag("ProfileViewModel").single().throwable)
+  }
+
+  private fun observe(initial: User = profile) {
+    repository.profiles.value = initial
+    viewModel.observeProfile(profile.uid)
+    testDispatcher.scheduler.runCurrent()
+  }
+
   private class FakeProfileRepository : ProfileRepository {
+    var photo = byteArrayOf(1, 2, 3)
+    var photoFailure: Exception? = null
+    /** While set, downloads wait for it. */
+    var photoGate: CompletableDeferred<Unit>? = null
+    val loadedPhotoPaths = mutableListOf<String>()
     val profiles = MutableStateFlow<User?>(null)
     var observationFlow: Flow<User?> = profiles
     var observationFlowForUid: (String) -> Flow<User?> = { observationFlow }
@@ -178,7 +290,12 @@ class ProfileViewModelTest {
 
     override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri) = ""
 
-    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
+    override suspend fun loadProfilePhoto(photoPath: String): ByteArray {
+      loadedPhotoPaths += photoPath
+      photoFailure?.let { throw it }
+      photoGate?.await()
+      return photo
+    }
 
     override suspend fun removeProfilePhoto(uid: String) = Unit
 

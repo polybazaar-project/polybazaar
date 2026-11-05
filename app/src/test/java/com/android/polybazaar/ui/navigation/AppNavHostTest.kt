@@ -4,6 +4,7 @@
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
@@ -50,10 +51,14 @@ import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
+import com.android.polybazaar.profile.ui.photoPicker
+import com.android.polybazaar.profile.ui.redPhoto
+import com.android.polybazaar.profile.ui.waitForAvatar
 import com.android.polybazaar.settings.ui.SettingsScreenTags
 import com.android.polybazaar.toolbox.ui.ToolboxCardTags
 import java.io.IOException
@@ -69,6 +74,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class AppNavHostTest {
@@ -94,14 +100,18 @@ class AppNavHostTest {
     val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
       navController = rememberNavController()
-      AppNavHost(
-          authViewModel = viewModel,
-          authRepository = repository,
-          profileRepository = profileRepository,
-          listingRepository = listingRepository,
-          photoStorage = photoStorage,
-          navController = navController,
-      )
+      CompositionLocalProvider(
+          LocalActivityResultRegistryOwner provides photoPicker(Uri.parse("content://picked/photo"))
+      ) {
+        AppNavHost(
+            authViewModel = viewModel,
+            authRepository = repository,
+            profileRepository = profileRepository,
+            listingRepository = listingRepository,
+            photoStorage = photoStorage,
+            navController = navController,
+        )
+      }
     }
     return viewModel
   }
@@ -160,7 +170,9 @@ class AppNavHostTest {
         .performTextInput("Works well")
     composeTestRule.onNodeWithTag(CreateListingScreenTags.PRICE_FIELD).performTextInput("5")
     composeTestRule.onNodeWithTag(CreateListingScreenTags.CATEGORY_FIELD).performClick()
-    composeTestRule.onNodeWithTag(CreateListingScreenTags.categoryOption("Tools")).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.categoryOption(ListingCategory.ITEM_TOOLS))
+        .performClick()
     composeTestRule
         .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
         .performScrollTo()
@@ -217,7 +229,9 @@ class AppNavHostTest {
   @Test
   fun browse_showsTheListingsFromTheListingRepository() {
     listingRepository.allListings =
-        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill")
+        )
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
@@ -228,7 +242,9 @@ class AppNavHostTest {
   @Test
   fun profile_showsTheUsersListingsInTheToolbox() {
     listingRepository.myListings =
-        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill")
+        )
     setContent(FakeAuthRepository(currentUser = user))
     openProfile()
 
@@ -237,7 +253,9 @@ class AppNavHostTest {
   }
 
   private fun manyListings() =
-      List(30) { ItemListing("Tools", 8.0, "Listing $it", "", listingId = "listing-$it") }
+      List(30) {
+        ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Listing $it", "", listingId = "listing-$it")
+      }
 
   @Config(qualifiers = "h900dp")
   @Test
@@ -281,7 +299,15 @@ class AppNavHostTest {
 
     openCreateListing()
     listingRepository.myListings =
-        listOf(ItemListing("Tools", 5.0, "Bosch drill set", "Works well", listingId = "drill"))
+        listOf(
+            ItemListing(
+                ListingCategory.ITEM_TOOLS,
+                5.0,
+                "Bosch drill set",
+                "Works well",
+                listingId = "drill",
+            )
+        )
     publishListing("Bosch drill set")
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
 
@@ -371,6 +397,39 @@ class AppNavHostTest {
 
     composeTestRule.onNodeWithTag(EditProfileScreenTags.CANCEL_BUTTON).performClick()
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Decoding and drawing the photo need real bitmaps.
+  fun savedPhoto_showsOnEditProfile_andSavingOnlyTheBioDoesNotDownloadItAgain() {
+    profileRepository.photo = redPhoto()
+    profileRepository.profile.value = user.copy(photoPath = "photo-path")
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.waitForAvatar(isRed = true)
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.waitForAvatar(isRed = true)
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.BIO_FIELD).performTextInput("Hello")
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Hello")
+    assertEquals(1, profileRepository.photoLoads)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun savingANewPhoto_downloadsAndShowsIt() {
+    profileRepository.profile.value = user.copy(photoPath = "photo-path")
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.CHANGE_PHOTO_BUTTON).performClick()
+    profileRepository.photo = redPhoto()
+
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON).performClick()
+
+    composeTestRule.waitForAvatar(isRed = true)
   }
 
   @Test
@@ -956,7 +1015,9 @@ class AppNavHostTest {
   @Test
   fun browseListing_isReachableOnAShortWindow() {
     listingRepository.allListings =
-        listOf(ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"))
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill")
+        )
     setContent(FakeAuthRepository(currentUser = user))
 
     composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("Bosch drill set"))
@@ -1004,7 +1065,11 @@ class AppNavHostTest {
   }
 
   private class FakeProfileRepository(initial: User) : ProfileRepository {
-    private val profile = MutableStateFlow<User?>(initial)
+    val profile = MutableStateFlow<User?>(initial)
+    var photo = ByteArray(0)
+    var photoLoads = 0
+      private set
+
     var savedBio: String? = null
       private set
 
@@ -1012,7 +1077,10 @@ class AppNavHostTest {
 
     override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-path"
 
-    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
+    override suspend fun loadProfilePhoto(photoPath: String): ByteArray {
+      photoLoads++
+      return photo
+    }
 
     override suspend fun removeProfilePhoto(uid: String) = Unit
 

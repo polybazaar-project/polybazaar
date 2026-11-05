@@ -5,6 +5,7 @@ package com.android.polybazaar.browse.viewmodel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ServiceListing
 import java.net.UnknownHostException
 import java.util.Locale
@@ -46,8 +47,20 @@ class BrowseViewModelTest {
   private val repository =
       FakeListingRepository(
           listOf(
-              ItemListing("Tools", 8.0, "Bosch drill set", "", listingId = "drill"),
-              ItemListing("Electronics", 12.0, "Mini projector", "", listingId = "projector"),
+              ItemListing(
+                  ListingCategory.ITEM_TOOLS,
+                  8.0,
+                  "Bosch drill set",
+                  "",
+                  listingId = "drill",
+              ),
+              ItemListing(
+                  ListingCategory.ITEM_ELECTRONICS,
+                  12.0,
+                  "Mini projector",
+                  "",
+                  listingId = "projector",
+              ),
           )
       )
 
@@ -112,8 +125,23 @@ class BrowseViewModelTest {
 
   @Test
   fun toBrowseListing_mapsItemsAndServicesTheSameWay() {
-    val item = ItemListing("Tools", 8.0, "Bosch drill set", "With bits", 120.0, listingId = "drill")
-    val service = ServiceListing("Tutoring", 25.0, "Math tutoring", "One hour", listingId = "math")
+    val item =
+        ItemListing(
+            ListingCategory.ITEM_TOOLS,
+            8.0,
+            "Bosch drill set",
+            "With bits",
+            120.0,
+            listingId = "drill",
+        )
+    val service =
+        ServiceListing(
+            ListingCategory.SERVICE_TUTORING,
+            25.0,
+            "Math tutoring",
+            "One hour",
+            listingId = "math",
+        )
 
     assertEquals(
         BrowseListing(id = "drill", title = "Bosch drill set", category = "Tools", price = "CHF 8"),
@@ -132,7 +160,10 @@ class BrowseViewModelTest {
 
   @Test
   fun toBrowseListing_withoutListingId_returnsNull() {
-    assertNull(ServiceListing("Tutoring", 25.0, "Math tutoring", "One hour").toBrowseListing())
+    assertNull(
+        ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, "Math tutoring", "One hour")
+            .toBrowseListing()
+    )
   }
 
   @Test
@@ -171,7 +202,8 @@ class BrowseViewModelTest {
     assertNull(priced(8.0).toBrowseListing()?.distance)
   }
 
-  private fun priced(price: Double) = ItemListing("Tools", price, "Drill", "", listingId = "drill")
+  private fun priced(price: Double) =
+      ItemListing(ListingCategory.ITEM_TOOLS, price, "Drill", "", listingId = "drill")
 
   @Test
   fun init_loadsTheRepositoryListings() {
@@ -187,7 +219,7 @@ class BrowseViewModelTest {
 
   @Test
   fun loadListings_dropsListingsWithoutAnId() {
-    repository.allListings += ItemListing("Books", 3.0, "Unsaved book", "")
+    repository.allListings += ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Unsaved book", "")
 
     val viewModel = BrowseViewModel(repository)
 
@@ -199,10 +231,10 @@ class BrowseViewModelTest {
   fun loadListings_listsEachCategoryOnceInAlphabeticalOrder() {
     repository.allListings =
         listOf(
-            ItemListing("Tools", 8.0, "Drill", "", listingId = "drill"),
-            ServiceListing("Tutoring", 25.0, "Math", "", listingId = "math"),
-            ItemListing("Books", 3.0, "Novel", "", listingId = "novel"),
-            ItemListing("Tools", 5.0, "Hammer", "", listingId = "hammer"),
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Drill", "", listingId = "drill"),
+            ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, "Math", "", listingId = "math"),
+            ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Novel", "", listingId = "novel"),
+            ItemListing(ListingCategory.ITEM_TOOLS, 5.0, "Hammer", "", listingId = "hammer"),
         )
 
     val viewModel = BrowseViewModel(repository)
@@ -287,7 +319,8 @@ class BrowseViewModelTest {
   fun loadListings_clearsASelectedCategoryThatNoLongerExists() {
     val viewModel = BrowseViewModel(repository)
     viewModel.selectCategory("Electronics")
-    repository.allListings = repository.allListings.filter { it.category == "Tools" }
+    repository.allListings =
+        repository.allListings.filter { it.category == ListingCategory.ITEM_TOOLS }
 
     viewModel.loadListings()
 

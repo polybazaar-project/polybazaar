@@ -7,6 +7,7 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -38,7 +39,7 @@ class ListingDetailViewModelTest {
 
   private val listing =
       ItemListing(
-          "Tools",
+          ListingCategory.ITEM_TOOLS,
           8.0,
           "Bosch drill set",
           "With bits",

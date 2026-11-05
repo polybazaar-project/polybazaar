@@ -61,6 +61,7 @@ private val MinPageHeight = 640.dp
  * Profile screen of the signed-in user.
  *
  * @param profile the profile to show, or null while it loads or if it could not be loaded.
+ * @param photo the encoded bytes of the saved profile photo, or null to show the default photo.
  * @param isLoading whether the profile is loading.
  * @param errorMessage the error to show, if any.
  * @param onEditProfile called when the user taps "Edit profile".
@@ -74,6 +75,7 @@ fun ProfileContent(
     errorMessage: String?,
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
+    photo: ByteArray? = null,
     toolbox: @Composable () -> Unit = {},
 ) {
   BoxWithConstraints(
@@ -94,7 +96,12 @@ fun ProfileContent(
     ) {
       Header(onOpenSettings = onOpenSettings)
       Spacer(modifier = Modifier.height(10.dp))
-      IdentityCard(profile = profile, isLoading = isLoading, errorMessage = errorMessage)
+      IdentityCard(
+          profile = profile,
+          photo = photo,
+          isLoading = isLoading,
+          errorMessage = errorMessage,
+      )
       Spacer(modifier = Modifier.height(24.dp))
       // Takes the height the other cards leave, and its content scrolls inside that height.
       Box(modifier = Modifier.fillMaxWidth().weight(1f)) { toolbox() }
@@ -123,7 +130,12 @@ private fun Header(onOpenSettings: () -> Unit) {
 
 /** The avatar, name and bio, or a loading indicator or an error while there is no profile. */
 @Composable
-private fun IdentityCard(profile: User?, isLoading: Boolean, errorMessage: String?) {
+private fun IdentityCard(
+    profile: User?,
+    photo: ByteArray?,
+    isLoading: Boolean,
+    errorMessage: String?,
+) {
   val shape = RoundedCornerShape(20.dp)
   Column(
       modifier =
@@ -142,7 +154,7 @@ private fun IdentityCard(profile: User?, isLoading: Boolean, errorMessage: Strin
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-      ProfileAvatar()
+      ProfileAvatar(savedPhoto = photo)
       if (isLoading && profile == null) {
         CircularProgressIndicator(
             color = AuthColors.Accent,

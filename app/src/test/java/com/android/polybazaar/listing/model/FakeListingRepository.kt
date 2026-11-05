@@ -53,6 +53,9 @@ class FakeListingRepository(
     return answer(myListings)
   }
 
+  override suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>> =
+      answer(allListings.filter { it.ownerUid == ownerUid })
+
   override suspend fun getAllListings(): Result<List<Listing>> {
     getAllListingsCalls++
     return answer(allListings)

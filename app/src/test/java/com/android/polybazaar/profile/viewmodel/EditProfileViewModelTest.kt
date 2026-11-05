@@ -208,6 +208,7 @@ class EditProfileViewModelTest {
     viewModel.saveProfile()
     testDispatcher.scheduler.advanceUntilIdle()
 
+    assertFalse(viewModel.uiState.value.isNewPhotoSaved)
     assertEquals(UpdateCall(uid, photoPath = null, bio = "New bio"), repository.updateCall)
     assertEquals(profile.copy(bio = "New bio"), viewModel.uiState.value.profile)
     assertEquals("New bio", viewModel.uiState.value.bio)
@@ -230,6 +231,7 @@ class EditProfileViewModelTest {
     viewModel.saveProfile()
     testDispatcher.scheduler.advanceUntilIdle()
 
+    assertTrue(viewModel.uiState.value.isNewPhotoSaved)
     assertSame(photo, repository.uploadCall?.second)
     assertEquals(uid, repository.uploadCall?.first)
     assertEquals(
