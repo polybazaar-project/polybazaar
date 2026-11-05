@@ -57,7 +57,15 @@ internal fun Listing.toBrowseListing(): BrowseListing? {
   )
 }
 
-class BrowseViewModel(private val listingRepository: ListingRepository) : ViewModel() {
+/**
+ * Holds the Browse screen: the listings other users offer, with the search text and category
+ * filter. [currentUid] is the signed-in user, whose own listings are left out because they cannot
+ * rent from themselves.
+ */
+class BrowseViewModel(
+    private val listingRepository: ListingRepository,
+    private val currentUid: String,
+) : ViewModel() {
 
   private val _uiState = MutableStateFlow(BrowseUiState())
   val uiState: StateFlow<BrowseUiState> = _uiState.asStateFlow()
@@ -67,8 +75,9 @@ class BrowseViewModel(private val listingRepository: ListingRepository) : ViewMo
   }
 
   /**
-   * Loads every listing from the repository. On failure the listings already shown are kept, so a
-   * reload while offline does not empty the screen.
+   * Loads every listing from the repository except the signed-in user's own, which they manage from
+   * the Toolbox. On failure the listings already shown are kept, so a reload while offline does not
+   * empty the screen.
    */
   fun loadListings() {
     _uiState.update { it.copy(isLoading = true, error = null) }
@@ -77,7 +86,8 @@ class BrowseViewModel(private val listingRepository: ListingRepository) : ViewMo
         listingRepository
             .getAllListings()
             .onSuccess { listings ->
-              val cards = listings.mapNotNull { it.toBrowseListing() }
+              val cards =
+                  listings.filter { it.ownerUid != currentUid }.mapNotNull { it.toBrowseListing() }
               val categories = cards.map { it.category }.distinct().sorted()
               _uiState.update {
                 it.copy(
