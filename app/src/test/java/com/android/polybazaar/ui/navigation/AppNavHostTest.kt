@@ -92,7 +92,8 @@ class AppNavHostTest {
 
   private val profileRepository = FakeProfileRepository(user)
 
-  private val listingRepository = FakeListingRepository()
+  // Listings published in these tests belong to the signed-in user, as with the real repository.
+  private val listingRepository = FakeListingRepository(ownerUid = user.uid)
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -927,15 +928,18 @@ class AppNavHostTest {
   }
 
   @Test
-  fun publishing_opensBrowseShowingTheListingAndLeavesAnEmptyForm() {
+  fun publishing_opensBrowseWithoutTheOwnListingAndLeavesAnEmptyForm() {
     setContent(FakeAuthRepository(currentUser = user))
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     openCreateListing()
 
     publishListing("Bosch drill set")
 
-    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsSelected()
+    // Saved as the user's own, so Browse hides it on purpose.
+    assertEquals(user.uid, listingRepository.allListings.single().ownerUid)
+    composeTestRule.onNodeWithText("Bosch drill set").assertDoesNotExist()
     assertNull(navController.previousBackStackEntry)
     assertEquals(2, listingRepository.getAllListingsCalls)
 
@@ -975,7 +979,10 @@ class AppNavHostTest {
     composeTestRule.runOnIdle { upload.complete(Unit) }
     composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
 
-    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    // Saved as the user's own, so Browse hides it on purpose.
+    assertEquals(user.uid, listingRepository.allListings.single().ownerUid)
+    composeTestRule.onNodeWithText("Bosch drill set").assertDoesNotExist()
     composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsSelected()
     assertNull(navController.previousBackStackEntry)
   }
