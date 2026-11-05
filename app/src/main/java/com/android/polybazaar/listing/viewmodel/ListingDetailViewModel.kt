@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -132,14 +133,11 @@ class ListingDetailViewModel(
     if (lenderObservation?.isActive == true) return
     _uiState.update { it.copy(lenderError = null) }
     lenderObservation = viewModelScope.launch {
-      try {
-        profileRepository.observeProfile(ownerUid).collect { lender ->
-          _uiState.update { it.copy(lender = lender) }
-        }
-      } catch (exception: Exception) {
-        if (exception is CancellationException) throw exception
-        _uiState.update { it.copy(lenderError = exception.toAppError()) }
-      }
+      profileRepository
+          .observeProfile(ownerUid)
+          // catch never sees a cancellation, so closing the screen is not shown as an error.
+          .catch { exception -> _uiState.update { it.copy(lenderError = exception.toAppError()) } }
+          .collect { lender -> _uiState.update { it.copy(lender = lender) } }
     }
   }
 }
