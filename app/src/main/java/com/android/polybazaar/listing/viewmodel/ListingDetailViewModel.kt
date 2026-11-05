@@ -119,6 +119,9 @@ class ListingDetailViewModel(
         authRepository.getCurrentUser()
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
+        // Only for the log: toAppError() logs exceptions it does not recognise, such as a bug in
+        // getCurrentUser(), and stays quiet for expected ones such as a network failure.
+        exception.toAppError()
         null
       }
 
