@@ -19,17 +19,20 @@ interface AuthRepository {
    * Asks Firebase to email a password reset link to [email].
    *
    * Succeeds for unknown addresses too, so the screen always shows the same neutral confirmation
-   * and does not reveal which emails have an account. Fails with a [PasswordResetException].
+   * and does not reveal which emails have an account. Fails with an exception that
+   * [com.android.polybazaar.error.model.toAppError] maps to the message to show:
+   * [com.android.polybazaar.error.model.AppError.INVALID_EMAIL] if [email] is blank or badly
+   * formatted.
    */
   suspend fun sendPasswordResetEmail(email: String): Result<Unit>
 
   /**
    * Sets [newPassword] for the account that requested the reset link whose one-time code is [code].
    *
-   * Fails with a [ConfirmPasswordResetException]:
-   * [ConfirmPasswordResetException.Reason.INVALID_LINK] if [code] is blank, malformed, expired or
-   * already used, [ConfirmPasswordResetException.Reason.WEAK_PASSWORD] if Firebase rejects
-   * [newPassword].
+   * Fails with an exception that [com.android.polybazaar.error.model.toAppError] maps to the
+   * message to show: [com.android.polybazaar.error.model.AppError.INVALID_LINK] if [code] is blank,
+   * malformed, expired or already used, or if its account no longer exists or is disabled,
+   * [com.android.polybazaar.error.model.AppError.WEAK_PASSWORD] if Firebase rejects [newPassword].
    */
   suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit>
 }
