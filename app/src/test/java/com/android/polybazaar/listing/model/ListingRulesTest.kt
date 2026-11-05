@@ -151,6 +151,17 @@ class ListingRulesTest {
     assertFalse(canContactLender(viewer(verified = true), item()))
   }
 
+  // A renter can still reach a paused listing, for example from Browse results loaded before the
+  // owner paused it, but cannot contact its lender.
+  @Test
+  fun canContactLender_refusesPausedListings() {
+    val pausedItem = lendersListing.copy(isPaused = true)
+    val pausedService = service().copy(ownerUid = "lender", isPaused = true)
+
+    assertFalse(canContactLender(viewer(verified = true), pausedItem))
+    assertFalse(canContactLender(viewer(verified = true), pausedService))
+  }
+
   @Test
   fun isValidAmount_rejectsNonFiniteValues() {
     assertFalse(ListingRules.isValidAmount(Double.NaN))
