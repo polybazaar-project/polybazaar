@@ -4,10 +4,10 @@ package com.android.polybazaar.profile.ui
 
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
-import androidx.activity.result.ActivityResultRegistry
-import androidx.activity.result.ActivityResultRegistryOwner
-import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -21,7 +21,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
-import androidx.core.app.ActivityOptionsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.User
 import org.junit.Assert.assertEquals
@@ -29,6 +28,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class EditProfileScreenTest {
@@ -83,6 +83,30 @@ class EditProfileScreenTest {
     node(EditProfileScreenTags.CANCEL_BUTTON).performScrollTo().assertIsDisplayed()
     node(EditProfileScreenTags.SAVE_BUTTON).performScrollTo().assertIsEnabled()
     composeTestRule.onNodeWithText("Save changes").assertExists()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Decoding and drawing the photo need real bitmaps.
+  fun savedPhoto_isDrawnUntilTheUserRemovesIt() {
+    val photo = redPhoto()
+    var isPhotoRemoved by mutableStateOf(false)
+    composeTestRule.setContent {
+      EditProfileContent(
+          profile = profile,
+          bio = "",
+          selectedPhotoUri = null,
+          isPhotoRemoved = isPhotoRemoved,
+          isSaving = false,
+          errorMessage = null,
+          actions = EditProfileActions(),
+          photo = photo,
+      )
+    }
+    composeTestRule.waitForAvatar(isRed = true)
+
+    isPhotoRemoved = true
+
+    composeTestRule.waitForAvatar(isRed = false)
   }
 
   @Test
@@ -197,21 +221,7 @@ class EditProfileScreenTest {
     val picked = Uri.parse("content://media/picked")
     val selected = mutableListOf<Uri>()
     var launched = false
-    val registryOwner =
-        object : ActivityResultRegistryOwner {
-          override val activityResultRegistry =
-              object : ActivityResultRegistry() {
-                override fun <I, O> onLaunch(
-                    requestCode: Int,
-                    contract: ActivityResultContract<I, O>,
-                    input: I,
-                    options: ActivityOptionsCompat?,
-                ) {
-                  launched = true
-                  dispatchResult(requestCode, picked)
-                }
-              }
-        }
+    val registryOwner = photoPicker(picked) { launched = true }
     composeTestRule.setContent {
       CompositionLocalProvider(LocalActivityResultRegistryOwner provides registryOwner) {
         EditProfileContent(
