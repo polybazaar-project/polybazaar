@@ -20,6 +20,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +46,7 @@ import com.android.polybazaar.browse.ui.ListingCard
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.profile.viewmodel.LenderProfileUiState
+import com.android.polybazaar.profile.viewmodel.LenderProfileViewModel
 
 object LenderProfileScreenTags {
   const val SCREEN = "lender_profile_screen"
@@ -88,11 +92,30 @@ private val ListingSpacing = 14.dp
 private val PageMargin = 18.dp
 
 /**
+ * Lender profile screen: loads the lender with [lenderUid] into [viewModel] and shows it.
+ *
+ * @param onBack called when the user taps the back button.
+ * @param onOpenListing called with a listing's id when the user taps its card.
+ */
+@Composable
+fun LenderProfileScreen(
+    viewModel: LenderProfileViewModel,
+    lenderUid: String,
+    onBack: () -> Unit,
+    onOpenListing: (String) -> Unit,
+) {
+  // Keyed on the uid, so the screen loads again only when it is given another lender.
+  LaunchedEffect(lenderUid) { viewModel.loadLender(lenderUid) }
+  val uiState by viewModel.uiState.collectAsState()
+  LenderProfileContent(uiState = uiState, onBack = onBack, onOpenListing = onOpenListing)
+}
+
+/**
  * Profile of a lender as another user sees it: their photo, name, bio and listings.
  *
  * The email is deliberately not shown (open question in #231).
  *
- * @param uiState what [com.android.polybazaar.profile.viewmodel.LenderProfileViewModel] loaded.
+ * @param uiState what [LenderProfileViewModel] loaded.
  * @param onBack called when the user taps the back button.
  * @param onOpenListing called with a listing's id when the user taps its card.
  */
