@@ -17,6 +17,15 @@
     <string name="browse_price_per_day">/ day</string>
     <string name="browse_retry">Retry</string>
 
+    <!-- Lender profile screen -->
+    <string name="lender_profile_eyebrow">LENDER</string>
+    <string name="lender_profile_title">Lender profile</string>
+    <string name="lender_profile_verified">Verified</string>
+    <string name="lender_profile_listings_title">Their listings</string>
+    <string name="lender_profile_no_listings">This lender has no listings yet.</string>
+    <string name="lender_profile_not_found">This profile no longer exists.</string>
+    <string name="lender_profile_open_listing">Open listing</string>
+
     <!-- Toolbox -->
     <string name="toolbox_title">My toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
