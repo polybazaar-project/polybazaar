@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 import {
@@ -10,6 +11,7 @@ import {
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -73,6 +75,7 @@ function itemListing(overrides = {}) {
     title: "Drill",
     description: "Cordless drill",
     imagePaths: [],
+    paused: false,
     refundValue: 100,
     ...overrides,
   };
@@ -535,5 +538,47 @@ describe("listings", () => {
   test("another user cannot delete a listing", async () => {
     await seed("listings/l1", itemListing());
     await assertFails(deleteDoc(doc(verified(BOB), "listings/l1")));
+  });
+
+  // Browse queries paused == false, so a listing without the field would never show.
+  test("a listing must say whether it is paused", async () => {
+    const db = verified(ALICE);
+    const { paused, ...withoutPaused } = itemListing();
+    await assertFails(setDoc(doc(db, "listings/l1"), withoutPaused));
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ paused: "false" })));
+    await assertSucceeds(setDoc(doc(db, "listings/l3"), itemListing({ paused: true })));
+  });
+
+  test("the owner can pause and resume their listing", async () => {
+    await seed("listings/l1", itemListing());
+    const listing = doc(verified(ALICE), "listings/l1");
+    await assertSucceeds(updateDoc(listing, { paused: true }));
+    await assertSucceeds(updateDoc(listing, { paused: false }));
+    await assertFails(updateDoc(listing, { paused: null }));
+  });
+
+  test("an edit cannot remove the pause state", async () => {
+    await seed("listings/l1", itemListing());
+    const { paused, ...withoutPaused } = itemListing({ title: "Hammer drill" });
+    await assertFails(setDoc(doc(verified(ALICE), "listings/l1"), withoutPaused));
+  });
+
+  // The app edits with update() and leaves "paused" out, so a pause made meanwhile on another
+  // device stays. A rental limit the owner removed is deleted with deleteField().
+  test("an edit without the pause state keeps it", async () => {
+    await seed("listings/l1", itemListing({ paused: true, maxRentalDays: 7 }));
+    const listing = doc(verified(ALICE), "listings/l1");
+    await assertSucceeds(
+      updateDoc(listing, { title: "Hammer drill", maxRentalDays: deleteField() }),
+    );
+    const stored = (await getDoc(listing)).data();
+    assert.equal(stored.paused, true);
+    assert.equal("maxRentalDays" in stored, false);
+  });
+
+  test("only a verified owner can pause a listing", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(updateDoc(doc(verified(BOB), "listings/l1"), { paused: true }));
+    await assertFails(updateDoc(doc(unverified(ALICE), "listings/l1"), { paused: true }));
   });
 });

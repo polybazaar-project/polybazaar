@@ -18,14 +18,15 @@ interface ListingRepository {
   suspend fun getMyListings(): Result<List<Listing>>
 
   /**
-   * Returns the listings created by [ownerUid], for a lender's profile.
+   * Returns the listings created by [ownerUid], for a lender's profile. Paused listings are
+   * included, so the caller decides whether to show them.
    *
    * Fails when Firestore cannot answer; the caller maps the failure with `toAppError()`.
    */
   suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>>
 
   /**
-   * Returns every listing on the marketplace, for the Browse screen.
+   * Returns every listing on the marketplace that is not paused, for the Browse screen.
    *
    * Fails when Firestore cannot answer or the security rules deny the read; the caller maps the
    * failure with `toAppError()`.
@@ -57,6 +58,15 @@ interface ListingRepository {
    * failure with `toAppError()`.
    */
   suspend fun deleteListing(listingId: String): Result<Unit>
+
+  /**
+   * Pauses the signed-in owner's listing, hiding it from Browse and from the lender's profile, or
+   * resumes it when [paused] is false. Its other fields are left as they are.
+   *
+   * Fails when nobody is signed in, the listing does not exist, Firestore cannot answer or the
+   * security rules refuse the change; the caller maps the failure with `toAppError()`.
+   */
+  suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit>
 
   /** Downloads one of a listing's images by its Storage path, as the signed-in user. */
   suspend fun loadListingImage(imagePath: String): ByteArray

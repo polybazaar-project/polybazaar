@@ -40,6 +40,9 @@ enum class ListingCategory(
  * @property ownerUid uid of the user who created the listing. Null until the listing is saved; the
  *   repository sets it from the stored `ownerUid`. The security rules only let a user with a
  *   verified EPFL email create a listing, so every owner was verified when creating it.
+ * @property isPaused whether the owner paused the listing. A paused listing is hidden from Browse
+ *   and from the lender's profile, but stays in the owner's Toolbox. Only
+ *   [ListingRepository.setPaused] changes it: creating and editing a listing ignore it.
  */
 sealed class Listing(
     open val category: ListingCategory,
@@ -50,14 +53,21 @@ sealed class Listing(
     open val imagePaths: List<String>,
     open val listingId: String?,
     open val ownerUid: String?,
+    open val isPaused: Boolean,
 ) {
   abstract val type: ListingType
 
   /**
-   * This listing as saved under [listingId] by [ownerUid], with its photos at [imagePaths]. The
-   * photos on the device are uploaded by then, so [images] is empty.
+   * This listing as saved under [listingId] by [ownerUid], with its photos at [imagePaths] and the
+   * stored pause state [isPaused]. The photos on the device are uploaded by then, so [images] is
+   * empty.
    */
-  abstract fun saved(listingId: String, imagePaths: List<String>, ownerUid: String): Listing
+  abstract fun saved(
+      listingId: String,
+      imagePaths: List<String>,
+      ownerUid: String,
+      isPaused: Boolean,
+  ): Listing
 }
 
 data class ServiceListing(
@@ -69,19 +79,37 @@ data class ServiceListing(
     override val imagePaths: List<String> = emptyList(),
     override val listingId: String? = null,
     override val ownerUid: String? = null,
-) : Listing(category, price, title, description, images, imagePaths, listingId, ownerUid) {
+    override val isPaused: Boolean = false,
+) :
+    Listing(
+        category,
+        price,
+        title,
+        description,
+        images,
+        imagePaths,
+        listingId,
+        ownerUid,
+        isPaused,
+    ) {
   override val type = ListingType.SERVICE
 
   init {
     require(category.type == type) { "A service listing requires a service category" }
   }
 
-  override fun saved(listingId: String, imagePaths: List<String>, ownerUid: String) =
+  override fun saved(
+      listingId: String,
+      imagePaths: List<String>,
+      ownerUid: String,
+      isPaused: Boolean,
+  ) =
       copy(
           listingId = listingId,
           images = emptyList(),
           imagePaths = imagePaths,
           ownerUid = ownerUid,
+          isPaused = isPaused,
       )
 }
 
@@ -101,18 +129,36 @@ data class ItemListing(
     override val imagePaths: List<String> = emptyList(),
     override val listingId: String? = null,
     override val ownerUid: String? = null,
-) : Listing(category, price, title, description, images, imagePaths, listingId, ownerUid) {
+    override val isPaused: Boolean = false,
+) :
+    Listing(
+        category,
+        price,
+        title,
+        description,
+        images,
+        imagePaths,
+        listingId,
+        ownerUid,
+        isPaused,
+    ) {
   override val type = ListingType.ITEM
 
   init {
     require(category.type == type) { "An item listing requires an item category" }
   }
 
-  override fun saved(listingId: String, imagePaths: List<String>, ownerUid: String) =
+  override fun saved(
+      listingId: String,
+      imagePaths: List<String>,
+      ownerUid: String,
+      isPaused: Boolean,
+  ) =
       copy(
           listingId = listingId,
           images = emptyList(),
           imagePaths = imagePaths,
           ownerUid = ownerUid,
+          isPaused = isPaused,
       )
 }
