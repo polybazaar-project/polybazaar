@@ -39,6 +39,8 @@ class BrowseScreenTest {
 
   @get:Rule val composeTestRule = createComposeRule()
 
+  private val currentUid = "uid-me"
+
   private val sampleListings =
       listOf(
           ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill set", "", listingId = "drill"),
@@ -55,7 +57,7 @@ class BrowseScreenTest {
 
   @Test
   fun search_filtersViewModelListings() {
-    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
@@ -67,7 +69,7 @@ class BrowseScreenTest {
 
   @Test
   fun categoryFilter_showsOnlyListingsInCategory() {
-    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     clickCategory("Tools")
@@ -79,7 +81,7 @@ class BrowseScreenTest {
 
   @Test
   fun categoryToggle_clearsCategoryFilter() {
-    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     clickCategory("Tools")
@@ -92,7 +94,7 @@ class BrowseScreenTest {
 
   @Test
   fun searchAndCategoryTogether_showsIntersection() {
-    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     clickCategory("Tools")
@@ -163,7 +165,7 @@ class BrowseScreenTest {
   @Test
   fun emptyListings_displaysPricingFormat() {
     val listing = ItemListing(ListingCategory.ITEM_OTHER, 10.0, "Test Item", "", listingId = "id1")
-    val viewModel = BrowseViewModel(FakeListingRepository(listOf(listing)))
+    val viewModel = BrowseViewModel(FakeListingRepository(listOf(listing)), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText("Test Item").assertIsDisplayed()
@@ -177,7 +179,7 @@ class BrowseScreenTest {
 
   @Test
   fun multipleListingsDisplay_withCorrectMetadata() {
-    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
@@ -187,7 +189,7 @@ class BrowseScreenTest {
 
   @Test
   fun noResultsFound_stillShowsUI() {
-    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings))
+    val viewModel = BrowseViewModel(FakeListingRepository(sampleListings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).performTextInput("nonexistent")
@@ -207,7 +209,7 @@ class BrowseScreenTest {
   fun firstLoad_showsTheLoadingIndicatorUntilListingsArrive() {
     val gate = CompletableDeferred<Unit>()
     val repository = FakeListingRepository(sampleListings).apply { this.gate = gate }
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.LOADING_INDICATOR).assertIsDisplayed()
@@ -262,7 +264,7 @@ class BrowseScreenTest {
   fun retry_reloadsTheListingsAndHidesTheError() {
     val repository =
         FakeListingRepository(sampleListings).apply { failure = UnknownHostException("offline") }
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
     composeTestRule.onNodeWithTag(BrowseScreenTags.ERROR).assertIsDisplayed()
 
@@ -321,7 +323,7 @@ class BrowseScreenTest {
         List(12) {
           ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Listing $it", "", listingId = "listing-$it")
         }
-    val viewModel = BrowseViewModel(FakeListingRepository(listings))
+    val viewModel = BrowseViewModel(FakeListingRepository(listings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
     composeTestRule
         .onNodeWithTag(BrowseScreenTags.SCREEN)

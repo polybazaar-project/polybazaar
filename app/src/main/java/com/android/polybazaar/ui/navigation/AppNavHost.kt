@@ -206,9 +206,13 @@ fun AppNavHost(
           )
         }
         composable(Routes.BROWSE) {
+          val uid = uiState.user?.uid ?: return@composable
+          // Keyed by uid: Browse hides the signed-in user's own listings.
           val browseViewModel: BrowseViewModel =
               viewModel(
-                  factory = viewModelFactory { initializer { BrowseViewModel(listingRepository) } }
+                  key = "browse_$uid",
+                  factory =
+                      viewModelFactory { initializer { BrowseViewModel(listingRepository, uid) } },
               )
           BrowseScreen(viewModel = browseViewModel)
         }

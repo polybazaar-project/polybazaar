@@ -27,6 +27,8 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class BrowseViewModelTest {
 
+  private val currentUid = "uid-me"
+
   // The cards the repository's listings below map to.
   private val listings =
       listOf(
@@ -77,7 +79,7 @@ class BrowseViewModelTest {
 
   @Test
   fun updateQuery_filtersListings() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     viewModel.updateQuery("projector")
 
@@ -86,7 +88,7 @@ class BrowseViewModelTest {
 
   @Test
   fun selectCategory_filtersListings() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     viewModel.selectCategory("Tools")
 
@@ -95,7 +97,7 @@ class BrowseViewModelTest {
 
   @Test
   fun clearingCategory_resetsFilter() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     viewModel.selectCategory("Tools")
     viewModel.selectCategory("Tools")
@@ -105,7 +107,7 @@ class BrowseViewModelTest {
 
   @Test
   fun queryAndCategory_filterListingsTogether() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     viewModel.updateQuery("projector")
     viewModel.selectCategory("Tools")
@@ -115,7 +117,7 @@ class BrowseViewModelTest {
 
   @Test
   fun clearingQuery_restoresListings() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     viewModel.updateQuery("projector")
     viewModel.updateQuery("")
@@ -207,7 +209,7 @@ class BrowseViewModelTest {
 
   @Test
   fun init_loadsTheRepositoryListings() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     val state = viewModel.uiState.value
     assertEquals(listings, state.listings)
@@ -221,7 +223,7 @@ class BrowseViewModelTest {
   fun loadListings_dropsListingsWithoutAnId() {
     repository.allListings += ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Unsaved book", "")
 
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     assertEquals(listings, viewModel.uiState.value.listings)
     assertEquals(listOf("Electronics", "Tools"), viewModel.uiState.value.categories)
@@ -237,7 +239,7 @@ class BrowseViewModelTest {
             ItemListing(ListingCategory.ITEM_TOOLS, 5.0, "Hammer", "", listingId = "hammer"),
         )
 
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     assertEquals(listOf("Books", "Tools", "Tutoring"), viewModel.uiState.value.categories)
   }
@@ -247,7 +249,7 @@ class BrowseViewModelTest {
     val gate = CompletableDeferred<Unit>()
     repository.gate = gate
 
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     assertTrue(viewModel.uiState.value.isLoading)
     assertEquals(emptyList<BrowseListing>(), viewModel.uiState.value.listings)
 
@@ -262,7 +264,7 @@ class BrowseViewModelTest {
     repository.gate = gate
     repository.failure = UnknownHostException("offline")
 
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     assertTrue(viewModel.uiState.value.isLoading)
 
     gate.complete(Unit)
@@ -274,7 +276,7 @@ class BrowseViewModelTest {
 
   @Test
   fun loadListings_onFailure_keepsTheListingsAlreadyShown() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     repository.failure = UnknownHostException("offline")
 
     viewModel.loadListings()
@@ -288,7 +290,7 @@ class BrowseViewModelTest {
   @Test
   fun loadListings_retryAfterFailure_clearsTheErrorAndShowsTheListings() {
     repository.failure = UnknownHostException("offline")
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
 
     val gate = CompletableDeferred<Unit>()
@@ -309,7 +311,7 @@ class BrowseViewModelTest {
   fun loadListings_whenCancelled_reportsNoErrorAndStopsLoading() {
     repository.failure = CancellationException("left the screen")
 
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
 
     assertNull(viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isLoading)
@@ -317,7 +319,7 @@ class BrowseViewModelTest {
 
   @Test
   fun loadListings_clearsASelectedCategoryThatNoLongerExists() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     viewModel.selectCategory("Electronics")
     repository.allListings =
         repository.allListings.filter { it.category == ListingCategory.ITEM_TOOLS }
@@ -330,7 +332,7 @@ class BrowseViewModelTest {
 
   @Test
   fun loadListings_keepsASelectedCategoryThatStillExists() {
-    val viewModel = BrowseViewModel(repository)
+    val viewModel = BrowseViewModel(repository, currentUid)
     viewModel.selectCategory("Tools")
     viewModel.updateQuery("drill")
 
