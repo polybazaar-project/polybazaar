@@ -65,14 +65,17 @@ class ListingDetailViewModel(
 
   private var lenderObservation: Job? = null
 
+  /** The viewer once read, kept for the rest of the screen's life (see [showListing]). */
+  private var knownViewer: User? = null
+
   init {
     loadListing()
   }
 
   /**
-   * Loads the listing and the viewer, then starts observing the lender, for example again after a
-   * failure (Retry). Ignored while a load is already running. On failure the listing already shown
-   * is kept, so a reload while offline does not empty the screen.
+   * Loads the listing and, until it is known, the viewer, then starts observing the lender, for
+   * example again after a failure (Retry). Ignored while a load is already running. On failure the
+   * listing already shown is kept, so a reload while offline does not empty the screen.
    */
   fun loadListing() {
     // Two loads at once could finish in any order, and the older answer would overwrite the newer.
@@ -96,8 +99,11 @@ class ListingDetailViewModel(
   }
 
   private suspend fun showListing(listing: Listing) {
-    // Read again on every load, so a Retry after verifying the email enables the actions.
-    val viewer = currentViewer()
+    // Read once and kept: an offline reload would otherwise lose a viewer it already knew and
+    // disable the actions, and every getCurrentUser() also writes the viewer's profile document.
+    // Read again only while unknown, so a reload after a failed read can still enable them.
+    val viewer = knownViewer ?: currentViewer()
+    knownViewer = viewer
     _uiState.update {
       it.copy(listing = listing, canContactLender = contactAllowed(viewer, listing))
     }

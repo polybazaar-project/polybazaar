@@ -192,17 +192,39 @@ class ListingDetailViewModelTest {
   }
 
   @Test
-  fun reload_readsTheViewerAgain() {
-    auth.currentUser = verifiedViewer.copy(isEmailVerified = false)
+  fun reload_doesNotReadAKnownViewerAgain() {
+    val viewModel = loadedViewModel()
+
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, auth.getCurrentUserCalls)
+  }
+
+  @Test
+  fun reload_whenTheViewerCanNoLongerBeRead_keepsTheActionsEnabled() {
+    val viewModel = loadedViewModel()
+
+    // Offline: the listing comes from the cache but the viewer read would fail.
+    auth.currentUser = null
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(viewModel.uiState.value.canContactLender)
+  }
+
+  @Test
+  fun reload_afterAFailedViewerRead_readsTheViewerAgain() {
+    auth.currentUser = null
     val viewModel = loadedViewModel()
     assertFalse(viewModel.uiState.value.canContactLender)
 
-    // The viewer verified their email in the meantime.
     auth.currentUser = verifiedViewer
     viewModel.loadListing()
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertTrue(viewModel.uiState.value.canContactLender)
+    assertEquals(2, auth.getCurrentUserCalls)
   }
 
   @Test
@@ -311,11 +333,17 @@ class ListingDetailViewModelTest {
   }
 
   /**
-   * An [AuthRepository] whose [getCurrentUser] answers [currentUser], or throws when it is null.
+   * An [AuthRepository] whose [getCurrentUser] answers [currentUser], or throws when it is null,
+   * and counts its calls in [getCurrentUserCalls].
    */
   private class FakeAuthRepository(var currentUser: User?) : AuthRepository {
-    override suspend fun getCurrentUser(): User =
-        currentUser ?: throw IllegalStateException("No user is currently logged in")
+    var getCurrentUserCalls = 0
+      private set
+
+    override suspend fun getCurrentUser(): User {
+      getCurrentUserCalls++
+      return currentUser ?: throw IllegalStateException("No user is currently logged in")
+    }
 
     override suspend fun signIn(email: String, password: String): Result<User> = error("Not used")
 
