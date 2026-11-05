@@ -8,15 +8,17 @@ import kotlinx.coroutines.CompletableDeferred
  * A [ListingRepository] for tests.
  *
  * [getAllListings] answers with [allListings] and [getMyListings] with [myListings].
- * [createListing] adds to [allListings], [getListing] looks the id up in both lists and fails with
- * a Firestore `NOT_FOUND` error like the real repository when neither has it, [updateListing]
- * replaces the listing in both, and [deleteListing] removes it from both. Every call except
- * [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these calls
- * waiting until the test completes it, to look at one in progress.
+ * [createListing] adds to [allListings], owned by [ownerUid] like the real repository stores the
+ * creator's uid (leave it null when the owner does not matter), [getListing] looks the id up in
+ * both lists and fails with a Firestore `NOT_FOUND` error like the real repository when neither has
+ * it, [updateListing] replaces the listing in both, and [deleteListing] removes it from both. Every
+ * call except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of
+ * these calls waiting until the test completes it, to look at one in progress.
  */
 class FakeListingRepository(
     var allListings: List<Listing> = emptyList(),
     var myListings: List<Listing> = emptyList(),
+    private val ownerUid: String? = null,
 ) : ListingRepository {
   var failure: Exception? = null
   var gate: CompletableDeferred<Unit>? = null
@@ -38,8 +40,8 @@ class FakeListingRepository(
     val listingId = "created-${allListings.size}"
     val created =
         when (listing) {
-          is ItemListing -> listing.copy(listingId = listingId)
-          is ServiceListing -> listing.copy(listingId = listingId)
+          is ItemListing -> listing.copy(listingId = listingId, ownerUid = ownerUid)
+          is ServiceListing -> listing.copy(listingId = listingId, ownerUid = ownerUid)
         }
     allListings = allListings + created
     return created
