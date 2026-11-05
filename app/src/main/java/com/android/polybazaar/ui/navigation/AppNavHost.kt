@@ -376,8 +376,9 @@ private fun NavHostController.navigateToTab(route: String) {
 }
 
 /**
- * Replaces Browse, so its new ViewModel loads the listings again and no search or filter left from
- * before can hide the listing just published.
+ * Replaces Browse, so its new ViewModel loads the listings again and drops any search or filter
+ * left from before. The listing just published does not appear there, since Browse hides the user's
+ * own listings.
  */
 private fun NavHostController.openNewBrowse() {
   navigate(Routes.BROWSE) { popUpTo(Routes.BROWSE) { inclusive = true } }
