@@ -20,6 +20,7 @@ import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
 import com.google.firebase.firestore.FirebaseFirestoreException
+import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -599,6 +600,71 @@ class ListingFormViewModelTest {
 
     assertFalse(editViewModel.uiState.value.isLoading)
     assertTrue(editViewModel.uiState.value.canSave)
+  }
+
+  // The loaded listing replaces the whole form, so nothing the user does before it arrives sticks.
+  @Test
+  fun edit_formCannotBeChangedWhileLoading() = runTest {
+    repository.storedListing = storedItem
+    repository.pendingLoad = CompletableDeferred()
+    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    testDispatcher.scheduler.runCurrent()
+
+    assertFalse(editViewModel.uiState.value.canEdit)
+    editViewModel.updateTitle("Cordless drill")
+    editViewModel.updatePrice("9")
+    editViewModel.selectCategory(ListingCategory.ITEM_ELECTRONICS)
+    editViewModel.addPhotos(uris(1))
+    assertNull(editViewModel.startTakingPhoto(retakeIndex = null))
+    assertTrue(photoStorage.taken.isEmpty())
+    assertEquals("", editViewModel.uiState.value.title)
+    assertTrue(editViewModel.uiState.value.photos.isEmpty())
+
+    repository.pendingLoad!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+    editViewModel.updateTitle("Cordless drill")
+
+    assertTrue(editViewModel.uiState.value.canEdit)
+    assertEquals("Cordless drill", editViewModel.uiState.value.title)
+    assertEquals("12.5", editViewModel.uiState.value.price)
+    assertEquals(ListingCategory.ITEM_TOOLS, editViewModel.uiState.value.category)
+  }
+
+  @Test
+  fun edit_formCannotBeChangedAfterALoadFailure() = runTest {
+    repository.storedListing = storedItem
+    repository.loadFailure = UnknownHostException("offline")
+    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertFalse(editViewModel.uiState.value.canEdit)
+    editViewModel.updateTitle("Cordless drill")
+    editViewModel.addPhotos(uris(1))
+    assertEquals("", editViewModel.uiState.value.title)
+    assertTrue(editViewModel.uiState.value.photos.isEmpty())
+
+    repository.loadFailure = null
+    editViewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(editViewModel.uiState.value.canEdit)
+    assertEquals("Drill", editViewModel.uiState.value.title)
+  }
+
+  // A camera photo restored with the saved state is deleted rather than kept on disk unused.
+  @Test
+  fun edit_photoFinishingBeforeTheListingLoadedIsDeleted() = runTest {
+    val photo = Uri.parse("file:///photos/taken_0.jpg")
+    savedStateHandle["pendingPhoto"] = photo
+    repository.storedListing = storedItem
+    repository.pendingLoad = CompletableDeferred()
+    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    testDispatcher.scheduler.runCurrent()
+
+    editViewModel.finishTakingPhoto(saved = true)
+
+    assertTrue(editViewModel.uiState.value.photos.isEmpty())
+    assertEquals(listOf(photo), photoStorage.deleted)
   }
 
   // Saving an unchanged form must send back what was stored, minus the owner the repository sets.

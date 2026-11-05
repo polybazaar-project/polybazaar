@@ -97,8 +97,15 @@ data class ListingFormUiState(
   val photoCount: Int
     get() = storedPhotos.size + photos.size
 
+  /**
+   * Whether the user can change the form. Not while the edited listing is loading, or after it
+   * failed to load: the loaded listing replaces the whole form, so earlier changes would be lost.
+   */
+  val canEdit: Boolean
+    get() = !isLoading && loadError == null
+
   val canSave: Boolean
-    get() = listing != null && !isSaving && !isLoading && loadError == null
+    get() = listing != null && !isSaving && canEdit
 
   val categories: List<ListingCategory>
     get() = categoriesFor(type)
@@ -210,7 +217,7 @@ class ListingFormViewModel(
    */
   fun selectType(type: ListingType) {
     if (!_uiState.value.canChangeType) return
-    updateState {
+    changeForm {
       it.copy(
           type = type,
           category = it.category?.takeIf { category -> category in categoriesFor(type) },
@@ -218,28 +225,28 @@ class ListingFormViewModel(
     }
   }
 
-  fun updateTitle(title: String) = updateState {
+  fun updateTitle(title: String) = changeForm {
     it.copy(title = AuthRules.limitInput(title, MAX_TITLE_LENGTH))
   }
 
-  fun updateDescription(description: String) = updateState {
+  fun updateDescription(description: String) = changeForm {
     it.copy(description = AuthRules.limitInput(description, MAX_DESCRIPTION_LENGTH))
   }
 
   /** Ignores input that is not an amount, so the field never shows letters. */
   fun updatePrice(price: String) {
-    if (isValidPriceInput(price)) updateState { it.copy(price = price) }
+    if (isValidPriceInput(price)) changeForm { it.copy(price = price) }
   }
 
   fun updateRefundValue(refundValue: String) {
-    if (isValidRefundInput(refundValue)) updateState { it.copy(refundValue = refundValue) }
+    if (isValidRefundInput(refundValue)) changeForm { it.copy(refundValue = refundValue) }
   }
 
-  fun leavePriceField() = updateState { it.copy(priceTouched = true) }
+  fun leavePriceField() = changeForm { it.copy(priceTouched = true) }
 
-  fun leaveRefundField() = updateState { it.copy(refundTouched = true) }
+  fun leaveRefundField() = changeForm { it.copy(refundTouched = true) }
 
-  fun selectCategory(category: ListingCategory) = updateState { it.copy(category = category) }
+  fun selectCategory(category: ListingCategory) = changeForm { it.copy(category = category) }
 
   /**
    * Adds photos picked in the gallery, skipping duplicates and those beyond [MAX_PHOTOS], kept
@@ -248,7 +255,7 @@ class ListingFormViewModel(
   fun addPhotos(picked: List<Uri>) {
     // The photos being uploaded are cleared once saved, so a photo added meanwhile would be lost.
     if (_uiState.value.isSaving) return
-    updateState {
+    changeForm {
       val added = picked.distinct().filterNot { photo -> photo in it.photos }
       it.copy(photos = it.photos + added.take((MAX_PHOTOS - it.photoCount).coerceAtLeast(0)))
     }
@@ -256,7 +263,7 @@ class ListingFormViewModel(
 
   fun removePhoto(photo: Uri) {
     // The repository is still reading the photos, so none may be deleted.
-    if (_uiState.value.isSaving) return
+    if (_uiState.value.isSaving || !_uiState.value.canEdit) return
     updateState { it.copy(photos = it.photos - photo) }
     photoStorage.delete(photo)
   }
@@ -267,7 +274,7 @@ class ListingFormViewModel(
    */
   fun removeStoredPhoto(path: String) {
     if (_uiState.value.isSaving) return
-    updateState { it.copy(storedPhotos = it.storedPhotos - path) }
+    changeForm { it.copy(storedPhotos = it.storedPhotos - path) }
   }
 
   /**
@@ -277,8 +284,8 @@ class ListingFormViewModel(
    * @return the URI the camera app writes the photo to, or null when no photo can be taken.
    */
   fun startTakingPhoto(retakeIndex: Int?): Uri? {
-    // Like gallery photos, a photo taken during the upload would be lost.
-    if (_uiState.value.isSaving) return null
+    // Like gallery photos, a photo taken during the upload or before the load would be lost.
+    if (_uiState.value.isSaving || !_uiState.value.canEdit) return null
     // A second tap before the camera app opened replaces the first photo, which stays empty.
     pendingPhoto?.let(photoStorage::delete)
     val photo = photoStorage.newPhoto() ?: return null
@@ -293,7 +300,8 @@ class ListingFormViewModel(
     val index = retakeIndex
     pendingPhoto = null
     retakeIndex = null
-    if (!saved) {
+    // The form only accepts a photo once the edited listing is in it.
+    if (!saved || !_uiState.value.canEdit) {
       photoStorage.delete(photo)
       return
     }
@@ -343,6 +351,11 @@ class ListingFormViewModel(
   }
 
   fun clearSavedListing() = updateState { it.copy(savedListing = null) }
+
+  /** A change the user makes to the form, ignored while they cannot edit it. */
+  private fun changeForm(transform: (ListingFormUiState) -> ListingFormUiState) {
+    if (_uiState.value.canEdit) updateState(transform)
+  }
 
   private fun updateState(transform: (ListingFormUiState) -> ListingFormUiState) {
     _uiState.update(transform)
