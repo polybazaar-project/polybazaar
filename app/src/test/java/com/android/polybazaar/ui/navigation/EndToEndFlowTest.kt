@@ -17,6 +17,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
@@ -314,7 +315,7 @@ class EndToEndFlowTest {
     }
 
     override suspend fun getCurrentUser(): User {
-      val uid = signedInUid ?: throw IllegalStateException("No user is currently logged in")
+      val uid = signedInUid ?: throw NoSessionException()
       return withVerification(profiles.value.getValue(uid))
     }
 

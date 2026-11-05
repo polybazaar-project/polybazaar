@@ -32,8 +32,12 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
@@ -41,6 +45,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
@@ -62,6 +67,7 @@ import com.android.polybazaar.profile.ui.waitForAvatar
 import com.android.polybazaar.settings.ui.SettingsScreenTags
 import com.android.polybazaar.toolbox.ui.ToolboxCardTags
 import java.io.IOException
+import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,12 +107,19 @@ class AppNavHostTest {
       )
   private lateinit var navController: NavHostController
 
-  private fun setContent(repository: FakeAuthRepository): AuthViewModel {
+  /** Shows the app, under [lifecycleOwner] when given so a test can pause and resume it. */
+  private fun setContent(
+      repository: FakeAuthRepository,
+      lifecycleOwner: LifecycleOwner? = null,
+  ): AuthViewModel {
     val viewModel = AuthViewModel(repository)
     composeTestRule.setContent {
       navController = rememberNavController()
+      val owner = lifecycleOwner ?: LocalLifecycleOwner.current
       CompositionLocalProvider(
-          LocalActivityResultRegistryOwner provides photoPicker(Uri.parse("content://picked/photo"))
+          LocalLifecycleOwner provides owner,
+          LocalActivityResultRegistryOwner provides
+              photoPicker(Uri.parse("content://picked/photo")),
       ) {
         AppNavHost(
             authViewModel = viewModel,
@@ -119,6 +132,14 @@ class AppNavHostTest {
       }
     }
     return viewModel
+  }
+
+  /** A lifecycle the test moves by hand, starting resumed. */
+  private class ManualLifecycleOwner : LifecycleOwner {
+    val registry =
+        LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
+    override val lifecycle: Lifecycle
+      get() = registry
   }
 
   /**
@@ -242,6 +263,59 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     assertEquals(1, listingRepository.getAllListingsCalls)
+  }
+
+  @Test
+  fun sessionCheckOffline_offersRetryInsteadOfSignIn() {
+    setContent(
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    )
+
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertDoesNotExist()
+  }
+
+  @Test
+  fun sessionCheckOffline_retryOnceOnline_startsOnBrowse() {
+    val repository =
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    setContent(repository)
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+
+    repository.currentUserError = null
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_RETRY).performClick()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  // Coming back to the app after turning the connection on must not need a tap on Retry.
+  @Test
+  fun sessionCheckOffline_retriesWhenTheAppResumes() {
+    val repository =
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    val lifecycleOwner = ManualLifecycleOwner()
+    setContent(repository, lifecycleOwner)
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+
+    repository.currentUserError = null
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.STARTED }
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun sessionCheckOffline_resumingWhileStillOfflineKeepsTheRetryOffer() {
+    val repository =
+        FakeAuthRepository(currentUser = user, currentUserError = UnknownHostException("offline"))
+    val lifecycleOwner = ManualLifecycleOwner()
+    setContent(repository, lifecycleOwner)
+
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.STARTED }
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED }
+
+    composeTestRule.onNodeWithTag(AppNavHostTags.SESSION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertDoesNotExist()
   }
 
   @Test
@@ -1107,6 +1181,7 @@ class AppNavHostTest {
       private val signInResult: Result<User> = Result.failure(IllegalStateException("Not set")),
       var refreshUserResult: Result<User> = Result.failure(IllegalStateException("Not set")),
       private val signOutError: Exception? = null,
+      var currentUserError: Exception? = null,
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> = signInResult
 
@@ -1118,8 +1193,9 @@ class AppNavHostTest {
     }
 
     override suspend fun getCurrentUser(): User {
+      currentUserError?.let { throw it }
       val result = if (currentUserGate != null) currentUserGate.await() else currentUser
-      return result ?: throw IllegalStateException("No user is currently logged in")
+      return result ?: throw NoSessionException()
     }
 
     override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)

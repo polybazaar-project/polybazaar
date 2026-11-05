@@ -25,6 +25,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.SnapshotMetadata
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -73,6 +74,10 @@ class SignInIntegrationTest {
     whenever(mockQuery.limit(1)).thenReturn(mockQuery)
     whenever(mockQuery.get()).thenReturn(Tasks.forResult(mockUsernameLookup))
     whenever(mockUsernameLookup.isEmpty).thenReturn(false)
+    // A server answer: an empty result then means the username is missing, not just uncached.
+    val serverMetadata = mock<SnapshotMetadata>()
+    whenever(serverMetadata.isFromCache).thenReturn(false)
+    whenever(mockUsernameLookup.metadata).thenReturn(serverMetadata)
     whenever(mockUsernameLookup.documents).thenReturn(listOf(usernameDoc))
     whenever(usernameDoc.id).thenReturn("ada_lovelace")
     val mockUsers = mock<CollectionReference>()
