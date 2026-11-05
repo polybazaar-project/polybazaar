@@ -28,6 +28,9 @@ class FakeListingRepository(
   var getMyListingsCalls = 0
     private set
 
+  var getListingCalls = 0
+    private set
+
   /** The listings passed to [updateListing], in order. */
   val updatedListings = mutableListOf<Listing>()
 
@@ -60,14 +63,16 @@ class FakeListingRepository(
     return answer(allListings)
   }
 
-  override suspend fun getListing(listingId: String): Result<Listing> =
-      answer(Unit).mapCatching {
-        (allListings + myListings).firstOrNull { it.listingId == listingId }
-            ?: throw FirebaseFirestoreException(
-                "Listing $listingId not found",
-                FirebaseFirestoreException.Code.NOT_FOUND,
-            )
-      }
+  override suspend fun getListing(listingId: String): Result<Listing> {
+    getListingCalls++
+    return answer(Unit).mapCatching {
+      (allListings + myListings).firstOrNull { it.listingId == listingId }
+          ?: throw FirebaseFirestoreException(
+              "Listing $listingId not found",
+              FirebaseFirestoreException.Code.NOT_FOUND,
+          )
+    }
+  }
 
   /** Stores the new photos under fake paths after the kept ones, like the real repository. */
   override suspend fun updateListing(listing: Listing): Listing {
