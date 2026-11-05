@@ -15,12 +15,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -107,6 +107,28 @@ class LenderProfileViewModelTest {
   }
 
   @Test
+  fun loadLender_listingsFinishBeforeProfile_staysLoadingUntilProfileArrives() {
+    val profileArrives = CompletableDeferred<Unit>()
+    profiles.gate = profileArrives
+    viewModel.loadLender(lender.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    // Listings are in, but the profile has not arrived: this must not look like a missing lender.
+    val waiting = viewModel.uiState.value
+    assertTrue(waiting.isLoading)
+    assertNull(waiting.profile)
+    assertNull(waiting.error)
+    assertEquals(listOf("drill"), waiting.listings.map { it.id })
+
+    profileArrives.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertFalse(state.isLoading)
+    assertEquals(lender, state.profile)
+  }
+
+  @Test
   fun loadLender_cancelledDelayedRequest_doesNotClearLoadingForTheNewLender() {
     val firstListings = CompletableDeferred<Unit>()
     val secondListings = CompletableDeferred<Unit>()
@@ -157,12 +179,16 @@ class LenderProfileViewModelTest {
 
   private class FakeProfileRepository(private val users: Map<String, User>) : ProfileRepository {
     val failingUids = mutableSetOf<String>()
+    var gate: CompletableDeferred<Unit>? = null
 
     override fun observeProfile(uid: String): Flow<User?> =
         if (uid in failingUids) {
           flow { throw UnknownHostException("offline") }
         } else {
-          flowOf(users[uid])
+          flow {
+            gate?.await()
+            emit(users[uid])
+          }
         }
 
     override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri) = ""

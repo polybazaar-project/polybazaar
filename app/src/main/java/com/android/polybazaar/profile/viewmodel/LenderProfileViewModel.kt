@@ -21,9 +21,15 @@ import kotlinx.coroutines.launch
 data class LenderProfileUiState(
     val profile: User? = null,
     val listings: List<BrowseListing> = emptyList(),
-    val isLoading: Boolean = false,
+    val profileLoaded: Boolean = false,
+    val listingsLoaded: Boolean = false,
     val error: AppError? = null,
-)
+) {
+  // Loading ends only when both parts have answered, so a missing profile is not shown before it
+  // arrives.
+  val isLoading: Boolean
+    get() = !(profileLoaded && listingsLoaded)
+}
 
 /** Shows a lender's profile and the listings they offer, reached by tapping their name. */
 class LenderProfileViewModel(
@@ -37,10 +43,6 @@ class LenderProfileViewModel(
   private var profileJob: Job? = null
   private var listingsJob: Job? = null
 
-  // A cancelled job can still resume and finish, so each job writes state only while it is the
-  // latest request.
-  private var latestRequest = 0
-
   /**
    * Loads the profile and listings of [uid], dropping whatever was shown for a previous lender. The
    * profile keeps updating while the screen is open.
@@ -48,44 +50,36 @@ class LenderProfileViewModel(
   fun loadLender(uid: String) {
     profileJob?.cancel()
     listingsJob?.cancel()
-    val request = ++latestRequest
-    _uiState.value = LenderProfileUiState(isLoading = true)
-    profileJob = viewModelScope.launch { loadProfile(request, uid) }
-    listingsJob = viewModelScope.launch { loadListings(request, uid) }
+    _uiState.value = LenderProfileUiState()
+    profileJob = viewModelScope.launch { loadProfile(uid) }
+    listingsJob = viewModelScope.launch { loadListings(uid) }
   }
 
-  private suspend fun loadProfile(request: Int, uid: String) {
+  private suspend fun loadProfile(uid: String) {
     try {
       profileRepository.observeProfile(uid).collect { profile ->
-        updateIfLatest(request) { it.copy(profile = profile) }
+        _uiState.update { it.copy(profile = profile, profileLoaded = true) }
       }
     } catch (exception: Exception) {
       if (exception is CancellationException) throw exception
-      updateIfLatest(request) { it.copy(error = exception.toAppError()) }
+      _uiState.update { it.copy(error = exception.toAppError(), profileLoaded = true) }
     }
   }
 
-  private suspend fun loadListings(request: Int, uid: String) {
+  private suspend fun loadListings(uid: String) {
     listingRepository
         .getListingsByOwner(uid)
         .onSuccess { listings ->
-          updateIfLatest(request) {
+          _uiState.update {
             it.copy(
                 listings = listings.mapNotNull { listing -> listing.toBrowseListing() },
-                isLoading = false,
+                listingsLoaded = true,
             )
           }
         }
         .onFailure { exception ->
           if (exception is CancellationException) throw exception
-          updateIfLatest(request) { it.copy(error = exception.toAppError(), isLoading = false) }
+          _uiState.update { it.copy(error = exception.toAppError(), listingsLoaded = true) }
         }
-  }
-
-  private fun updateIfLatest(
-      request: Int,
-      transform: (LenderProfileUiState) -> LenderProfileUiState,
-  ) {
-    if (request == latestRequest) _uiState.update(transform)
   }
 }
