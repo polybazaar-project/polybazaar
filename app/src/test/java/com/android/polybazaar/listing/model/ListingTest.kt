@@ -111,7 +111,7 @@ class ListingTest {
             images = listOf(mock<Uri>()),
         )
 
-    val saved = listing.saved("l1", listOf("listings/u1/l1/images/0"), "u1")
+    val saved = listing.saved("l1", listOf("listings/u1/l1/images/0"), "u1", isPaused = true)
 
     assertEquals(
         listing.copy(
@@ -119,6 +119,7 @@ class ListingTest {
             imagePaths = listOf("listings/u1/l1/images/0"),
             listingId = "l1",
             ownerUid = "u1",
+            isPaused = true,
         ),
         saved,
     )

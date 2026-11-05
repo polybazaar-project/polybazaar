@@ -113,9 +113,12 @@ service cloud.firestore {
       }
 
       function validListing(data) {
-        return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths'])
-            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'refundValue', 'maxRentalDays'])
+        return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused'])
+            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused', 'refundValue', 'maxRentalDays'])
             && data.ownerUid == request.auth.uid
+            // Required, because Browse queries paused == false and a listing without it would never
+            // show. Only the owner can change it, through the update rule below.
+            && data.paused is bool
             && data.category is string && validCategory(data.type, data.category)
             // Same as ListingRules.errorFor in the app: no empty or whitespace-only text.
             && data.title is string && data.title.trim().size() > 0

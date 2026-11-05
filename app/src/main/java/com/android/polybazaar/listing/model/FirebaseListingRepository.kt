@@ -5,6 +5,7 @@ package com.android.polybazaar.listing.model
 import android.net.Uri
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.storage.FirebaseStorage
@@ -31,9 +32,10 @@ class FirebaseListingRepository(
     val imagePaths = listing.images.indices.map { listingImagePath(ownerUid, document.id, it) }
 
     return uploadThenSave(listing.images, imagePaths) {
-      document.set(listing.toFirestoreData(ownerUid, imagePaths)).await()
+      // A new listing is always active: only setPaused pauses it.
+      document.set(listing.toFirestoreData(ownerUid, imagePaths) + (PAUSED to false)).await()
       // Points to the uploaded photos: the local ones may be deleted once the listing is saved.
-      listing.saved(document.id, imagePaths, ownerUid)
+      listing.saved(document.id, imagePaths, ownerUid, isPaused = false)
     }
   }
 
@@ -56,6 +58,8 @@ class FirebaseListingRepository(
     }
     require(stored.get("type") == listing.type.name) { "A listing's type cannot change" }
     val storedPaths = stored.imagePaths()
+    // Only for the listing returned: the edit does not write it, see toFirestoreEdit.
+    val storedPaused = stored.get(PAUSED) as? Boolean ?: false
     val keptPaths = listing.imagePaths
     require(storedPaths.containsAll(keptPaths) && keptPaths.distinct() == keptPaths) {
       "Only the listing's own photos can be kept, each once"
@@ -74,8 +78,10 @@ class FirebaseListingRepository(
         // If the update fails, a photo that overwrote a removed one stays: the listing still saved
         // points to that path, and showing the new photo is better than a missing one.
         uploadThenSave(listing.images, newPaths, keepOnFailure = removedSlots.toSet()) {
-          document.set(listing.toFirestoreData(ownerUid, imagePaths)).await()
-          listing.saved(listingId, imagePaths, ownerUid)
+          // update(), not set(): a listing deleted meanwhile is not recreated, and a pause made
+          // meanwhile on another device is not overwritten.
+          document.update(listing.toFirestoreEdit(ownerUid, imagePaths)).await()
+          listing.saved(listingId, imagePaths, ownerUid, storedPaused)
         }
     // Only once the listing no longer points to them; a photo left behind is only wasted space.
     deleteImagesQuietly(storedPaths - imagePaths.toSet())
@@ -93,6 +99,19 @@ class FirebaseListingRepository(
         // After the document, so a failure never leaves a listing pointing to missing photos.
         deleteImagesQuietly(stored.imagePaths())
       }
+      Result.success(Unit)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Result.failure(e)
+    }
+  }
+
+  override suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit> {
+    return try {
+      if (auth.currentUser == null) throw unauthenticated()
+      // update() fails with NOT_FOUND when the listing does not exist, and the rules refuse it for
+      // anyone but the owner.
+      firestore.collection(LISTINGS_COLLECTION).document(listingId).update(PAUSED, paused).await()
       Result.success(Unit)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -134,7 +153,10 @@ class FirebaseListingRepository(
     return try {
       // No auth check here: the security rules reject unverified readers with PERMISSION_DENIED.
       // Offline, get() answers from the local cache, so listings already seen stay visible.
-      val snapshot = firestore.collection(LISTINGS_COLLECTION).get().await()
+      // Paused listings are hidden from Browse. Every listing stores the field, so the query
+      // misses none.
+      val snapshot =
+          firestore.collection(LISTINGS_COLLECTION).whereEqualTo(PAUSED, false).get().await()
       Result.success(snapshot.documents.mapNotNull { it.toListing() })
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -223,6 +245,21 @@ class FirebaseListingRepository(
         }
       }
 
+  /**
+   * The fields an edit writes with update(). "paused" is left out, so only setPaused changes it,
+   * and a rental limit the owner removed is deleted, since update() keeps the fields it is not
+   * given.
+   */
+  private fun Listing.toFirestoreEdit(
+      ownerUid: String,
+      imagePaths: List<String>,
+  ): Map<String, Any> = buildMap {
+    putAll(toFirestoreData(ownerUid, imagePaths))
+    if (this@toFirestoreEdit is ItemListing && maxRentalDays == null) {
+      put("maxRentalDays", FieldValue.delete())
+    }
+  }
+
   private fun DocumentSnapshot.imagePaths(): List<String> =
       (get("imagePaths") as? List<*>).orEmpty().filterIsInstance<String>()
 
@@ -241,12 +278,15 @@ class FirebaseListingRepository(
     val price = (get("price") as? Number)?.toDouble()
     // The rules require it on every listing, so a document without it is malformed.
     val ownerUid = get("ownerUid") as? String
+    // Required by the rules too: Browse only queries listings that store it.
+    val paused = get(PAUSED) as? Boolean
     if (
         category == null ||
             title == null ||
             description == null ||
             price == null ||
-            ownerUid == null
+            ownerUid == null ||
+            paused == null
     )
         return null
     val imagePaths = imagePaths()
@@ -261,6 +301,7 @@ class FirebaseListingRepository(
               imagePaths = imagePaths,
               listingId = id,
               ownerUid = ownerUid,
+              isPaused = paused,
           )
       ListingType.ITEM.name -> {
         val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
@@ -283,6 +324,7 @@ class FirebaseListingRepository(
             imagePaths = imagePaths,
             listingId = id,
             ownerUid = ownerUid,
+            isPaused = paused,
         )
       }
       else -> null
@@ -291,6 +333,7 @@ class FirebaseListingRepository(
 
   private companion object {
     const val LISTINGS_COLLECTION = "listings"
+    const val PAUSED = "paused"
     val JPEG_METADATA: StorageMetadata =
         StorageMetadata.Builder().setContentType("image/jpeg").build()
     // The largest photo the Storage rules accept.

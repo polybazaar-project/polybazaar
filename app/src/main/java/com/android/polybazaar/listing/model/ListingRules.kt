@@ -68,14 +68,17 @@ object ListingRules {
 
   /**
    * Whether [viewer] may contact the lender of [listing]: true only when the viewer's email is
-   * verified and the listing belongs to someone else. A listing without an owner (not saved yet)
-   * has nobody to contact.
+   * verified, the listing belongs to someone else and its owner has not paused it. A listing
+   * without an owner (not saved yet) has nobody to contact.
    *
    * One rule for both the "Message" and "Request booking" actions of the listing detail (#22). The
    * ViewModel exposes the result in its UI state, and the screen never recomputes it.
    */
   fun canContactLender(viewer: User, listing: Listing): Boolean =
-      viewer.isEmailVerified && listing.ownerUid != null && listing.ownerUid != viewer.uid
+      viewer.isEmailVerified &&
+          listing.ownerUid != null &&
+          listing.ownerUid != viewer.uid &&
+          !listing.isPaused
 
   /**
    * Up to five integer digits (10000.00 is the largest valid amount), at most one decimal separator

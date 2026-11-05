@@ -12,6 +12,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
@@ -146,6 +147,7 @@ class FirebaseListingRepositoryTest {
                     "title" to "Calculator",
                     "description" to "Graphing calculator",
                     "imagePaths" to listOf("listings/$uid/$listingId/images/0"),
+                    "paused" to false,
                     "refundValue" to 100.0,
                 )
             )
@@ -195,6 +197,7 @@ class FirebaseListingRepositoryTest {
                                 "listings/$uid/$listingId/images/0",
                                 "listings/$uid/$listingId/images/1",
                             ),
+                        "paused" to false,
                     )
                 )
             )
@@ -587,7 +590,7 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
-  fun getAllListings_readsTheWholeCollectionAndRebuildsItemsAndServices() = runTest {
+  fun getAllListings_readsActiveListingsAndRebuildsItemsAndServices() = runTest {
     givenAllListings(
         listingDocument(
             "item-1",
@@ -640,8 +643,9 @@ class FirebaseListingRepositoryTest {
         ),
         result,
     )
-    // Every user's listings, not only the signed-in user's.
-    verify(listings, never()).whereEqualTo(any<String>(), any())
+    // Every user's active listings, not only the signed-in user's.
+    verify(listings).whereEqualTo("paused", false)
+    verify(listings, never()).whereEqualTo(eq("ownerUid"), any())
   }
 
   @Test
@@ -745,6 +749,9 @@ class FirebaseListingRepositoryTest {
         // The rules require a string owner on every listing.
         listingDocument("missing-owner", valid - "ownerUid"),
         listingDocument("owner-as-number", valid + ("ownerUid" to 123L)),
+        // Browse only queries listings that store whether they are paused.
+        listingDocument("missing-paused", valid, storesPaused = false),
+        listingDocument("paused-as-text", valid + ("paused" to "false")),
         listingDocument("valid", valid),
     )
 
@@ -758,7 +765,7 @@ class FirebaseListingRepositoryTest {
     // What the rules answer to a reader whose email is not verified.
     val denied =
         FirebaseFirestoreException("denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
-    whenever(listings.get()).thenReturn(Tasks.forException(denied))
+    givenActiveListingsResult(Tasks.forException(denied))
 
     val failure = repository.getAllListings().exceptionOrNull()
 
@@ -768,7 +775,7 @@ class FirebaseListingRepositoryTest {
 
   @Test
   fun getAllListings_whenCancelled_rethrowsInsteadOfReturningAFailure() = runTest {
-    whenever(listings.get()).thenReturn(Tasks.forCanceled())
+    givenActiveListingsResult(Tasks.forCanceled())
 
     val thrown = runCatching { repository.getAllListings() }.exceptionOrNull()
 
@@ -887,14 +894,14 @@ class FirebaseListingRepositoryTest {
   fun updateListing_keepingEveryPhoto_savesTheFieldsWithoutTouchingStorage() = runTest {
     givenStoredListing(storedService(listOf(path(0), path(1))))
     givenImageSlots()
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     val saved = repository.updateListing(editedService(listOf(path(0), path(1))))
 
     assertEquals(listOf(path(0), path(1)), saved.imagePaths)
     assertEquals(uid, saved.ownerUid)
     verify(document)
-        .set(
+        .update(
             eq(
                 mapOf(
                     "ownerUid" to uid,
@@ -907,6 +914,7 @@ class FirebaseListingRepositoryTest {
                 )
             )
         )
+    verify(document, never()).set(any<Map<String, Any>>())
     (0..4).forEach { index ->
       verify(imageAt(index), never()).putBytes(any(), any())
       verify(imageAt(index), never()).delete()
@@ -917,13 +925,13 @@ class FirebaseListingRepositoryTest {
   fun updateListing_removingAPhoto_deletesItOnlyAfterTheListingIsSaved() = runTest {
     givenStoredListing(storedService(listOf(path(0), path(1))))
     givenImageSlots()
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     val saved = repository.updateListing(editedService(listOf(path(0))))
 
     assertEquals(listOf(path(0)), saved.imagePaths)
     inOrder(document, imageAt(1)) {
-      verify(document).set(any<Map<String, Any>>())
+      verify(document).update(any<Map<String, Any>>())
       verify(imageAt(1)).delete()
     }
     verify(imageAt(0), never()).delete()
@@ -934,7 +942,7 @@ class FirebaseListingRepositoryTest {
     // images/1 is removed, but images/2 was never used, so the new photo goes there.
     givenStoredListing(storedService(listOf(path(0), path(1))))
     givenImageSlots()
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
     val photo = Uri.parse("content://images/new")
 
     val saved = repository.updateListing(editedService(listOf(path(0)), listOf(photo)))
@@ -951,7 +959,7 @@ class FirebaseListingRepositoryTest {
   fun updateListing_whenEverySlotIsUsed_newPhotoReplacesTheRemovedOne() = runTest {
     givenStoredListing(storedService((0..4).map(::path)))
     givenImageSlots()
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     val saved =
         repository.updateListing(
@@ -970,7 +978,7 @@ class FirebaseListingRepositoryTest {
     givenStoredListing(storedService((0..3).map(::path)))
     givenImageSlots()
     val writeFailure = IllegalStateException("Firestore unavailable")
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forException(writeFailure))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forException(writeFailure))
     val photos = listOf(Uri.parse("content://images/a"), Uri.parse("content://images/b"))
 
     val failure = runCatching {
@@ -991,7 +999,7 @@ class FirebaseListingRepositoryTest {
     givenStoredListing(storedService(listOf(path(0), path(1))))
     givenImageSlots()
     whenever(imageAt(1).delete()).thenReturn(Tasks.forException(IllegalStateException("offline")))
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     val saved = repository.updateListing(editedService(listOf(path(0))))
 
@@ -1041,7 +1049,7 @@ class FirebaseListingRepositoryTest {
 
       assertEquals("$stored", expectedMessage, failure?.message)
     }
-    verify(document, never()).set(any<Map<String, Any>>())
+    verify(document, never()).update(any<Map<String, Any>>())
     assertTrue(compressedPhotos.isEmpty())
   }
 
@@ -1147,6 +1155,135 @@ class FirebaseListingRepositoryTest {
     assertTrue(thrown is CancellationException)
   }
 
+  @Test
+  fun createListing_storesTheListingAsActive() = runTest {
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val pausedDraft =
+        ServiceListing(
+            ListingCategory.SERVICE_TUTORING,
+            25.0,
+            "Math tutoring",
+            "One-hour session",
+            isPaused = true,
+        )
+
+    val created = repository.createListing(pausedDraft)
+
+    // Only setPaused pauses a listing, so a new one is always active.
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(newDocument).set(stored.capture())
+    assertEquals(false, stored.firstValue["paused"])
+    assertFalse(created.isPaused)
+  }
+
+  @Test
+  fun getListing_readsWhetherTheListingIsPaused() = runTest {
+    givenStoredListing(storedService() + ("paused" to true))
+
+    assertTrue(repository.getListing(listingId).getOrThrow().isPaused)
+  }
+
+  // The owner may pause the listing on another device while editing it: the edit must not undo it.
+  @Test
+  fun updateListing_neverWritesThePauseState() = runTest {
+    givenStoredListing(storedService() + ("paused" to true))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    // The edit form does not know about pausing, so it sends the default, false.
+    val saved = repository.updateListing(editedService(emptyList()))
+
+    val written = argumentCaptor<Map<String, Any>>()
+    verify(document).update(written.capture())
+    assertFalse(written.firstValue.containsKey("paused"))
+    verify(document, never()).set(any<Map<String, Any>>())
+    assertTrue(saved.isPaused)
+  }
+
+  // update() keeps the fields it is not given, so a removed limit must be deleted explicitly.
+  @Test
+  fun updateListing_removingTheRentalLimit_deletesItFromTheDocument() = runTest {
+    givenStoredListing(itemFields + ("maxRentalDays" to 7L))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val withoutLimit =
+        ItemListing(
+            ListingCategory.ITEM_TOOLS,
+            8.0,
+            "Bosch drill set",
+            "With bits",
+            refundValue = 120.0,
+            listingId = listingId,
+        )
+
+    repository.updateListing(withoutLimit)
+    repository.updateListing(withoutLimit.copy(maxRentalDays = 14))
+
+    val written = argumentCaptor<Map<String, Any>>()
+    verify(document, times(2)).update(written.capture())
+    assertEquals(FieldValue.delete(), written.firstValue["maxRentalDays"])
+    assertEquals(14, written.secondValue["maxRentalDays"])
+  }
+
+  @Test
+  fun updateListing_ofAListingDeletedMeanwhile_failsWithoutRecreatingIt() = runTest {
+    givenStoredListing(storedService())
+    val missing = FirebaseFirestoreException("missing", FirebaseFirestoreException.Code.NOT_FOUND)
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forException(missing))
+
+    val failure = runCatching { repository.updateListing(editedService(emptyList())) }
+
+    assertSame(missing, failure.exceptionOrNull())
+    verify(document, never()).set(any<Map<String, Any>>())
+  }
+
+  @Test
+  fun setPaused_updatesOnlyThePauseState() = runTest {
+    whenever(document.update("paused", true)).thenReturn(Tasks.forResult(null))
+    whenever(document.update("paused", false)).thenReturn(Tasks.forResult(null))
+
+    assertTrue(repository.setPaused(listingId, paused = true).isSuccess)
+    assertTrue(repository.setPaused(listingId, paused = false).isSuccess)
+
+    verify(document).update("paused", true)
+    verify(document).update("paused", false)
+    verify(document, never()).set(any<Map<String, Any>>())
+    verify(document, never()).update(any<Map<String, Any>>())
+  }
+
+  @Test
+  fun setPaused_whenTheRulesRefuseOrTheListingIsMissing_returnsTheFailure() = runTest {
+    // What the rules answer to anyone but the owner, and update() to a missing document.
+    val denied =
+        FirebaseFirestoreException("denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    val missing = FirebaseFirestoreException("missing", FirebaseFirestoreException.Code.NOT_FOUND)
+    whenever(document.update("paused", true)).thenReturn(Tasks.forException(denied))
+    whenever(document.update("paused", false)).thenReturn(Tasks.forException(missing))
+
+    assertSame(denied, repository.setPaused(listingId, paused = true).exceptionOrNull())
+    assertEquals(
+        AppError.NOT_FOUND,
+        repository.setPaused(listingId, paused = false).exceptionOrNull()?.toAppError(),
+    )
+  }
+
+  @Test
+  fun setPaused_withoutAuthenticatedUser_failsAsUnauthenticated() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val failure = repository.setPaused(listingId, paused = true).exceptionOrNull()
+
+    assertEquals(AppError.UNAUTHENTICATED, failure?.toAppError())
+    verifyNoInteractions(firestore)
+  }
+
+  @Test
+  fun setPaused_whenCancelled_rethrowsInsteadOfReturningAFailure() = runTest {
+    whenever(document.update("paused", true)).thenReturn(Tasks.forCanceled())
+
+    val thrown = runCatching { repository.setPaused(listingId, paused = true) }.exceptionOrNull()
+
+    assertTrue(thrown is CancellationException)
+  }
+
   private fun path(index: Int) = "listings/$uid/$listingId/images/$index"
 
   private val imageReferences = mutableMapOf<Int, StorageReference>()
@@ -1167,7 +1304,7 @@ class FirebaseListingRepositoryTest {
 
   private fun givenImageSlots() = (0..4).forEach { imageAt(it) }
 
-  /** Makes [document] hold [fields], or not exist when null. */
+  /** Makes [document] hold [fields], or not exist when null. See [listingDocument] for "paused". */
   private fun givenStoredListing(fields: Map<String, Any>?) {
     val snapshot = listingDocument(listingId, fields.orEmpty())
     whenever(snapshot.exists()).thenReturn(fields != null)
@@ -1200,7 +1337,14 @@ class FirebaseListingRepositoryTest {
   private fun givenAllListings(vararg documents: DocumentSnapshot) {
     val snapshot = mock<QuerySnapshot>()
     whenever(snapshot.documents).thenReturn(documents.toList())
-    whenever(listings.get()).thenReturn(Tasks.forResult(snapshot))
+    givenActiveListingsResult(Tasks.forResult(snapshot))
+  }
+
+  /** What Browse's query for the listings that are not paused answers. */
+  private fun givenActiveListingsResult(result: com.google.android.gms.tasks.Task<QuerySnapshot>) {
+    val query = mock<Query>()
+    whenever(listings.whereEqualTo("paused", false)).thenReturn(query)
+    whenever(query.get()).thenReturn(result)
   }
 
   private fun givenMyListings(vararg documents: DocumentSnapshot) {
@@ -1215,10 +1359,24 @@ class FirebaseListingRepositoryTest {
     whenever(query.get()).thenReturn(result)
   }
 
-  private fun listingDocument(id: String, fields: Map<String, Any>): DocumentSnapshot {
+  /**
+   * A stored listing with [fields]. Every listing the rules accept stores "paused", so it is added
+   * as false when [fields] leave it out, unless [storesPaused] is false.
+   */
+  private fun listingDocument(
+      id: String,
+      fields: Map<String, Any>,
+      storesPaused: Boolean = true,
+  ): DocumentSnapshot {
+    val stored =
+        when {
+          !storesPaused -> fields - "paused"
+          "paused" in fields -> fields
+          else -> fields + ("paused" to false)
+        }
     val document = mock<DocumentSnapshot>()
     whenever(document.id).thenReturn(id)
-    whenever(document.get(any<String>())).thenAnswer { fields[it.getArgument<String>(0)] }
+    whenever(document.get(any<String>())).thenAnswer { stored[it.getArgument<String>(0)] }
     return document
   }
 }

@@ -1,4 +1,5 @@
 // Co-authored-by: GitHub Copilot CLI (Claude Haiku 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.viewmodel
 
 import android.net.Uri
@@ -91,6 +92,26 @@ class LenderProfileViewModelTest {
     )
     assertEquals(false, state.isLoading)
     assertNull(state.error)
+  }
+
+  // The owner still sees a paused listing in their Toolbox, but other users do not.
+  @Test
+  fun loadLender_hidesTheirPausedListings() {
+    listings.allListings +=
+        ItemListing(
+            ListingCategory.ITEM_SPORTS,
+            5.0,
+            "Tent",
+            "",
+            listingId = "tent",
+            ownerUid = lender.uid,
+            isPaused = true,
+        )
+
+    viewModel.loadLender(lender.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("drill"), viewModel.uiState.value.listings.map { it.id })
   }
 
   @Test

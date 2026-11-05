@@ -914,6 +914,9 @@ class ListingFormViewModelTest {
 
     override suspend fun deleteListing(listingId: String): Result<Unit> = error("Not used here")
 
+    override suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit> =
+        error("Not used here")
+
     override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
   }
 

@@ -7,13 +7,14 @@ import kotlinx.coroutines.CompletableDeferred
 /**
  * A [ListingRepository] for tests.
  *
- * [getAllListings] answers with [allListings] and [getMyListings] with [myListings].
- * [createListing] adds to [allListings], owned by [ownerUid] like the real repository stores the
- * creator's uid (leave it null when the owner does not matter), [getListing] looks the id up in
- * both lists and fails with a Firestore `NOT_FOUND` error like the real repository when neither has
- * it, [updateListing] replaces the listing in both, and [deleteListing] removes it from both. Every
- * call except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of
- * these calls waiting until the test completes it, to look at one in progress.
+ * [getAllListings] answers with the [allListings] that are not paused, like the real repository,
+ * and [getMyListings] with [myListings]. [createListing] adds to [allListings], owned by [ownerUid]
+ * like the real repository stores the creator's uid (leave it null when the owner does not matter),
+ * [getListing] looks the id up in both lists and fails with a Firestore `NOT_FOUND` error like the
+ * real repository when neither has it, [updateListing] replaces the listing in both,
+ * [deleteListing] removes it from both, and [setPaused] changes its pause state in both. Every call
+ * except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these
+ * calls waiting until the test completes it, to look at one in progress.
  */
 class FakeListingRepository(
     var allListings: List<Listing> = emptyList(),
@@ -36,6 +37,9 @@ class FakeListingRepository(
 
   /** The ids passed to [deleteListing], in order. */
   val deletedListingIds = mutableListOf<String>()
+
+  /** The calls to [setPaused], as (listingId, paused), in order. */
+  val pauseCalls = mutableListOf<Pair<String, Boolean>>()
 
   override suspend fun createListing(listing: Listing): Listing {
     gate?.await()
@@ -60,7 +64,7 @@ class FakeListingRepository(
 
   override suspend fun getAllListings(): Result<List<Listing>> {
     getAllListingsCalls++
-    return answer(allListings)
+    return answer(allListings.filterNot { it.isPaused })
   }
 
   override suspend fun getListing(listingId: String): Result<Listing> {
@@ -98,7 +102,20 @@ class FakeListingRepository(
         myListings = myListings.filterNot { it.listingId == listingId }
       }
 
+  override suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit> =
+      answer(Unit).onSuccess {
+        pauseCalls += listingId to paused
+        allListings = allListings.map { if (it.listingId == listingId) it.paused(paused) else it }
+        myListings = myListings.map { if (it.listingId == listingId) it.paused(paused) else it }
+      }
+
   override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
+
+  private fun Listing.paused(paused: Boolean): Listing =
+      when (this) {
+        is ServiceListing -> copy(isPaused = paused)
+        is ItemListing -> copy(isPaused = paused)
+      }
 
   /** Waits for [gate] if set, then fails with [failure] or answers with [value]. */
   private suspend fun <T> answer(value: T): Result<T> {
