@@ -73,6 +73,7 @@ class EditProfileActions(
  * @param isSaving whether a save is running; editing and saving are disabled meanwhile.
  * @param errorMessage the error to show, if any.
  * @param actions called when the user edits, saves or leaves the screen (back arrow or Cancel).
+ * @param photo the encoded bytes of the saved profile photo, if it has loaded.
  */
 @Composable
 fun EditProfileContent(
@@ -83,6 +84,7 @@ fun EditProfileContent(
     isSaving: Boolean,
     errorMessage: String?,
     actions: EditProfileActions,
+    photo: ByteArray? = null,
 ) {
   val canEdit = profile != null && !isSaving
   val hasCustomPhoto = selectedPhotoUri != null || (profile?.photoPath != null && !isPhotoRemoved)
@@ -109,6 +111,7 @@ fun EditProfileContent(
     Spacer(modifier = Modifier.height(17.dp))
     PhotoSection(
         selectedPhotoUri = selectedPhotoUri,
+        savedPhoto = photo.takeUnless { isPhotoRemoved },
         canEdit = canEdit,
         hasCustomPhoto = hasCustomPhoto,
         onPhotoSelected = actions.onPhotoSelected,
@@ -176,6 +179,7 @@ fun EditProfileContent(
 @Composable
 private fun PhotoSection(
     selectedPhotoUri: Uri?,
+    savedPhoto: ByteArray?,
     canEdit: Boolean,
     hasCustomPhoto: Boolean,
     onPhotoSelected: (Uri) -> Unit,
@@ -193,9 +197,6 @@ private fun PhotoSection(
     ) {
       SectionTitle("Profile photo")
       Row {
-        // Shown for a photo already saved in Firebase too, even though the avatar below still
-        // draws the default photo: displaying stored photos needs an image loading library
-        // (follow-up in the PR description), not a bug in this condition.
         if (hasCustomPhoto) {
           PhotoLink(
               text = "Remove",
@@ -220,7 +221,7 @@ private fun PhotoSection(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-      ProfileAvatar(selectedPhotoUri = selectedPhotoUri)
+      ProfileAvatar(selectedPhotoUri = selectedPhotoUri, savedPhoto = savedPhoto)
       Text(
           text = "Use a clear photo that helps neighbours recognise you.",
           color = AuthColors.TextPrimary,

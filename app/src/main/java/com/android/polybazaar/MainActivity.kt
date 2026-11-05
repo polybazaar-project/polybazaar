@@ -20,13 +20,13 @@ import com.android.polybazaar.listing.model.FirebaseListingRepository
 import com.android.polybazaar.listing.model.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
-import com.android.polybazaar.ui.theme.SampleAppTheme
+import com.android.polybazaar.ui.theme.PolyBazaarTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     setContent {
-      SampleAppTheme {
+      PolyBazaarTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
           // One repository for every auth screen, so they all see the same Firebase session.
           val authRepository = remember { FirebaseAuthRepository() }

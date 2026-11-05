@@ -4,6 +4,7 @@
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
@@ -60,6 +61,9 @@ import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
+import com.android.polybazaar.profile.ui.photoPicker
+import com.android.polybazaar.profile.ui.redPhoto
+import com.android.polybazaar.profile.ui.waitForAvatar
 import com.android.polybazaar.settings.ui.SettingsScreenTags
 import com.android.polybazaar.toolbox.ui.ToolboxCardTags
 import java.io.IOException
@@ -76,6 +80,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class AppNavHostTest {
@@ -106,7 +111,11 @@ class AppNavHostTest {
     composeTestRule.setContent {
       navController = rememberNavController()
       val owner = lifecycleOwner ?: LocalLifecycleOwner.current
-      CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+      CompositionLocalProvider(
+          LocalLifecycleOwner provides owner,
+          LocalActivityResultRegistryOwner provides
+              photoPicker(Uri.parse("content://picked/photo")),
+      ) {
         AppNavHost(
             authViewModel = viewModel,
             authRepository = repository,
@@ -462,6 +471,39 @@ class AppNavHostTest {
 
     composeTestRule.onNodeWithTag(EditProfileScreenTags.CANCEL_BUTTON).performClick()
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Decoding and drawing the photo need real bitmaps.
+  fun savedPhoto_showsOnEditProfile_andSavingOnlyTheBioDoesNotDownloadItAgain() {
+    profileRepository.photo = redPhoto()
+    profileRepository.profile.value = user.copy(photoPath = "photo-path")
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.waitForAvatar(isRed = true)
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.waitForAvatar(isRed = true)
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.BIO_FIELD).performTextInput("Hello")
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.BIO).assertTextEquals("Hello")
+    assertEquals(1, profileRepository.photoLoads)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun savingANewPhoto_downloadsAndShowsIt() {
+    profileRepository.profile.value = user.copy(photoPath = "photo-path")
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.CHANGE_PHOTO_BUTTON).performClick()
+    profileRepository.photo = redPhoto()
+
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON).performClick()
+
+    composeTestRule.waitForAvatar(isRed = true)
   }
 
   @Test
@@ -1097,7 +1139,11 @@ class AppNavHostTest {
   }
 
   private class FakeProfileRepository(initial: User) : ProfileRepository {
-    private val profile = MutableStateFlow<User?>(initial)
+    val profile = MutableStateFlow<User?>(initial)
+    var photo = ByteArray(0)
+    var photoLoads = 0
+      private set
+
     var savedBio: String? = null
       private set
 
@@ -1105,7 +1151,10 @@ class AppNavHostTest {
 
     override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-path"
 
-    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
+    override suspend fun loadProfilePhoto(photoPath: String): ByteArray {
+      photoLoads++
+      return photo
+    }
 
     override suspend fun removeProfilePhoto(uid: String) = Unit
 

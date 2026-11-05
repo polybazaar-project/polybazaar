@@ -1,8 +1,7 @@
 <!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
 <resources>
-    <string name="app_name">SampleApp</string>
-    <string name="title_activity_main">MainActivity</string>
-    <string name="title_activity_second">SecondActivity</string>
+    <string name="app_name">PolyBazaar</string>
+    <string name="title_activity_main">PolyBazaar</string>
 
     <!-- Bottom navigation -->
     <string name="nav_browse">Browse</string>
