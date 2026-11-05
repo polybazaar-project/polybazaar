@@ -54,8 +54,9 @@ class EndToEndFlowTest {
 
   private val backend = InMemoryBackend()
 
-  // Signed-in users land on Browse, which starts empty; publishing adds to it.
-  private val listingRepository = FakeListingRepository()
+  // Signed-in users land on Browse, which starts empty. Published listings belong to the "ada"
+  // account ([InMemoryBackend.register] gives it the uid "uid-ada"), so its own Browse hides them.
+  private val listingRepository = FakeListingRepository(ownerUid = "uid-ada")
   private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
@@ -166,7 +167,7 @@ class EndToEndFlowTest {
   }
 
   @Test
-  fun verifiedUser_publishesAListingAndSeesItOnBrowse() {
+  fun verifiedUser_publishesAListingAndDoesNotSeeItOnBrowse() {
     val user = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
     backend.setSignedIn(user.uid)
     launchApp()
@@ -190,7 +191,9 @@ class EndToEndFlowTest {
         .performClick()
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    // Saved as Ada's, so it is hidden on purpose and not because publishing failed.
+    assertEquals(user.uid, listingRepository.allListings.single().ownerUid)
+    composeTestRule.onNodeWithText("Bosch drill set").assertDoesNotExist()
   }
 
   @Test
