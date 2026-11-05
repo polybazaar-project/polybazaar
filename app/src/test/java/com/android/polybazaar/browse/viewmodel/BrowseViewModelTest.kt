@@ -28,6 +28,7 @@ import org.junit.Test
 class BrowseViewModelTest {
 
   private val currentUid = "uid-me"
+  private val otherUid = "uid-other"
 
   // The cards the repository's listings below map to.
   private val listings =
@@ -55,6 +56,7 @@ class BrowseViewModelTest {
                   "Bosch drill set",
                   "",
                   listingId = "drill",
+                  ownerUid = otherUid,
               ),
               ItemListing(
                   ListingCategory.ITEM_ELECTRONICS,
@@ -62,6 +64,7 @@ class BrowseViewModelTest {
                   "Mini projector",
                   "",
                   listingId = "projector",
+                  ownerUid = otherUid,
               ),
           )
       )
@@ -339,6 +342,87 @@ class BrowseViewModelTest {
     viewModel.loadListings()
 
     assertEquals("Tools", viewModel.uiState.value.selectedCategory)
+    assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
+  }
+
+  /** A listing the signed-in user created, so Browse must hide it. */
+  private fun own(category: ListingCategory, title: String, id: String) =
+      ItemListing(category, 5.0, title, "", listingId = id, ownerUid = currentUid)
+
+  @Test
+  fun loadListings_hidesTheUsersOwnListingsAndShowsOthers() {
+    repository.allListings += own(ListingCategory.ITEM_TOOLS, "My saw", "saw")
+
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    assertEquals(listings, viewModel.uiState.value.listings)
+  }
+
+  @Test
+  fun loadListings_showsAListingWithoutAnOwner() {
+    repository.allListings +=
+        ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Novel", "", listingId = "novel")
+
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    val novel = BrowseListing(id = "novel", title = "Novel", category = "Books", price = "CHF 3")
+    assertEquals(listings + novel, viewModel.uiState.value.listings)
+    assertEquals(listOf("Books", "Electronics", "Tools"), viewModel.uiState.value.categories)
+  }
+
+  @Test
+  fun loadListings_whenEveryListingIsTheUsersOwn_showsNothing() {
+    repository.allListings =
+        listOf(
+            own(ListingCategory.ITEM_TOOLS, "My saw", "saw"),
+            own(ListingCategory.ITEM_BOOKS, "My novel", "novel"),
+        )
+
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    val state = viewModel.uiState.value
+    assertEquals(emptyList<BrowseListing>(), state.listings)
+    assertEquals(emptyList<String>(), state.categories)
+    assertFalse(state.isLoading)
+    assertNull(state.error)
+  }
+
+  @Test
+  fun loadListings_leavesOutACategoryMadeOnlyOfOwnListings() {
+    repository.allListings += own(ListingCategory.ITEM_BOOKS, "My novel", "novel")
+
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    assertEquals(listOf("Electronics", "Tools"), viewModel.uiState.value.categories)
+  }
+
+  @Test
+  fun loadListings_clearsASelectedCategoryLeftWithOnlyOwnListings() {
+    val viewModel = BrowseViewModel(repository, currentUid)
+    viewModel.selectCategory("Electronics")
+    // The projector now belongs to the signed-in user.
+    repository.allListings =
+        listOf(
+            repository.allListings[0],
+            own(ListingCategory.ITEM_ELECTRONICS, "Mini projector", "projector"),
+        )
+
+    viewModel.loadListings()
+
+    val state = viewModel.uiState.value
+    assertNull(state.selectedCategory)
+    assertEquals(listOf("Tools"), state.categories)
+    assertEquals(listOf(listings[0]), state.filteredListings)
+  }
+
+  @Test
+  fun searchAndCategory_stillApplyOnTopOfHidingOwnListings() {
+    repository.allListings += own(ListingCategory.ITEM_TOOLS, "My drill", "my-drill")
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    viewModel.selectCategory("Tools")
+    viewModel.updateQuery("drill")
+
     assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
   }
 }
