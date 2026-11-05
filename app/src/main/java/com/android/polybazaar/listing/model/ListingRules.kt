@@ -4,6 +4,7 @@ package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
+import java.math.BigDecimal
 
 /** Constraints a listing must respect, shared by every screen that creates or edits one. */
 object ListingRules {
@@ -93,7 +94,22 @@ object ListingRules {
   fun parsePrice(input: String, max: Double = MAX_PRICE): Double? =
       input.trim().replace(',', '.').toDoubleOrNull()?.takeIf { isValidAmount(it, max) }
 
-  /** Builds the listing described by a form, or returns null while the form is incomplete. */
+  /**
+   * An amount as the price and refund fields show it: "25" rather than "25.0", and "12.5" rather
+   * than "12.50", so a saved listing's amounts fill the edit form in a form [parsePrice] accepts.
+   */
+  fun formatAmountInput(amount: Double): String =
+      BigDecimal.valueOf(amount).stripTrailingZeros().toPlainString()
+
+  /**
+   * Builds the listing described by a form, or returns null while the form is incomplete.
+   *
+   * @param photos photos on this device, to upload.
+   * @param imagePaths when editing, the stored photos to keep.
+   * @param listingId when editing, the listing being edited.
+   * @param maxRentalDays kept from the edited item, since the form has no input for it. Ignored for
+   *   services.
+   */
   fun buildListing(
       type: ListingType,
       title: String,
@@ -102,6 +118,9 @@ object ListingRules {
       category: ListingCategory?,
       photos: List<Uri>,
       refundValue: String = "",
+      imagePaths: List<String> = emptyList(),
+      listingId: String? = null,
+      maxRentalDays: Int? = null,
   ): Listing? {
     val parsedPrice = parsePrice(price) ?: return null
     if (title.isBlank() || description.isBlank() || category?.type != type) return null
@@ -116,7 +135,10 @@ object ListingRules {
               refundValue =
                   if (refundValue.isBlank()) parsedPrice
                   else parsePrice(refundValue, MAX_REFUND_VALUE) ?: return null,
+              maxRentalDays = maxRentalDays,
               images = photos,
+              imagePaths = imagePaths,
+              listingId = listingId,
           )
       ListingType.SERVICE ->
           ServiceListing(
@@ -125,6 +147,8 @@ object ListingRules {
               title = title.trim(),
               description = description.trim(),
               images = photos,
+              imagePaths = imagePaths,
+              listingId = listingId,
           )
     }
   }

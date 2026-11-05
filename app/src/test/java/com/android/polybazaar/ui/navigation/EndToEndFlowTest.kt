@@ -57,7 +57,11 @@ class EndToEndFlowTest {
   // Signed-in users land on Browse, which starts empty. Published listings belong to the "ada"
   // account ([InMemoryBackend.register] gives it the uid "uid-ada"), so its own Browse hides them.
   private val listingRepository = FakeListingRepository(ownerUid = "uid-ada")
-  private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
+  private val photoStorage =
+      FilePhotoStorage(
+          ApplicationProvider.getApplicationContext(),
+          FilePhotoStorage.CREATE_FORM,
+      )
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
 

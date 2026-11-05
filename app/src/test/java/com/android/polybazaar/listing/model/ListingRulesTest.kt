@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.listing.model.ListingRules.buildListing
 import com.android.polybazaar.listing.model.ListingRules.canContactLender
+import com.android.polybazaar.listing.model.ListingRules.formatAmountInput
 import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
 import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
@@ -301,5 +302,60 @@ class ListingRulesTest {
             emptyList(),
         )
     )
+  }
+
+  // Editing a listing must not erase what the form does not show: its id, kept photos and the
+  // item's rental duration.
+  @Test
+  fun buildListing_keepsTheEditedListingsSavedFields() {
+    val paths = listOf("listings/u/l/images/0")
+
+    val item =
+        buildListing(
+            ListingType.ITEM,
+            "t",
+            "d",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            uris(1),
+            imagePaths = paths,
+            listingId = "l",
+            maxRentalDays = 7,
+        )
+            as ItemListing
+    val service =
+        buildListing(
+            ListingType.SERVICE,
+            "t",
+            "d",
+            "5",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+            imagePaths = paths,
+            listingId = "l",
+            maxRentalDays = 7,
+        )
+
+    assertEquals(paths, item.imagePaths)
+    assertEquals("l", item.listingId)
+    assertEquals(7, item.maxRentalDays)
+    assertEquals(uris(1), item.images)
+    assertEquals(paths, service?.imagePaths)
+    assertEquals("l", service?.listingId)
+  }
+
+  @Test
+  fun formatAmountInput_writesAmountsAsTheFieldsAcceptThem() {
+    assertEquals("25", formatAmountInput(25.0))
+    assertEquals("12.5", formatAmountInput(12.5))
+    assertEquals("0.05", formatAmountInput(0.05))
+    assertEquals("10000", formatAmountInput(10_000.0))
+    assertEquals("100000", formatAmountInput(100_000.0))
+    // What the edit form shows must read back as the same amount.
+    listOf(25.0, 12.5, 0.05, 10_000.0).forEach {
+      assertEquals(it, parsePrice(formatAmountInput(it))!!, 0.0)
+      assertTrue(isValidPriceInput(formatAmountInput(it)))
+    }
+    assertTrue(isValidRefundInput(formatAmountInput(100_000.0)))
   }
 }

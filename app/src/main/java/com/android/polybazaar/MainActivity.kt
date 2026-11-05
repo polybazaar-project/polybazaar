@@ -45,7 +45,8 @@ class MainActivity : ComponentActivity() {
                         JpegPhotoCompressor(applicationContext.contentResolver)
                     )
                   },
-              photoStorage = remember { FilePhotoStorage(applicationContext) },
+              photoStorage =
+                  remember { FilePhotoStorage(applicationContext, FilePhotoStorage.CREATE_FORM) },
           )
         }
       }

@@ -35,10 +35,13 @@ data class TakenPhoto(val uri: Uri, val cameraUri: Uri)
 /**
  * Stores photos in app storage, not the cache, which Android can clear before the listing is
  * uploaded. So they are deleted by hand once no longer needed.
+ *
+ * @param form the folder of one form, such as [CREATE_FORM] or [EDIT_FORM]. [deleteAllExcept] only
+ *   looks in it, so opening one form never deletes the photos of a draft left in another.
  */
-class FilePhotoStorage(context: Context) : PhotoStorage {
+class FilePhotoStorage(context: Context, private val form: String) : PhotoStorage {
 
-  private val directory = File(context.filesDir, PHOTO_DIRECTORY)
+  private val directory = File(File(context.filesDir, PHOTO_DIRECTORY), form)
   private val authority = "${context.packageName}.fileprovider"
 
   /** Returns null when the file cannot be created, for example when storage is full. */
@@ -73,6 +76,7 @@ class FilePhotoStorage(context: Context) : PhotoStorage {
           .scheme(ContentResolver.SCHEME_CONTENT)
           .authority(authority)
           .appendPath(PHOTO_DIRECTORY)
+          .appendPath(form)
           .appendPath(file.name)
           .build()
 
@@ -84,9 +88,18 @@ class FilePhotoStorage(context: Context) : PhotoStorage {
     if (file.exists() && !file.delete()) Log.w(LOG_TAG, "Could not delete photo ${file.name}")
   }
 
-  private companion object {
-    /** Both the name and the path of the files-path declared in res/xml/file_paths.xml. */
-    const val PHOTO_DIRECTORY = "listing_photos"
-    const val LOG_TAG = "FilePhotoStorage"
+  companion object {
+    /** The folder of the "Create listing" form. */
+    const val CREATE_FORM = "create"
+
+    /** The folder of the form that edits a saved listing. */
+    const val EDIT_FORM = "edit"
+
+    /**
+     * Both the name and the path of the files-path declared in res/xml/file_paths.xml. The
+     * FileProvider shares its subfolders too, so each form's folder lives under it.
+     */
+    private const val PHOTO_DIRECTORY = "listing_photos"
+    private const val LOG_TAG = "FilePhotoStorage"
   }
 }

@@ -94,7 +94,11 @@ class AppNavHostTest {
 
   // Listings published in these tests belong to the signed-in user, as with the real repository.
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
-  private val photoStorage = FilePhotoStorage(ApplicationProvider.getApplicationContext())
+  private val photoStorage =
+      FilePhotoStorage(
+          ApplicationProvider.getApplicationContext(),
+          FilePhotoStorage.CREATE_FORM,
+      )
   private lateinit var navController: NavHostController
 
   private fun setContent(repository: FakeAuthRepository): AuthViewModel {
