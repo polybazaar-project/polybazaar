@@ -159,6 +159,14 @@ class LenderProfileScreenTest {
   }
 
   @Test
+  fun preview_showsTheSampleLenderAndListing() {
+    composeTestRule.setContent { LenderProfileContentPreview() }
+
+    composeTestRule.onNodeWithText("James Richard").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+  }
+
+  @Test
   fun backButton_callsOnBack() {
     var backs = 0
     setContent(loaded(), onBack = { backs++ })

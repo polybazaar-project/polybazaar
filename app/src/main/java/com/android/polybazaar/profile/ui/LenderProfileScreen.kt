@@ -314,9 +314,10 @@ private fun StatusText(text: String, color: Color, tag: String) {
   )
 }
 
+/** A lender with one listing, for the IDE preview. Internal so a test can render it too. */
 @Preview(showBackground = true, widthDp = 412, heightDp = 844)
 @Composable
-private fun LenderProfileContentPreview() {
+internal fun LenderProfileContentPreview() {
   LenderProfileContent(
       uiState =
           LenderProfileUiState(
