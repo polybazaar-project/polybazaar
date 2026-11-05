@@ -113,9 +113,13 @@ class FirebaseListingRepository(
   }
 
   override suspend fun getMyListings(): Result<List<Listing>> {
+    // A Firestore UNAUTHENTICATED error, so toAppError() reports it like an expired session.
+    val ownerUid = auth.currentUser?.uid ?: return Result.failure(unauthenticated())
+    return getListingsByOwner(ownerUid)
+  }
+
+  override suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>> {
     return try {
-      // A Firestore UNAUTHENTICATED error, so toAppError() reports it like an expired session.
-      val ownerUid = auth.currentUser?.uid ?: throw unauthenticated()
       // Offline, get() answers from the local cache, so listings already seen stay visible.
       val snapshot =
           firestore.collection(LISTINGS_COLLECTION).whereEqualTo("ownerUid", ownerUid).get().await()
