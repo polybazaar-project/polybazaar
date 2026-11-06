@@ -3,6 +3,7 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.CompositionLocalProvider
@@ -44,6 +45,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
@@ -66,11 +68,11 @@ import com.android.polybazaar.profile.ui.redPhoto
 import com.android.polybazaar.profile.ui.waitForAvatar
 import com.android.polybazaar.settings.ui.SettingsScreenTags
 import com.android.polybazaar.toolbox.ui.ToolboxCardTags
-import java.io.IOException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -86,6 +88,8 @@ import org.robolectric.annotation.GraphicsMode
 class AppNavHostTest {
 
   @get:Rule val composeTestRule = createComposeRule()
+
+  private val context: Context = ApplicationProvider.getApplicationContext()
 
   private val user =
       User(
@@ -509,6 +513,51 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON).performClick()
 
     composeTestRule.waitForAvatar(isRed = true)
+  }
+
+  @Test
+  fun profileLoadFailure_showsTheMappedErrorOnProfile() {
+    profileRepository.observationFailure = UnknownHostException("firestore.googleapis.com")
+    setContent(FakeAuthRepository(currentUser = user))
+
+    openProfile()
+
+    composeTestRule
+        .onNodeWithTag(ProfileScreenTags.ERROR_MESSAGE, useUnmergedTree = true)
+        .assertTextEquals(context.getString(R.string.error_network))
+  }
+
+  @Test
+  fun photoRemovalFailure_staysOnEditProfileWithThePartialText_andSaveRetriesTheRemoval() {
+    profileRepository.profile.value = user.copy(photoPath = "photo-path")
+    profileRepository.removeFailure = UnknownHostException("firebasestorage.googleapis.com")
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.EDIT_PROFILE_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.REMOVE_PHOTO_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.BIO_FIELD).performTextInput("Hello")
+    composeTestRule
+        .onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(EditProfileScreenTags.ERROR_MESSAGE, useUnmergedTree = true)
+        .performScrollTo()
+        .assertTextEquals(context.getString(R.string.edit_profile_photo_not_removed))
+    composeTestRule.onNodeWithTag(EditProfileScreenTags.BIO_FIELD).assertTextEquals("Hello")
+    assertEquals("Hello", profileRepository.savedBio)
+
+    profileRepository.removeFailure = null
+    composeTestRule
+        .onNodeWithTag(EditProfileScreenTags.SAVE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(2, profileRepository.photoRemovals)
   }
 
   @Test
@@ -1027,13 +1076,14 @@ class AppNavHostTest {
     setContent(FakeAuthRepository(currentUser = user))
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     openCreateListing()
-    listingRepository.failure = IOException("Network down")
+    listingRepository.failure = UnknownHostException("Network down")
 
     publishListing("Bosch drill set")
 
     composeTestRule
         .onNodeWithTag(CreateListingScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Network down")
+        .assertTextEquals(context.getString(R.string.error_network))
+    composeTestRule.onNodeWithText("Network down").assertDoesNotExist()
     assertEquals(Routes.CREATE_LISTING, navController.currentBackStackEntry?.destination?.route)
     composeTestRule
         .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
@@ -1158,7 +1208,15 @@ class AppNavHostTest {
     var savedBio: String? = null
       private set
 
-    override fun observeProfile(uid: String): Flow<User?> = profile
+    /** When set, observing the profile fails with it. */
+    var observationFailure: Exception? = null
+    /** When set, removing the photo fails with it. */
+    var removeFailure: Exception? = null
+    var photoRemovals = 0
+      private set
+
+    override fun observeProfile(uid: String): Flow<User?> =
+        observationFailure?.let { failure -> flow { throw failure } } ?: profile
 
     override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-path"
 
@@ -1167,7 +1225,11 @@ class AppNavHostTest {
       return photo
     }
 
-    override suspend fun removeProfilePhoto(uid: String) = Unit
+    override suspend fun removeProfilePhoto(uid: String) {
+      photoRemovals++
+      removeFailure?.let { throw it }
+      profile.value = profile.value?.copy(photoPath = null)
+    }
 
     override suspend fun updateProfile(uid: String, photoPath: String?, bio: String) {
       savedBio = bio

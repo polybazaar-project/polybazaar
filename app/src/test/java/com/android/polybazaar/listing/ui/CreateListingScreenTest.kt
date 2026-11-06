@@ -41,6 +41,7 @@ import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.R
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
@@ -50,6 +51,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import java.io.File
+import java.net.UnknownHostException
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -544,14 +546,32 @@ class CreateListingScreenTest {
   }
 
   @Test
-  fun screen_showsViewModelError() {
-    setContent(RecordingListingRepository(failure = Exception("Offline")))
+  fun screen_showsTheNetworkTextForAnOfflineSave() {
+    setContent(
+        RecordingListingRepository(failure = UnknownHostException("firestore.googleapis.com"))
+    )
 
     fillForm("Drill", "Works well", "5", "Tools")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
     composeTestRule.waitForIdle()
 
-    node(CreateListingScreenTags.ERROR_MESSAGE).performScrollTo().assertTextContains("Offline")
+    node(CreateListingScreenTags.ERROR_MESSAGE)
+        .performScrollTo()
+        .assertTextEquals(context.getString(R.string.error_network))
+  }
+
+  @Test
+  fun screen_showsTheUnknownTextAndNotTheExceptionMessage() {
+    setContent(RecordingListingRepository(failure = IllegalStateException("Offline: uid-42")))
+
+    fillForm("Drill", "Works well", "5", "Tools")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    node(CreateListingScreenTags.ERROR_MESSAGE)
+        .performScrollTo()
+        .assertTextEquals(context.getString(R.string.error_unknown))
+    composeTestRule.onNodeWithText("Offline", substring = true).assertDoesNotExist()
   }
 
   // Photo picking: these tests use a fake system picker to reach the code that handles its result,
