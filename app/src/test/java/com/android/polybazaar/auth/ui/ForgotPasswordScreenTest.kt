@@ -25,14 +25,27 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
-import com.android.polybazaar.auth.model.PasswordResetException
+import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordUiState
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
+import com.android.polybazaar.error.model.AppError
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.firestore.FirebaseFirestore
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.any
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
 
 @RunWith(AndroidJUnit4::class)
 class ForgotPasswordScreenTest {
@@ -128,7 +141,7 @@ class ForgotPasswordScreenTest {
   }
 
   @Test
-  fun eachFailureReason_showsItsOwnMessage() {
+  fun eachError_showsTheSameTextAsBeforeAppError() {
     var uiState by mutableStateOf(ForgotPasswordUiState(email = "ada@epfl.ch"))
     composeTestRule.setContent {
       ForgotPasswordContent(
@@ -139,19 +152,17 @@ class ForgotPasswordScreenTest {
       )
     }
 
-    for (reason in PasswordResetException.Reason.entries) {
-      uiState = uiState.copy(error = reason)
-      node(ForgotPasswordScreenTags.ERROR_MESSAGE)
-          .assertTextEquals(string(passwordResetErrorText(reason)))
-    }
+    mapOf(
+            AppError.INVALID_EMAIL to INVALID_EMAIL_TEXT,
+            AppError.NETWORK to NETWORK_TEXT,
+            AppError.TOO_MANY_REQUESTS to TOO_MANY_REQUESTS_TEXT,
+            AppError.UNKNOWN to UNKNOWN_TEXT,
+        )
+        .forEach { (error, text) ->
+          uiState = uiState.copy(error = error)
+          node(ForgotPasswordScreenTags.ERROR_MESSAGE).assertTextEquals(text)
+        }
     node(ForgotPasswordScreenTags.SENT_MESSAGE).assertDoesNotExist()
-  }
-
-  @Test
-  fun failureReasons_mapToDistinctMessages() {
-    val messages = PasswordResetException.Reason.entries.map { passwordResetErrorText(it) }
-
-    assertEquals(messages.size, messages.toSet().size)
   }
 
   @Test
@@ -198,20 +209,61 @@ class ForgotPasswordScreenTest {
   }
 
   @Test
-  fun withTheViewModel_networkFailureShowsTheNetworkMessage() {
-    val repository =
-        FakeAuthRepository(
-            Result.failure(PasswordResetException(PasswordResetException.Reason.NETWORK))
+  fun withTheRepository_eachFirebaseFailureShowsItsTextAndNeverItsOwn() {
+    val auth = mock<FirebaseAuth>()
+    val viewModel = ForgotPasswordViewModel(FirebaseAuthRepository(auth, mock<FirebaseFirestore>()))
+    composeTestRule.setContent { ForgotPasswordScreen(forgotPasswordViewModel = viewModel) {} }
+    node(ForgotPasswordScreenTags.EMAIL_FIELD).performTextInput("ada@epfl.ch")
+
+    mapOf(
+            FirebaseAuthInvalidCredentialsException("ERROR_INVALID_EMAIL", RAW_TEXT) to
+                INVALID_EMAIL_TEXT,
+            FirebaseNetworkException(RAW_TEXT) to NETWORK_TEXT,
+            FirebaseTooManyRequestsException(RAW_TEXT) to TOO_MANY_REQUESTS_TEXT,
+            IllegalStateException(RAW_TEXT) to UNKNOWN_TEXT,
         )
-    val viewModel = ForgotPasswordViewModel(repository)
+        .forEach { (exception, text) ->
+          whenever(auth.sendPasswordResetEmail("ada@epfl.ch"))
+              .thenReturn(Tasks.forException(exception))
+
+          node(ForgotPasswordScreenTags.SEND_BUTTON).performClick()
+
+          node(ForgotPasswordScreenTags.ERROR_MESSAGE).assertTextEquals(text)
+          composeTestRule.onNodeWithText(RAW_TEXT, substring = true).assertDoesNotExist()
+          node(ForgotPasswordScreenTags.SENT_MESSAGE).assertDoesNotExist()
+        }
+  }
+
+  @Test
+  fun withTheRepository_unknownOrDisabledAddressShowsTheNeutralConfirmation() {
+    val auth = mock<FirebaseAuth>()
+    val viewModel = ForgotPasswordViewModel(FirebaseAuthRepository(auth, mock<FirebaseFirestore>()))
+    composeTestRule.setContent { ForgotPasswordScreen(forgotPasswordViewModel = viewModel) {} }
+    node(ForgotPasswordScreenTags.EMAIL_FIELD).performTextInput("ada@epfl.ch")
+
+    for (code in listOf("ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED")) {
+      whenever(auth.sendPasswordResetEmail("ada@epfl.ch"))
+          .thenReturn(Tasks.forException(FirebaseAuthInvalidUserException(code, RAW_TEXT)))
+
+      node(ForgotPasswordScreenTags.SEND_BUTTON).performClick()
+
+      node(ForgotPasswordScreenTags.SENT_MESSAGE)
+          .assertTextEquals(string(R.string.forgot_password_sent_message, "ada@epfl.ch"))
+      node(ForgotPasswordScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+    }
+  }
+
+  @Test
+  fun withTheRepository_blankEmailShowsTheInvalidEmailTextWithoutCallingFirebase() {
+    val auth = mock<FirebaseAuth>()
+    val viewModel = ForgotPasswordViewModel(FirebaseAuthRepository(auth, mock<FirebaseFirestore>()))
     composeTestRule.setContent { ForgotPasswordScreen(forgotPasswordViewModel = viewModel) {} }
 
-    node(ForgotPasswordScreenTags.EMAIL_FIELD).performTextInput("ada@epfl.ch")
-    node(ForgotPasswordScreenTags.SEND_BUTTON).performClick()
+    // The send button is disabled for a blank email, so call the ViewModel as a stale tap would.
+    composeTestRule.runOnIdle { viewModel.sendResetLink() }
 
-    node(ForgotPasswordScreenTags.ERROR_MESSAGE)
-        .assertTextEquals(string(R.string.forgot_password_error_network))
-    node(ForgotPasswordScreenTags.SENT_MESSAGE).assertDoesNotExist()
+    node(ForgotPasswordScreenTags.ERROR_MESSAGE).assertTextEquals(INVALID_EMAIL_TEXT)
+    verify(auth, never()).sendPasswordResetEmail(any<String>())
   }
 
   private class FakeAuthRepository(private val resetResult: Result<Unit>) : AuthRepository {
@@ -240,5 +292,14 @@ class ForgotPasswordScreenTest {
 
     override suspend fun refreshUser(): Result<User> =
         Result.failure(IllegalStateException("Not used"))
+  }
+
+  private companion object {
+    // Literal on purpose: the acceptance criterion is that the text did not change.
+    const val INVALID_EMAIL_TEXT = "Enter a valid email address."
+    const val NETWORK_TEXT = "No connection. Check your internet and try again."
+    const val TOO_MANY_REQUESTS_TEXT = "Too many attempts. Wait a few minutes, then try again."
+    const val UNKNOWN_TEXT = "Something went wrong. Please try again."
+    const val RAW_TEXT = "raw firebase message"
   }
 }

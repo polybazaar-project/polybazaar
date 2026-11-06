@@ -4,6 +4,7 @@ package com.android.polybazaar.error.model
 import android.util.Log
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.FirebaseAuthActionCodeException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
@@ -48,9 +49,20 @@ enum class AppError {
   /** Too many requests were sent from this device, or a quota was exceeded. */
   TOO_MANY_REQUESTS,
 
+  /** An emailed link is malformed, expired or was already used. A new one must be requested. */
+  INVALID_LINK,
+
   /** Any other error. */
   UNKNOWN,
 }
+
+/**
+ * A failure a repository has already identified, for cases no library exception describes.
+ *
+ * @property error the error to show to the user.
+ * @param cause the original exception, kept for logging only, never shown to the user.
+ */
+class AppException(val error: AppError, cause: Throwable? = null) : Exception(error.name, cause)
 
 private const val TAG = "AppError"
 
@@ -58,8 +70,8 @@ private const val TAG = "AppError"
  * Maps this exception to the [AppError] shown to the user.
  *
  * The cause chain is searched, so a repository can wrap a Firebase error in its own exception and
- * still get the right message. When nothing in the chain is recognised, the original exception is
- * passed to [log] and [AppError.UNKNOWN] is returned.
+ * still get the right message. An [AppException] maps to its own error. When nothing in the chain
+ * is recognised, the original exception is passed to [log] and [AppError.UNKNOWN] is returned.
  *
  * Callers must rethrow a [kotlinx.coroutines.CancellationException] before calling this: it is not
  * an error to show.
@@ -80,6 +92,7 @@ fun Throwable.toAppError(
  */
 private fun knownError(e: Throwable): AppError? =
     when (e) {
+      is AppException -> e.error
       is FirebaseNetworkException -> AppError.NETWORK
       is FirebaseTooManyRequestsException -> AppError.TOO_MANY_REQUESTS
       // Must come before FirebaseAuthInvalidCredentialsException, which it extends.
@@ -87,6 +100,8 @@ private fun knownError(e: Throwable): AppError? =
       is FirebaseAuthInvalidCredentialsException -> invalidCredentialsError(e.errorCode)
       is FirebaseAuthInvalidUserException -> invalidUserError(e.errorCode)
       is FirebaseAuthUserCollisionException -> AppError.EMAIL_ALREADY_IN_USE
+      // ERROR_EXPIRED_ACTION_CODE and ERROR_INVALID_ACTION_CODE.
+      is FirebaseAuthActionCodeException -> AppError.INVALID_LINK
       is FirebaseFirestoreException -> firestoreError(e.code)
       is StorageException -> storageError(e.errorCode)
       // Only network failures: other IOExceptions, such as a FileNotFoundException from an upload

@@ -39,6 +39,7 @@ import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.viewmodel.ResetPasswordError
 import com.android.polybazaar.auth.viewmodel.ResetPasswordUiState
 import com.android.polybazaar.auth.viewmodel.ResetPasswordViewModel
+import com.android.polybazaar.error.ui.message
 
 object ResetPasswordScreenTags {
   const val SCREEN = "reset_password_screen"
@@ -156,9 +157,12 @@ fun ResetPasswordContent(uiState: ResetPasswordUiState, actions: ResetPasswordAc
             placeholder = stringResource(R.string.reset_password_confirm_placeholder),
             tag = ResetPasswordScreenTags.CONFIRM_PASSWORD_FIELD,
         )
-        uiState.error?.let {
+        val errorText =
+            uiState.error?.let { stringResource(resetPasswordErrorText(it)) }
+                ?: uiState.requestError?.message()
+        errorText?.let {
           Text(
-              text = stringResource(resetPasswordErrorText(it)),
+              text = it,
               color = AuthColors.Danger,
               fontSize = 12.sp,
               modifier = Modifier.testTag(ResetPasswordScreenTags.ERROR_MESSAGE),
@@ -224,9 +228,8 @@ private fun GuidanceText(text: String) {
 }
 
 /**
- * Message shown for each [ResetPasswordError]. Errors that every screen can hit (network, rate
- * limit, unknown, weak password) reuse the shared messages of errors.xml so the wording stays the
- * same across the app.
+ * Message shown for each [ResetPasswordError]. A weak password reuses the shared message of
+ * errors.xml so the wording is the same as when Firebase rejects it.
  */
 @StringRes
 internal fun resetPasswordErrorText(error: ResetPasswordError): Int =
@@ -235,10 +238,6 @@ internal fun resetPasswordErrorText(error: ResetPasswordError): Int =
       ResetPasswordError.PASSWORD_TOO_LONG -> R.string.reset_password_error_too_long
       ResetPasswordError.WEAK_PASSWORD -> R.string.error_weak_password
       ResetPasswordError.PASSWORDS_DO_NOT_MATCH -> R.string.reset_password_error_mismatch
-      ResetPasswordError.INVALID_LINK -> R.string.reset_password_error_invalid_link
-      ResetPasswordError.NETWORK -> R.string.error_network
-      ResetPasswordError.TOO_MANY_REQUESTS -> R.string.error_too_many_requests
-      ResetPasswordError.UNKNOWN -> R.string.error_unknown
     }
 
 @Preview(showBackground = true, widthDp = 412, heightDp = 924)
