@@ -4,7 +4,10 @@ package com.android.polybazaar.profile.viewmodel
 
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.profile.model.ProfileRepository
+import com.google.firebase.firestore.FirebaseFirestoreException
+import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -82,23 +85,23 @@ class EditProfileViewModelTest {
     assertEquals(profile.bio, viewModel.uiState.value.bio)
     assertEquals(profile.photoPath, viewModel.uiState.value.photoPath)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
-  fun missingProfile_exposesErrorAndLaterProfileRecovers() = runTest {
+  fun missingProfile_isNotFoundAndLaterProfileClearsIt() = runTest {
     repository.profiles.emit(null)
     testDispatcher.scheduler.runCurrent()
 
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Profile not found", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NOT_FOUND, viewModel.uiState.value.error)
     assertNull(viewModel.uiState.value.profile)
 
     repository.profiles.emit(profile)
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(profile, viewModel.uiState.value.profile)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -112,27 +115,38 @@ class EditProfileViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertNull(viewModel.uiState.value.profile)
-    assertEquals("Profile is not available to save", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NOT_FOUND, viewModel.uiState.value.error)
     assertTrue(repository.operations.isEmpty())
     assertFalse(viewModel.uiState.value.isSaving)
   }
 
   @Test
-  fun profileObservationFailure_usesExceptionMessage() = runTest {
-    observeFailure(IllegalStateException("Load failed"))
+  fun profileObservationFailure_unrecognised_isUnknown() = runTest {
+    // Such as a profile missing its username: the internal text and uid are not shown.
+    observeFailure(IllegalStateException("User $uid has no username"))
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Load failed", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.error)
   }
 
   @Test
-  fun profileObservationFailure_usesFallbackWhenExceptionHasNoMessage() = runTest {
-    observeFailure(IllegalStateException())
+  fun profileObservationFailure_offline_isNetwork() = runTest {
+    observeFailure(
+        FirebaseFirestoreException("offline", FirebaseFirestoreException.Code.UNAVAILABLE)
+    )
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Unable to load profile", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun profileObservationFailure_unknownHost_isNetwork() = runTest {
+    observeFailure(UnknownHostException("firestore.googleapis.com"))
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
   }
 
   @Test
@@ -143,12 +157,12 @@ class EditProfileViewModelTest {
     viewModel.saveProfile()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals("Write failed", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.error)
     viewModel.updateBio("Try again")
 
     assertEquals("Try again", viewModel.uiState.value.bio)
     assertFalse(viewModel.uiState.value.isSaved)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -195,7 +209,7 @@ class EditProfileViewModelTest {
     viewModel.saveProfile()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals("Profile is not available to save", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NOT_FOUND, viewModel.uiState.value.error)
     assertNull(repository.updateCall)
     assertTrue(repository.operations.isEmpty())
   }
@@ -217,7 +231,7 @@ class EditProfileViewModelTest {
     assertFalse(viewModel.uiState.value.isPhotoRemoved)
     assertFalse(viewModel.uiState.value.isSaving)
     assertTrue(viewModel.uiState.value.isSaved)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -293,17 +307,18 @@ class EditProfileViewModelTest {
   }
 
   @Test
-  fun saveFailure_exposesMessageAndAllowsRetry() = runTest {
+  fun saveFailure_offline_isNetworkAndAllowsRetry() = runTest {
     loadProfile()
     viewModel.updateBio("Retry bio")
-    repository.updateException = IllegalStateException("Write failed")
+    repository.updateException =
+        FirebaseFirestoreException("offline", FirebaseFirestoreException.Code.UNAVAILABLE)
 
     viewModel.saveProfile()
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(viewModel.uiState.value.isSaving)
     assertFalse(viewModel.uiState.value.isSaved)
-    assertEquals("Write failed", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
     assertEquals("Retry bio", viewModel.uiState.value.bio)
 
     repository.updateException = null
@@ -311,25 +326,25 @@ class EditProfileViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertTrue(viewModel.uiState.value.isSaved)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
-  fun saveFailureWithoutMessage_usesFallbackMessage() = runTest {
+  fun saveFailure_unrecognised_isUnknown() = runTest {
     loadProfile()
-    repository.updateException = IllegalStateException()
+    repository.updateException = IllegalArgumentException("Bio for $uid is invalid")
 
     viewModel.saveProfile()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals("Unable to save profile", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isSaving)
   }
 
   @Test
   fun uploadFailure_doesNotRemovePhotoOrUpdateProfile() = runTest {
     loadProfile()
-    repository.uploadException = IllegalStateException("Upload failed")
+    repository.uploadException = UnknownHostException("firebasestorage.googleapis.com")
     viewModel.selectProfilePhoto(mock())
 
     viewModel.saveProfile()
@@ -337,13 +352,13 @@ class EditProfileViewModelTest {
 
     assertEquals(listOf("upload"), repository.operations)
     assertNull(repository.updateCall)
-    assertEquals("Upload failed", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isSaving)
     assertFalse(viewModel.uiState.value.isSaved)
   }
 
   @Test
-  fun removePhotoFailure_exposesErrorAfterProfileUpdate() = runTest {
+  fun removePhotoFailure_isPartiallySavedWithoutAnError() = runTest {
     loadProfile()
     repository.removeException = IllegalStateException("Removal failed")
     viewModel.removeProfilePhoto()
@@ -367,17 +382,120 @@ class EditProfileViewModelTest {
     assertTrue(viewModel.uiState.value.isPhotoRemoved)
     assertFalse(viewModel.uiState.value.isSaved)
     assertTrue(viewModel.uiState.value.isPartiallySaved)
-    assertEquals(
-        "Bio was saved, but the profile photo could not be removed: Removal failed",
-        viewModel.uiState.value.errorMessage,
-    )
+    assertNull(viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isSaving)
+  }
+
+  @Test
+  fun saveAfterPartialSave_retriesThePhotoRemoval() = runTest {
+    partiallySave()
+    repository.removeException = null
+    repository.operations.clear()
+
+    viewModel.saveProfile()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("update", "remove"), repository.operations)
+    assertEquals(UpdateCall(uid, photoPath = null, bio = "Kept bio"), repository.updateCall)
+    assertTrue(viewModel.uiState.value.isSaved)
+    assertFalse(viewModel.uiState.value.isPartiallySaved)
+    assertFalse(viewModel.uiState.value.isPhotoRemoved)
+    assertNull(viewModel.uiState.value.profile?.photoPath)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun retryAfterPartialSave_thatFailsBeforeTheRemoval_hasTheError() = runTest {
+    partiallySave()
+    repository.updateException = UnknownHostException("offline")
+    repository.operations.clear()
+
+    viewModel.saveProfile()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("update"), repository.operations)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    // Still set, so the screen has to show the error first.
+    assertTrue(viewModel.uiState.value.isPartiallySaved)
+    assertTrue(viewModel.uiState.value.isPhotoRemoved)
+    assertEquals("Kept bio", viewModel.uiState.value.bio)
+  }
+
+  @Test
+  fun saveStart_clearsThePreviousError() = runTest {
+    failSave()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    repository.updateGate = CompletableDeferred()
+
+    viewModel.saveProfile()
+    testDispatcher.scheduler.runCurrent()
+
+    assertTrue(viewModel.uiState.value.isSaving)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun selectPhoto_clearsTheError() = runTest {
+    failSave()
+
+    viewModel.selectProfilePhoto(mock())
+
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun selectPhoto_clearsThePartialSave() = runTest {
+    partiallySave()
+
+    viewModel.selectProfilePhoto(mock())
+
+    assertFalse(viewModel.uiState.value.isPartiallySaved)
+  }
+
+  @Test
+  fun removePhoto_clearsTheError() = runTest {
+    failSave()
+
+    viewModel.removeProfilePhoto()
+
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun removePhoto_clearsThePartialSave() = runTest {
+    partiallySave()
+
+    viewModel.removeProfilePhoto()
+
+    assertFalse(viewModel.uiState.value.isPartiallySaved)
+  }
+
+  @Test
+  fun updateBio_clearsThePartialSave() = runTest {
+    partiallySave()
+
+    viewModel.updateBio("Another bio")
+
+    assertFalse(viewModel.uiState.value.isPartiallySaved)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun arrivingProfile_clearsAnError() = runTest {
+    failSave()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    repository.profiles.emit(profile.copy(username = "renamed"))
+    testDispatcher.scheduler.runCurrent()
+
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
   fun profileUpdateFailure_doesNotRemovePhoto() = runTest {
     loadProfile()
-    repository.updateException = IllegalStateException("Write failed")
+    repository.updateException =
+        FirebaseFirestoreException("denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
     viewModel.removeProfilePhoto()
     viewModel.updateBio("No photo")
 
@@ -385,7 +503,7 @@ class EditProfileViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(listOf("update"), repository.operations)
-    assertEquals("Write failed", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.error)
     assertTrue(viewModel.uiState.value.isPhotoRemoved)
     assertEquals(profile.photoPath, viewModel.uiState.value.profile?.photoPath)
     assertFalse(viewModel.uiState.value.isSaving)
@@ -411,6 +529,25 @@ class EditProfileViewModelTest {
   private suspend fun loadProfile() {
     repository.profiles.emit(profile)
     testDispatcher.scheduler.advanceUntilIdle()
+  }
+
+  /** Loads the profile, then saves a bio whose photo removal fails. */
+  private suspend fun partiallySave() {
+    loadProfile()
+    repository.removeException = UnknownHostException("offline")
+    viewModel.removeProfilePhoto()
+    viewModel.updateBio("Kept bio")
+    viewModel.saveProfile()
+    testDispatcher.scheduler.advanceUntilIdle()
+  }
+
+  /** Loads the profile, then runs a save that fails offline before anything is written. */
+  private suspend fun failSave() {
+    loadProfile()
+    repository.updateException = UnknownHostException("offline")
+    viewModel.saveProfile()
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.updateException = null
   }
 
   private fun observeFailure(exception: Exception) {

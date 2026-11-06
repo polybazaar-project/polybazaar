@@ -42,6 +42,8 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthRoundIconButton
 import com.android.polybazaar.auth.ui.AuthTitleGroup
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.ui.message
 
 object ProfileScreenTags {
   const val SCREEN = "profile_screen"
@@ -63,7 +65,7 @@ private val MinPageHeight = 640.dp
  * @param profile the profile to show, or null while it loads or if it could not be loaded.
  * @param photo the encoded bytes of the saved profile photo, or null to show the default photo.
  * @param isLoading whether the profile is loading.
- * @param errorMessage the error to show, if any.
+ * @param error the error to show, if any.
  * @param onEditProfile called when the user taps "Edit profile".
  * @param onOpenSettings called when the user taps the settings button.
  * @param toolbox the user's Toolbox, shown under the identity card in a bounded height.
@@ -72,7 +74,7 @@ private val MinPageHeight = 640.dp
 fun ProfileContent(
     profile: User?,
     isLoading: Boolean,
-    errorMessage: String?,
+    error: AppError?,
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
     photo: ByteArray? = null,
@@ -100,7 +102,7 @@ fun ProfileContent(
           profile = profile,
           photo = photo,
           isLoading = isLoading,
-          errorMessage = errorMessage,
+          error = error,
       )
       Spacer(modifier = Modifier.height(24.dp))
       // Takes the height the other cards leave, and its content scrolls inside that height.
@@ -134,7 +136,7 @@ private fun IdentityCard(
     profile: User?,
     photo: ByteArray?,
     isLoading: Boolean,
-    errorMessage: String?,
+    error: AppError?,
 ) {
   val shape = RoundedCornerShape(20.dp)
   Column(
@@ -186,9 +188,9 @@ private fun IdentityCard(
               modifier = Modifier.testTag(ProfileScreenTags.BIO),
           )
         }
-    errorMessage?.let {
+    error?.let {
       Text(
-          text = it,
+          text = it.message(),
           color = AuthColors.Danger,
           fontSize = 12.sp,
           modifier = Modifier.testTag(ProfileScreenTags.ERROR_MESSAGE),
@@ -266,7 +268,7 @@ private fun ProfileContentPreview() {
               bio = "Weekend maker, careful borrower, and always happy to share tools.",
           ),
       isLoading = false,
-      errorMessage = null,
+      error = null,
       onEditProfile = {},
       onOpenSettings = {},
   )
