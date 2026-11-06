@@ -145,6 +145,9 @@ class FirebaseBookingRepositoryTest {
 
   @Test
   fun getBookingsPropagatesMalformedBookingDocuments() = runTest {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
     whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
     whenever(snapshot.documents).thenReturn(listOf(stored))
     assertTrue(
