@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
@@ -43,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
@@ -54,6 +57,7 @@ import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.formatChf
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
@@ -65,6 +69,7 @@ object ListingDetailScreenTags {
   const val ERROR_MESSAGE = "listing_detail_error_message"
   const val RETRY_BUTTON = "listing_detail_retry_button"
   const val CATEGORY = "listing_detail_category"
+  const val CONDITION = "listing_detail_condition"
   const val TITLE = "listing_detail_title"
   const val DESCRIPTION = "listing_detail_description"
   const val TERMS = "listing_detail_terms"
@@ -176,9 +181,9 @@ private fun ColumnScope.ListingDetail(
         modifier = Modifier.padding(horizontal = PageMargin, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      Overview(listing)
-      DescriptionSection(listing)
-      TermsSection(listing)
+      Overview(listing, uiState.pendingDetails)
+      DescriptionSection(listing, uiState.pendingDetails)
+      TermsSection(listing, uiState.pendingDetails)
       LenderSection(listing, uiState, actions)
     }
   }
@@ -217,21 +222,25 @@ private fun PhotoArea(onBack: () -> Unit) {
   }
 }
 
-/**
- * Category and title. The Figma's condition badge and location wait until listings store them (see
- * ListingPendingDetails).
- */
+/** Category, condition badge, title and location. The badge and location show once known. */
 @Composable
-private fun Overview(listing: Listing) {
+private fun Overview(listing: Listing, pending: ListingPendingDetails) {
   Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    Text(
-        text = listing.category.displayName.uppercase(),
-        color = AuthColors.Accent,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 0.6.sp,
-        modifier = Modifier.testTag(ListingDetailScreenTags.CATEGORY),
-    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+          text = listing.category.displayName.uppercase(),
+          color = AuthColors.Accent,
+          fontSize = 11.sp,
+          fontWeight = FontWeight.SemiBold,
+          letterSpacing = 0.6.sp,
+          modifier = Modifier.testTag(ListingDetailScreenTags.CATEGORY),
+      )
+      pending.condition?.let { ConditionBadge(it) }
+    }
     Text(
         text = listing.title,
         color = AuthColors.TextPrimary,
@@ -241,12 +250,28 @@ private fun Overview(listing: Listing) {
         letterSpacing = (-0.4).sp,
         modifier = Modifier.testTag(ListingDetailScreenTags.TITLE),
     )
+    pending.location?.let { SecondaryText(text = it, fontSize = 13.sp) }
   }
 }
 
-/** The description. The Figma's specs and included items wait until listings store them. */
+/** The Figma "Listing badge": the item's condition in a pill on the right of the category. */
 @Composable
-private fun DescriptionSection(listing: Listing) {
+private fun ConditionBadge(condition: String) {
+  Text(
+      text = condition.uppercase(),
+      color = AuthColors.Accent,
+      fontSize = 11.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier =
+          Modifier.background(AuthColors.AccentContainer, CircleShape)
+              .padding(horizontal = 10.dp, vertical = 7.dp)
+              .testTag(ListingDetailScreenTags.CONDITION),
+  )
+}
+
+/** The description, then the specs and included items once known. */
+@Composable
+private fun DescriptionSection(listing: Listing, pending: ListingPendingDetails) {
   Section(title = stringResource(R.string.listing_detail_description_title)) {
     Text(
         text = listing.description,
@@ -255,16 +280,22 @@ private fun DescriptionSection(listing: Listing) {
         lineHeight = 18.sp,
         modifier = Modifier.testTag(ListingDetailScreenTags.DESCRIPTION),
     )
+    if (pending.specs.isNotEmpty()) SecondaryText(pending.specs.joinToString("  ·  "))
+    if (pending.includedItems.isNotEmpty()) {
+      SecondaryText(
+          stringResource(R.string.listing_detail_included, pending.includedItems.joinToString())
+      )
+    }
   }
 }
 
 /**
- * Pickup, returns, cancellation and damage terms. Only items are returned or have a deposit, so
- * services show pickup and cancellation only. No listing stores pickup, return or cancellation
- * terms yet, so those show the Figma's "to be confirmed" text.
+ * Pickup, returns, cancellation and damage terms, and the longest rental. Only items are returned
+ * or have a deposit, so services show pickup and cancellation only. Terms not known yet show the
+ * Figma's "to be confirmed" text.
  */
 @Composable
-private fun TermsSection(listing: Listing) {
+private fun TermsSection(listing: Listing, pending: ListingPendingDetails) {
   val item = listing as? ItemListing
   val title =
       if (item != null) R.string.listing_detail_item_terms_title
@@ -275,27 +306,36 @@ private fun TermsSection(listing: Listing) {
       SecondaryText(
           stringResource(
               R.string.listing_detail_pickup,
-              stringResource(R.string.listing_detail_pickup_pending),
+              pending.pickupTerms ?: stringResource(R.string.listing_detail_pickup_pending),
           )
       )
       if (item != null) {
         SecondaryText(
             stringResource(
                 R.string.listing_detail_returns,
-                stringResource(R.string.listing_detail_returns_pending),
+                pending.returnTerms ?: stringResource(R.string.listing_detail_returns_pending),
             )
         )
       }
       SecondaryText(
           stringResource(
               R.string.listing_detail_cancellation,
-              stringResource(R.string.listing_detail_cancellation_pending),
+              pending.cancellationPolicy
+                  ?: stringResource(R.string.listing_detail_cancellation_pending),
           )
       )
-      if (item != null) {
-        SecondaryText(stringResource(R.string.listing_detail_damage, formatChf(item.refundValue)))
-      }
+      if (item != null) ItemTerms(item)
     }
+  }
+}
+
+/** The terms only items have: the damage compensation and, if set, the longest rental. */
+@Composable
+private fun ItemTerms(item: ItemListing) {
+  SecondaryText(stringResource(R.string.listing_detail_damage, formatChf(item.refundValue)))
+  // Null means the lender set no limit, so there is nothing to say.
+  item.maxRentalDays?.let { days ->
+    SecondaryText(pluralStringResource(R.plurals.listing_detail_max_days, days, days))
   }
 }
 
@@ -476,17 +516,18 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
   }
 }
 
-/** A 12sp line of body text, grey unless [color] says otherwise. */
+/** A line of body text, 12sp and grey unless [fontSize] or [color] say otherwise. */
 @Composable
 private fun SecondaryText(
     text: String,
     modifier: Modifier = Modifier,
     color: Color = AuthColors.TextSecondary,
+    fontSize: TextUnit = 12.sp,
 ) {
   Text(
       text = text,
       color = color,
-      fontSize = 12.sp,
+      fontSize = fontSize,
       lineHeight = 17.sp,
       modifier = modifier,
   )
