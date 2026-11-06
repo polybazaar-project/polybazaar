@@ -2,12 +2,14 @@
 package com.android.polybazaar.listing.ui
 
 import android.content.Context
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -22,6 +24,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
@@ -152,6 +155,60 @@ class ListingDetailScreenTest {
         .assertTextEquals("CHF 25.50 ${context.getString(R.string.listing_detail_price_per_day)}")
     node(ListingDetailScreenTags.DEPOSIT).assertDoesNotExist()
     text(returnsPending()).assertDoesNotExist()
+  }
+
+  @Test
+  fun item_withARentalLimit_showsTheLongestRental() {
+    setContent(ListingDetailUiState(listing = drill))
+
+    text(context.resources.getQuantityString(R.plurals.listing_detail_max_days, 7, 7))
+        .assertExists()
+  }
+
+  @Test
+  fun item_withoutARentalLimit_leavesTheLengthOut() {
+    setContent(ListingDetailUiState(listing = drill.copy(maxRentalDays = null)))
+
+    text(context.resources.getQuantityString(R.plurals.listing_detail_max_days, 7, 7))
+        .assertDoesNotExist()
+  }
+
+  @Test
+  fun pendingDetails_whenKnown_replaceThePlaceholders() {
+    val details =
+        ListingPendingDetails(
+            condition = "Like new",
+            location = "Lausanne",
+            specs = listOf("18 V", "2 batteries"),
+            includedItems = listOf("Case", "Bits"),
+            pickupTerms = "At the Rolex Learning Center.",
+            returnTerms = "Within the week.",
+            cancellationPolicy = "Free until the day before.",
+        )
+    setContent(ListingDetailUiState(listing = drill, pendingDetails = details))
+
+    node(ListingDetailScreenTags.CONDITION).assertTextEquals("LIKE NEW")
+    text("Lausanne").assertExists()
+    text("18 V  ·  2 batteries").assertExists()
+    text(context.getString(R.string.listing_detail_included, "Case, Bits")).assertExists()
+    text(context.getString(R.string.listing_detail_pickup, "At the Rolex Learning Center."))
+        .assertExists()
+    text(context.getString(R.string.listing_detail_returns, "Within the week.")).assertExists()
+    text(context.getString(R.string.listing_detail_cancellation, "Free until the day before."))
+        .assertExists()
+  }
+
+  @Test
+  fun pendingDetails_whenUnknown_leaveTheBadgeLocationSpecsAndIncludedOut() {
+    setContent(ListingDetailUiState(listing = drill))
+
+    node(ListingDetailScreenTags.CONDITION).assertDoesNotExist()
+    composeTestRule
+        .onAllNodesWithText(
+            context.getString(R.string.listing_detail_included, ""),
+            substring = true,
+        )
+        .assertCountEquals(0)
   }
 
   @Test
