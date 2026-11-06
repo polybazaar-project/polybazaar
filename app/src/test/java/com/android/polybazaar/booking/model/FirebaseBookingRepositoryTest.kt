@@ -1,6 +1,8 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Copilot (GPT-5.6 Terra)
 package com.android.polybazaar.booking.model
 
+import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -13,6 +15,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import java.time.LocalDate
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -39,7 +42,7 @@ class FirebaseBookingRepositoryTest {
   private val booking =
       Booking(
           listingId = "listing",
-          renterUid = "renter",
+          renterUid = "caller-renter",
           lenderUid = "lender",
           startDate = LocalDate.of(2026, 12, 31),
           endDate = LocalDate.of(2027, 1, 2),
@@ -48,7 +51,7 @@ class FirebaseBookingRepositoryTest {
   @Before
   fun setUp() {
     val user = mock<FirebaseUser>()
-    whenever(user.uid).thenReturn("lender")
+    whenever(user.uid).thenReturn("renter")
     whenever(auth.currentUser).thenReturn(user)
     whenever(firestore.collection("bookings")).thenReturn(collection)
     whenever(collection.document()).thenReturn(document)
@@ -57,7 +60,7 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
-  fun requestBookingStoresFieldsAndEpochDays() = runTest {
+  fun requestBookingUsesAuthenticatedRenterUidAndStoresEpochDays() = runTest {
     whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
     repository.requestBooking(booking)
@@ -78,6 +81,31 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
+  fun requestBookingReturnsWhileServerConfirmationIsPending() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(pendingWrite.task)
+
+    withTimeout(1_000) { repository.requestBooking(booking) }
+
+    assertTrue(!pendingWrite.task.isComplete)
+    verify(document).set(any<Map<String, Any>>())
+  }
+
+  @Test
+  fun requestBookingReportsLaterWriteFailures() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(pendingWrite.task)
+    var reportedFailure: Exception? = null
+    val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+
+    repository.requestBooking(booking)
+    val failure = IllegalStateException("Write rejected")
+    pendingWrite.setException(failure)
+
+    assertSame(failure, reportedFailure)
+  }
+
+  @Test
   fun requestBookingRejectsInvalidDatesAndStatus() = runTest {
     val reversed = booking.copy(endDate = booking.startDate.minusDays(1))
     val confirmed = booking.copy(status = BookingStatus.CONFIRMED)
@@ -95,6 +123,9 @@ class FirebaseBookingRepositoryTest {
 
   @Test
   fun getBookingsQueriesLenderAndDecodesStoredFields() = runTest {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
     whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
     whenever(snapshot.documents).thenReturn(listOf(stored))
     whenever(stored.getString("listingId")).thenReturn(booking.listingId)
@@ -103,27 +134,27 @@ class FirebaseBookingRepositoryTest {
     whenever(stored.getLong("startDate")).thenReturn(booking.startDate.toEpochDay())
     whenever(stored.getLong("endDate")).thenReturn(booking.endDate.toEpochDay())
     whenever(stored.getString("status")).thenReturn("CANCELLED")
+    whenever(stored.id).thenReturn("booking-id")
 
     assertEquals(
-        listOf(booking.copy(status = BookingStatus.CANCELLED)),
+        listOf(booking.copy(id = "booking-id", status = BookingStatus.CANCELLED)),
         repository.getBookingsForListing("listing"),
     )
     verify(listingQuery).whereEqualTo("lenderUid", "lender")
   }
 
   @Test
-  fun failuresArePropagatedAndMalformedBookingsAreNotSkipped() = runTest {
-    val failure = IllegalStateException("Firestore unavailable")
-    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forException(failure))
-    assertSame(failure, runCatching { repository.requestBooking(booking) }.exceptionOrNull())
-
+  fun getBookingsPropagatesMalformedBookingDocuments() = runTest {
     whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
     whenever(snapshot.documents).thenReturn(listOf(stored))
     assertTrue(
         runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
             is IllegalStateException
     )
+  }
 
+  @Test
+  fun getBookingsRejectsSignedOutUser() = runTest {
     whenever(auth.currentUser).thenReturn(null)
     val error = runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
     assertTrue(error is FirebaseFirestoreException)

@@ -2,7 +2,10 @@
 package com.android.polybazaar.booking.model
 
 interface BookingRepository {
-  /** Creates a requested booking. Firestore rejects requests not made by the renter. */
+  /**
+   * Submits a booking request without waiting for server confirmation. A successful return does not
+   * confirm local persistence or acceptance; Firestore can later reject the request.
+   */
   suspend fun requestBooking(booking: Booking)
 
   /** Returns bookings for this listing owned by the signed-in lender. */

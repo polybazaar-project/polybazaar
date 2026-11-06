@@ -1,19 +1,31 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Copilot (GPT-5.6 Terra)
 package com.android.polybazaar.booking.model
 
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.time.LocalDate
+import java.util.concurrent.Executor
 import kotlinx.coroutines.tasks.await
 
 class FirebaseBookingRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val onWriteFailure: (Exception) -> Unit = {
+      Log.e("BookingRepository", "Booking request failed", it)
+    },
 ) : BookingRepository {
 
   override suspend fun requestBooking(booking: Booking) {
+    val renterUid =
+        auth.currentUser?.uid
+            ?: throw FirebaseFirestoreException(
+                "Sign in to request a booking",
+                FirebaseFirestoreException.Code.UNAUTHENTICATED,
+            )
     require(booking.status == BookingStatus.REQUESTED) { "A new booking must be requested" }
     require(!booking.endDate.isBefore(booking.startDate)) { "Booking end date precedes start date" }
     firestore
@@ -22,14 +34,14 @@ class FirebaseBookingRepository(
         .set(
             mapOf(
                 "listingId" to booking.listingId,
-                "renterUid" to booking.renterUid,
+                "renterUid" to renterUid,
                 "lenderUid" to booking.lenderUid,
                 "startDate" to booking.startDate.toEpochDay(),
                 "endDate" to booking.endDate.toEpochDay(),
                 "status" to booking.status.name,
             )
         )
-        .await()
+        .addOnFailureListener(Executor { it.run() }, onWriteFailure)
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> {
@@ -64,6 +76,7 @@ class FirebaseBookingRepository(
         startDate = date("startDate"),
         endDate = date("endDate"),
         status = BookingStatus.valueOf(string("status")),
+        id = id,
     )
   }
 }

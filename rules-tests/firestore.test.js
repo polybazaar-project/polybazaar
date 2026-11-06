@@ -306,9 +306,28 @@ describe("listings", () => {
       await assertFails(setDoc(doc(db, "bookings/b3"), booking({ listingId: "missing" })));
     });
 
+    test("a booking cannot be longer than the listing's maximum rental", async () => {
+      await seed("listings/l1", itemListing({ type: "ITEM", maxRentalDays: 3 }));
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: 21000, endDate: 21002 })));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b2"), booking({ startDate: 21000, endDate: 21003 })));
+    });
+
+    test("a paused listing cannot be booked", async () => {
+      await seed("listings/l1", itemListing({ paused: true }));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
+    });
+
+    test("an owner cannot book their own listing", async () => {
+      await seed("listings/l1", itemListing());
+      await assertFails(
+        setDoc(doc(verified(ALICE), "bookings/b1"), booking({ renterUid: ALICE, lenderUid: ALICE })),
+      );
+    });
+
     test("bookings have valid dates, requested status and no extra fields", async () => {
       await seed("listings/l1", itemListing());
       const db = verified(BOB);
+      const today = Math.floor(Date.now() / 86_400_000);
       await assertSucceeds(setDoc(doc(db, "bookings/same-day"), booking({ endDate: 21000 })));
       await assertFails(setDoc(doc(db, "bookings/b1"), booking({ endDate: 20999 })));
       await assertFails(setDoc(doc(db, "bookings/b2"), booking({ startDate: "21000" })));
@@ -316,16 +335,22 @@ describe("listings", () => {
       await assertFails(setDoc(doc(db, "bookings/b4"), booking({ startDate: -365243219163 })));
       await assertFails(setDoc(doc(db, "bookings/b5"), booking({ status: "CONFIRMED" })));
       await assertFails(setDoc(doc(db, "bookings/b6"), booking({ extra: true })));
+      await assertFails(setDoc(doc(db, "bookings/past"), booking({ startDate: today - 1, endDate: today })));
+      await assertSucceeds(setDoc(doc(db, "bookings/today"), booking({ startDate: today, endDate: today })));
     });
 
-    test("only the verified lender can query their bookings", async () => {
+    test("verified lenders and renters can read their own bookings", async () => {
       await seed("bookings/b1", booking());
-      const bookingsFor = (db, lender) =>
+      const bookingsForLender = (db, lender) =>
         getDocs(query(collection(db, "bookings"), where("listingId", "==", "l1"), where("lenderUid", "==", lender)));
-      await assertSucceeds(bookingsFor(verified(ALICE), ALICE));
-      await assertFails(bookingsFor(verified(BOB), ALICE));
-      await assertFails(bookingsFor(unverified(ALICE), ALICE));
-      await assertFails(getDoc(doc(verified(BOB), "bookings/b1")));
+      const bookingsForRenter = (db, renter) =>
+        getDocs(query(collection(db, "bookings"), where("listingId", "==", "l1"), where("renterUid", "==", renter)));
+
+      await assertSucceeds(bookingsForLender(verified(ALICE), ALICE));
+      await assertSucceeds(bookingsForRenter(verified(BOB), BOB));
+      await assertFails(bookingsForLender(unverified(ALICE), ALICE));
+      await assertSucceeds(getDoc(doc(verified(BOB), "bookings/b1")));
+      await assertFails(getDoc(doc(verified("eve"), "bookings/b1")));
       await assertFails(getDocs(query(collection(verified(ALICE), "bookings"), where("listingId", "==", "l1"))));
     });
 

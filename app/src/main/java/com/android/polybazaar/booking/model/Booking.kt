@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Haiku 5.5
+// Co-authored-by: Copilot (GPT-5.6 Terra)
 package com.android.polybazaar.booking.model
 
 import java.time.LocalDate
@@ -18,6 +19,7 @@ enum class BookingStatus {
  * @property startDate first day of the booking.
  * @property endDate last day of the booking.
  * @property status where the booking is in its lifecycle, starting at [BookingStatus.REQUESTED].
+ * @property id Firestore document ID, populated when the booking is read.
  */
 data class Booking(
     val listingId: String,
@@ -26,4 +28,5 @@ data class Booking(
     val startDate: LocalDate,
     val endDate: LocalDate,
     val status: BookingStatus = BookingStatus.REQUESTED,
+    val id: String = "",
 )
