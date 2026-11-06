@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Copilot (Auto)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
@@ -276,6 +277,64 @@ describe("users", () => {
 describe("listings", () => {
   test("a verified user can create an item listing", async () => {
     await assertSucceeds(setDoc(doc(verified(ALICE), "listings/l1"), itemListing()));
+  });
+
+  describe("bookings", () => {
+    const booking = (overrides = {}) => ({
+      listingId: "l1",
+      renterUid: BOB,
+      lenderUid: ALICE,
+      startDate: 21000,
+      endDate: 21002,
+      status: "REQUESTED",
+      ...overrides,
+    });
+
+    test("a verified renter can request a booking for an existing listing", async () => {
+      await seed("listings/l1", itemListing());
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
+      await assertFails(setDoc(doc(unverified(BOB), "bookings/b2"), booking()));
+      await assertFails(setDoc(doc(outsider(BOB), "bookings/b3"), booking()));
+      await assertFails(setDoc(doc(signedOut(), "bookings/b4"), booking()));
+    });
+
+    test("the renter and lender must match the authenticated user and listing owner", async () => {
+      await seed("listings/l1", itemListing());
+      const db = verified(BOB);
+      await assertFails(setDoc(doc(db, "bookings/b1"), booking({ renterUid: ALICE })));
+      await assertFails(setDoc(doc(db, "bookings/b2"), booking({ lenderUid: BOB })));
+      await assertFails(setDoc(doc(db, "bookings/b3"), booking({ listingId: "missing" })));
+    });
+
+    test("bookings have valid dates, requested status and no extra fields", async () => {
+      await seed("listings/l1", itemListing());
+      const db = verified(BOB);
+      await assertSucceeds(setDoc(doc(db, "bookings/same-day"), booking({ endDate: 21000 })));
+      await assertFails(setDoc(doc(db, "bookings/b1"), booking({ endDate: 20999 })));
+      await assertFails(setDoc(doc(db, "bookings/b2"), booking({ startDate: "21000" })));
+      await assertFails(setDoc(doc(db, "bookings/b3"), booking({ endDate: 365241780472 })));
+      await assertFails(setDoc(doc(db, "bookings/b4"), booking({ startDate: -365243219163 })));
+      await assertFails(setDoc(doc(db, "bookings/b5"), booking({ status: "CONFIRMED" })));
+      await assertFails(setDoc(doc(db, "bookings/b6"), booking({ extra: true })));
+    });
+
+    test("only the verified lender can query their bookings", async () => {
+      await seed("bookings/b1", booking());
+      const bookingsFor = (db, lender) =>
+        getDocs(query(collection(db, "bookings"), where("listingId", "==", "l1"), where("lenderUid", "==", lender)));
+      await assertSucceeds(bookingsFor(verified(ALICE), ALICE));
+      await assertFails(bookingsFor(verified(BOB), ALICE));
+      await assertFails(bookingsFor(unverified(ALICE), ALICE));
+      await assertFails(getDoc(doc(verified(BOB), "bookings/b1")));
+      await assertFails(getDocs(query(collection(verified(ALICE), "bookings"), where("listingId", "==", "l1"))));
+    });
+
+    test("bookings cannot be updated or deleted", async () => {
+      await seed("bookings/b1", booking());
+      const ref = doc(verified(ALICE), "bookings/b1");
+      await assertFails(updateDoc(ref, { status: "CONFIRMED" }));
+      await assertFails(deleteDoc(ref));
+    });
   });
 
   test("a verified user can create a service listing", async () => {

@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Copilot (Auto)
 rules_version = '2';
 
 service cloud.firestore {
@@ -79,6 +80,26 @@ service cloud.firestore {
           && (isVerified() || request.resource.data.diff(resource.data).affectedKeys().size() == 0);
 
       allow delete: if false;
+    }
+
+    match /bookings/{bookingId} {
+      function validBooking(data) {
+        return data.keys().hasAll(['listingId', 'renterUid', 'lenderUid', 'startDate', 'endDate', 'status'])
+            && data.keys().hasOnly(['listingId', 'renterUid', 'lenderUid', 'startDate', 'endDate', 'status'])
+            && data.listingId is string && data.listingId.size() > 0
+            && data.renterUid == request.auth.uid
+            && data.lenderUid is string
+            && data.lenderUid == get(/databases/$(database)/documents/listings/$(data.listingId)).data.ownerUid
+            // LocalDate epoch days, bounded to the range supported by java.time.LocalDate.
+            && data.startDate is int && data.startDate >= -365243219162
+            && data.endDate is int && data.endDate <= 365241780471
+            && data.startDate <= data.endDate
+            && data.status == 'REQUESTED';
+      }
+
+      allow read: if isVerified() && resource.data.lenderUid == request.auth.uid;
+      allow create: if isVerified() && validBooking(request.resource.data);
+      allow update, delete: if false;
     }
 
     match /listings/{listingId} {
