@@ -367,18 +367,24 @@ private fun MessageLenderButton(enabled: Boolean, onClick: () -> Unit) {
       modifier = Modifier.fillMaxWidth().testTag(ListingDetailScreenTags.MESSAGE_BUTTON),
       shape = RoundedCornerShape(10.dp),
       border = BorderStroke(1.dp, AuthColors.Outline),
-      colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
+      // Faded when disabled, with the same 50% as AuthPrimaryButton, so both actions match.
+      colors =
+          ButtonDefaults.outlinedButtonColors(
+              containerColor = AuthColors.CardBackground,
+              contentColor = AuthColors.Accent,
+              disabledContainerColor = AuthColors.CardBackground,
+              disabledContentColor = AuthColors.Accent.copy(alpha = 0.5f),
+          ),
   ) {
-    // Decorative: the text says what the button does.
+    // Decorative: the text says what the button does. The icon and the text take the button's
+    // content colour, so they fade together when it is disabled.
     Icon(
         painter = painterResource(R.drawable.ic_message_circle),
         contentDescription = null,
-        tint = Color.Unspecified,
         modifier = Modifier.size(17.dp),
     )
     Text(
         text = stringResource(R.string.listing_detail_message_lender),
-        color = AuthColors.Accent,
         fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(start = 8.dp),
