@@ -8,7 +8,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
-import java.util.Locale
+import com.android.polybazaar.listing.model.formatChf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,18 +42,16 @@ data class BrowseUiState(
 /**
  * Maps a listing to its Browse card, or returns null for a listing that has not been saved yet.
  *
- * Whole prices stay short (`8.0` → `"CHF 8"`, `8.5` → `"CHF 8.50"`) because the card adds the
- * per-day suffix. There is no location data yet, so the distance is left out.
+ * The price is formatted by [formatChf]; the card adds the per-day suffix. There is no location
+ * data yet, so the distance is left out.
  */
 internal fun Listing.toBrowseListing(): BrowseListing? {
   val id = listingId ?: return null
-  // Locale.ROOT keeps the decimal point, whatever the device language.
-  val amount = String.format(Locale.ROOT, "%.2f", price).removeSuffix(".00")
   return BrowseListing(
       id = id,
       title = title,
       category = category.displayName,
-      price = "CHF $amount",
+      price = formatChf(price),
   )
 }
 

@@ -69,13 +69,17 @@ internal fun AuthCard(content: @Composable ColumnScope.() -> Unit) {
   )
 }
 
-/** The filled accent button that submits an auth form. */
+/**
+ * The filled accent button that submits an auth form, with an optional [trailingIcon] after its
+ * text (the arrow of "Choose dates" on the listing detail).
+ */
 @Composable
 internal fun AuthPrimaryButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    @DrawableRes trailingIcon: Int? = null,
 ) {
   Button(
       onClick = onClick,
@@ -91,6 +95,15 @@ internal fun AuthPrimaryButton(
           ),
   ) {
     Text(text = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    // Decorative: the text already says what the button does, so TalkBack skips the icon.
+    trailingIcon?.let {
+      Icon(
+          painter = painterResource(it),
+          contentDescription = null,
+          tint = Color.Unspecified,
+          modifier = Modifier.padding(start = 10.dp).size(17.dp),
+      )
+    }
   }
 }
 

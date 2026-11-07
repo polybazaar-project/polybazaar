@@ -27,6 +27,27 @@
     <string name="lender_profile_not_found">This profile no longer exists.</string>
     <string name="lender_profile_open_listing">Open listing</string>
 
+    <!-- Listing detail screen -->
+    <string name="listing_detail_retry">Retry</string>
+    <string name="listing_detail_description_title">DESCRIPTION</string>
+    <string name="listing_detail_item_terms_title">RENTAL TERMS</string>
+    <string name="listing_detail_service_terms_title">SERVICE TERMS</string>
+    <string name="listing_detail_pickup">Pickup: %1$s</string>
+    <string name="listing_detail_pickup_pending">Location and timing to be confirmed.</string>
+    <string name="listing_detail_returns">Returns: %1$s</string>
+    <string name="listing_detail_returns_pending">Return window to be agreed.</string>
+    <string name="listing_detail_cancellation">Cancellation: %1$s</string>
+    <string name="listing_detail_cancellation_pending">Policy to be confirmed.</string>
+    <string name="listing_detail_damage">Deposit &amp; damage: %1$s if the item is damaged.</string>
+    <string name="listing_detail_lender_title">LENDER PROFILE</string>
+    <string name="listing_detail_lender_name">%1$s  ·  Verified</string>
+    <string name="listing_detail_open_lender">Open lender profile</string>
+    <string name="listing_detail_message_lender">Message lender</string>
+    <string name="listing_detail_price_per_day">/ day</string>
+    <string name="listing_detail_deposit">%1$s deposit</string>
+    <string name="listing_detail_choose_dates">Choose dates</string>
+    <string name="listing_detail_reassurance">See your full total before you request to book.</string>
+
     <!-- Toolbox -->
     <string name="toolbox_title">My toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
