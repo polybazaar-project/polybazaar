@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.profile.model.ProfileRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -24,7 +26,7 @@ data class ProfileUiState(
     /** The saved profile photo's encoded bytes, or null if there is none or it has not loaded. */
     val photo: ByteArray? = null,
     val isLoading: Boolean = false,
-    val errorMessage: String? = null,
+    val error: AppError? = null,
 )
 
 class ProfileViewModel(private val profileRepository: ProfileRepository) : ViewModel() {
@@ -66,7 +68,7 @@ class ProfileViewModel(private val profileRepository: ProfileRepository) : ViewM
           profile = if (clearProfile) null else it.profile,
           photo = if (clearProfile) null else it.photo,
           isLoading = true,
-          errorMessage = null,
+          error = null,
       )
     }
   }
@@ -83,12 +85,7 @@ class ProfileViewModel(private val profileRepository: ProfileRepository) : ViewM
           .collectLatest { photoPath -> photoPath?.let { loadPhoto(it) } }
     } catch (exception: Exception) {
       if (exception is CancellationException) throw exception
-      _uiState.update {
-        it.copy(
-            isLoading = false,
-            errorMessage = exception.message ?: "Unable to load profile",
-        )
-      }
+      _uiState.update { it.copy(isLoading = false, error = exception.toAppError()) }
     }
   }
 
