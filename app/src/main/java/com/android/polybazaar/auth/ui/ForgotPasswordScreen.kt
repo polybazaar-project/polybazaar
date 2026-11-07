@@ -32,9 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
-import com.android.polybazaar.auth.model.PasswordResetException
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordUiState
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
+import com.android.polybazaar.error.ui.message
 
 object ForgotPasswordScreenTags {
   const val SCREEN = "forgot_password_screen"
@@ -157,7 +157,7 @@ private fun ResultMessage(uiState: ForgotPasswordUiState) {
   when {
     error != null ->
         Text(
-            text = stringResource(passwordResetErrorText(error)),
+            text = error.message(),
             color = AuthColors.Danger,
             fontSize = 12.sp,
             modifier = Modifier.testTag(ForgotPasswordScreenTags.ERROR_MESSAGE),
@@ -181,17 +181,6 @@ internal fun sendButtonText(uiState: ForgotPasswordUiState): Int =
       uiState.isLoading -> R.string.forgot_password_sending_button
       uiState.emailSent -> R.string.forgot_password_resend_button
       else -> R.string.forgot_password_send_button
-    }
-
-/** Message shown for each reason a reset request can fail, never Firebase's own text. */
-@StringRes
-internal fun passwordResetErrorText(reason: PasswordResetException.Reason): Int =
-    when (reason) {
-      PasswordResetException.Reason.INVALID_EMAIL -> R.string.forgot_password_error_invalid_email
-      PasswordResetException.Reason.NETWORK -> R.string.forgot_password_error_network
-      PasswordResetException.Reason.TOO_MANY_REQUESTS ->
-          R.string.forgot_password_error_too_many_requests
-      PasswordResetException.Reason.UNKNOWN -> R.string.forgot_password_error_unknown
     }
 
 @Preview(showBackground = true, widthDp = 412, heightDp = 924)

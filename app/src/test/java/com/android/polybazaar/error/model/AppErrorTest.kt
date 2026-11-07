@@ -3,6 +3,7 @@ package com.android.polybazaar.error.model
 
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.FirebaseAuthActionCodeException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
@@ -209,6 +210,54 @@ class AppErrorTest {
         )
 
     assertEquals(AppError.PERMISSION_DENIED, exception.map())
+  }
+
+  @Test
+  fun actionCodeExceptions_areInvalidLink() {
+    listOf("ERROR_EXPIRED_ACTION_CODE", "ERROR_INVALID_ACTION_CODE").forEach { code ->
+      assertEquals(code, AppError.INVALID_LINK, FirebaseAuthActionCodeException(code, "Bad").map())
+    }
+    assertTrue(logged.isEmpty())
+  }
+
+  @Test
+  fun appException_mapsToItsOwnError_withoutLogging() {
+    AppError.entries.forEach { error -> assertEquals(error, AppException(error).map()) }
+    assertTrue(logged.isEmpty())
+  }
+
+  @Test
+  fun appException_keepsItsCause() {
+    val cause = IllegalStateException("Unexpected")
+
+    assertSame(cause, AppException(AppError.INVALID_LINK, cause).cause)
+  }
+
+  @Test
+  fun appExceptionWrappedAsACause_mapsToItsOwnError() {
+    val exception = Exception("Outer", Exception("Middle", AppException(AppError.INVALID_LINK)))
+
+    assertEquals(AppError.INVALID_LINK, exception.map())
+    assertTrue(logged.isEmpty())
+  }
+
+  @Test
+  fun outerAppException_winsOverAMappableCause() {
+    val exception =
+        AppException(
+            AppError.INVALID_LINK,
+            FirebaseAuthInvalidUserException("ERROR_USER_NOT_FOUND", "No user"),
+        )
+
+    assertEquals(AppError.INVALID_LINK, exception.map())
+  }
+
+  @Test
+  fun appException_winsOverAnUnmappableCause_withoutLogging() {
+    val exception = AppException(AppError.INVALID_EMAIL, IllegalStateException("Unexpected"))
+
+    assertEquals(AppError.INVALID_EMAIL, exception.map())
+    assertTrue(logged.isEmpty())
   }
 
   @Test

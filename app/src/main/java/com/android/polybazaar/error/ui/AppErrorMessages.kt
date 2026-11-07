@@ -21,6 +21,7 @@ val AppError.messageRes: Int
         AppError.WEAK_PASSWORD -> R.string.error_weak_password
         AppError.EMAIL_ALREADY_IN_USE -> R.string.error_email_already_in_use
         AppError.TOO_MANY_REQUESTS -> R.string.error_too_many_requests
+        AppError.INVALID_LINK -> R.string.error_invalid_link
         AppError.UNKNOWN -> R.string.error_unknown
       }
 

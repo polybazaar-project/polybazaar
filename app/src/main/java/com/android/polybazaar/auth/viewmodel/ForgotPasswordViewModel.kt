@@ -4,7 +4,8 @@ package com.android.polybazaar.auth.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
-import com.android.polybazaar.auth.model.PasswordResetException
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +25,7 @@ data class ForgotPasswordUiState(
     val email: String = "",
     val isLoading: Boolean = false,
     val emailSent: Boolean = false,
-    val error: PasswordResetException.Reason? = null,
+    val error: AppError? = null,
 )
 
 /** Sends a password reset link to the email address the user enters. */
@@ -40,15 +41,15 @@ class ForgotPasswordViewModel(private val authRepository: AuthRepository) : View
 
   /**
    * Requests a reset link for the current email. Ignored while a request is already in flight. A
-   * blank email is rejected locally with [PasswordResetException.Reason.INVALID_EMAIL], without
-   * calling the repository. If the email changes before the request finishes, its result is
-   * dropped: it was for another one.
+   * blank email is rejected locally with [AppError.INVALID_EMAIL], without calling the repository.
+   * If the email changes before the request finishes, its result is dropped: it was for another
+   * one.
    */
   fun sendResetLink() {
     if (_uiState.value.isLoading) return
     val email = _uiState.value.email.trim()
     if (email.isBlank()) {
-      _uiState.update { it.copy(error = PasswordResetException.Reason.INVALID_EMAIL) }
+      _uiState.update { it.copy(error = AppError.INVALID_EMAIL) }
       return
     }
     _uiState.update { it.copy(isLoading = true, emailSent = false, error = null) }
@@ -63,11 +64,9 @@ class ForgotPasswordViewModel(private val authRepository: AuthRepository) : View
                 }
               },
               onFailure = { exception ->
-                val reason =
-                    (exception as? PasswordResetException)?.reason
-                        ?: PasswordResetException.Reason.UNKNOWN
+                val error = exception.toAppError()
                 _uiState.update {
-                  if (it.email.trim() == email) it.copy(isLoading = false, error = reason)
+                  if (it.email.trim() == email) it.copy(isLoading = false, error = error)
                   else it.copy(isLoading = false)
                 }
               },

@@ -3,8 +3,13 @@ package com.android.polybazaar.auth.viewmodel
 
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.AuthRules
-import com.android.polybazaar.auth.model.ConfirmPasswordResetException
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.FirebaseAuthActionCodeException
+import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -47,6 +52,7 @@ class ResetPasswordViewModelTest {
     assertFalse(viewModel.uiState.value.isLoading)
     assertFalse(viewModel.uiState.value.passwordReset)
     assertNull(viewModel.uiState.value.error)
+    assertNull(viewModel.uiState.value.requestError)
   }
 
   @Test
@@ -234,6 +240,18 @@ class ResetPasswordViewModelTest {
   }
 
   @Test
+  fun resetPassword_tooLongWeakPasswordAndMismatch_reportsTooLongFirst() = runTest {
+    // No digit, so it is also weak, and the confirmation differs.
+    viewModel.onNewPasswordChange("a".repeat(AuthRules.MAX_PASSWORD_LENGTH + 1))
+    viewModel.onConfirmPasswordChange("abcd1234")
+
+    viewModel.resetPassword()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertLocalError("too long, weak and mismatch", ResetPasswordError.PASSWORD_TOO_LONG)
+  }
+
+  @Test
   fun resetPassword_weakPasswordAndMismatch_reportsWeakPasswordFirst() = runTest {
     viewModel.onNewPasswordChange("abc1")
     viewModel.onConfirmPasswordChange("xyz9")
@@ -283,43 +301,75 @@ class ResetPasswordViewModelTest {
   }
 
   @Test
-  fun resetPassword_exposesEachConfirmPasswordResetReason() = runTest {
+  fun resetPassword_putsEachRequestFailureInRequestError() = runTest {
     val expected =
         mapOf(
-            ConfirmPasswordResetException.Reason.INVALID_LINK to ResetPasswordError.INVALID_LINK,
-            ConfirmPasswordResetException.Reason.WEAK_PASSWORD to ResetPasswordError.WEAK_PASSWORD,
-            ConfirmPasswordResetException.Reason.NETWORK to ResetPasswordError.NETWORK,
-            ConfirmPasswordResetException.Reason.TOO_MANY_REQUESTS to
-                ResetPasswordError.TOO_MANY_REQUESTS,
-            ConfirmPasswordResetException.Reason.UNKNOWN to ResetPasswordError.UNKNOWN,
+            AppException(AppError.INVALID_LINK) to AppError.INVALID_LINK,
+            FirebaseAuthActionCodeException("ERROR_EXPIRED_ACTION_CODE", "Expired") to
+                AppError.INVALID_LINK,
+            FirebaseNetworkException("Offline") to AppError.NETWORK,
+            FirebaseTooManyRequestsException("Blocked") to AppError.TOO_MANY_REQUESTS,
+            IllegalStateException("Firebase exploded") to AppError.UNKNOWN,
         )
-    assertEquals(ConfirmPasswordResetException.Reason.entries.toSet(), expected.keys)
     enterPasswords("abcd1234")
 
-    for ((reason, error) in expected) {
-      repository.resetResult = Result.failure(ConfirmPasswordResetException(reason))
+    for ((exception, error) in expected) {
+      repository.resetResult = Result.failure(exception)
 
       viewModel.resetPassword()
       testDispatcher.scheduler.advanceUntilIdle()
 
-      assertEquals("reason $reason", error, viewModel.uiState.value.error)
-      assertFalse("reason $reason", viewModel.uiState.value.isLoading)
-      assertFalse("reason $reason", viewModel.uiState.value.passwordReset)
+      assertEquals(
+          "exception $exception",
+          ResetPasswordUiState(
+              newPassword = "abcd1234",
+              confirmPassword = "abcd1234",
+              requestError = error,
+          ),
+          viewModel.uiState.value,
+      )
     }
     assertEquals(expected.size, repository.resetCalls.size)
   }
 
   @Test
-  fun resetPassword_mapsUnexpectedExceptionToUnknown() = runTest {
-    repository.resetResult = Result.failure(IllegalStateException("Firebase exploded"))
+  fun resetPassword_firebaseWeakPassword_landsInRequestErrorNotError() = runTest {
+    repository.resetResult =
+        Result.failure(
+            FirebaseAuthWeakPasswordException("ERROR_WEAK_PASSWORD", "Too weak", "Too short")
+        )
     enterPasswords("abcd1234")
 
     viewModel.resetPassword()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(ResetPasswordError.UNKNOWN, viewModel.uiState.value.error)
-    assertFalse(viewModel.uiState.value.isLoading)
+    assertEquals(AppError.WEAK_PASSWORD, viewModel.uiState.value.requestError)
+    assertNull(viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.passwordReset)
+  }
+
+  @Test
+  fun onNewPasswordChange_afterRequestFailure_clearsRequestError() = runTest {
+    failARequest()
+
+    viewModel.onNewPasswordChange("efgh5678")
+
+    assertEquals(
+        ResetPasswordUiState(newPassword = "efgh5678", confirmPassword = "abcd1234"),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun onConfirmPasswordChange_afterRequestFailure_clearsRequestError() = runTest {
+    failARequest()
+
+    viewModel.onConfirmPasswordChange("efgh5678")
+
+    assertEquals(
+        ResetPasswordUiState(newPassword = "abcd1234", confirmPassword = "efgh5678"),
+        viewModel.uiState.value,
+    )
   }
 
   @Test
@@ -400,11 +450,7 @@ class ResetPasswordViewModelTest {
     viewModel.resetPassword()
     testDispatcher.scheduler.runCurrent()
     viewModel.onNewPasswordChange("efgh5678")
-    gate.complete(
-        Result.failure(
-            ConfirmPasswordResetException(ConfirmPasswordResetException.Reason.WEAK_PASSWORD)
-        )
-    )
+    gate.complete(Result.failure(FirebaseNetworkException("Offline")))
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(
@@ -422,9 +468,7 @@ class ResetPasswordViewModelTest {
     viewModel.resetPassword()
     testDispatcher.scheduler.runCurrent()
     viewModel.onConfirmPasswordChange("abcd12345")
-    gate.complete(
-        Result.failure(ConfirmPasswordResetException(ConfirmPasswordResetException.Reason.NETWORK))
-    )
+    gate.complete(Result.failure(FirebaseNetworkException("Offline")))
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(
@@ -434,35 +478,23 @@ class ResetPasswordViewModelTest {
   }
 
   @Test
-  fun resetPassword_clearsPreviousErrorWhileNewRequestIsPending() = runTest {
-    repository.resetResult =
-        Result.failure(
-            ConfirmPasswordResetException(ConfirmPasswordResetException.Reason.TOO_MANY_REQUESTS)
-        )
-    enterPasswords("abcd1234")
-    viewModel.resetPassword()
-    testDispatcher.scheduler.advanceUntilIdle()
-    assertEquals(ResetPasswordError.TOO_MANY_REQUESTS, viewModel.uiState.value.error)
+  fun resetPassword_clearsPreviousRequestErrorWhileNewRequestIsPending() = runTest {
+    failARequest()
     val gate = CompletableDeferred<Result<Unit>>()
     repository.resetGate = gate
 
     viewModel.resetPassword()
     testDispatcher.scheduler.runCurrent()
 
-    assertNull(viewModel.uiState.value.error)
+    assertNull(viewModel.uiState.value.requestError)
     assertTrue(viewModel.uiState.value.isLoading)
     gate.complete(Result.success(Unit))
     testDispatcher.scheduler.advanceUntilIdle()
   }
 
   @Test
-  fun resetPassword_afterFailure_clearsPreviousErrorWhenItSucceeds() = runTest {
-    repository.resetResult =
-        Result.failure(ConfirmPasswordResetException(ConfirmPasswordResetException.Reason.NETWORK))
-    enterPasswords("abcd1234")
-    viewModel.resetPassword()
-    testDispatcher.scheduler.advanceUntilIdle()
-    assertEquals(ResetPasswordError.NETWORK, viewModel.uiState.value.error)
+  fun resetPassword_afterFailure_clearsPreviousRequestErrorWhenItSucceeds() = runTest {
+    failARequest()
 
     repository.resetResult = Result.success(Unit)
     viewModel.resetPassword()
@@ -493,6 +525,15 @@ class ResetPasswordViewModelTest {
     assertTrue(viewModel.uiState.value.passwordReset)
   }
 
+  /** Leaves the view model with valid fields and [AppError.NETWORK] in its request error. */
+  private fun failARequest() {
+    repository.resetResult = Result.failure(FirebaseNetworkException("Offline"))
+    enterPasswords("abcd1234")
+    viewModel.resetPassword()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.requestError)
+  }
+
   private fun enterPasswords(password: String) {
     viewModel.onNewPasswordChange(password)
     viewModel.onConfirmPasswordChange(password)
@@ -501,6 +542,7 @@ class ResetPasswordViewModelTest {
   private fun assertLocalError(case: String, expected: ResetPasswordError) {
     assertTrue(case, repository.resetCalls.isEmpty())
     assertEquals(case, expected, viewModel.uiState.value.error)
+    assertNull(case, viewModel.uiState.value.requestError)
     assertFalse(case, viewModel.uiState.value.isLoading)
     assertFalse(case, viewModel.uiState.value.passwordReset)
   }
