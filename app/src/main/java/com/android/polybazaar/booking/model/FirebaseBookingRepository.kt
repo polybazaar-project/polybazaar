@@ -19,7 +19,10 @@ class FirebaseBookingRepository(
     },
 ) : BookingRepository {
 
-  override suspend fun requestBooking(booking: Booking) {
+  override suspend fun requestBooking(
+      booking: Booking,
+      onWriteFailure: (Exception) -> Unit,
+  ) {
     val renterUid =
         auth.currentUser?.uid
             ?: throw FirebaseFirestoreException(
@@ -41,7 +44,10 @@ class FirebaseBookingRepository(
                 "status" to booking.status.name,
             )
         )
-        .addOnFailureListener(Executor { it.run() }, onWriteFailure)
+        .addOnFailureListener(Executor { it.run() }) {
+          this.onWriteFailure(it)
+          onWriteFailure(it)
+        }
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> {
