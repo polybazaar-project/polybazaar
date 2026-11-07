@@ -6,9 +6,12 @@ import com.android.polybazaar.booking.model.BookingRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -46,13 +49,13 @@ class BookingViewModelTest {
   }
 
   @Test
-  fun requestBooking_submitsAndExposesSuccess() = runTest {
+  fun requestBooking_queuesAndExposesQueuedState() = runTest {
     val viewModel = BookingViewModel(repository)
 
     viewModel.requestBooking(booking)
 
     assertEquals(booking, repository.requestedBooking)
-    assertEquals(BookingUiState(isSubmitted = true), viewModel.uiState.value)
+    assertEquals(BookingUiState(isQueued = true), viewModel.uiState.value)
   }
 
   @Test
@@ -69,8 +72,39 @@ class BookingViewModelTest {
 
     gate.complete(Unit)
 
-    assertTrue(viewModel.uiState.value.isSubmitted)
+    assertTrue(viewModel.uiState.value.isQueued)
     assertFalse(viewModel.uiState.value.isSubmitting)
+  }
+
+  @Test
+  fun requestBooking_reportsFailureAfterLocalQueueAndAllowsRetry() = runTest {
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.requestBooking(booking)
+    assertTrue(viewModel.uiState.value.isQueued)
+
+    repository.writeFailure?.invoke(AppException(AppError.NETWORK))
+
+    assertFalse(viewModel.uiState.value.isQueued)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    repository.writeFailure = null
+    viewModel.requestBooking(booking)
+
+    assertTrue(viewModel.uiState.value.isQueued)
+    assertEquals(null, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun requestBooking_reportsWriteFailureBeforeRepositoryReturns() = runTest {
+    repository.immediateWriteFailure = AppException(AppError.PERMISSION_DENIED)
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.requestBooking(booking)
+
+    assertFalse(viewModel.uiState.value.isSubmitting)
+    assertFalse(viewModel.uiState.value.isQueued)
+    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.error)
   }
 
   @Test
@@ -86,8 +120,21 @@ class BookingViewModelTest {
     repository.failure = null
     viewModel.requestBooking(booking)
 
-    assertTrue(viewModel.uiState.value.isSubmitted)
+    assertTrue(viewModel.uiState.value.isQueued)
     assertEquals(null, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun requestBooking_cancellationIsNotExposedAsAnAppError() = runTest {
+    repository.failure = CancellationException("screen closed")
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.requestBooking(booking)
+
+    assertFalse(viewModel.uiState.value.isSubmitting)
+    assertFalse(viewModel.uiState.value.isQueued)
+    assertEquals(null, viewModel.uiState.value.error)
+    assertTrue(repository.requestJob?.isCancelled == true)
   }
 }
 
@@ -96,11 +143,17 @@ private class FakeBookingRepository : BookingRepository {
   var requestCount = 0
   var pendingRequest: CompletableDeferred<Unit>? = null
   var failure: Exception? = null
+  var immediateWriteFailure: Exception? = null
+  var writeFailure: ((Exception) -> Unit)? = null
+  var requestJob: Job? = null
 
-  override suspend fun requestBooking(booking: Booking) {
+  override suspend fun requestBooking(booking: Booking, onWriteFailure: (Exception) -> Unit) {
+    requestJob = currentCoroutineContext()[Job]
     requestedBooking = booking
     requestCount++
+    writeFailure = onWriteFailure
     pendingRequest?.await()
+    immediateWriteFailure?.let(onWriteFailure)
     failure?.let { throw it }
   }
 

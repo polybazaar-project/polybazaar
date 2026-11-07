@@ -16,7 +16,8 @@ import kotlinx.coroutines.launch
 
 data class BookingUiState(
     val isSubmitting: Boolean = false,
-    val isSubmitted: Boolean = false,
+    /** True after local queuing; it does not mean the server confirmed or lender accepted it. */
+    val isQueued: Boolean = false,
     val error: AppError? = null,
 )
 
@@ -27,16 +28,22 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
   val uiState: StateFlow<BookingUiState> = _uiState.asStateFlow()
 
   /**
-   * Submits [booking] once. A successful return means the request was queued locally, not that the
-   * lender accepted it or the server confirmed it.
+   * Queues [booking] once. A queued request is not yet confirmed by the server or accepted by the
+   * lender. A later Firestore write failure moves the state to an error and allows retry.
    */
   fun requestBooking(booking: Booking) {
-    if (_uiState.value.isSubmitting || _uiState.value.isSubmitted) return
+    if (_uiState.value.isSubmitting || _uiState.value.isQueued) return
     _uiState.update { it.copy(isSubmitting = true, error = null) }
     viewModelScope.launch {
       try {
-        bookingRepository.requestBooking(booking)
-        _uiState.update { it.copy(isSubmitting = false, isSubmitted = true) }
+        bookingRepository.requestBooking(booking) { exception ->
+          _uiState.update {
+            it.copy(isSubmitting = false, isQueued = false, error = exception.toAppError())
+          }
+        }
+        _uiState.update {
+          if (it.isSubmitting) it.copy(isSubmitting = false, isQueued = true) else it
+        }
       } catch (exception: Exception) {
         if (exception is CancellationException) {
           _uiState.update { it.copy(isSubmitting = false) }
