@@ -1,6 +1,9 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
 package com.android.polybazaar.auth.model
 
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.error.model.toAppError
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseNetworkException
@@ -25,6 +28,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -653,61 +657,73 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
-  fun sendPasswordResetEmail_unknownEmail_returnsSuccess() = runTest {
-    mockPasswordResetFailure(FirebaseAuthInvalidUserException("ERROR_USER_NOT_FOUND", "No user"))
+  fun sendPasswordResetEmail_unknownOrDisabledEmail_returnsSuccess() = runTest {
+    for (code in listOf("ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED")) {
+      mockPasswordResetFailure(FirebaseAuthInvalidUserException(code, "No user"))
 
-    val result = repository.sendPasswordResetEmail(email)
+      val result = repository.sendPasswordResetEmail(email)
 
-    // Same outcome as a registered address, so the screen does not reveal who has an account.
-    assertTrue(result.isSuccess)
+      // Same outcome as a registered address, so the screen does not reveal who has an account.
+      assertEquals(code, Result.success(Unit), result)
+    }
   }
 
   @Test
   fun sendPasswordResetEmail_blankEmail_failsWithInvalidEmailWithoutCallingFirebase() = runTest {
-    val result = repository.sendPasswordResetEmail("   ")
+    for (blank in listOf("", "   ", "\n\t")) {
+      val error = repository.sendPasswordResetEmail(blank).exceptionOrNull()
 
-    assertPasswordResetFailure(result, PasswordResetException.Reason.INVALID_EMAIL)
+      assertEquals("input \"$blank\"", AppError.INVALID_EMAIL, (error as AppException).error)
+      assertNull("input \"$blank\"", error.cause)
+    }
     verify(auth, never()).sendPasswordResetEmail(any<String>())
   }
 
   @Test
-  fun sendPasswordResetEmail_malformedEmail_failsWithInvalidEmail() = runTest {
-    mockPasswordResetFailure(
-        FirebaseAuthInvalidCredentialsException("ERROR_INVALID_EMAIL", "Badly formatted")
-    )
+  fun sendPasswordResetEmail_malformedEmail_failsWithTheOriginalExceptionShownAsInvalidEmail() =
+      runTest {
+        val exception =
+            FirebaseAuthInvalidCredentialsException("ERROR_INVALID_EMAIL", "Badly formatted")
+        mockPasswordResetFailure(exception)
 
-    val result = repository.sendPasswordResetEmail(email)
+        val failure = repository.sendPasswordResetEmail(email).exceptionOrNull()
 
-    assertPasswordResetFailure(result, PasswordResetException.Reason.INVALID_EMAIL)
+        assertSame(exception, failure)
+        assertEquals(AppError.INVALID_EMAIL, failure?.toAppError())
+      }
+
+  @Test
+  fun sendPasswordResetEmail_noNetwork_failsWithTheOriginalExceptionShownAsNetwork() = runTest {
+    val exception = FirebaseNetworkException("Network error")
+    mockPasswordResetFailure(exception)
+
+    val failure = repository.sendPasswordResetEmail(email).exceptionOrNull()
+
+    assertSame(exception, failure)
+    assertEquals(AppError.NETWORK, failure?.toAppError())
   }
 
   @Test
-  fun sendPasswordResetEmail_noNetwork_failsWithNetwork() = runTest {
-    mockPasswordResetFailure(FirebaseNetworkException("Network error"))
+  fun sendPasswordResetEmail_tooManyRequests_failsWithTheOriginalExceptionShownAsTooManyRequests() =
+      runTest {
+        val exception = FirebaseTooManyRequestsException("Blocked")
+        mockPasswordResetFailure(exception)
 
-    val result = repository.sendPasswordResetEmail(email)
+        val failure = repository.sendPasswordResetEmail(email).exceptionOrNull()
 
-    assertPasswordResetFailure(result, PasswordResetException.Reason.NETWORK)
-  }
-
-  @Test
-  fun sendPasswordResetEmail_tooManyRequests_failsWithTooManyRequests() = runTest {
-    mockPasswordResetFailure(FirebaseTooManyRequestsException("Blocked"))
-
-    val result = repository.sendPasswordResetEmail(email)
-
-    assertPasswordResetFailure(result, PasswordResetException.Reason.TOO_MANY_REQUESTS)
-  }
+        assertSame(exception, failure)
+        assertEquals(AppError.TOO_MANY_REQUESTS, failure?.toAppError())
+      }
 
   @Test
-  fun sendPasswordResetEmail_otherError_failsWithUnknownAndKeepsCause() = runTest {
+  fun sendPasswordResetEmail_otherError_failsWithTheOriginalExceptionShownAsUnknown() = runTest {
     val exception = IllegalStateException("Unexpected")
     mockPasswordResetFailure(exception)
 
-    val result = repository.sendPasswordResetEmail(email)
+    val failure = repository.sendPasswordResetEmail(email).exceptionOrNull()
 
-    assertPasswordResetFailure(result, PasswordResetException.Reason.UNKNOWN)
-    assertSame(exception, result.exceptionOrNull()?.cause)
+    assertSame(exception, failure)
+    assertEquals(AppError.UNKNOWN, failure?.toAppError {})
   }
 
   @Test
@@ -721,15 +737,6 @@ class FirebaseAuthRepositoryTest {
 
   private fun mockPasswordResetFailure(exception: Exception) {
     whenever(auth.sendPasswordResetEmail(email)).thenReturn(Tasks.forException(exception))
-  }
-
-  private fun assertPasswordResetFailure(
-      result: Result<Unit>,
-      expected: PasswordResetException.Reason,
-  ) {
-    val error = result.exceptionOrNull()
-    assertTrue("Expected PasswordResetException but was $error", error is PasswordResetException)
-    assertEquals(expected, (error as PasswordResetException).reason)
   }
 
   private fun mockUsernameLookupSuccess(targetUid: String, returnedUsername: String) {

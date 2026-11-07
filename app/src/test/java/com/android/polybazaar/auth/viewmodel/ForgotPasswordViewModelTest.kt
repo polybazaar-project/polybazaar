@@ -2,8 +2,12 @@
 package com.android.polybazaar.auth.viewmodel
 
 import com.android.polybazaar.auth.model.AuthRepository
-import com.android.polybazaar.auth.model.PasswordResetException
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -122,31 +126,30 @@ class ForgotPasswordViewModelTest {
   }
 
   @Test
-  fun sendResetLink_exposesEachPasswordResetReason() = runTest {
-    for (reason in PasswordResetException.Reason.entries) {
-      repository.resetResult = Result.failure(PasswordResetException(reason))
-      viewModel.onEmailChange("user@example.com")
+  fun sendResetLink_exposesTheAppErrorOfEachFailure() = runTest {
+    val expected =
+        mapOf(
+            AppException(AppError.INVALID_EMAIL) to AppError.INVALID_EMAIL,
+            FirebaseAuthInvalidCredentialsException("ERROR_INVALID_EMAIL", "Bad") to
+                AppError.INVALID_EMAIL,
+            FirebaseNetworkException("Offline") to AppError.NETWORK,
+            FirebaseTooManyRequestsException("Blocked") to AppError.TOO_MANY_REQUESTS,
+            IllegalStateException("Firebase exploded") to AppError.UNKNOWN,
+        )
+    viewModel.onEmailChange("user@example.com")
+
+    for ((exception, error) in expected) {
+      repository.resetResult = Result.failure(exception)
 
       viewModel.sendResetLink()
       testDispatcher.scheduler.advanceUntilIdle()
 
-      assertEquals("reason $reason", reason, viewModel.uiState.value.error)
-      assertFalse("reason $reason", viewModel.uiState.value.isLoading)
-      assertFalse("reason $reason", viewModel.uiState.value.emailSent)
+      assertEquals(
+          "exception $exception",
+          ForgotPasswordUiState(email = "user@example.com", error = error),
+          viewModel.uiState.value,
+      )
     }
-  }
-
-  @Test
-  fun sendResetLink_mapsUnexpectedExceptionToUnknown() = runTest {
-    repository.resetResult = Result.failure(IllegalStateException("Firebase exploded"))
-    viewModel.onEmailChange("user@example.com")
-
-    viewModel.sendResetLink()
-    testDispatcher.scheduler.advanceUntilIdle()
-
-    assertEquals(PasswordResetException.Reason.UNKNOWN, viewModel.uiState.value.error)
-    assertFalse(viewModel.uiState.value.isLoading)
-    assertFalse(viewModel.uiState.value.emailSent)
   }
 
   @Test
@@ -158,11 +161,7 @@ class ForgotPasswordViewModelTest {
       testDispatcher.scheduler.advanceUntilIdle()
 
       assertTrue("input \"$input\"", repository.resetEmails.isEmpty())
-      assertEquals(
-          "input \"$input\"",
-          PasswordResetException.Reason.INVALID_EMAIL,
-          viewModel.uiState.value.error,
-      )
+      assertEquals("input \"$input\"", AppError.INVALID_EMAIL, viewModel.uiState.value.error)
       assertFalse("input \"$input\"", viewModel.uiState.value.isLoading)
       assertFalse("input \"$input\"", viewModel.uiState.value.emailSent)
     }
@@ -173,7 +172,7 @@ class ForgotPasswordViewModelTest {
     viewModel.onEmailChange("   ")
     viewModel.sendResetLink()
     testDispatcher.scheduler.advanceUntilIdle()
-    assertEquals(PasswordResetException.Reason.INVALID_EMAIL, viewModel.uiState.value.error)
+    assertEquals(AppError.INVALID_EMAIL, viewModel.uiState.value.error)
 
     viewModel.onEmailChange("user@example.com")
     viewModel.sendResetLink()
@@ -186,12 +185,11 @@ class ForgotPasswordViewModelTest {
 
   @Test
   fun sendResetLink_afterFailure_clearsPreviousErrorWhenItSucceeds() = runTest {
-    repository.resetResult =
-        Result.failure(PasswordResetException(PasswordResetException.Reason.NETWORK))
+    repository.resetResult = Result.failure(AppException(AppError.NETWORK))
     viewModel.onEmailChange("user@example.com")
     viewModel.sendResetLink()
     testDispatcher.scheduler.advanceUntilIdle()
-    assertEquals(PasswordResetException.Reason.NETWORK, viewModel.uiState.value.error)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
 
     repository.resetResult = Result.success(Unit)
     viewModel.sendResetLink()
@@ -203,8 +201,7 @@ class ForgotPasswordViewModelTest {
 
   @Test
   fun sendResetLink_clearsPreviousErrorWhileNewRequestIsPending() = runTest {
-    repository.resetResult =
-        Result.failure(PasswordResetException(PasswordResetException.Reason.TOO_MANY_REQUESTS))
+    repository.resetResult = Result.failure(AppException(AppError.TOO_MANY_REQUESTS))
     viewModel.onEmailChange("user@example.com")
     viewModel.sendResetLink()
     testDispatcher.scheduler.advanceUntilIdle()
@@ -233,8 +230,7 @@ class ForgotPasswordViewModelTest {
 
   @Test
   fun onEmailChange_afterFailure_clearsError() = runTest {
-    repository.resetResult =
-        Result.failure(PasswordResetException(PasswordResetException.Reason.INVALID_EMAIL))
+    repository.resetResult = Result.failure(AppException(AppError.INVALID_EMAIL))
     viewModel.onEmailChange("not-an-email")
     viewModel.sendResetLink()
     testDispatcher.scheduler.advanceUntilIdle()
@@ -268,12 +264,10 @@ class ForgotPasswordViewModelTest {
     viewModel.sendResetLink()
     testDispatcher.scheduler.runCurrent()
     viewModel.onEmailChange("b@example.com")
-    gate.complete(
-        Result.failure(PasswordResetException(PasswordResetException.Reason.INVALID_EMAIL))
-    )
+    gate.complete(Result.failure(AppException(AppError.INVALID_EMAIL)))
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertNull(viewModel.uiState.value.error)
+    assertEquals(ForgotPasswordUiState(email = "b@example.com"), viewModel.uiState.value)
   }
 
   private class FakeAuthRepository : AuthRepository {

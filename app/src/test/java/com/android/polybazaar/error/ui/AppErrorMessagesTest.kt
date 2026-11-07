@@ -37,6 +37,16 @@ class AppErrorMessagesTest {
   }
 
   @Test
+  fun invalidLink_usesTheResetLinkWording() {
+    assertEquals(R.string.error_invalid_link, AppError.INVALID_LINK.messageRes)
+    assertEquals(
+        "This reset link has expired or was already used. " +
+            "Go back to sign in and tap Forgot password? to get a new one.",
+        context.getString(AppError.INVALID_LINK.messageRes),
+    )
+  }
+
+  @Test
   fun message_showsTheLocalizedText() {
     composeTestRule.setContent { Text(AppError.NETWORK.message()) }
 

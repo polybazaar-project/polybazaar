@@ -5,14 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.AuthRules
-import com.android.polybazaar.auth.model.ConfirmPasswordResetException
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Why choosing a new password failed. The screen picks the message to show. */
+/** Why the typed passwords were refused before sending. The screen picks the message to show. */
 enum class ResetPasswordError {
   /** The new password is empty or only whitespace. */
   EMPTY_PASSWORD,
@@ -20,23 +21,11 @@ enum class ResetPasswordError {
   /** The new password is longer than [AuthRules.MAX_PASSWORD_LENGTH], as sign-up refuses. */
   PASSWORD_TOO_LONG,
 
-  /** The new password does not meet the rules shown under the field, or Firebase rejected it. */
+  /** The new password does not meet the rules shown under the field. */
   WEAK_PASSWORD,
 
   /** The confirmation is not exactly the new password. */
   PASSWORDS_DO_NOT_MATCH,
-
-  /** The reset link is malformed, expired or was already used. A new one must be requested. */
-  INVALID_LINK,
-
-  /** The device could not reach Firebase. */
-  NETWORK,
-
-  /** Firebase blocked the request because too many were sent from this device. */
-  TOO_MANY_REQUESTS,
-
-  /** Any other error. */
-  UNKNOWN,
 }
 
 /**
@@ -70,7 +59,8 @@ internal fun newPasswordError(newPassword: String, confirmPassword: String): Res
  * @property isLoading true while the new password is being saved.
  * @property passwordReset true once the new password was saved. The screen then goes back to sign
  *   in.
- * @property error why the last attempt failed, or null.
+ * @property error which field check the last attempt failed, or null.
+ * @property requestError why the last request failed, or null.
  */
 data class ResetPasswordUiState(
     val newPassword: String = "",
@@ -78,6 +68,7 @@ data class ResetPasswordUiState(
     val isLoading: Boolean = false,
     val passwordReset: Boolean = false,
     val error: ResetPasswordError? = null,
+    val requestError: AppError? = null,
 )
 
 /**
@@ -95,20 +86,23 @@ class ResetPasswordViewModel(
 
   /** Updates the new password and clears the result of the previous attempt. */
   fun onNewPasswordChange(password: String) {
-    _uiState.update { it.copy(newPassword = password, passwordReset = false, error = null) }
+    _uiState.update {
+      it.copy(newPassword = password, passwordReset = false, error = null, requestError = null)
+    }
   }
 
   /** Updates the confirmation and clears the result of the previous attempt. */
   fun onConfirmPasswordChange(password: String) {
-    _uiState.update { it.copy(confirmPassword = password, passwordReset = false, error = null) }
+    _uiState.update {
+      it.copy(confirmPassword = password, passwordReset = false, error = null, requestError = null)
+    }
   }
 
   /**
    * Saves the new password. Ignored while a request is already in flight. The fields are first
    * checked with [newPasswordError]; if a rule is broken, its error is set and the repository is
    * not called. Otherwise [ResetPasswordUiState.passwordReset] becomes true on success, or
-   * [ResetPasswordUiState.error] is set from the [ConfirmPasswordResetException] reason
-   * ([ResetPasswordError.UNKNOWN] for any other failure). If either field changes before the
+   * [ResetPasswordUiState.requestError] is set on failure. If either field changes before the
    * request finishes, its result is dropped and only the loading state ends: it was for other
    * input.
    */
@@ -120,32 +114,24 @@ class ResetPasswordViewModel(
       _uiState.update { it.copy(error = error) }
       return
     }
-    _uiState.update { it.copy(isLoading = true, passwordReset = false, error = null) }
+    _uiState.update {
+      it.copy(isLoading = true, passwordReset = false, error = null, requestError = null)
+    }
     viewModelScope.launch {
       val result = authRepository.confirmPasswordReset(oobCode, newPassword)
+      // Outside update, which may run its block more than once: an unmapped failure is logged once.
+      val requestError = result.exceptionOrNull()?.toAppError()
       _uiState.update {
         if (it.newPassword != newPassword || it.confirmPassword != confirmPassword) {
           it.copy(isLoading = false)
         } else {
-          result.fold(
-              onSuccess = { _ -> it.copy(isLoading = false, passwordReset = true) },
-              onFailure = { exception ->
-                it.copy(isLoading = false, error = resetPasswordError(exception))
-              },
+          it.copy(
+              isLoading = false,
+              passwordReset = result.isSuccess,
+              requestError = requestError,
           )
         }
       }
     }
   }
 }
-
-/** Maps a repository failure to the error shown on the reset password screen. */
-private fun resetPasswordError(exception: Throwable): ResetPasswordError =
-    when ((exception as? ConfirmPasswordResetException)?.reason) {
-      ConfirmPasswordResetException.Reason.INVALID_LINK -> ResetPasswordError.INVALID_LINK
-      ConfirmPasswordResetException.Reason.WEAK_PASSWORD -> ResetPasswordError.WEAK_PASSWORD
-      ConfirmPasswordResetException.Reason.NETWORK -> ResetPasswordError.NETWORK
-      ConfirmPasswordResetException.Reason.TOO_MANY_REQUESTS -> ResetPasswordError.TOO_MANY_REQUESTS
-      ConfirmPasswordResetException.Reason.UNKNOWN,
-      null -> ResetPasswordError.UNKNOWN
-    }
