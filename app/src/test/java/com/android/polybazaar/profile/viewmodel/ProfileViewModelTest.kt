@@ -4,7 +4,10 @@ package com.android.polybazaar.profile.viewmodel
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.profile.model.ProfileRepository
+import com.google.firebase.firestore.FirebaseFirestoreException
+import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -74,7 +77,7 @@ class ProfileViewModelTest {
     assertEquals(profile.uid, repository.observedUid)
     assertEquals(profile, viewModel.uiState.value.profile)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -89,7 +92,7 @@ class ProfileViewModelTest {
 
     assertTrue(viewModel.uiState.value.isLoading)
     assertNull(viewModel.uiState.value.profile)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -105,7 +108,7 @@ class ProfileViewModelTest {
 
     assertNull(viewModel.uiState.value.profile)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -132,19 +135,56 @@ class ProfileViewModelTest {
     assertNull(viewModel.uiState.value.profile)
     assertNull(viewModel.uiState.value.photo)
     assertTrue(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
-  fun observeProfile_exposesRepositoryFailure() = runTest {
-    // Confirms observation failures stop loading and provide an error message.
+  fun observeProfile_unrecognisedFailure_isUnknown() = runTest {
+    // A repository IllegalStateException, such as a profile missing its username, carries
+    // internal text, so it is shown as UNKNOWN rather than as its message.
     repository.observationFlow = flow { throw IllegalStateException("Profile unavailable") }
 
     viewModel.observeProfile(profile.uid)
     testDispatcher.scheduler.runCurrent()
 
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Profile unavailable", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun observeProfile_offlineFirestoreFailure_isNetwork() = runTest {
+    repository.observationFlow = flow {
+      throw FirebaseFirestoreException("offline", FirebaseFirestoreException.Code.UNAVAILABLE)
+    }
+
+    observeWithoutEmitting()
+
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun observeProfile_unknownHostFailure_isNetwork() = runTest {
+    repository.observationFlow = flow { throw UnknownHostException("firestore.googleapis.com") }
+
+    observeWithoutEmitting()
+
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun observeProfile_again_clearsThePreviousErrorWhileLoading() = runTest {
+    repository.observationFlow = flow { throw UnknownHostException("offline") }
+    observeWithoutEmitting()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    repository.observationFlow = flow {
+      suspendCancellableCoroutine<Unit> { continuation -> continuation.invokeOnCancellation {} }
+    }
+
+    observeWithoutEmitting()
+
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -217,7 +257,7 @@ class ProfileViewModelTest {
     observe()
 
     assertEquals(profile, viewModel.uiState.value.profile)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -261,8 +301,25 @@ class ProfileViewModelTest {
     testDispatcher.scheduler.runCurrent()
 
     assertSame(repository.photo, viewModel.uiState.value.photo)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
     assertSame(failure, ShadowLog.getLogsForTag("ProfileViewModel").single().throwable)
+  }
+
+  @Test
+  fun photoFailsToLoadOffline_stillReportsNoError() = runTest {
+    // Even a failure that maps to NETWORK is only logged: the profile itself loaded.
+    repository.photoFailure = UnknownHostException("offline")
+
+    observe()
+
+    assertEquals(profile, viewModel.uiState.value.profile)
+    assertNull(viewModel.uiState.value.photo)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  private fun observeWithoutEmitting() {
+    viewModel.observeProfile(profile.uid)
+    testDispatcher.scheduler.runCurrent()
   }
 
   private fun observe(initial: User = profile) {

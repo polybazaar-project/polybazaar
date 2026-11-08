@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 package com.android.polybazaar.profile.ui
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.runtime.CompositionLocalProvider
@@ -21,8 +22,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -34,6 +38,8 @@ import org.robolectric.annotation.GraphicsMode
 class EditProfileScreenTest {
 
   @get:Rule val composeTestRule = createComposeRule()
+
+  private val context: Context = ApplicationProvider.getApplicationContext()
 
   private val profile =
       User(
@@ -49,7 +55,8 @@ class EditProfileScreenTest {
       selectedPhotoUri: Uri? = null,
       isPhotoRemoved: Boolean = false,
       isSaving: Boolean = false,
-      errorMessage: String? = null,
+      isPartiallySaved: Boolean = false,
+      error: AppError? = null,
       actions: EditProfileActions = EditProfileActions(),
   ) {
     composeTestRule.setContent {
@@ -59,7 +66,8 @@ class EditProfileScreenTest {
           selectedPhotoUri = selectedPhotoUri,
           isPhotoRemoved = isPhotoRemoved,
           isSaving = isSaving,
-          errorMessage = errorMessage,
+          isPartiallySaved = isPartiallySaved,
+          error = error,
           actions = actions,
       )
     }
@@ -97,7 +105,8 @@ class EditProfileScreenTest {
           selectedPhotoUri = null,
           isPhotoRemoved = isPhotoRemoved,
           isSaving = false,
-          errorMessage = null,
+          isPartiallySaved = false,
+          error = null,
           actions = EditProfileActions(),
           photo = photo,
       )
@@ -163,13 +172,69 @@ class EditProfileScreenTest {
 
   @Test
   fun withoutProfile_fieldsAreEmptyAndSaveIsDisabled() {
-    setContent(profile = null, errorMessage = "Profile not found")
+    setContent(profile = null, error = AppError.NOT_FOUND)
 
     node(EditProfileScreenTags.USERNAME_FIELD).assertTextEquals("")
     node(EditProfileScreenTags.SAVE_BUTTON).performScrollTo().assertIsNotEnabled()
     node(EditProfileScreenTags.ERROR_MESSAGE)
         .performScrollTo()
-        .assertTextEquals("Profile not found")
+        .assertTextEquals(context.getString(R.string.error_not_found))
+  }
+
+  @Test
+  fun notFoundText_isTheSharedMessage() {
+    // Pins the resource the AppError maps to, typographic apostrophe included.
+    assertEquals(
+        "We couldn\u2019t find what you were looking for.",
+        context.getString(R.string.error_not_found),
+    )
+  }
+
+  @Test
+  fun networkError_showsTheNetworkText() {
+    setContent(error = AppError.NETWORK)
+
+    node(EditProfileScreenTags.ERROR_MESSAGE)
+        .performScrollTo()
+        .assertTextEquals(context.getString(R.string.error_network))
+  }
+
+  @Test
+  fun partialSave_showsThePartialSaveText() {
+    setContent(bio = "Kept bio", isPhotoRemoved = true, isPartiallySaved = true)
+
+    node(EditProfileScreenTags.ERROR_MESSAGE)
+        .performScrollTo()
+        .assertTextEquals(context.getString(R.string.edit_profile_photo_not_removed))
+    node(EditProfileScreenTags.BIO_FIELD).assertTextEquals("Kept bio")
+    node(EditProfileScreenTags.SAVE_BUTTON).performScrollTo().assertIsEnabled()
+  }
+
+  @Test
+  fun partialSaveText_isTheFixedMessage() {
+    assertEquals(
+        "Your bio was saved, but the photo couldn\u2019t be removed. Tap Save to try again.",
+        context.getString(R.string.edit_profile_photo_not_removed),
+    )
+  }
+
+  @Test
+  fun partialSave_whileTheRetryIsSaving_showsNoMessage() {
+    setContent(isPhotoRemoved = true, isSaving = true, isPartiallySaved = true)
+
+    node(EditProfileScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun partialSave_withAFailedRetry_showsTheErrorInsteadOfThePartialText() {
+    setContent(isPhotoRemoved = true, isPartiallySaved = true, error = AppError.NETWORK)
+
+    node(EditProfileScreenTags.ERROR_MESSAGE)
+        .performScrollTo()
+        .assertTextEquals(context.getString(R.string.error_network))
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.edit_profile_photo_not_removed))
+        .assertDoesNotExist()
   }
 
   @Test
@@ -230,7 +295,8 @@ class EditProfileScreenTest {
             selectedPhotoUri = null,
             isPhotoRemoved = false,
             isSaving = false,
-            errorMessage = null,
+            isPartiallySaved = false,
+            error = null,
             actions = EditProfileActions(onPhotoSelected = { selected += it }),
         )
       }

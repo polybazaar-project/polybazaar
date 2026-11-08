@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.ui
 
+import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
@@ -16,8 +17,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -28,6 +32,8 @@ import org.robolectric.annotation.GraphicsMode
 class ProfileScreenTest {
 
   @get:Rule val composeTestRule = createComposeRule()
+
+  private val context: Context = ApplicationProvider.getApplicationContext()
 
   private val profile =
       User(
@@ -41,7 +47,7 @@ class ProfileScreenTest {
       profile: User? = this.profile,
       photo: ByteArray? = null,
       isLoading: Boolean = false,
-      errorMessage: String? = null,
+      error: AppError? = null,
       onEditProfile: () -> Unit = {},
       onOpenSettings: () -> Unit = {},
   ) {
@@ -50,7 +56,7 @@ class ProfileScreenTest {
           profile = profile,
           photo = photo,
           isLoading = isLoading,
-          errorMessage = errorMessage,
+          error = error,
           onEditProfile = onEditProfile,
           onOpenSettings = onOpenSettings,
       )
@@ -91,7 +97,7 @@ class ProfileScreenTest {
         ProfileContent(
             profile = profile,
             isLoading = false,
-            errorMessage = null,
+            error = null,
             onEditProfile = {},
             onOpenSettings = {},
         )
@@ -142,10 +148,19 @@ class ProfileScreenTest {
   }
 
   @Test
-  fun loadFailure_showsTheErrorAndDisablesEditing() {
-    setContent(profile = null, errorMessage = "Unable to load profile")
+  fun loadFailure_showsTheErrorTextAndDisablesEditing() {
+    setContent(profile = null, error = AppError.NETWORK)
 
-    node(ProfileScreenTags.ERROR_MESSAGE).assertTextEquals("Unable to load profile")
+    node(ProfileScreenTags.ERROR_MESSAGE)
+        .assertTextEquals(context.getString(R.string.error_network))
     node(ProfileScreenTags.EDIT_PROFILE_BUTTON).performScrollTo().assertIsNotEnabled()
+  }
+
+  @Test
+  fun notFound_showsTheNotFoundText() {
+    setContent(profile = null, error = AppError.NOT_FOUND)
+
+    node(ProfileScreenTags.ERROR_MESSAGE)
+        .assertTextEquals(context.getString(R.string.error_not_found))
   }
 }

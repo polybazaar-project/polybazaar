@@ -25,10 +25,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.AuthBackButton
 import com.android.polybazaar.auth.ui.AuthCard
@@ -37,6 +39,8 @@ import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.auth.ui.AuthSecondaryButton
 import com.android.polybazaar.auth.ui.AuthTitleGroup
 import com.android.polybazaar.auth.ui.LabeledField
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.profile.model.ProfileRules
 
 object EditProfileScreenTags {
@@ -71,7 +75,8 @@ class EditProfileActions(
  * @param selectedPhotoUri a new photo picked on the device and not saved yet.
  * @param isPhotoRemoved whether the user asked to remove the saved photo.
  * @param isSaving whether a save is running; editing and saving are disabled meanwhile.
- * @param errorMessage the error to show, if any.
+ * @param isPartiallySaved whether the bio was saved but the photo could not be removed.
+ * @param error the error to show, if any.
  * @param actions called when the user edits, saves or leaves the screen (back arrow or Cancel).
  * @param photo the encoded bytes of the saved profile photo, if it has loaded.
  */
@@ -82,7 +87,8 @@ fun EditProfileContent(
     selectedPhotoUri: Uri?,
     isPhotoRemoved: Boolean,
     isSaving: Boolean,
-    errorMessage: String?,
+    isPartiallySaved: Boolean,
+    error: AppError?,
     actions: EditProfileActions,
     photo: ByteArray? = null,
 ) {
@@ -146,7 +152,14 @@ fun EditProfileContent(
           counter = "${bio.length}/${ProfileRules.MAX_BIO_LENGTH}",
           counterTag = EditProfileScreenTags.BIO_COUNTER,
       )
-      errorMessage?.let {
+      // A failed retry keeps isPartiallySaved, so its error is shown first. The partial-save text
+      // is hidden while a retry runs, like an error that clears when a save starts.
+      val message =
+          error?.message()
+              ?: if (isPartiallySaved && !isSaving) {
+                stringResource(R.string.edit_profile_photo_not_removed)
+              } else null
+      message?.let {
         Text(
             text = it,
             color = AuthColors.Danger,
@@ -275,7 +288,8 @@ private fun EditProfileContentPreview() {
       selectedPhotoUri = null,
       isPhotoRemoved = false,
       isSaving = false,
-      errorMessage = null,
+      isPartiallySaved = false,
+      error = null,
       actions = EditProfileActions(),
   )
 }

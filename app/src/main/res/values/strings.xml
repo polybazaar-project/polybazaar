@@ -27,6 +27,9 @@
     <string name="lender_profile_not_found">This profile no longer exists.</string>
     <string name="lender_profile_open_listing">Open listing</string>
 
+    <!-- Edit profile screen -->
+    <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
+
     <!-- Toolbox -->
     <string name="toolbox_title">My toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
