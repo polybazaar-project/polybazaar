@@ -4,6 +4,8 @@ package com.android.polybazaar.auth.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +19,13 @@ data class VerifyEmailUiState(
     val isVerified: Boolean = false,
     val isLoading: Boolean = false,
     val resendCooldownSeconds: Int = 0,
-    val errorMessage: String? = null,
+    /** Why the last resend or check the user asked for failed, or null. */
+    val error: AppError? = null,
+    /**
+     * Set when a check the user asked for found the email still unverified. Not a failure, so it is
+     * kept apart from [error].
+     */
+    val isNotVerifiedYet: Boolean = false,
 )
 
 /**
@@ -45,7 +53,7 @@ class VerifyEmailViewModel(
     val state = _uiState.value
     if (state.isVerified || state.isLoading || state.resendCooldownSeconds > 0) return
     viewModelScope.launch {
-      _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+      _uiState.update { it.copy(isLoading = true, error = null, isNotVerifiedYet = false) }
       authRepository
           .sendVerificationEmail()
           .fold(
@@ -56,12 +64,7 @@ class VerifyEmailViewModel(
                 countDownResendCooldown()
               },
               onFailure = { exception ->
-                _uiState.update {
-                  it.copy(
-                      isLoading = false,
-                      errorMessage = exception.message ?: "Unable to send verification email",
-                  )
-                }
+                _uiState.update { it.copy(isLoading = false, error = exception.toAppError()) }
               },
           )
     }
@@ -76,7 +79,7 @@ class VerifyEmailViewModel(
   fun refresh(automatic: Boolean = false) {
     if (_uiState.value.isLoading) return
     viewModelScope.launch {
-      _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+      _uiState.update { it.copy(isLoading = true, error = null, isNotVerifiedYet = false) }
       authRepository
           .refreshUser()
           .fold(
@@ -85,8 +88,7 @@ class VerifyEmailViewModel(
                   it.copy(
                       isVerified = user.isEmailVerified,
                       isLoading = false,
-                      errorMessage =
-                          if (user.isEmailVerified || automatic) null else "Email not verified yet",
+                      isNotVerifiedYet = !user.isEmailVerified && !automatic,
                   )
                 }
               },
@@ -94,9 +96,7 @@ class VerifyEmailViewModel(
                 _uiState.update {
                   it.copy(
                       isLoading = false,
-                      errorMessage =
-                          if (automatic) null
-                          else exception.message ?: "Unable to check verification",
+                      error = if (automatic) null else exception.toAppError(),
                   )
                 }
               },
