@@ -12,7 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -26,6 +26,7 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class BookingViewModelTest {
 
+  private val testDispatcher = StandardTestDispatcher()
   private val booking =
       Booking(
           listingId = "listing",
@@ -39,7 +40,7 @@ class BookingViewModelTest {
 
   @Before
   fun setUp() {
-    Dispatchers.setMain(UnconfinedTestDispatcher())
+    Dispatchers.setMain(testDispatcher)
     repository = FakeBookingRepository()
   }
 
@@ -53,9 +54,24 @@ class BookingViewModelTest {
     val viewModel = BookingViewModel(repository)
 
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(booking, repository.requestedBooking)
     assertEquals(BookingUiState(isQueued = true), viewModel.uiState.value)
+  }
+
+  @Test
+  fun acknowledgeQueuedBooking_allowsAnotherRequest() = runTest {
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.acknowledgeQueuedBooking()
+    viewModel.requestBooking(booking.copy(startDate = LocalDate.of(2026, 12, 4)))
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(2, repository.requestCount)
+    assertTrue(viewModel.uiState.value.isQueued)
   }
 
   @Test
@@ -65,12 +81,14 @@ class BookingViewModelTest {
     val viewModel = BookingViewModel(repository)
 
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.runCurrent()
     viewModel.requestBooking(booking.copy(listingId = "other-listing"))
 
     assertTrue(viewModel.uiState.value.isSubmitting)
     assertEquals(1, repository.requestCount)
 
     gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertTrue(viewModel.uiState.value.isQueued)
     assertFalse(viewModel.uiState.value.isSubmitting)
@@ -81,6 +99,7 @@ class BookingViewModelTest {
     val viewModel = BookingViewModel(repository)
 
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
     assertTrue(viewModel.uiState.value.isQueued)
 
     repository.writeFailure?.invoke(AppException(AppError.NETWORK))
@@ -90,6 +109,7 @@ class BookingViewModelTest {
 
     repository.writeFailure = null
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertTrue(viewModel.uiState.value.isQueued)
     assertEquals(null, viewModel.uiState.value.error)
@@ -101,6 +121,7 @@ class BookingViewModelTest {
     val viewModel = BookingViewModel(repository)
 
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(viewModel.uiState.value.isSubmitting)
     assertFalse(viewModel.uiState.value.isQueued)
@@ -113,12 +134,14 @@ class BookingViewModelTest {
     val viewModel = BookingViewModel(repository)
 
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isSubmitting)
 
     repository.failure = null
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertTrue(viewModel.uiState.value.isQueued)
     assertEquals(null, viewModel.uiState.value.error)
@@ -130,6 +153,7 @@ class BookingViewModelTest {
     val viewModel = BookingViewModel(repository)
 
     viewModel.requestBooking(booking)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(viewModel.uiState.value.isSubmitting)
     assertFalse(viewModel.uiState.value.isQueued)

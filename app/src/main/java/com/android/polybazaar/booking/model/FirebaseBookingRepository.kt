@@ -14,7 +14,7 @@ import kotlinx.coroutines.tasks.await
 class FirebaseBookingRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val onWriteFailure: (Exception) -> Unit = {
+    private val logWriteFailure: (Exception) -> Unit = {
       Log.e("BookingRepository", "Booking request failed", it)
     },
 ) : BookingRepository {
@@ -45,7 +45,7 @@ class FirebaseBookingRepository(
             )
         )
         .addOnFailureListener(Executor { it.run() }) {
-          this.onWriteFailure(it)
+          logWriteFailure(it)
           onWriteFailure(it)
         }
   }

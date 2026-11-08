@@ -53,4 +53,9 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
       }
     }
   }
+
+  /** Marks the queued submission as handled, allowing the user to request another booking. */
+  fun acknowledgeQueuedBooking() {
+    _uiState.update { it.copy(isQueued = false) }
+  }
 }
