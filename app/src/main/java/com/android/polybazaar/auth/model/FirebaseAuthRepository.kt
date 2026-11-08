@@ -55,7 +55,7 @@ class FirebaseAuthRepository(
 
       val snapshot = usernameDocRef.get().await()
       if (snapshot.exists()) {
-        return Result.failure(Exception("Username is already taken"))
+        return Result.failure(AppException(AppError.USERNAME_TAKEN))
       }
 
       val authResult = auth.createUserWithEmailAndPassword(email, password).await()
@@ -111,13 +111,13 @@ class FirebaseAuthRepository(
 
   override suspend fun sendVerificationEmail(): Result<Unit> {
     val firebaseUser =
-        auth.currentUser ?: return Result.failure(Exception("No user is currently logged in"))
+        auth.currentUser ?: return Result.failure(AppException(AppError.UNAUTHENTICATED))
     return sendVerificationEmailTo(firebaseUser)
   }
 
   override suspend fun refreshUser(): Result<User> {
     return try {
-      val firebaseUser = auth.currentUser ?: throw Exception("No user is currently logged in")
+      val firebaseUser = auth.currentUser ?: throw AppException(AppError.UNAUTHENTICATED)
       firebaseUser.reload().await()
       // reload() leaves the cached ID token as it was, and the security rules read
       // email_verified from that token. Refresh it, or the newly verified user would still be

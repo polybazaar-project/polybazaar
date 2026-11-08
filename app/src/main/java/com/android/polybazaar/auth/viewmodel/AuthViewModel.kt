@@ -18,7 +18,8 @@ import kotlinx.coroutines.launch
 data class AuthUiState(
     val user: User? = null,
     val isLoading: Boolean = false,
-    val errorMessage: String? = null,
+    /** Why the last sign-in, sign-up or sign-out failed, or null. */
+    val error: AppError? = null,
     val sessionChecked: Boolean = false,
     /** Set when the persisted session could not be checked, for example offline; retry then. */
     val sessionError: AppError? = null,
@@ -82,7 +83,7 @@ class AuthViewModel(
 
   /** Forgets the error once a screen has shown it, so it is not shown again. */
   fun clearError() {
-    _uiState.update { it.copy(errorMessage = null) }
+    _uiState.update { it.copy(error = null) }
   }
 
   /** Marks the signed-in user's email as verified, once [VerifyEmailViewModel] has confirmed it. */
@@ -92,33 +93,26 @@ class AuthViewModel(
 
   fun signOut() {
     viewModelScope.launch {
-      _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+      _uiState.update { it.copy(isLoading = true, error = null) }
       try {
         authRepository.signOut()
         _uiState.update { it.copy(user = null, isLoading = false) }
       } catch (exception: Exception) {
         if (exception is kotlinx.coroutines.CancellationException) throw exception
-        _uiState.update {
-          it.copy(isLoading = false, errorMessage = exception.message ?: "Unable to sign out")
-        }
+        _uiState.update { it.copy(isLoading = false, error = exception.toAppError()) }
       }
     }
   }
 
   private suspend fun authenticate(action: suspend () -> Result<User>) {
-    _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+    _uiState.update { it.copy(isLoading = true, error = null) }
     action()
         .fold(
             onSuccess = { user ->
               _uiState.update { it.copy(user = user, isLoading = false, sessionChecked = true) }
             },
             onFailure = { exception ->
-              _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    errorMessage = exception.message ?: "Authentication failed",
-                )
-              }
+              _uiState.update { it.copy(isLoading = false, error = exception.toAppError()) }
             },
         )
   }

@@ -340,7 +340,17 @@ class FirebaseAuthRepositoryTest {
     val result = repository.signUp(email, password, username)
 
     assertTrue(result.isFailure)
-    assertEquals("Username is already taken", result.exceptionOrNull()?.message)
+    assertEquals(AppError.USERNAME_TAKEN, result.exceptionOrNull()?.toAppError())
+  }
+
+  @Test
+  fun signUp_usernameTaken_doesNotCreateAccount() = runTest {
+    mockUsernameDocument(exists = true)
+
+    val result = repository.signUp(email, password, username)
+
+    assertEquals(AppError.USERNAME_TAKEN, (result.exceptionOrNull() as AppException).error)
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
 
   @Test
@@ -561,7 +571,7 @@ class FirebaseAuthRepositoryTest {
     val result = repository.sendVerificationEmail()
 
     assertTrue(result.isFailure)
-    assertEquals("No user is currently logged in", result.exceptionOrNull()?.message)
+    assertEquals(AppError.UNAUTHENTICATED, result.exceptionOrNull()?.toAppError())
   }
 
   @Test
@@ -631,7 +641,32 @@ class FirebaseAuthRepositoryTest {
     val result = repository.refreshUser()
 
     assertTrue(result.isFailure)
-    assertEquals("No user is currently logged in", result.exceptionOrNull()?.message)
+    assertEquals(AppError.UNAUTHENTICATED, result.exceptionOrNull()?.toAppError())
+  }
+
+  @Test
+  fun refreshUser_noUserLoggedIn_doesNotReloadAnything() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val result = repository.refreshUser()
+
+    assertEquals(AppError.UNAUTHENTICATED, (result.exceptionOrNull() as AppException).error)
+    verify(firebaseUser, never()).reload()
+  }
+
+  @Test
+  fun refreshUser_sessionExpired_mapsToUnauthenticated() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.reload())
+        .thenReturn(
+            Tasks.forException(
+                FirebaseAuthInvalidUserException("ERROR_USER_TOKEN_EXPIRED", "Token expired")
+            )
+        )
+
+    val result = repository.refreshUser()
+
+    assertEquals(AppError.UNAUTHENTICATED, result.exceptionOrNull()?.toAppError())
   }
 
   @Test

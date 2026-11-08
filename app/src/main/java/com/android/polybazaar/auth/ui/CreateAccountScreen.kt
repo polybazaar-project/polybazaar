@@ -37,6 +37,7 @@ import com.android.polybazaar.auth.model.EPFL_EMAIL_DOMAIN
 import com.android.polybazaar.auth.model.isEpflEmail
 import com.android.polybazaar.auth.viewmodel.AuthUiState
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.error.ui.message
 
 object CreateAccountScreenTags {
   const val SCREEN = "create_account_screen"
@@ -194,7 +195,7 @@ fun CreateAccountContent(
         if (confirmPassword.isNotEmpty() && !passwordsMatch) {
           FieldError("Passwords do not match", CreateAccountScreenTags.PASSWORD_MISMATCH_MESSAGE)
         }
-        uiState.errorMessage?.let { FieldError(it, CreateAccountScreenTags.ERROR_MESSAGE) }
+        uiState.error?.message()?.let { FieldError(it, CreateAccountScreenTags.ERROR_MESSAGE) }
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
