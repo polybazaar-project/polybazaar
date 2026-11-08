@@ -31,10 +31,12 @@
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
 
     <!-- Toolbox -->
-    <string name="toolbox_title">My toolbox</string>
+    <string name="toolbox_title">My Toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
-    <string name="toolbox_type_item">Item</string>
-    <string name="toolbox_type_service">Service</string>
+    <string name="toolbox_filter_items">Items</string>
+    <string name="toolbox_filter_services">Services</string>
+    <string name="toolbox_empty_items">You have no item listings.</string>
+    <string name="toolbox_empty_services">You have no service listings.</string>
 
     <!-- Forgot password screen -->
     <string name="forgot_password_title">Forgot password</string>
