@@ -7,6 +7,7 @@ import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
@@ -176,5 +177,99 @@ class ToolboxViewModelTest {
 
     assertEquals(myListings, viewModel.uiState.value.listings)
     assertEquals(2, repository.getMyListingsCalls)
+  }
+
+  @Test
+  fun init_selectsNoTypeAndShowsAllListings() {
+    val viewModel = ToolboxViewModel(repository)
+
+    assertNull(viewModel.uiState.value.selectedType)
+    assertEquals(myListings, viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun selectType_item_showsOnlyItems() {
+    val viewModel = ToolboxViewModel(repository)
+
+    viewModel.selectType(ListingType.ITEM)
+
+    assertEquals(ListingType.ITEM, viewModel.uiState.value.selectedType)
+    assertEquals(listOf(myListings[0]), viewModel.uiState.value.filteredListings)
+    // The filter does not drop the other listings from the state.
+    assertEquals(myListings, viewModel.uiState.value.listings)
+  }
+
+  @Test
+  fun selectType_service_showsOnlyServices() {
+    val viewModel = ToolboxViewModel(repository)
+
+    viewModel.selectType(ListingType.SERVICE)
+
+    assertEquals(ListingType.SERVICE, viewModel.uiState.value.selectedType)
+    assertEquals(listOf(myListings[1]), viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun selectType_theSelectedTypeAgain_showsAllListings() {
+    val viewModel = ToolboxViewModel(repository)
+    viewModel.selectType(ListingType.ITEM)
+
+    viewModel.selectType(ListingType.ITEM)
+
+    assertNull(viewModel.uiState.value.selectedType)
+    assertEquals(myListings, viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun selectType_theOtherType_switchesDirectly() {
+    val viewModel = ToolboxViewModel(repository)
+    viewModel.selectType(ListingType.ITEM)
+
+    viewModel.selectType(ListingType.SERVICE)
+
+    assertEquals(ListingType.SERVICE, viewModel.uiState.value.selectedType)
+    assertEquals(listOf(myListings[1]), viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun selectType_withNoListingOfThatType_filtersToAnEmptyList() {
+    repository.myListings = listOf(myListings[0])
+    val viewModel = ToolboxViewModel(repository)
+
+    viewModel.selectType(ListingType.SERVICE)
+
+    assertEquals(emptyList<Listing>(), viewModel.uiState.value.filteredListings)
+    assertEquals(listOf(myListings[0]), viewModel.uiState.value.listings)
+  }
+
+  @Test
+  fun loadListings_afterANewListing_keepsTheFilter() {
+    val viewModel = ToolboxViewModel(repository)
+    viewModel.selectType(ListingType.ITEM)
+    val newItem = ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Novel", "", listingId = "novel")
+    val newService =
+        ServiceListing(ListingCategory.SERVICE_TUTORING, 20.0, "Physics", "", listingId = "phys")
+    repository.myListings = myListings + newItem + newService
+
+    viewModel.loadListings()
+
+    assertEquals(ListingType.ITEM, viewModel.uiState.value.selectedType)
+    assertEquals(listOf(myListings[0], newItem), viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun loadListings_retryAfterFailure_keepsTheFilter() {
+    val viewModel = ToolboxViewModel(repository)
+    viewModel.selectType(ListingType.SERVICE)
+    repository.failure = UnknownHostException("offline")
+    viewModel.loadListings()
+    assertEquals(ListingType.SERVICE, viewModel.uiState.value.selectedType)
+
+    repository.failure = null
+    viewModel.loadListings()
+
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(ListingType.SERVICE, viewModel.uiState.value.selectedType)
+    assertEquals(listOf(myListings[1]), viewModel.uiState.value.filteredListings)
   }
 }
