@@ -6,12 +6,23 @@ import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
+import com.google.firebase.storage.StorageMetadata
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Turns a listing photo into the smaller bytes that get uploaded. */
+/** What every photo upload and download shares with the Storage rules. */
+object PhotoStorage {
+  /** The compressor always produces a JPEG, and the Storage rules only accept images. */
+  val JPEG_METADATA: StorageMetadata =
+      StorageMetadata.Builder().setContentType("image/jpeg").build()
+
+  /** The largest photo the Storage rules accept. */
+  const val MAX_PHOTO_BYTES = 10L * 1024 * 1024
+}
+
+/** Turns a photo into the smaller bytes that get uploaded. */
 fun interface PhotoCompressor {
   suspend fun compress(photo: Uri): ByteArray
 }
