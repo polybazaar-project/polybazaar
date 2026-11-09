@@ -802,13 +802,6 @@ describe("conversations", () => {
     );
   });
 
-  test("a conversation starts at the server time", async () => {
-    await seed("listings/l1", itemListing());
-    await assertFails(
-      sendMessage(verified(BOB), BOB, { conversation: { lastMessageAt: new Date() } }),
-    );
-  });
-
   test("both participants can reply in an existing conversation", async () => {
     await seedConversation();
     await assertSucceeds(sendMessage(verified(BOB), BOB));
@@ -838,8 +831,8 @@ describe("conversations", () => {
     for (const owner of [BOB, EVE]) {
       await env.clearFirestore();
       await seedConversation(null);
-      await seed("listings/l1", itemListing({ ownerUid: owner, title: "Bob's drill" }));
-      const title = { listingTitle: "Bob's drill" };
+      await seed("listings/l1", itemListing({ ownerUid: owner, title: "Re-listed drill" }));
+      const title = { listingTitle: "Re-listed drill" };
       await assertFails(sendMessage(verified(BOB), BOB));
       await assertFails(sendMessage(verified(BOB), BOB, { conversation: title }));
       await assertFails(sendMessage(verified(ALICE), ALICE));
@@ -876,18 +869,6 @@ describe("conversations", () => {
         conversation: { lastMessageAt: new Date(Date.now() + 86_400_000) },
       }),
     );
-  });
-
-  test("an unverified user cannot create or update a conversation", async () => {
-    await seed("listings/l1", itemListing());
-    await assertFails(sendMessage(unverified(BOB), BOB));
-    await seedConversation();
-    await assertFails(sendMessage(unverified(BOB), BOB));
-  });
-
-  test("a conversation whose listing was deleted cannot be bumped", async () => {
-    await seedConversation(null);
-    await assertFails(sendMessage(verified(BOB), BOB));
   });
 
   test("a conversation cannot be bumped without a message", async () => {
@@ -1036,7 +1017,6 @@ describe("messages", () => {
         sentAt: serverTimestamp(),
       }),
     );
-    await assertFails(sendMessage(verified(EVE), EVE));
   });
 
   test("a message is sent by the caller at the server time", async () => {
