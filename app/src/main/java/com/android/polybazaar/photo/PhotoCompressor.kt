@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
-package com.android.polybazaar.listing.model
+// Co-authored-by: Copilot Claude Sonnet 5.5
+package com.android.polybazaar.photo
 
 import android.content.ContentResolver
 import android.graphics.Bitmap

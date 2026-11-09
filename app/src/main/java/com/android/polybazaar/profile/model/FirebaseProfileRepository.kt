@@ -1,10 +1,11 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot Claude Sonnet 5.5
 package com.android.polybazaar.profile.model
 
-import android.content.ContentResolver
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.photo.PhotoCompressor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -17,7 +18,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
 class FirebaseProfileRepository(
-    private val contentResolver: ContentResolver,
+    private val photoCompressor: PhotoCompressor,
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
@@ -46,10 +47,8 @@ class FirebaseProfileRepository(
 
   override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String {
     val photoReference = profilePhoto(uid)
-    // The Storage rules only accept images, so the upload has to state the photo's type.
-    val metadata =
-        StorageMetadata.Builder().setContentType(contentResolver.getType(photoUri)).build()
-    photoReference.putFile(photoUri, metadata).await()
+    // Uploading the compressed JPEG rather than the original, which can weigh megabytes.
+    photoReference.putBytes(photoCompressor.compress(photoUri), JPEG_METADATA).await()
     // The path, not a download URL: a download URL works for anyone who has it, signed in or not.
     return profilePhotoPath(uid)
   }
@@ -113,5 +112,9 @@ class FirebaseProfileRepository(
   private companion object {
     // The largest photo the Storage rules accept.
     const val MAX_PHOTO_BYTES = 10L * 1024 * 1024
+
+    // The Storage rules only accept images, and the compressor always produces a JPEG.
+    val JPEG_METADATA: StorageMetadata =
+        StorageMetadata.Builder().setContentType("image/jpeg").build()
   }
 }

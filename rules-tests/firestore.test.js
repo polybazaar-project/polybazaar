@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Copilot Claude Sonnet 5.5
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
@@ -234,6 +235,20 @@ describe("users", () => {
     await assertFails(updateDoc(profile, { bio: 42 }));
   });
 
+  test("a bio can have at most 500 characters", async () => {
+    await seedUser(ALICE, "alice");
+    const profile = doc(verified(ALICE), `users/${ALICE}`);
+    await assertSucceeds(updateDoc(profile, { bio: "a".repeat(500) }));
+    await assertFails(updateDoc(profile, { bio: "a".repeat(501) }));
+  });
+
+  test("a username has 3 to 30 characters", async () => {
+    await assertSucceeds(signUp(unverified(ALICE), ALICE, "abc"));
+    await assertSucceeds(signUp(unverified(BOB), BOB, "b".repeat(30)));
+    await assertFails(signUp(unverified("carol-uid"), "carol-uid", "ab"));
+    await assertFails(signUp(unverified("dave-uid"), "dave-uid", "d".repeat(31)));
+  });
+
   test("a user cannot change their username", async () => {
     await seedUser(ALICE, "alice");
     await seed("usernames/alicia", { uid: ALICE });
@@ -275,6 +290,33 @@ describe("users", () => {
 });
 
 describe("listings", () => {
+  test("title, description, price and refund value stay within the app's limits", async () => {
+    const create = (id, data) => setDoc(doc(verified(ALICE), `listings/${id}`), data);
+    await assertSucceeds(
+      create(
+        "max",
+        itemListing({
+          title: "t".repeat(80),
+          description: "d".repeat(1000),
+          price: 10000,
+          refundValue: 100000,
+        }),
+      ),
+    );
+    await assertFails(create("title", itemListing({ title: "t".repeat(81) })));
+    await assertFails(create("desc", itemListing({ description: "d".repeat(1001) })));
+    await assertFails(create("price", itemListing({ price: 10000.01 })));
+    await assertFails(create("refund", itemListing({ refundValue: 100000.01 })));
+    await assertFails(create("service", serviceListing({ price: 10001 })));
+  });
+
+  test("an update cannot exceed the limits either", async () => {
+    await seed("listings/l1", itemListing());
+    const listing = doc(verified(ALICE), "listings/l1");
+    await assertFails(setDoc(listing, itemListing({ title: "t".repeat(81) })));
+    await assertSucceeds(setDoc(listing, itemListing({ title: "t".repeat(80) })));
+  });
+
   test("a verified user can create an item listing", async () => {
     await assertSucceeds(setDoc(doc(verified(ALICE), "listings/l1"), itemListing()));
   });
