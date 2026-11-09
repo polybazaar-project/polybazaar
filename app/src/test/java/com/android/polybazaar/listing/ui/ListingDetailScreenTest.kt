@@ -4,10 +4,12 @@ package com.android.polybazaar.listing.ui
 import android.content.Context
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -29,6 +31,9 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
+import com.android.polybazaar.profile.ui.ProfileComponentTags
+import com.android.polybazaar.profile.ui.redPhoto
+import com.android.polybazaar.profile.ui.waitForAvatar
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
@@ -38,6 +43,7 @@ import org.junit.runner.RunWith
 import org.mockito.kotlin.any
 import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class ListingDetailScreenTest {
@@ -224,6 +230,21 @@ class ListingDetailScreenTest {
     text("Weekend maker").assertExists()
     node(ListingDetailScreenTags.LENDER).performScrollTo().performClick()
     assertEquals("lender-1", opened)
+  }
+
+  @Test
+  fun lenderWithoutAPhoto_showsTheDefault40dpAvatar() {
+    setContent(ListingDetailUiState(listing = drill, lender = lender))
+
+    node(ProfileComponentTags.AVATAR).assertWidthIsEqualTo(40.dp).assertHeightIsEqualTo(40.dp)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Decoding and drawing the photo need real bitmaps.
+  fun lenderPhoto_isDrawnNextToTheirName() {
+    setContent(ListingDetailUiState(listing = drill, lender = lender, lenderPhoto = redPhoto()))
+
+    composeTestRule.waitForAvatar(isRed = true)
   }
 
   @Test

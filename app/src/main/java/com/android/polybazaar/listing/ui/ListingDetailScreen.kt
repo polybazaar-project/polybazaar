@@ -61,6 +61,7 @@ import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.formatChf
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
+import com.android.polybazaar.profile.ui.ProfileAvatar
 
 object ListingDetailScreenTags {
   const val SCREEN = "listing_detail_screen"
@@ -359,7 +360,11 @@ private fun LenderSection(
               modifier = Modifier.testTag(ListingDetailScreenTags.LENDER_ERROR),
           )
       lender != null && ownerUid != null ->
-          LenderSummary(lender = lender, onClick = { actions.onOpenLender(ownerUid) })
+          LenderSummary(
+              lender = lender,
+              photo = uiState.lenderPhoto,
+              onClick = { actions.onOpenLender(ownerUid) },
+          )
     }
     // Null and no error: still loading, or the owner has no profile. Nothing to show in both cases.
     MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
@@ -367,15 +372,16 @@ private fun LenderSection(
 }
 
 /**
- * Name with the "Verified" mark, then the bio. The whole block opens the lender's profile, so the
- * touch target reaches 48dp without adding space between the Figma's lines.
+ * The lender's photo, then their name with the "Verified" mark and their bio. The whole row opens
+ * the lender's profile, so the touch target is at least 48dp without adding space between lines.
+ *
+ * @param photo the encoded profile photo, or null for the default one.
  */
 @Composable
-private fun LenderSummary(lender: User, onClick: () -> Unit) {
-  Column(
+private fun LenderSummary(lender: User, photo: ByteArray?, onClick: () -> Unit) {
+  Row(
       modifier =
           Modifier.fillMaxWidth()
-              // 48dp: the minimum touch target, for a lender without a bio (one 19dp line).
               .heightIn(min = 48.dp)
               // Role.Button and the label let TalkBack announce "Open lender profile".
               .clickable(
@@ -384,18 +390,23 @@ private fun LenderSummary(lender: User, onClick: () -> Unit) {
                   onClick = onClick,
               )
               .testTag(ListingDetailScreenTags.LENDER),
-      verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+      verticalAlignment = Alignment.CenterVertically,
   ) {
-    // Every listing owner had a verified EPFL email when creating it (see Listing.ownerUid).
-    Text(
-        text = stringResource(R.string.listing_detail_lender_name, lender.username),
-        color = AuthColors.TextPrimary,
-        fontSize = 14.sp,
-        lineHeight = 19.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.testTag(ListingDetailScreenTags.LENDER_NAME),
-    )
-    lender.bio.takeIf { it.isNotBlank() }?.let { SecondaryText(it) }
+    // 40dp and no badge: small enough to sit next to two lines, and "Verified" is already written.
+    ProfileAvatar(savedPhoto = photo, size = 40.dp, showBadge = false)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      // Every listing owner had a verified EPFL email when creating it (see Listing.ownerUid).
+      Text(
+          text = stringResource(R.string.listing_detail_lender_name, lender.username),
+          color = AuthColors.TextPrimary,
+          fontSize = 14.sp,
+          lineHeight = 19.sp,
+          fontWeight = FontWeight.SemiBold,
+          modifier = Modifier.testTag(ListingDetailScreenTags.LENDER_NAME),
+      )
+      lender.bio.takeIf { it.isNotBlank() }?.let { SecondaryText(it) }
+    }
   }
 }
 
