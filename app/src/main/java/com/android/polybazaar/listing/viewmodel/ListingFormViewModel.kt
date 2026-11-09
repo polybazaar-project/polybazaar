@@ -351,6 +351,19 @@ class ListingFormViewModel(
 
   fun clearSavedListing() = updateState { it.copy(savedListing = null) }
 
+  /**
+   * Downloads the saved photo at [path], one of [ListingFormUiState.storedPhotos], to show its
+   * thumbnail. Returns null when it cannot be downloaded: the thumbnail then stays empty, and the
+   * photo is still kept unless the user removes it.
+   */
+  suspend fun loadStoredPhoto(path: String): ByteArray? =
+      try {
+        listingRepository.loadListingImage(path)
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        null
+      }
+
   /** A change the user makes to the form, ignored while they cannot edit it. */
   private fun changeForm(transform: (ListingFormUiState) -> ListingFormUiState) {
     if (_uiState.value.canEdit) updateState(transform)

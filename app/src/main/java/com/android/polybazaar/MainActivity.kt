@@ -47,6 +47,8 @@ class MainActivity : ComponentActivity() {
                   },
               photoStorage =
                   remember { FilePhotoStorage(applicationContext, FilePhotoStorage.CREATE_FORM) },
+              editPhotoStorage =
+                  remember { FilePhotoStorage(applicationContext, FilePhotoStorage.EDIT_FORM) },
           )
         }
       }

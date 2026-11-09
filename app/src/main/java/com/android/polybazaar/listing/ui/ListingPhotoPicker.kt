@@ -2,6 +2,7 @@
 package com.android.polybazaar.listing.ui
 
 import android.content.ContentResolver
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -56,15 +57,19 @@ import kotlinx.coroutines.withContext
  * The "Photos" field wired to the system photo pickers and the camera, with the camera permission
  * explanation when it is needed.
  *
+ * @param storedPhotos when editing, the Storage paths of the saved photos, shown before [photos].
  * @param enabled whether photos can be added, retaken or removed.
+ * @param loadStoredPhoto downloads a saved photo for its thumbnail, or returns null when it cannot.
  */
 @Composable
 internal fun ListingPhotosField(
     photos: List<Uri>,
-    actions: CreateListingActions,
+    actions: ListingFormActions,
     enabled: Boolean,
+    storedPhotos: List<String> = emptyList(),
+    loadStoredPhoto: suspend (String) -> ByteArray? = { null },
 ) {
-  val remainingPhotos = MAX_PHOTOS - photos.size
+  val remainingPhotos = MAX_PHOTOS - storedPhotos.size - photos.size
   // PickMultipleVisualMedia needs a limit above 1, so the last free slot uses the single picker.
   val singlePhotoPicker =
       rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -89,6 +94,9 @@ internal fun ListingPhotosField(
       onRetakePhoto = camera::retakePhoto,
       onRemovePhoto = actions.onPhotoRemoved,
       enabled = enabled,
+      storedPhotos = storedPhotos,
+      onRemoveStoredPhoto = actions.onStoredPhotoRemoved,
+      storedPreview = { rememberStoredPhotoPreview(it, loadStoredPhoto) },
   )
   if (camera.showPermissionExplanation) {
     CameraPermissionDialog(onDismiss = camera::dismissPermissionExplanation)
@@ -144,14 +152,54 @@ internal suspend fun loadPhotoPreview(
 
 internal const val PHOTO_PREVIEW_MAX_SIZE = 512
 
+/** Downloads the saved photo at [path] with [load] and decodes its thumbnail, or null meanwhile. */
+@Composable
+private fun rememberStoredPhotoPreview(
+    path: String,
+    load: suspend (String) -> ByteArray?,
+): ImageBitmap? {
+  val preview by
+      produceState<ImageBitmap?>(initialValue = null, path) {
+        value = load(path)?.let { decodePhotoPreview(it) }
+      }
+  return preview
+}
+
+/**
+ * Decodes the downloaded photo [bytes] scaled down by a power of two until its longest side is at
+ * most twice [PHOTO_PREVIEW_MAX_SIZE], or returns null when they are not an image.
+ *
+ * @param dispatcher runs the decoding, off the main thread.
+ */
+internal suspend fun decodePhotoPreview(
+    bytes: ByteArray,
+    dispatcher: CoroutineDispatcher = Dispatchers.Default,
+): ImageBitmap? =
+    withContext(dispatcher) {
+      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+      BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+      var sampleSize = 1
+      while (
+          maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= PHOTO_PREVIEW_MAX_SIZE
+      ) {
+        sampleSize *= 2
+      }
+      val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+      BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+    }
+
 /**
  * The "Photos" field: "Take photo" and "Gallery" buttons that become a row of thumbnails, followed
  * by "Camera" and "Gallery" tiles until [MAX_PHOTOS] are chosen. Tapping a thumbnail retakes it.
  *
+ * When editing, the saved [storedPhotos] come first. They can be removed but not retaken: a retake
+ * replaces a photo on this device.
+ *
  * @param onAddPhotos opens the gallery.
- * @param onRetakePhoto called with the index of the tapped thumbnail.
+ * @param onRetakePhoto called with the index of the tapped thumbnail in [photos].
  * @param enabled whether photos can be added, retaken or removed.
  * @param preview loads the thumbnail of a photo; replaceable in tests.
+ * @param storedPreview loads the thumbnail of a saved photo from its Storage path.
  */
 @Composable
 internal fun PhotoPicker(
@@ -162,17 +210,21 @@ internal fun PhotoPicker(
     onRemovePhoto: (Uri) -> Unit,
     enabled: Boolean = true,
     preview: @Composable (Uri) -> ImageBitmap? = { rememberPhotoPreview(it) },
+    storedPhotos: List<String> = emptyList(),
+    onRemoveStoredPhoto: (String) -> Unit = {},
+    storedPreview: @Composable (String) -> ImageBitmap? = { null },
 ) {
+  val photoCount = storedPhotos.size + photos.size
   Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
       FieldLabel(text = "Photos", modifier = Modifier.weight(1f))
       Text(
-          text = if (photos.isEmpty()) "A clear photo works best" else "${photos.size}/$MAX_PHOTOS",
+          text = if (photoCount == 0) "A clear photo works best" else "$photoCount/$MAX_PHOTOS",
           color = AuthColors.TextSecondary,
           fontSize = 11.sp,
       )
     }
-    if (photos.isEmpty()) {
+    if (photoCount == 0) {
       Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         EmptyPhotoOption(
             title = "Take photo",
@@ -198,16 +250,29 @@ internal fun PhotoPicker(
           modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
           horizontalArrangement = Arrangement.spacedBy(8.dp),
       ) {
+        storedPhotos.forEachIndexed { index, path ->
+          PhotoThumbnail(
+              preview = storedPreview(path),
+              number = index + 1,
+              onRetake = null,
+              onRemove = { onRemoveStoredPhoto(path) },
+              enabled = enabled,
+              tag = CreateListingScreenTags.storedPhoto(index),
+              removeTag = CreateListingScreenTags.removeStoredPhoto(index),
+          )
+        }
         photos.forEachIndexed { index, uri ->
           PhotoThumbnail(
               preview = preview(uri),
-              index = index,
+              number = storedPhotos.size + index + 1,
               onRetake = { onRetakePhoto(index) },
               onRemove = { onRemovePhoto(uri) },
               enabled = enabled,
+              tag = CreateListingScreenTags.photo(index),
+              removeTag = CreateListingScreenTags.removePhoto(index),
           )
         }
-        if (photos.size < MAX_PHOTOS) {
+        if (photoCount < MAX_PHOTOS) {
           AddPhotoTile(
               text = "Camera",
               icon = R.drawable.ic_camera,
@@ -224,7 +289,15 @@ internal fun PhotoPicker(
           )
         }
       }
-      Text(text = "Tap a photo to retake it", color = AuthColors.TextSecondary, fontSize = 11.sp)
+      if (photos.isNotEmpty()) {
+        Text(
+            text =
+                if (storedPhotos.isEmpty()) "Tap a photo to retake it"
+                else "Tap a new photo to retake it",
+            color = AuthColors.TextSecondary,
+            fontSize = 11.sp,
+        )
+      }
     }
   }
 }
@@ -265,32 +338,44 @@ private fun EmptyPhotoOption(
   }
 }
 
+/**
+ * A photo with its remove button, numbered from 1 in the row.
+ *
+ * @param onRetake called when the photo is tapped, or null for a saved photo, which cannot be
+ *   retaken.
+ */
 @Composable
 private fun PhotoThumbnail(
     preview: ImageBitmap?,
-    index: Int,
-    onRetake: () -> Unit,
+    number: Int,
+    onRetake: (() -> Unit)?,
     onRemove: () -> Unit,
     enabled: Boolean,
+    tag: String,
+    removeTag: String,
 ) {
+  val retake =
+      if (onRetake == null) Modifier
+      else
+          Modifier.clickable(
+              enabled = enabled,
+              onClickLabel = "Retake photo $number",
+              role = Role.Button,
+              onClick = onRetake,
+          )
   Box(
       modifier =
           Modifier.size(ThumbnailSize)
               .clip(PhotoShape)
               .background(AuthColors.Background)
               .border(1.dp, AuthColors.Outline, PhotoShape)
-              .clickable(
-                  enabled = enabled,
-                  onClickLabel = "Retake photo ${index + 1}",
-                  role = Role.Button,
-                  onClick = onRetake,
-              )
-              .testTag(CreateListingScreenTags.photo(index))
+              .then(retake)
+              .testTag(tag)
   ) {
     if (preview != null) {
       Image(
           bitmap = preview,
-          contentDescription = "Photo ${index + 1}",
+          contentDescription = "Photo $number",
           contentScale = ContentScale.Crop,
           modifier = Modifier.fillMaxSize(),
       )
@@ -303,8 +388,8 @@ private fun PhotoThumbnail(
                 .clip(CircleShape)
                 .background(AuthColors.CardBackground)
                 .clickable(enabled = enabled, role = Role.Button, onClick = onRemove)
-                .semantics { contentDescription = "Remove photo ${index + 1}" }
-                .testTag(CreateListingScreenTags.removePhoto(index)),
+                .semantics { contentDescription = "Remove photo $number" }
+                .testTag(removeTag),
         contentAlignment = Alignment.Center,
     ) {
       Text(text = "×", color = AuthColors.TextPrimary, fontSize = 14.sp)
