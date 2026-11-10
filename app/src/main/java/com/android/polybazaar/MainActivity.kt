@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot Claude Sonnet 5.5
 package com.android.polybazaar
 
 import android.os.Bundle
@@ -17,7 +18,7 @@ import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
-import com.android.polybazaar.listing.model.JpegPhotoCompressor
+import com.android.polybazaar.photo.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
 import com.android.polybazaar.ui.theme.PolyBazaarTheme
@@ -38,7 +39,11 @@ class MainActivity : ComponentActivity() {
               authViewModel = authViewModel,
               authRepository = authRepository,
               profileRepository =
-                  remember { FirebaseProfileRepository(applicationContext.contentResolver) },
+                  remember {
+                    FirebaseProfileRepository(
+                        JpegPhotoCompressor(applicationContext.contentResolver)
+                    )
+                  },
               listingRepository =
                   remember {
                     FirebaseListingRepository(

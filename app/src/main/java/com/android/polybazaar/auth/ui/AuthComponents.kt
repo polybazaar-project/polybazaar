@@ -50,6 +50,8 @@ internal object AuthColors {
   val Outline = Color(0xFFF1E1D5)
   val Accent = Color(0xFFC86A3B)
   val AccentContainer = Color(0xFFF7E6D8)
+  /** The fill of a selected pill, such as a Browse category or a Toolbox filter. */
+  val SelectedBackground = Color(0xFFFFE9DC)
   val TextPrimary = Color(0xFF20231F)
   val TextSecondary = Color(0xFF70756D)
   val Danger = Color(0xFFA63D2B)
@@ -70,13 +72,17 @@ internal fun AuthCard(content: @Composable ColumnScope.() -> Unit) {
   )
 }
 
-/** The filled accent button that submits an auth form. */
+/**
+ * The filled accent button that submits an auth form, with an optional [trailingIcon] after its
+ * text (the arrow of "Choose dates" on the listing detail).
+ */
 @Composable
 internal fun AuthPrimaryButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    @DrawableRes trailingIcon: Int? = null,
 ) {
   Button(
       onClick = onClick,
@@ -92,6 +98,15 @@ internal fun AuthPrimaryButton(
           ),
   ) {
     Text(text = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    // Decorative: the text already says what the button does, so TalkBack skips the icon. Tinted
+    // with the button's content colour (white), so it works on any background.
+    trailingIcon?.let {
+      Icon(
+          painter = painterResource(it),
+          contentDescription = null,
+          modifier = Modifier.padding(start = 10.dp).size(17.dp),
+      )
+    }
   }
 }
 

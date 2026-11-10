@@ -1,15 +1,17 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Copilot Claude Sonnet 5.5
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
+import com.android.polybazaar.photo.PhotoCompressor
+import com.android.polybazaar.photo.PhotoStorage
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.storage.FirebaseStorage
-import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -165,7 +167,7 @@ class FirebaseListingRepository(
   }
 
   override suspend fun loadListingImage(imagePath: String): ByteArray =
-      storage.reference.child(imagePath).getBytes(MAX_IMAGE_BYTES).await()
+      storage.reference.child(imagePath).getBytes(PhotoStorage.MAX_PHOTO_BYTES).await()
 
   /**
    * Uploads each of [images] to the Storage path at the same index in [paths], then runs [save].
@@ -187,7 +189,7 @@ class FirebaseListingRepository(
       images.zip(paths).forEach { (uri, path) ->
         val imageReference = storage.reference.child(path)
         // Uploading the compressed image rather than the original, which can weigh megabytes.
-        imageReference.putBytes(photoCompressor.compress(uri), JPEG_METADATA).await()
+        imageReference.putBytes(photoCompressor.compress(uri), PhotoStorage.JPEG_METADATA).await()
         uploaded += path to imageReference
       }
       return save()
@@ -334,10 +336,6 @@ class FirebaseListingRepository(
   private companion object {
     const val LISTINGS_COLLECTION = "listings"
     const val PAUSED = "paused"
-    val JPEG_METADATA: StorageMetadata =
-        StorageMetadata.Builder().setContentType("image/jpeg").build()
-    // The largest photo the Storage rules accept.
-    const val MAX_IMAGE_BYTES = 10L * 1024 * 1024
 
     fun notFound(listingId: String) =
         FirebaseFirestoreException(

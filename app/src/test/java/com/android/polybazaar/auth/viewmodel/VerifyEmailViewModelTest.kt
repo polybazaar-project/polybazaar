@@ -3,6 +3,10 @@ package com.android.polybazaar.auth.viewmodel
 
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
+import java.net.UnknownHostException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -67,7 +71,7 @@ class VerifyEmailViewModelTest {
     assertEquals(1, repository.sendVerificationEmailCalls)
     assertEquals(RESEND_COOLDOWN_SECONDS, viewModel.uiState.value.resendCooldownSeconds)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -112,12 +116,12 @@ class VerifyEmailViewModelTest {
 
   @Test
   fun resend_failure_exposesErrorWithoutStartingCooldown() = runTest {
-    repository.sendVerificationEmailResult = Result.failure(Exception("Too many requests"))
+    repository.sendVerificationEmailResult = Result.failure(AppException(AppError.UNAUTHENTICATED))
 
     viewModel.resend()
     testDispatcher.scheduler.runCurrent()
 
-    assertEquals("Too many requests", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNAUTHENTICATED, viewModel.uiState.value.error)
     assertEquals(0, viewModel.uiState.value.resendCooldownSeconds)
     assertFalse(viewModel.uiState.value.isLoading)
   }
@@ -131,7 +135,7 @@ class VerifyEmailViewModelTest {
 
     assertTrue(viewModel.uiState.value.isVerified)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -143,7 +147,8 @@ class VerifyEmailViewModelTest {
 
     assertFalse(viewModel.uiState.value.isVerified)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Email not verified yet", viewModel.uiState.value.errorMessage)
+    assertTrue(viewModel.uiState.value.isNotVerifiedYet)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -154,38 +159,158 @@ class VerifyEmailViewModelTest {
     testDispatcher.scheduler.runCurrent()
 
     assertFalse(viewModel.uiState.value.isVerified)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertFalse(viewModel.uiState.value.isNotVerifiedYet)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
   fun refresh_failure_exposesErrorAndStopsLoading() = runTest {
-    repository.refreshUserResult = Result.failure(Exception("Network error"))
+    repository.refreshUserResult = Result.failure(UnknownHostException("offline"))
 
     viewModel.refresh()
     testDispatcher.scheduler.runCurrent()
 
     assertFalse(viewModel.uiState.value.isVerified)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Network error", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
   }
 
   @Test
   fun refresh_automaticCheckFailure_showsNoMessage() = runTest {
-    repository.refreshUserResult =
-        Result.failure(Exception("A network error (such as timeout) has occurred."))
+    repository.refreshUserResult = Result.failure(UnknownHostException("offline"))
 
     viewModel.refresh(automatic = true)
     testDispatcher.scheduler.runCurrent()
 
     assertFalse(viewModel.uiState.value.isVerified)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun resend_clearsNotVerifiedYetAndErrorWhilePending() = runTest {
+    repository.refreshUserResult = Result.success(unverifiedUser)
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.isNotVerifiedYet)
+    val sendGate = CompletableDeferred<Result<Unit>>()
+    repository.sendVerificationEmailGate = sendGate
+
+    viewModel.resend()
+    testDispatcher.scheduler.runCurrent()
+
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertFalse(viewModel.uiState.value.isNotVerifiedYet)
+    assertNull(viewModel.uiState.value.error)
+    sendGate.complete(Result.success(Unit))
+    testDispatcher.scheduler.runCurrent()
+    assertFalse(viewModel.uiState.value.isNotVerifiedYet)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun resend_afterFailedResend_clearsPreviousErrorWhilePending() = runTest {
+    repository.sendVerificationEmailResult = Result.failure(UnknownHostException("offline"))
+    viewModel.resend()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    val sendGate = CompletableDeferred<Result<Unit>>()
+    repository.sendVerificationEmailGate = sendGate
+
+    viewModel.resend()
+    testDispatcher.scheduler.runCurrent()
+
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.error)
+    sendGate.complete(Result.success(Unit))
+    testDispatcher.scheduler.runCurrent()
+  }
+
+  @Test
+  fun refresh_clearsPreviousErrorAndNotVerifiedYetWhilePending() = runTest {
+    repository.refreshUserResult = Result.failure(UnknownHostException("offline"))
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    val refreshGate = CompletableDeferred<Result<User>>()
+    repository.refreshUserGate = refreshGate
+
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isNotVerifiedYet)
+    refreshGate.complete(Result.success(unverifiedUser))
+    testDispatcher.scheduler.runCurrent()
+    // The manual check now finds the email unverified: a flag, not an error.
+    assertNull(viewModel.uiState.value.error)
+    assertTrue(viewModel.uiState.value.isNotVerifiedYet)
+  }
+
+  @Test
+  fun refresh_automaticCheckAfterManualOne_clearsNotVerifiedYet() = runTest {
+    repository.refreshUserResult = Result.success(unverifiedUser)
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.isNotVerifiedYet)
+
+    viewModel.refresh(automatic = true)
+    testDispatcher.scheduler.runCurrent()
+
+    assertFalse(viewModel.uiState.value.isNotVerifiedYet)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun refresh_automaticCheckFailureAfterManualFailure_clearsErrorAndAddsNone() = runTest {
+    repository.refreshUserResult = Result.failure(AppException(AppError.UNAUTHENTICATED))
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(AppError.UNAUTHENTICATED, viewModel.uiState.value.error)
+
+    repository.refreshUserResult = Result.failure(UnknownHostException("offline"))
+    viewModel.refresh(automatic = true)
+    testDispatcher.scheduler.runCurrent()
+
+    assertNull(viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isNotVerifiedYet)
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun refresh_noSignedInUser_exposesUnauthenticated() = runTest {
+    repository.refreshUserResult = Result.failure(AppException(AppError.UNAUTHENTICATED))
+
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+
+    assertEquals(AppError.UNAUTHENTICATED, viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isNotVerifiedYet)
+  }
+
+  @Test
+  fun refresh_whileLoading_isIgnored() = runTest {
+    val refreshGate = CompletableDeferred<Result<User>>()
+    repository.refreshUserGate = refreshGate
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.refresh()
+    testDispatcher.scheduler.runCurrent()
+
+    assertEquals(1, repository.refreshUserCalls)
+    refreshGate.complete(Result.success(unverifiedUser))
+    testDispatcher.scheduler.runCurrent()
   }
 
   private class FakeAuthRepository : AuthRepository {
     var sendVerificationEmailResult: Result<Unit> = Result.success(Unit)
     var refreshUserResult: Result<User> = Result.failure(IllegalStateException("Not configured"))
+    var sendVerificationEmailGate: CompletableDeferred<Result<Unit>>? = null
+    var refreshUserGate: CompletableDeferred<Result<User>>? = null
     var sendVerificationEmailCalls = 0
+    var refreshUserCalls = 0
 
     override suspend fun signIn(email: String, password: String): Result<User> =
         Result.failure(IllegalStateException("Not used"))
@@ -199,10 +324,13 @@ class VerifyEmailViewModelTest {
 
     override suspend fun sendVerificationEmail(): Result<Unit> {
       sendVerificationEmailCalls++
-      return sendVerificationEmailResult
+      return sendVerificationEmailGate?.await() ?: sendVerificationEmailResult
     }
 
-    override suspend fun refreshUser(): Result<User> = refreshUserResult
+    override suspend fun refreshUser(): Result<User> {
+      refreshUserCalls++
+      return refreshUserGate?.await() ?: refreshUserResult
+    }
 
     override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
         Result.failure(IllegalStateException("Not used"))

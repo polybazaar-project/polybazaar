@@ -377,9 +377,10 @@ fun AppNavHost(
           // Signing out sets the user to null, and the redirect above returns to sign-in. Signing
           // out rarely fails, and when it does the user stays here, so the error is shown here too.
           // It is cleared once shown, so it does not come back on the next visit and a repeat still
-          // shows.
-          LaunchedEffect(uiState.errorMessage) {
-            uiState.errorMessage?.let {
+          // shows. The message is resolved here because LaunchedEffect is not composable.
+          val signOutError = uiState.error?.message()
+          LaunchedEffect(uiState.error) {
+            signOutError?.let {
               showMessage(it)
               authViewModel.clearError()
             }

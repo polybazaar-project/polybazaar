@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.auth.viewmodel.AuthUiState
+import com.android.polybazaar.error.model.AppError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -563,7 +564,7 @@ class CreateAccountContentEdgeCasesTest {
 
   @Test
   fun errorAndMismatchMessages_canBeShownTogether() {
-    setContent(uiState = AuthUiState(errorMessage = "Email already exists"))
+    setContent(uiState = AuthUiState(error = AppError.EMAIL_ALREADY_IN_USE))
 
     type(CreateAccountScreenTags.PASSWORD_FIELD, "secret")
     type(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD, "other")
@@ -573,7 +574,7 @@ class CreateAccountContentEdgeCasesTest {
         .assertTextEquals("Passwords do not match")
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Email already exists")
+        .assertTextEquals("An account already exists with this email.")
   }
 
   @Test

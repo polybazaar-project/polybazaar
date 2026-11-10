@@ -27,6 +27,26 @@
     <string name="lender_profile_not_found">This profile no longer exists.</string>
     <string name="lender_profile_open_listing">Open listing</string>
 
+    <!-- Listing detail screen -->
+    <string name="listing_detail_retry">Retry</string>
+    <string name="listing_detail_description_title">DESCRIPTION</string>
+    <string name="listing_detail_item_terms_title">RENTAL TERMS</string>
+    <string name="listing_detail_service_terms_title">SERVICE TERMS</string>
+    <string name="listing_detail_pickup">Pickup: %1$s</string>
+    <string name="listing_detail_pickup_pending">Location and timing to be confirmed.</string>
+    <string name="listing_detail_returns">Returns: %1$s</string>
+    <string name="listing_detail_returns_pending">Return window to be agreed.</string>
+    <string name="listing_detail_cancellation">Cancellation: %1$s</string>
+    <string name="listing_detail_cancellation_pending">Policy to be confirmed.</string>
+    <string name="listing_detail_damage">Deposit &amp; damage: %1$s if the item is damaged.</string>
+    <string name="listing_detail_lender_title">LENDER PROFILE</string>
+    <string name="listing_detail_lender_name">%1$s  ·  Verified</string>
+    <string name="listing_detail_open_lender">Open lender profile</string>
+    <string name="listing_detail_message_lender">Message lender</string>
+    <string name="listing_detail_deposit">%1$s deposit</string>
+    <string name="listing_detail_choose_dates">Choose dates</string>
+    <string name="listing_detail_reassurance">See your full total before you request to book.</string>
+
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
 
@@ -42,10 +62,13 @@
     <string name="edit_listing_retry">Retry</string>
 
     <!-- Toolbox -->
-    <string name="toolbox_title">My toolbox</string>
+    <string name="toolbox_title">My Toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
-    <string name="toolbox_type_item">Item</string>
-    <string name="toolbox_type_service">Service</string>
+    <string name="toolbox_filter_all">All</string>
+    <string name="toolbox_filter_items">Items</string>
+    <string name="toolbox_filter_services">Services</string>
+    <string name="toolbox_empty_items">You have no item listings.</string>
+    <string name="toolbox_empty_services">You have no service listings.</string>
 
     <!-- Forgot password screen -->
     <string name="forgot_password_title">Forgot password</string>
@@ -58,6 +81,9 @@
     <string name="forgot_password_resend_button">Resend link</string>
     <string name="forgot_password_back_to_sign_in">Back to sign in</string>
     <string name="forgot_password_sent_message">If an account exists for %1$s, a reset link is on its way. Check your inbox and your spam folder.</string>
+
+    <!-- Verify email screen -->
+    <string name="verify_email_not_verified_yet">Your email isn’t verified yet. Open the link we sent you, then try again.</string>
 
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>
