@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
+<!-- "arrow-right" icon of the Figma frame "Rental listing detail", white for the accent button. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="17dp"
+    android:height="17dp"
+    android:viewportWidth="17"
+    android:viewportHeight="17">
+  <path
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="1.7"
+      android:strokeLineCap="round"
+      android:pathData="M3.5411,8.5H13.4589M8.5,13.4589L13.4589,8.5L8.5,3.5411" />
+</vector>
