@@ -2,7 +2,9 @@
 package com.android.polybazaar.toolbox.ui
 
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -20,6 +22,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -34,10 +38,13 @@ import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import java.net.UnknownHostException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class ToolboxCardTest {
@@ -97,25 +104,48 @@ class ToolboxCardTest {
   }
 
   @Test
-  fun listings_showTheFilterButtonsOnTheTitleLineAfterTheTitle() {
+  fun listings_showTheFilterButtonsBelowTheTitle() {
     setContent(ToolboxUiState(listings = myListings))
 
     val title =
-        composeTestRule.onNodeWithText("My Toolbox").assertIsDisplayed().getUnclippedBoundsInRoot()
+        composeTestRule
+            .onNodeWithText(string(R.string.toolbox_title))
+            .assertIsDisplayed()
+            .getUnclippedBoundsInRoot()
     val items =
         composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS).getUnclippedBoundsInRoot()
     val services =
         composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES).getUnclippedBoundsInRoot()
-    // Same line: each button overlaps the title vertically.
-    for (button in listOf(items, services)) {
-      assertTrue(button.top < title.bottom && title.top < button.bottom)
-    }
-    // Left to right: title, Items, Services.
-    assertTrue(title.right <= items.left)
+    // The buttons sit on their own line under the title, Items before Services.
+    assertTrue(title.bottom <= items.top)
+    assertTrue(title.bottom <= services.top)
     assertTrue(items.right <= services.left)
     val firstRow =
         composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)[0].getUnclippedBoundsInRoot()
     assertTrue(items.bottom <= firstRow.top)
+  }
+
+  @Test
+  @Config(qualifiers = "w360dp")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Measures the text for real, so truncation shows.
+  fun narrowScreen_showsTheWholeTitle() {
+    // The profile screen pads the card by 18dp on each side.
+    composeTestRule.setContent {
+      ToolboxContent(
+          uiState = ToolboxUiState(listings = myListings),
+          onRetry = {},
+          onTypeSelected = {},
+          modifier = Modifier.padding(horizontal = 18.dp),
+      )
+    }
+
+    val layouts = mutableListOf<TextLayoutResult>()
+    composeTestRule.onNodeWithText(string(R.string.toolbox_title)).performSemanticsAction(
+        SemanticsActions.GetTextLayoutResult
+    ) {
+      it(layouts)
+    }
+    assertFalse(layouts.single().isLineEllipsized(0))
   }
 
   @Test

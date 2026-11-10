@@ -26,7 +26,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
@@ -72,7 +71,7 @@ fun ToolboxCard(viewModel: ToolboxViewModel) {
 
 /**
  * The "My Toolbox" card of the profile, listing the user's own listings, which can be filtered to
- * items or services with [onTypeSelected] from the buttons next to the title.
+ * items or services with [onTypeSelected] from the buttons under the title.
  *
  * Fills the height it is given: the title stays in place and the rows scroll inside the card, so it
  * needs a bounded height.
@@ -94,22 +93,17 @@ fun ToolboxContent(
               .padding(16.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    // The filters sit on the title's line, at its end.
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Text(
-          text = stringResource(R.string.toolbox_title),
-          color = AuthColors.TextPrimary,
-          fontSize = 22.sp,
-          fontWeight = FontWeight.Bold,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-          modifier = Modifier.weight(1f),
-      )
-      if (uiState.listings.isNotEmpty()) {
+    Text(
+        text = stringResource(R.string.toolbox_title),
+        color = AuthColors.TextPrimary,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+    // The filters get their own line, so the title keeps its full width on narrow phones.
+    if (uiState.listings.isNotEmpty()) {
+      Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         TypeFilterButton(
             text = stringResource(R.string.toolbox_filter_items),
             isSelected = uiState.selectedType == ListingType.ITEM,
@@ -204,7 +198,9 @@ private fun TypeFilterButton(
           modifier
               .semantics { selected = isSelected }
               .clip(shape)
-              .background(if (isSelected) Color(0xFFFFE9DC) else AuthColors.CardBackground)
+              .background(
+                  if (isSelected) AuthColors.SelectedBackground else AuthColors.CardBackground
+              )
               .border(1.dp, if (isSelected) AuthColors.Accent else AuthColors.Outline, shape)
               .clickable(onClick = onClick)
               .padding(horizontal = 18.dp, vertical = 11.dp),
