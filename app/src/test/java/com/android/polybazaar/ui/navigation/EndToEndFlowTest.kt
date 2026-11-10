@@ -24,6 +24,8 @@ import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ListingCategory
@@ -146,7 +148,7 @@ class EndToEndFlowTest {
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Username is already taken")
+        .assertTextEquals("This username is already taken.")
   }
 
   @Test
@@ -157,7 +159,9 @@ class EndToEndFlowTest {
     signIn("ada@epfl.ch", "not-the-password")
 
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(SignInScreenTags.ERROR_MESSAGE).assertTextEquals("Wrong password")
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
   }
 
   @Test
@@ -295,7 +299,7 @@ class EndToEndFlowTest {
     override suspend fun signIn(email: String, password: String): Result<User> {
       val account = accounts[email]
       if (account == null || account.password != password) {
-        return Result.failure(IllegalArgumentException("Wrong password"))
+        return Result.failure(AppException(AppError.INVALID_CREDENTIALS))
       }
       signedInUid = account.user.uid
       return Result.success(withVerification(account.user))
@@ -303,7 +307,7 @@ class EndToEndFlowTest {
 
     override suspend fun signUp(email: String, password: String, username: String): Result<User> {
       if (accounts.values.any { it.user.username == username }) {
-        return Result.failure(IllegalStateException("Username is already taken"))
+        return Result.failure(AppException(AppError.USERNAME_TAKEN))
       }
       val user = register(email, password, username, verified = false)
       signedInUid = user.uid

@@ -29,7 +29,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -262,7 +261,9 @@ internal fun CategorySelector(
           fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
           modifier =
               Modifier.clip(RoundedCornerShape(24.dp))
-                  .background(if (isSelected) Color(0xFFFFE9DC) else AuthColors.CardBackground)
+                  .background(
+                      if (isSelected) AuthColors.SelectedBackground else AuthColors.CardBackground
+                  )
                   .border(
                       1.dp,
                       if (isSelected) AuthColors.Accent else AuthColors.Outline,

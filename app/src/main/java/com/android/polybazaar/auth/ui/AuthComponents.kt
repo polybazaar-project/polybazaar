@@ -49,6 +49,8 @@ internal object AuthColors {
   val Outline = Color(0xFFF1E1D5)
   val Accent = Color(0xFFC86A3B)
   val AccentContainer = Color(0xFFF7E6D8)
+  /** The fill of a selected pill, such as a Browse category or a Toolbox filter. */
+  val SelectedBackground = Color(0xFFFFE9DC)
   val TextPrimary = Color(0xFF20231F)
   val TextSecondary = Color(0xFF70756D)
   val Danger = Color(0xFFA63D2B)

@@ -7,6 +7,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.ListingType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,12 +23,18 @@ import kotlinx.coroutines.launch
  * @property listings the signed-in user's listings, in the order the repository returns them.
  * @property isLoading true while the listings are being loaded.
  * @property error why the last load failed, or null.
+ * @property selectedType the type the listings are filtered by, or null to show them all.
  */
 data class ToolboxUiState(
     val listings: List<Listing> = emptyList(),
     val isLoading: Boolean = false,
     val error: AppError? = null,
-)
+    val selectedType: ListingType? = null,
+) {
+  /** The [listings] of the [selectedType], or all of them when no type is selected. */
+  val filteredListings: List<Listing>
+    get() = if (selectedType == null) listings else listings.filter { it.type == selectedType }
+}
 
 /** Loads the signed-in user's listings for the Toolbox. */
 class ToolboxViewModel(private val listingRepository: ListingRepository) : ViewModel() {
@@ -37,6 +44,11 @@ class ToolboxViewModel(private val listingRepository: ListingRepository) : ViewM
 
   init {
     loadListings()
+  }
+
+  /** Shows only the listings of [type], or all of them when [type] is null. */
+  fun selectType(type: ListingType?) {
+    _uiState.update { it.copy(selectedType = type) }
   }
 
   /**

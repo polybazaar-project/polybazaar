@@ -47,6 +47,15 @@ class AppErrorMessagesTest {
   }
 
   @Test
+  fun usernameTaken_saysTheUsernameIsTaken() {
+    assertEquals(R.string.error_username_taken, AppError.USERNAME_TAKEN.messageRes)
+    assertEquals(
+        "This username is already taken.",
+        context.getString(AppError.USERNAME_TAKEN.messageRes),
+    )
+  }
+
+  @Test
   fun message_showsTheLocalizedText() {
     composeTestRule.setContent { Text(AppError.NETWORK.message()) }
 
