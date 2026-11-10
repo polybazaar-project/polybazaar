@@ -49,6 +49,8 @@ class FirebaseChatRepositoryTest {
   private val messages = mock<CollectionReference>()
   private val messageRef = mock<DocumentReference>()
   private val orderedMessages = mock<Query>()
+  private val myConversations = mock<Query>()
+  private val recentConversations = mock<Query>()
   private val batch = mock<WriteBatch>()
   private val registration = mock<ListenerRegistration>()
   private val repository = FirebaseChatRepository(firestore, auth)
@@ -69,6 +71,9 @@ class FirebaseChatRepositoryTest {
     whenever(messages.document()).thenReturn(messageRef)
     whenever(messageRef.id).thenReturn("message-id")
     whenever(messages.orderBy("sentAt")).thenReturn(orderedMessages)
+    whenever(conversations.whereArrayContains("participants", "renter")).thenReturn(myConversations)
+    whenever(myConversations.orderBy("lastMessageAt", Query.Direction.DESCENDING))
+        .thenReturn(recentConversations)
     whenever(firestore.batch()).thenReturn(batch)
     whenever(batch.set(any(), any())).thenReturn(batch)
     whenever(batch.set(any(), any(), any<SetOptions>())).thenReturn(batch)
@@ -355,6 +360,78 @@ class FirebaseChatRepositoryTest {
     assertEquals("Message m1 is missing sentAt", error?.message)
   }
 
+  @Test
+  fun observeMyConversationsQueriesUserConversationsByRecencyAndRemovesListener() = runTest {
+    val listener = captureMyConversationsListener()
+    val other = conversation.copy(listingId = "other", listingTitle = "Tent")
+    val recent = mock<DocumentSnapshot>()
+    stubConversation(recent, other)
+    whenever(timestampOf(recent, "lastMessageAt")).thenReturn(Timestamp(1_700_000_060, 0))
+    val older = mock<DocumentSnapshot>()
+    stubConversation(older)
+    whenever(timestampOf(older, "lastMessageAt")).thenReturn(Timestamp(1_700_000_000, 0))
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(listOf(recent, older))
+
+    val observed = async { repository.observeMyConversations().first() }
+    runCurrent()
+    listener().onEvent(snapshot, null)
+
+    assertEquals(
+        listOf(
+            other.copy(lastMessageAt = Instant.ofEpochSecond(1_700_000_060)),
+            conversation.copy(lastMessageAt = Instant.ofEpochSecond(1_700_000_000)),
+        ),
+        observed.await(),
+    )
+    verify(conversations).whereArrayContains("participants", "renter")
+    verify(myConversations).orderBy("lastMessageAt", Query.Direction.DESCENDING)
+    verify(registration).remove()
+  }
+
+  @Test
+  fun observeMyConversationsRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val error = observeMyConversationsFailure().await()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (error as FirebaseFirestoreException).code,
+    )
+    verify(conversations, never()).whereArrayContains(any<String>(), any())
+  }
+
+  @Test
+  fun observeMyConversationsPropagatesListenerErrors() = runTest {
+    val listener = captureMyConversationsListener()
+    val failure = mock<FirebaseFirestoreException>()
+
+    val observed = observeMyConversationsFailure()
+    runCurrent()
+    listener().onEvent(null, failure)
+
+    assertSame(failure, observed.await())
+  }
+
+  @Test
+  fun observeMyConversationsPropagatesMalformedConversation() = runTest {
+    val listener = captureMyConversationsListener()
+    val malformed = mock<DocumentSnapshot>()
+    whenever(malformed.id).thenReturn("listing_renter")
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(listOf(malformed))
+
+    val observed = observeMyConversationsFailure()
+    runCurrent()
+    listener().onEvent(snapshot, null)
+
+    val error = observed.await()
+    assertTrue(error is IllegalStateException)
+    assertEquals("Conversation listing_renter is missing listingId", error?.message)
+  }
+
   private fun signInAs(uid: String) {
     val user = mock<FirebaseUser>()
     whenever(user.uid).thenReturn(uid)
@@ -364,11 +441,11 @@ class FirebaseChatRepositoryTest {
   private fun timestampOf(snapshot: DocumentSnapshot, field: String) =
       snapshot.getTimestamp(eq(field), eq(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE))
 
-  private fun stubConversation(snapshot: DocumentSnapshot) {
-    whenever(snapshot.getString("listingId")).thenReturn(conversation.listingId)
-    whenever(snapshot.getString("listingTitle")).thenReturn(conversation.listingTitle)
-    whenever(snapshot.getString("renterUid")).thenReturn(conversation.renterUid)
-    whenever(snapshot.getString("lenderUid")).thenReturn(conversation.lenderUid)
+  private fun stubConversation(snapshot: DocumentSnapshot, stored: Conversation = conversation) {
+    whenever(snapshot.getString("listingId")).thenReturn(stored.listingId)
+    whenever(snapshot.getString("listingTitle")).thenReturn(stored.listingTitle)
+    whenever(snapshot.getString("renterUid")).thenReturn(stored.renterUid)
+    whenever(snapshot.getString("lenderUid")).thenReturn(stored.lenderUid)
   }
 
   private fun message(id: String, senderUid: String, text: String, sentAt: Long) =
@@ -391,11 +468,21 @@ class FirebaseChatRepositoryTest {
     return { captor.firstValue }
   }
 
+  private fun captureMyConversationsListener(): () -> EventListener<QuerySnapshot> {
+    val captor = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(recentConversations.addSnapshotListener(captor.capture())).thenReturn(registration)
+    return { captor.firstValue }
+  }
+
   private fun TestScope.observeConversationFailure() = async {
     runCatching { repository.observeConversation("listing_renter").first() }.exceptionOrNull()
   }
 
   private fun TestScope.observeMessagesFailure() = async {
     runCatching { repository.observeMessages("listing_renter").first() }.exceptionOrNull()
+  }
+
+  private fun TestScope.observeMyConversationsFailure() = async {
+    runCatching { repository.observeMyConversations().first() }.exceptionOrNull()
   }
 }

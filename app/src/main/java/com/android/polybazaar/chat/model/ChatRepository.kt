@@ -34,4 +34,10 @@ interface ChatRepository {
    * PERMISSION_DENIED until the first message exists.
    */
   fun observeMessages(id: String): Flow<List<ChatMessage>>
+
+  /**
+   * Emits the signed-in user's conversations, most recent message first. Fails with UNAUTHENTICATED
+   * when signed out.
+   */
+  fun observeMyConversations(): Flow<List<Conversation>>
 }

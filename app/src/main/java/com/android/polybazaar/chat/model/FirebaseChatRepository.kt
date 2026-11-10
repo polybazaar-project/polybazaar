@@ -7,6 +7,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import java.time.Instant
 import java.util.concurrent.Executor
@@ -110,6 +111,36 @@ class FirebaseChatRepository(
             }
           }
         }
+
+    awaitClose { listener.remove() }
+  }
+
+  override fun observeMyConversations(): Flow<List<Conversation>> = callbackFlow {
+    val uid =
+        auth.currentUser?.uid
+            ?: throw FirebaseFirestoreException(
+                "Sign in to read conversations",
+                FirebaseFirestoreException.Code.UNAUTHENTICATED,
+            )
+    val listener =
+        firestore
+            .collection(CONVERSATIONS)
+            .whereArrayContains("participants", uid)
+            .orderBy("lastMessageAt", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
+              when {
+                error != null -> close(error)
+                snapshot == null -> close(IllegalStateException("Conversations snapshot was null"))
+                else -> {
+                  try {
+                    val result = trySend(snapshot.documents.map { it.toConversation() })
+                    result.exceptionOrNull()?.let { close(it) }
+                  } catch (e: Exception) {
+                    close(e)
+                  }
+                }
+              }
+            }
 
     awaitClose { listener.remove() }
   }
