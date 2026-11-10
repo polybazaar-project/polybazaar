@@ -11,9 +11,13 @@ import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.profile.model.ProfileRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -39,7 +43,7 @@ data class InboxUiState(
 /** Lists the signed-in user's conversations for the inbox. */
 class InboxViewModel(
     private val chatRepository: ChatRepository,
-    @Suppress("unused") private val profileRepository: ProfileRepository,
+    private val profileRepository: ProfileRepository,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(InboxUiState())
@@ -57,11 +61,11 @@ class InboxViewModel(
     loadJob = viewModelScope.launch { collectConversations(myUid) }
   }
 
-  @Suppress("UNUSED_PARAMETER")
   private suspend fun collectConversations(myUid: String) {
     try {
       chatRepository.observeMyConversations().collect { conversations ->
-        val rows = conversations.map { InboxConversation(it, otherUser = null) }
+        val profiles = loadProfiles(conversations.map { it.otherUid(myUid) }.distinct())
+        val rows = conversations.map { InboxConversation(it, profiles[it.otherUid(myUid)]) }
         _uiState.update { it.copy(conversations = rows, isLoading = false) }
       }
     } catch (exception: Exception) {
@@ -69,4 +73,24 @@ class InboxViewModel(
       _uiState.update { it.copy(isLoading = false, error = exception.toAppError()) }
     }
   }
+
+  /**
+   * Looks up each of [uids] once, in parallel. A missing profile or a failed lookup maps to null,
+   * so it never hides the conversations.
+   */
+  private suspend fun loadProfiles(uids: List<String>): Map<String, User?> = coroutineScope {
+    uids.map { uid -> async { uid to loadProfile(uid) } }.awaitAll().toMap()
+  }
+
+  private suspend fun loadProfile(uid: String): User? =
+      try {
+        profileRepository.observeProfile(uid).first()
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        null
+      }
 }
+
+/** The participant who is not [myUid]: the lender when [myUid] is the renter, else the renter. */
+private fun Conversation.otherUid(myUid: String): String =
+    if (renterUid == myUid) lenderUid else renterUid
