@@ -117,6 +117,10 @@ service cloud.firestore {
         return /databases/$(database)/documents/listings/$(listingId);
       }
 
+      function listingData(listingId) {
+        return get(listingPath(listingId)).data;
+      }
+
       function conversationPath() {
         return /databases/$(database)/documents/conversations/$(conversationId);
       }
@@ -136,7 +140,7 @@ service cloud.firestore {
       }
 
       function validNewConversation(data) {
-        let listing = get(listingPath(data.listingId)).data;
+        let listing = listingData(data.listingId);
         return data.keys().hasAll(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId'])
             && data.keys().hasOnly(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId'])
             && data.listingId is string
@@ -168,9 +172,9 @@ service cloud.firestore {
           && request.resource.data.lastMessageAt == request.time
           // Also forces lastMessageId to change: the previous message's sentAt is in the past.
           && isNewMessage(request.resource.data.lastMessageId)
-          && get(listingPath(resource.data.listingId)).data.ownerUid == resource.data.lenderUid
+          && listingData(resource.data.listingId).ownerUid == resource.data.lenderUid
           && (request.resource.data.listingTitle == resource.data.listingTitle
-              || request.resource.data.listingTitle == get(listingPath(resource.data.listingId)).data.title);
+              || request.resource.data.listingTitle == listingData(resource.data.listingId).title);
 
       allow delete: if false;
 
@@ -191,7 +195,7 @@ service cloud.firestore {
               && data.text.trim().size() >= 1
               && data.text.trim().size() <= 1000
               && data.text.size() <= 2000
-              && get(listingPath(conversation.listingId)).data.ownerUid == conversation.lenderUid;
+              && listingData(conversation.listingId).ownerUid == conversation.lenderUid;
         }
 
         allow read: if isVerified()
