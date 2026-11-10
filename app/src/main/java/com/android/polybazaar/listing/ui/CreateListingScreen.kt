@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.2)
 package com.android.polybazaar.listing.ui
 
 import android.net.Uri
@@ -24,18 +24,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +48,9 @@ import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthCard
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
+import com.android.polybazaar.booking.model.formatRuns
+import com.android.polybazaar.booking.model.groupIntoRuns
+import com.android.polybazaar.booking.ui.AvailabilityCalendarSheet
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
@@ -52,6 +60,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 
 object CreateListingScreenTags {
@@ -85,6 +94,7 @@ object CreateListingScreenTags {
   const val REFUND_FIELD = "create_listing_refund_field"
   const val REFUND_ERROR = "create_listing_refund_error"
   const val CATEGORY_FIELD = "create_listing_category_field"
+  const val AVAILABILITY_FIELD = "create_listing_availability_field"
   const val ERROR_MESSAGE = "create_listing_error_message"
   const val CREATE_BUTTON = "create_listing_create_button"
 
@@ -126,6 +136,8 @@ class ListingFormActions(
     val onRefundValueChange: (String) -> Unit = {},
     val onRefundFieldLeft: () -> Unit = {},
     val onCategorySelected: (ListingCategory) -> Unit = {},
+    /** Replaces the days the listing is offered on. */
+    val onAvailableDatesChange: (Set<LocalDate>) -> Unit = {},
     val onPhotosPicked: (List<Uri>) -> Unit = {},
     val onPhotoRemoved: (Uri) -> Unit = {},
     /** Removes a saved photo of the edited listing, given its Storage path. */
@@ -149,6 +161,7 @@ internal fun listingFormActions(viewModel: ListingFormViewModel) =
         onRefundValueChange = viewModel::updateRefundValue,
         onRefundFieldLeft = viewModel::leaveRefundField,
         onCategorySelected = viewModel::selectCategory,
+        onAvailableDatesChange = viewModel::updateAvailableDates,
         onPhotosPicked = viewModel::addPhotos,
         onPhotoRemoved = viewModel::removePhoto,
         onStoredPhotoRemoved = viewModel::removeStoredPhoto,
@@ -283,7 +296,7 @@ internal fun ListingTypeSelector(
 }
 
 /**
- * Title, description, price, category and, for items, the refund value.
+ * Title, description, price, category, for items the refund value, and the available days.
  *
  * @param priceHint shown under the price, such as when a price change only applies to new bookings.
  */
@@ -340,6 +353,69 @@ internal fun ListingDetailsFields(
         onValueChange = actions.onRefundValueChange,
         showError = uiState.showRefundError,
         onFocusLost = actions.onRefundFieldLeft,
+    )
+  }
+  AvailabilityField(
+      type = uiState.type,
+      availableDates = uiState.availableDates,
+      onChange = actions.onAvailableDatesChange,
+  )
+}
+
+/**
+ * The days the listing is offered on, written as "13–16, 28–29 Nov". Tapping the field opens the
+ * calendar to choose them. Optional: without any day, the listing cannot be requested yet.
+ */
+@Composable
+private fun AvailabilityField(
+    type: ListingType,
+    availableDates: Set<LocalDate>,
+    onChange: (Set<LocalDate>) -> Unit,
+) {
+  var isChoosing by rememberSaveable { mutableStateOf(false) }
+  val shape = RoundedCornerShape(14.dp)
+  FormField(label = stringResource(R.string.listing_form_availability_label)) {
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .background(AuthColors.Background, shape)
+                .border(1.dp, AuthColors.Outline, shape)
+                .clickable(role = Role.Button) { isChoosing = true }
+                .padding(horizontal = 12.dp, vertical = 12.dp)
+                .testTag(CreateListingScreenTags.AVAILABILITY_FIELD),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+          text =
+              formatRuns(groupIntoRuns(availableDates)).ifEmpty {
+                stringResource(R.string.listing_form_availability_placeholder)
+              },
+          color =
+              if (availableDates.isEmpty()) AuthColors.TextSecondary else AuthColors.TextPrimary,
+          fontSize = 13.sp,
+          // Days scattered over many months make a long text; the calendar shows them all.
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.weight(1f),
+      )
+      Icon(
+          painter = painterResource(R.drawable.ic_chevron_down),
+          contentDescription = null,
+          tint = AuthColors.TextSecondary,
+          modifier = Modifier.size(16.dp),
+      )
+    }
+  }
+  if (isChoosing) {
+    AvailabilityCalendarSheet(
+        title =
+            stringResource(
+                if (type == ListingType.ITEM) R.string.listing_form_availability_item_title
+                else R.string.listing_form_availability_service_title
+            ),
+        selection = availableDates,
+        onSelectionChange = onChange,
+        onDismiss = { isChoosing = false },
     )
   }
 }

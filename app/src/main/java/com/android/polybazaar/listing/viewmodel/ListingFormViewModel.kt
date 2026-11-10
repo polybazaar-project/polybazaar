@@ -1,5 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 package com.android.polybazaar.listing.viewmodel
 
 import android.net.Uri
@@ -7,6 +7,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRules
+import com.android.polybazaar.booking.model.upcomingDays
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ItemListing
@@ -26,6 +27,7 @@ import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.PhotoStorage
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +46,7 @@ import kotlinx.coroutines.launch
  * @property photos photos on this device, to upload when the form is saved.
  * @property maxRentalDays kept from the edited listing, so that saving does not erase it. The form
  *   has no input for it yet.
+ * @property availableDates the days the owner offers the listing on, chosen in the calendar.
  * @property isLoading true while the edited listing is being loaded into the form.
  * @property loadError why the edited listing could not be loaded, or null. The form cannot be saved
  *   until a Retry succeeds.
@@ -63,6 +66,7 @@ data class ListingFormUiState(
     val storedPhotos: List<String> = emptyList(),
     val photos: List<Uri> = emptyList(),
     val maxRentalDays: Int? = null,
+    val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = false,
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
@@ -91,6 +95,7 @@ data class ListingFormUiState(
             imagePaths = storedPhotos,
             listingId = listingId,
             maxRentalDays = maxRentalDays,
+            availableDates = availableDates,
         )
 
   /** Photos kept and photos added together, which [MAX_PHOTOS] limits. */
@@ -122,8 +127,11 @@ data class ListingFormUiState(
 private fun showAmountError(touched: Boolean, input: String, max: Double = MAX_PRICE): Boolean =
     touched && input.isNotEmpty() && parsePrice(input, max) == null
 
-/** The form filled with the saved [listing], ready to edit. */
-private fun formFor(listing: Listing) =
+/**
+ * The form filled with the saved [listing], ready to edit. Its available days before [today] are
+ * left out: they can no longer be offered, and the calendar could not show them to remove them.
+ */
+private fun formFor(listing: Listing, today: LocalDate) =
     ListingFormUiState(
         listingId = listing.listingId,
         type = listing.type,
@@ -134,6 +142,7 @@ private fun formFor(listing: Listing) =
         category = listing.category,
         storedPhotos = listing.imagePaths,
         maxRentalDays = (listing as? ItemListing)?.maxRentalDays,
+        availableDates = upcomingDays(listing.availableDates, today),
     )
 
 /**
@@ -147,12 +156,14 @@ private fun formFor(listing: Listing) =
  * @param savedStateHandle keeps the form when Android kills the app, which can happen while the
  *   camera app is in front. Pass `createSavedStateHandle()` from the factory: a handle made by hand
  *   is not saved by Android.
+ * @param today the current day, to leave past available days out of an edited listing.
  */
 class ListingFormViewModel(
     private val listingId: String?,
     private val listingRepository: ListingRepository,
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
+    private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(savedStateHandle.restoreForm(listingId))
@@ -207,7 +218,7 @@ class ListingFormViewModel(
             .getListing(id)
             .onSuccess { listing ->
               savedStateHandle[LOADED] = true
-              updateState { formFor(listing).copy(isLoading = true) }
+              updateState { formFor(listing, today()).copy(isLoading = true) }
             }
             .onFailure { exception ->
               // Cancellation means the screen was closed: it is not an error to show.
@@ -257,6 +268,9 @@ class ListingFormViewModel(
   fun leaveRefundField() = changeForm { it.copy(refundTouched = true) }
 
   fun selectCategory(category: ListingCategory) = changeForm { it.copy(category = category) }
+
+  /** Replaces the days the listing is offered on with those chosen in the calendar. */
+  fun updateAvailableDates(days: Set<LocalDate>) = changeForm { it.copy(availableDates = days) }
 
   /**
    * Adds photos picked in the gallery, skipping duplicates and those beyond [MAX_PHOTOS], kept
@@ -346,7 +360,7 @@ class ListingFormViewModel(
         // A fresh form, so coming back to it cannot create the same listing twice. An edit form
         // shows the listing as saved, its new photos now stored ones.
         updateState {
-          val form = if (state.isEditing) formFor(savedListing) else ListingFormUiState()
+          val form = if (state.isEditing) formFor(savedListing, today()) else ListingFormUiState()
           form.copy(savedListing = savedListing)
         }
       } catch (exception: Exception) {
@@ -404,6 +418,7 @@ class ListingFormViewModel(
     const val STORED_PHOTOS = "storedPhotos"
     const val PHOTOS = "photos"
     const val MAX_RENTAL_DAYS = "maxRentalDays"
+    const val AVAILABLE_DATES = "availableDates"
     const val PENDING_PHOTO = "pendingPhoto"
     const val RETAKE_INDEX = "retakeIndex"
 
@@ -425,6 +440,8 @@ class ListingFormViewModel(
       set(STORED_PHOTOS, ArrayList(state.storedPhotos))
       set(PHOTOS, ArrayList(state.photos))
       set(MAX_RENTAL_DAYS, state.maxRentalDays)
+      // As days since 1970: a LongArray survives the app being killed, a set of dates might not.
+      set(AVAILABLE_DATES, state.availableDates.map { it.toEpochDay() }.toLongArray())
     }
 
     fun SavedStateHandle.restoreForm(listingId: String?) =
@@ -441,6 +458,8 @@ class ListingFormViewModel(
             storedPhotos = get<List<String>>(STORED_PHOTOS).orEmpty(),
             photos = get<List<Uri>>(PHOTOS).orEmpty(),
             maxRentalDays = get(MAX_RENTAL_DAYS),
+            availableDates =
+                get<LongArray>(AVAILABLE_DATES)?.map(LocalDate::ofEpochDay)?.toSet().orEmpty(),
         )
   }
 }
