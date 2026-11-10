@@ -71,6 +71,7 @@ object ListingDetailScreenTags {
   const val LENDER = "listing_detail_lender"
   const val LENDER_NAME = "listing_detail_lender_name"
   const val LENDER_ERROR = "listing_detail_lender_error"
+  const val LENDER_RETRY_BUTTON = "listing_detail_lender_retry_button"
   const val MESSAGE_BUTTON = "listing_detail_message_button"
   const val PRICE = "listing_detail_price"
   const val DEPOSIT = "listing_detail_deposit"
@@ -157,7 +158,7 @@ fun ListingDetailContent(
       }
       ListingDetailBody.DETAIL ->
           // Only DETAIL has a listing; the check gives the smart cast.
-          if (listing != null) ListingDetail(listing, uiState, actions)
+          if (listing != null) ListingDetail(listing, uiState, actions, onRetry)
     }
   }
 }
@@ -168,6 +169,7 @@ private fun ColumnScope.ListingDetail(
     listing: Listing,
     uiState: ListingDetailUiState,
     actions: ListingDetailActions,
+    onRetry: () -> Unit,
 ) {
   // weight(1f): the details take the height the booking bar leaves, and scroll inside it.
   Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
@@ -179,7 +181,7 @@ private fun ColumnScope.ListingDetail(
       Overview(listing)
       DescriptionSection(listing)
       TermsSection(listing)
-      LenderSection(listing, uiState, actions)
+      LenderSection(listing, uiState, actions, onRetry)
     }
   }
   BookingBar(
@@ -299,12 +301,17 @@ private fun TermsSection(listing: Listing) {
   }
 }
 
-/** The lender's name and bio, and "Message lender". */
+/**
+ * The lender's name and bio, and "Message lender".
+ *
+ * @param onRetry reloads the listing, which also restarts a lender observation that failed.
+ */
 @Composable
 private fun LenderSection(
     listing: Listing,
     uiState: ListingDetailUiState,
     actions: ListingDetailActions,
+    onRetry: () -> Unit,
 ) {
   Section(title = stringResource(R.string.listing_detail_lender_title)) {
     val lender = uiState.lender
@@ -316,11 +323,14 @@ private fun LenderSection(
           LenderSummary(lender = lender, onClick = { actions.onOpenLender(ownerUid) })
       // The listing stays usable without its lender, so only this section says what failed.
       lenderError != null ->
-          SecondaryText(
-              text = lenderError.message(),
-              color = AuthColors.Danger,
-              modifier = Modifier.testTag(ListingDetailScreenTags.LENDER_ERROR),
-          )
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            SecondaryText(
+                text = lenderError.message(),
+                color = AuthColors.Danger,
+                modifier = Modifier.weight(1f).testTag(ListingDetailScreenTags.LENDER_ERROR),
+            )
+            RetryButton(onRetry = onRetry, tag = ListingDetailScreenTags.LENDER_RETRY_BUTTON)
+          }
     }
     // Null and no error: still loading, or the owner has no profile. Nothing to show in both cases.
     MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
@@ -519,16 +529,19 @@ private fun LoadError(text: String, onRetry: () -> Unit) {
         fontSize = 14.sp,
         modifier = Modifier.weight(1f).testTag(ListingDetailScreenTags.ERROR_MESSAGE),
     )
-    TextButton(
-        onClick = onRetry,
-        modifier = Modifier.testTag(ListingDetailScreenTags.RETRY_BUTTON),
-    ) {
-      Text(
-          text = stringResource(R.string.listing_detail_retry),
-          color = AuthColors.Accent,
-          fontWeight = FontWeight.Bold,
-      )
-    }
+    RetryButton(onRetry = onRetry, tag = ListingDetailScreenTags.RETRY_BUTTON)
+  }
+}
+
+/** "Retry" as a text button (48dp touch target), for the listing and the lender errors. */
+@Composable
+private fun RetryButton(onRetry: () -> Unit, tag: String) {
+  TextButton(onClick = onRetry, modifier = Modifier.testTag(tag)) {
+    Text(
+        text = stringResource(R.string.listing_detail_retry),
+        color = AuthColors.Accent,
+        fontWeight = FontWeight.Bold,
+    )
   }
 }
 

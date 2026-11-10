@@ -177,13 +177,19 @@ class ListingDetailScreenTest {
   }
 
   @Test
-  fun lenderFailed_showsWhyInItsSectionOnly() {
-    setContent(ListingDetailUiState(listing = drill, lenderError = AppError.NETWORK))
+  fun lenderFailed_showsWhyInItsSectionOnly_andRetryReloads() {
+    var retries = 0
+    setContent(
+        ListingDetailUiState(listing = drill, lenderError = AppError.NETWORK),
+        onRetry = { retries++ },
+    )
 
     node(ListingDetailScreenTags.LENDER_ERROR)
         .assertTextEquals(context.getString(R.string.error_network))
     node(ListingDetailScreenTags.LENDER).assertDoesNotExist()
     node(ListingDetailScreenTags.TITLE).assertIsDisplayed()
+    node(ListingDetailScreenTags.LENDER_RETRY_BUTTON).performScrollTo().performClick()
+    assertEquals(1, retries)
   }
 
   @Test
