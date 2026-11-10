@@ -210,14 +210,25 @@ class ToolboxViewModelTest {
   }
 
   @Test
-  fun selectType_theSelectedTypeAgain_showsAllListings() {
+  fun selectType_null_showsAllListings() {
+    val viewModel = ToolboxViewModel(repository)
+    viewModel.selectType(ListingType.ITEM)
+
+    viewModel.selectType(null)
+
+    assertNull(viewModel.uiState.value.selectedType)
+    assertEquals(myListings, viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun selectType_theSelectedTypeAgain_keepsIt() {
     val viewModel = ToolboxViewModel(repository)
     viewModel.selectType(ListingType.ITEM)
 
     viewModel.selectType(ListingType.ITEM)
 
-    assertNull(viewModel.uiState.value.selectedType)
-    assertEquals(myListings, viewModel.uiState.value.filteredListings)
+    assertEquals(ListingType.ITEM, viewModel.uiState.value.selectedType)
+    assertEquals(listOf(myListings[0]), viewModel.uiState.value.filteredListings)
   }
 
   @Test

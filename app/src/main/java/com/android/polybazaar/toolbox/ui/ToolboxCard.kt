@@ -54,6 +54,7 @@ object ToolboxCardTags {
   const val ERROR = "toolbox_error"
   const val RETRY_BUTTON = "toolbox_retry_button"
   const val EMPTY = "toolbox_empty"
+  const val FILTER_ALL = "toolbox_filter_all"
   const val FILTER_ITEMS = "toolbox_filter_items"
   const val FILTER_SERVICES = "toolbox_filter_services"
   const val FILTER_EMPTY = "toolbox_filter_empty"
@@ -70,8 +71,9 @@ fun ToolboxCard(viewModel: ToolboxViewModel) {
 }
 
 /**
- * The "My Toolbox" card of the profile, listing the user's own listings, which can be filtered to
- * items or services with [onTypeSelected] from the buttons under the title.
+ * The "My Toolbox" card of the profile, listing the user's own listings. The buttons under the
+ * title show all of them (All, selected by default) or only items or services; [onTypeSelected]
+ * gets the chosen type, or null for All.
  *
  * Fills the height it is given: the title stays in place and the rows scroll inside the card, so it
  * needs a bounded height.
@@ -80,7 +82,7 @@ fun ToolboxCard(viewModel: ToolboxViewModel) {
 fun ToolboxContent(
     uiState: ToolboxUiState,
     onRetry: () -> Unit,
-    onTypeSelected: (ListingType) -> Unit,
+    onTypeSelected: (ListingType?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
   val shape = RoundedCornerShape(20.dp)
@@ -104,6 +106,12 @@ fun ToolboxContent(
     // The filters get their own line, so the title keeps its full width on narrow phones.
     if (uiState.listings.isNotEmpty()) {
       Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        TypeFilterButton(
+            text = stringResource(R.string.toolbox_filter_all),
+            isSelected = uiState.selectedType == null,
+            onClick = { onTypeSelected(null) },
+            modifier = Modifier.testTag(ToolboxCardTags.FILTER_ALL),
+        )
         TypeFilterButton(
             text = stringResource(R.string.toolbox_filter_items),
             isSelected = uiState.selectedType == ListingType.ITEM,

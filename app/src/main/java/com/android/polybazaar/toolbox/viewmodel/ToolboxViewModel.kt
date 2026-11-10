@@ -46,9 +46,9 @@ class ToolboxViewModel(private val listingRepository: ListingRepository) : ViewM
     loadListings()
   }
 
-  /** Shows only the listings of [type], or all of them again if [type] was already selected. */
-  fun selectType(type: ListingType) {
-    _uiState.update { it.copy(selectedType = if (it.selectedType == type) null else type) }
+  /** Shows only the listings of [type], or all of them when [type] is null. */
+  fun selectType(type: ListingType?) {
+    _uiState.update { it.copy(selectedType = type) }
   }
 
   /**

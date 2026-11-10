@@ -80,15 +80,21 @@ class ToolboxCardTest {
         .assertIsDisplayed()
         .assertTextEquals(string(R.string.toolbox_empty))
     composeTestRule.onNodeWithTag(ToolboxCardTags.LOADING_INDICATOR).assertDoesNotExist()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ALL).assertDoesNotExist()
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS).assertDoesNotExist()
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES).assertDoesNotExist()
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_EMPTY).assertDoesNotExist()
   }
 
   @Test
-  fun listings_showBothFilterButtonsUnselectedAndAllRows() {
+  fun listings_selectAllByDefaultAndShowAllRows() {
     setContent(ToolboxUiState(listings = myListings))
 
+    composeTestRule
+        .onNodeWithTag(ToolboxCardTags.FILTER_ALL)
+        .assertIsDisplayed()
+        .assertIsSelected()
+        .assertTextEquals(string(R.string.toolbox_filter_all))
     composeTestRule
         .onNodeWithTag(ToolboxCardTags.FILTER_ITEMS)
         .assertIsDisplayed()
@@ -112,13 +118,14 @@ class ToolboxCardTest {
             .onNodeWithText(string(R.string.toolbox_title))
             .assertIsDisplayed()
             .getUnclippedBoundsInRoot()
+    val all = composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ALL).getUnclippedBoundsInRoot()
     val items =
         composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS).getUnclippedBoundsInRoot()
     val services =
         composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES).getUnclippedBoundsInRoot()
-    // The buttons sit on their own line under the title, Items before Services.
-    assertTrue(title.bottom <= items.top)
-    assertTrue(title.bottom <= services.top)
+    // The buttons sit on their own line under the title: All, Items, Services.
+    for (button in listOf(all, items, services)) assertTrue(title.bottom <= button.top)
+    assertTrue(all.right <= items.left)
     assertTrue(items.right <= services.left)
     val firstRow =
         composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)[0].getUnclippedBoundsInRoot()
@@ -174,6 +181,7 @@ class ToolboxCardTest {
     setContent(ToolboxUiState(listings = myListings, selectedType = ListingType.ITEM))
 
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS).assertIsSelected()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ALL).assertIsNotSelected()
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES).assertIsNotSelected()
     composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(1)
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
@@ -185,6 +193,7 @@ class ToolboxCardTest {
     setContent(ToolboxUiState(listings = myListings, selectedType = ListingType.SERVICE))
 
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES).assertIsSelected()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ALL).assertIsNotSelected()
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS).assertIsNotSelected()
     composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(1)
     composeTestRule.onNodeWithText("Math tutoring").assertIsDisplayed()
@@ -193,13 +202,15 @@ class ToolboxCardTest {
 
   @Test
   fun filterButtons_reportTheTappedType() {
-    val tapped = mutableListOf<ListingType>()
+    val tapped = mutableListOf<ListingType?>()
     setContent(ToolboxUiState(listings = myListings), onTypeSelected = { tapped += it })
 
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS).performClick()
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES).performClick()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ALL).performClick()
 
-    assertEquals(listOf(ListingType.ITEM, ListingType.SERVICE), tapped)
+    // All reports null: no type filter.
+    assertEquals(listOf(ListingType.ITEM, ListingType.SERVICE, null), tapped)
   }
 
   @Test
@@ -306,14 +317,17 @@ class ToolboxCardTest {
   }
 
   @Test
-  fun card_tappingTheFilterButtonsSelectsSwitchesAndClearsTheFilter() {
+  fun card_tappingTheFilterButtonsSelectsSwitchesAndShowsAllAgain() {
     val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings))
     composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
+    val all = composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ALL)
     val items = composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS)
     val services = composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES)
+    all.assertIsSelected()
 
     items.performClick()
     items.assertIsSelected()
+    all.assertIsNotSelected()
     services.assertIsNotSelected()
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
     composeTestRule.onNodeWithText("Math tutoring").assertDoesNotExist()
@@ -325,8 +339,14 @@ class ToolboxCardTest {
     composeTestRule.onNodeWithText("Math tutoring").assertIsDisplayed()
     composeTestRule.onNodeWithText("Bosch drill set").assertDoesNotExist()
 
-    // Tapping the selected button again shows everything.
+    // Tapping the selected button again keeps it selected.
     services.performClick()
+    services.assertIsSelected()
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(1)
+
+    // All shows everything again.
+    all.performClick()
+    all.assertIsSelected()
     services.assertIsNotSelected()
     items.assertIsNotSelected()
     composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
@@ -374,7 +394,7 @@ class ToolboxCardTest {
   private fun setContent(
       uiState: ToolboxUiState,
       onRetry: () -> Unit = {},
-      onTypeSelected: (ListingType) -> Unit = {},
+      onTypeSelected: (ListingType?) -> Unit = {},
   ) {
     composeTestRule.setContent {
       ToolboxContent(uiState = uiState, onRetry = onRetry, onTypeSelected = onTypeSelected)
