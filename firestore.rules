@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Copilot Claude Sonnet 5.5
 rules_version = '2';
 
 service cloud.firestore {
@@ -27,8 +28,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    function isAmount(value) {
-      return value is number && value > 0;
+    // Above zero and at most max, in CHF.
+    function isAmount(value, max) {
+      return value is number && value > 0 && value <= max;
+    }
+
+    // Same bounds as AuthRules.MIN_USERNAME_LENGTH and MAX_USERNAME_LENGTH in the app.
+    function validUsernameLength(username) {
+      return username is string && username.size() >= 3 && username.size() <= 30;
     }
 
     // Username -> { uid }. Written once at sign-up, in the same batch as the profile document,
@@ -41,6 +48,7 @@ service cloud.firestore {
       allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
 
       allow create: if isEpfl()
+          && validUsernameLength(username)
           && request.resource.data.keys().hasOnly(['uid'])
           && request.resource.data.uid == request.auth.uid
           && username == username.lower()
@@ -56,8 +64,9 @@ service cloud.firestore {
       // it, so only storage.rules decides who sees the photo. It can only name the user's own.
       function validProfile(data) {
         return data.keys().hasAll(['username'])
+            && validUsernameLength(data.username)
             && data.keys().hasOnly(['username', 'bio', 'photoPath'])
-            && (!('bio' in data) || data.bio is string)
+            && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
             && (!('photoPath' in data) || data.photoPath == 'users/' + uid + '/profile.jpg');
       }
 
@@ -150,11 +159,13 @@ service cloud.firestore {
             && data.paused is bool
             && data.category is string && validCategory(data.type, data.category)
             // Same as ListingRules.errorFor in the app: no empty or whitespace-only text.
-            && data.title is string && data.title.trim().size() > 0
+            && data.title is string && data.title.trim().size() > 0 && data.title.size() <= 80
             && data.description is string && data.description.trim().size() > 0
-            && isAmount(data.price)
+            && data.description.size() <= 1000
+            // Same limits as ListingRules.MAX_PRICE and MAX_REFUND_VALUE in the app.
+            && isAmount(data.price, 10000)
             && validImagePaths(data.imagePaths)
-            && ((data.type == 'ITEM' && isAmount(data.refundValue))
+            && ((data.type == 'ITEM' && isAmount(data.refundValue, 100000))
                 || (data.type == 'SERVICE' && !('refundValue' in data)))
             // Optional rental duration in days, items only. Same bounds as
             // ListingRules.MAX_RENTAL_DAYS in the app (a semester, exams included).

@@ -1,11 +1,13 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Copilot Claude Sonnet 5.5
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
+import com.android.polybazaar.photo.PhotoCompressor
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser

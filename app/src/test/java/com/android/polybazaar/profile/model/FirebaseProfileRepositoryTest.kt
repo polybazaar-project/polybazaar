@@ -1,8 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Copilot Claude Sonnet 5.5
 package com.android.polybazaar.profile.model
 
-import android.content.ContentResolver
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
 import com.google.android.gms.tasks.Tasks
@@ -41,13 +41,14 @@ class FirebaseProfileRepositoryTest {
   private lateinit var firestore: FirebaseFirestore
   private lateinit var storage: FirebaseStorage
   private lateinit var auth: FirebaseAuth
-  private lateinit var contentResolver: ContentResolver
   private lateinit var usersCollection: CollectionReference
   private lateinit var profileDocument: DocumentReference
   private lateinit var storageRoot: StorageReference
   private lateinit var photoReference: StorageReference
   private lateinit var repository: FirebaseProfileRepository
 
+  private val compressedPhotos = mutableListOf<Uri>()
+  private val compressedBytes = byteArrayOf(9, 8, 7)
   private val uid = "user-123"
   private val email = "user@example.com"
   private val username = "student"
@@ -57,7 +58,6 @@ class FirebaseProfileRepositoryTest {
     firestore = mock()
     storage = mock()
     auth = mock()
-    contentResolver = mock()
     usersCollection = mock()
     profileDocument = mock()
     storageRoot = mock()
@@ -68,7 +68,17 @@ class FirebaseProfileRepositoryTest {
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child("users/$uid/profile.jpg")).thenReturn(photoReference)
 
-    repository = FirebaseProfileRepository(contentResolver, firestore, storage, auth)
+    compressedPhotos.clear()
+    repository =
+        FirebaseProfileRepository(
+            { photo ->
+              compressedPhotos += photo
+              compressedBytes
+            },
+            firestore,
+            storage,
+            auth,
+        )
   }
 
   @Test
@@ -154,13 +164,13 @@ class FirebaseProfileRepositoryTest {
     // Confirms a completed upload returns the photo's Storage path and never asks for a download
     // URL, which would let anyone holding it read the photo without signing in.
     val photoUri = mock<Uri>()
-    stubSuccessfulUpload(photoUri)
+    stubSuccessfulUpload()
 
     val result = repository.uploadProfilePhoto(uid, photoUri)
 
     assertEquals("users/$uid/profile.jpg", result)
     verify(storageRoot).child("users/$uid/profile.jpg")
-    verify(photoReference).putFile(eq(photoUri), any())
+    verify(photoReference).putBytes(eq(compressedBytes), any())
     verify(photoReference, never()).downloadUrl
   }
 
@@ -178,31 +188,42 @@ class FirebaseProfileRepositoryTest {
   }
 
   @Test
-  fun uploadProfilePhoto_sendsThePhotosContentType() = runTest {
-    // Confirms the upload carries the photo's type, which the Storage rules require to be an image.
+  fun uploadProfilePhoto_uploadsTheCompressedBytesNotTheOriginal() = runTest {
+    // Confirms the compressed bytes are what gets uploaded, so a multi-megabyte photo is not.
     val photoUri = mock<Uri>()
-    whenever(contentResolver.getType(photoUri)).thenReturn("image/png")
-    stubSuccessfulUpload(photoUri)
+    stubSuccessfulUpload()
 
     repository.uploadProfilePhoto(uid, photoUri)
 
-    val metadataCaptor = argumentCaptor<StorageMetadata>()
-    verify(photoReference).putFile(eq(photoUri), metadataCaptor.capture())
-    assertEquals("image/png", metadataCaptor.firstValue.contentType)
+    assertEquals(listOf(photoUri), compressedPhotos)
+    verify(photoReference).putBytes(eq(compressedBytes), any())
+    verify(photoReference, never()).putFile(any(), any())
   }
 
   @Test
-  fun uploadProfilePhoto_unknownType_uploadsWithoutContentType() = runTest {
-    // Confirms an untyped photo is still uploaded, leaving the Storage rules to decide.
+  fun uploadProfilePhoto_sendsAJpegContentType() = runTest {
+    // Confirms the upload is typed as a JPEG, which the Storage rules require to be an image.
     val photoUri = mock<Uri>()
-    whenever(contentResolver.getType(photoUri)).thenReturn(null)
-    stubSuccessfulUpload(photoUri)
+    stubSuccessfulUpload()
 
     repository.uploadProfilePhoto(uid, photoUri)
 
     val metadataCaptor = argumentCaptor<StorageMetadata>()
-    verify(photoReference).putFile(eq(photoUri), metadataCaptor.capture())
-    assertNull(metadataCaptor.firstValue.contentType)
+    verify(photoReference).putBytes(any(), metadataCaptor.capture())
+    assertEquals("image/jpeg", metadataCaptor.firstValue.contentType)
+  }
+
+  @Test
+  fun uploadProfilePhoto_compressionFails_uploadsNothing() = runTest {
+    // Confirms a photo that cannot be compressed is not uploaded as the original.
+    val failure = IllegalStateException("Cannot decode")
+    repository = FirebaseProfileRepository({ throw failure }, firestore, storage, auth)
+
+    val result = runCatching { repository.uploadProfilePhoto(uid, mock()) }.exceptionOrNull()
+
+    assertTrue(result === failure)
+    verify(photoReference, never()).putBytes(any(), any())
+    verify(photoReference, never()).putFile(any(), any())
   }
 
   @Test
@@ -210,13 +231,13 @@ class FirebaseProfileRepositoryTest {
     // Confirms upload failures reach the caller and the user's Storage path is used.
     val photoUri = mock<Uri>()
     val failure = IllegalStateException("Storage unavailable")
-    whenever(photoReference.putFile(eq(photoUri), any())).thenThrow(failure)
+    whenever(photoReference.putBytes(any(), any())).thenThrow(failure)
 
     val result = runCatching { repository.uploadProfilePhoto(uid, photoUri) }.exceptionOrNull()
 
     assertTrue(result === failure)
     verify(storageRoot).child("users/$uid/profile.jpg")
-    verify(photoReference).putFile(eq(photoUri), any())
+    verify(photoReference).putBytes(eq(compressedBytes), any())
   }
 
   @Test
@@ -355,9 +376,9 @@ class FirebaseProfileRepositoryTest {
   }
 
   /** Makes uploading [photoUri] succeed. */
-  private fun stubSuccessfulUpload(photoUri: Uri) {
+  private fun stubSuccessfulUpload() {
     val uploadTask = mock<UploadTask>()
-    whenever(photoReference.putFile(eq(photoUri), any())).thenReturn(uploadTask)
+    whenever(photoReference.putBytes(any(), any())).thenReturn(uploadTask)
     whenever(uploadTask.isComplete).thenReturn(true)
     whenever(uploadTask.isSuccessful).thenReturn(true)
     whenever(uploadTask.result).thenReturn(mock())
