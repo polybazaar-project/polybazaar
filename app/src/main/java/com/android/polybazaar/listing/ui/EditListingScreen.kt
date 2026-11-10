@@ -1,5 +1,6 @@
 package com.android.polybazaar.listing.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,7 +65,8 @@ object EditListingScreenTags {
  * "Edit listing" screen: the listing form filled with a saved listing.
  *
  * @param listingViewModel built with the id of the listing to edit.
- * @param onBack called when the user leaves without saving, with the back button or Cancel.
+ * @param onBack called when the user leaves without saving, with the back button or Cancel. Not
+ *   while saving: leaving cancels the save, which can leave the listing pointing at deleted photos.
  * @param onListingSaved called once the changes have been saved.
  */
 @Composable
@@ -84,6 +86,9 @@ fun EditListingScreen(
       listingViewModel.clearSavedListing()
     }
   }
+  // Leaving clears the ViewModel and cancels the save. If Firestore already has the update, the
+  // repository still deletes the photos it just uploaded, so the system back waits for the save.
+  BackHandler(enabled = uiState.isSaving) {}
 
   EditListingContent(
       uiState = uiState,
@@ -118,7 +123,8 @@ fun EditListingContent(
               .verticalScroll(rememberScrollState())
               .testTag(EditListingScreenTags.SCREEN)
   ) {
-    EditListingHeader(onBack = onBack)
+    // Like the system back, which EditListingScreen blocks while saving.
+    EditListingHeader(onBack = onBack, enabled = !uiState.isSaving)
     val loadError = uiState.loadError
     when {
       uiState.isLoading -> LoadingIndicator()
@@ -161,7 +167,7 @@ fun EditListingContent(
 
 /** The back button with the "EDIT / Listing" title, like the "Edit profile" screen. */
 @Composable
-private fun EditListingHeader(onBack: () -> Unit) {
+private fun EditListingHeader(onBack: () -> Unit, enabled: Boolean) {
   Row(
       modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 18.dp),
       horizontalArrangement = Arrangement.spacedBy(15.dp),
@@ -169,6 +175,7 @@ private fun EditListingHeader(onBack: () -> Unit) {
   ) {
     AuthBackButton(
         onClick = onBack,
+        enabled = enabled,
         modifier = Modifier.testTag(EditListingScreenTags.BACK_BUTTON),
     )
     AuthTitleGroup(
@@ -202,6 +209,8 @@ private fun EditListingFooter(
     AuthSecondaryButton(
         text = stringResource(R.string.edit_listing_cancel),
         onClick = onCancel,
+        // Leaving during the save would cancel it, see EditListingScreen.
+        enabled = !uiState.isSaving,
         modifier = Modifier.weight(1f).fillMaxSize().testTag(EditListingScreenTags.CANCEL_BUTTON),
     )
     AuthPrimaryButton(

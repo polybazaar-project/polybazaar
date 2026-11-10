@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
@@ -106,12 +107,18 @@ internal fun AuthLinkButton(text: String, onClick: () -> Unit, tag: String) {
   }
 }
 
-/** The outlined button next to [AuthPrimaryButton] that cancels a form. */
+/** The outlined button next to [AuthPrimaryButton] that cancels a form. Faded when disabled. */
 @Composable
-internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun AuthSecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
   OutlinedButton(
       onClick = onClick,
-      modifier = modifier,
+      enabled = enabled,
+      modifier = modifier.alpha(if (enabled) 1f else DISABLED_ALPHA),
       shape = RoundedCornerShape(20.dp),
       border = BorderStroke(1.dp, AuthColors.Outline),
       colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
@@ -120,18 +127,22 @@ internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Mo
   }
 }
 
-/** A 38dp round, outlined icon button, as used in the screen headers. */
+/** A 38dp round, outlined icon button, as used in the screen headers. Faded when disabled. */
 @Composable
 internal fun AuthRoundIconButton(
     @DrawableRes iconRes: Int,
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
   IconButton(
       onClick = onClick,
+      enabled = enabled,
       modifier =
           modifier
+              // The icon keeps its own colours (Color.Unspecified), so it is faded here instead.
+              .alpha(if (enabled) 1f else DISABLED_ALPHA)
               .size(38.dp)
               .background(AuthColors.Background, CircleShape)
               .border(1.dp, AuthColors.Outline, CircleShape),
@@ -147,14 +158,22 @@ internal fun AuthRoundIconButton(
 
 /** The round back arrow at the start of a screen header. */
 @Composable
-internal fun AuthBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun AuthBackButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
   AuthRoundIconButton(
       iconRes = R.drawable.ic_back_arrow,
       contentDescription = "Back",
       onClick = onClick,
       modifier = modifier,
+      enabled = enabled,
   )
 }
+
+/** How faded a disabled outlined button is. */
+private const val DISABLED_ALPHA = 0.45f
 
 /** A screen title with its eyebrow ("ACCOUNT" by default) above it. */
 @Composable

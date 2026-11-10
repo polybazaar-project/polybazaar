@@ -2,6 +2,9 @@ package com.android.polybazaar.listing.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
@@ -264,6 +267,62 @@ class EditListingScreenTest {
 
     assertEquals(2, backs)
     assertTrue(repository.updatedListings.isEmpty())
+  }
+
+  @Test
+  fun whileSaving_backAndCancelAreDisabled() {
+    val repository = FakeListingRepository(myListings = listOf(drill))
+    var backs = 0
+    setContent(repository = repository, onBack = { backs++ })
+
+    // Holds the save in progress.
+    repository.gate = CompletableDeferred()
+    node(EditListingScreenTags.SAVE_BUTTON).performScrollTo().performClick()
+
+    node(EditListingScreenTags.SAVE_BUTTON).assertTextContains(string(R.string.edit_listing_saving))
+    node(EditListingScreenTags.BACK_BUTTON).assertIsNotEnabled().performClick()
+    node(EditListingScreenTags.CANCEL_BUTTON).assertIsNotEnabled().performClick()
+    assertEquals(0, backs)
+
+    repository.gate?.complete(Unit)
+    composeTestRule.waitForIdle()
+
+    // A failed save also ends with leaving allowed again; here the save went through.
+    assertEquals(1, repository.updatedListings.size)
+  }
+
+  @Test
+  fun whileSaving_systemBackIsBlocked_andAllowedAgainOnceSaveFails() {
+    val repository = FakeListingRepository(myListings = listOf(drill))
+    var systemBacks = 0
+    lateinit var dispatcher: OnBackPressedDispatcher
+    val viewModel =
+        ListingFormViewModel(
+            drill.listingId,
+            repository,
+            FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
+            SavedStateHandle(),
+        )
+    composeTestRule.setContent {
+      dispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
+      // Stands for the navigation, which pops the screen on a system back.
+      BackHandler { systemBacks++ }
+      EditListingScreen(listingViewModel = viewModel)
+    }
+
+    repository.gate = CompletableDeferred()
+    repository.failure = UnknownHostException("Offline")
+    node(EditListingScreenTags.SAVE_BUTTON).performScrollTo().performClick()
+    composeTestRule.runOnIdle { dispatcher.onBackPressed() }
+    assertEquals(0, systemBacks)
+
+    repository.gate?.complete(Unit)
+    composeTestRule.waitForIdle()
+    node(EditListingScreenTags.ERROR_MESSAGE).assertIsDisplayed()
+    node(EditListingScreenTags.BACK_BUTTON).assertIsEnabled()
+    node(EditListingScreenTags.CANCEL_BUTTON).assertIsEnabled()
+    composeTestRule.runOnIdle { dispatcher.onBackPressed() }
+    assertEquals(1, systemBacks)
   }
 
   @Test
