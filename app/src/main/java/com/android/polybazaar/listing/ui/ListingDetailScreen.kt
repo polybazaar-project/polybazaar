@@ -419,7 +419,8 @@ private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> 
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-      PriceBlock(listing)
+      // weight(1f): the price gives way on a narrow screen, so the button keeps its 166dp.
+      PriceBlock(listing = listing, modifier = Modifier.weight(1f))
       // 166dp x 48dp: the Figma "Choose dates button".
       AuthPrimaryButton(
           text = stringResource(R.string.listing_detail_choose_dates),
@@ -443,8 +444,8 @@ private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> 
 }
 
 @Composable
-private fun PriceBlock(listing: Listing) {
-  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun PriceBlock(listing: Listing, modifier: Modifier = Modifier) {
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
     // One Text with two styles, so "/ day" sits on the price's baseline as in the Figma.
     Text(
         text =

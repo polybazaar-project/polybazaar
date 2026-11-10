@@ -2,11 +2,15 @@
 package com.android.polybazaar.listing.ui
 
 import android.content.Context
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -35,6 +39,7 @@ import org.junit.runner.RunWith
 import org.mockito.kotlin.any
 import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class ListingDetailScreenTest {
@@ -224,6 +229,21 @@ class ListingDetailScreenTest {
 
     node(ListingDetailScreenTags.MESSAGE_BUTTON).assertIsNotEnabled()
     node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real text widths, so the price really is wide.
+  fun longPriceOnANarrowScreen_keepsChooseDatesFullWidth() {
+    composeTestRule.setContent {
+      Box(modifier = Modifier.width(320.dp)) {
+        ListingDetailContent(
+            uiState = ListingDetailUiState(listing = drill.copy(price = 9999.5)),
+            actions = ListingDetailActions(),
+        )
+      }
+    }
+
+    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertWidthIsEqualTo(166.dp)
   }
 
   @Test
