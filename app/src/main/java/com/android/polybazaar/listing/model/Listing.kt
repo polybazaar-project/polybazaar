@@ -1,8 +1,9 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
+import java.time.LocalDate
 
 enum class ListingType {
   SERVICE,
@@ -43,6 +44,8 @@ enum class ListingCategory(
  * @property isPaused whether the owner paused the listing. A paused listing is hidden from Browse
  *   and from the lender's profile, but stays in the owner's Toolbox. Only
  *   [ListingRepository.setPaused] changes it: creating and editing a listing ignore it.
+ * @property availableDates the days the owner offers the listing on. Empty until the owner chooses
+ *   some, which is also what older listings without the field read as: no day can be requested.
  */
 sealed class Listing(
     open val category: ListingCategory,
@@ -54,6 +57,7 @@ sealed class Listing(
     open val listingId: String?,
     open val ownerUid: String?,
     open val isPaused: Boolean,
+    open val availableDates: Set<LocalDate>,
 ) {
   abstract val type: ListingType
 
@@ -80,6 +84,7 @@ data class ServiceListing(
     override val listingId: String? = null,
     override val ownerUid: String? = null,
     override val isPaused: Boolean = false,
+    override val availableDates: Set<LocalDate> = emptySet(),
 ) :
     Listing(
         category,
@@ -91,6 +96,7 @@ data class ServiceListing(
         listingId,
         ownerUid,
         isPaused,
+        availableDates,
     ) {
   override val type = ListingType.SERVICE
 
@@ -130,6 +136,7 @@ data class ItemListing(
     override val listingId: String? = null,
     override val ownerUid: String? = null,
     override val isPaused: Boolean = false,
+    override val availableDates: Set<LocalDate> = emptySet(),
 ) :
     Listing(
         category,
@@ -141,6 +148,7 @@ data class ItemListing(
         listingId,
         ownerUid,
         isPaused,
+        availableDates,
     ) {
   override val type = ListingType.ITEM
 

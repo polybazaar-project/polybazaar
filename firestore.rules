@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Copilot Claude Sonnet 5.5
@@ -249,7 +249,7 @@ service cloud.firestore {
 
       function validListing(data) {
         return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused'])
-            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused', 'refundValue', 'maxRentalDays'])
+            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused', 'refundValue', 'maxRentalDays', 'availableDates'])
             && data.ownerUid == request.auth.uid
             // Required, because Browse queries paused == false and a listing without it would never
             // show. Only the owner can change it, through the update rule below.
@@ -268,7 +268,14 @@ service cloud.firestore {
             // ListingRules.MAX_RENTAL_DAYS in the app (a semester, exams included).
             && (!('maxRentalDays' in data)
                 || (data.type == 'ITEM' && data.maxRentalDays is int
-                    && data.maxRentalDays >= 1 && data.maxRentalDays <= 180));
+                    && data.maxRentalDays >= 1 && data.maxRentalDays <= 180))
+            // Optional days the owner offers the listing on, as LocalDate epoch days. At most a
+            // year of them, each once: same as ListingRules.MAX_AVAILABLE_DAYS in the app. Rules
+            // cannot loop, so the entries themselves are checked by the app when it reads them.
+            && (!('availableDates' in data)
+                || (data.availableDates is list
+                    && data.availableDates.size() <= 366
+                    && data.availableDates.toSet().size() == data.availableDates.size()));
       }
 
       allow read: if isVerified();
