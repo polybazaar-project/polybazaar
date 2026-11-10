@@ -20,6 +20,7 @@ import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
 import com.google.firebase.firestore.FirebaseFirestoreException
+import java.io.IOException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -30,6 +31,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -935,6 +937,49 @@ class ListingFormViewModelTest {
     assertEquals(service.copy(ownerUid = null), editViewModel.uiState.value.listing)
   }
 
+  @Test
+  fun loadStoredPhoto_publishesTheDownloadedBytes() {
+    repository.images = mapOf("listings/l1/0.jpg" to byteArrayOf(1, 2, 3))
+
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertArrayEquals(
+        byteArrayOf(1, 2, 3),
+        viewModel.storedPhotoBytes.value["listings/l1/0.jpg"],
+    )
+  }
+
+  @Test
+  fun loadStoredPhoto_downloadsEachPhotoOnce() {
+    repository.images = mapOf("listings/l1/0.jpg" to byteArrayOf(1))
+
+    // Asked twice before the download ends, as when a thumbnail recomposes, then once after it.
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, repository.imageLoads)
+  }
+
+  @Test
+  fun loadStoredPhoto_failure_leavesNoBytesAndAllowsARetry() {
+    repository.imageFailure = IOException("Offline")
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(viewModel.storedPhotoBytes.value.isEmpty())
+
+    repository.imageFailure = null
+    repository.images = mapOf("listings/l1/0.jpg" to byteArrayOf(4))
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertArrayEquals(byteArrayOf(4), viewModel.storedPhotoBytes.value["listings/l1/0.jpg"])
+  }
+
   private class FakeListingRepository : ListingRepository {
     var createdListing: Listing? = null
     var calls = 0
@@ -984,7 +1029,17 @@ class ListingFormViewModelTest {
     override suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit> =
         error("Not used here")
 
-    override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
+    /** The bytes of each image path [loadListingImage] answers; any other path fails. */
+    var images: Map<String, ByteArray> = emptyMap()
+    var imageFailure: Exception? = null
+
+    var imageLoads = 0
+
+    override suspend fun loadListingImage(imagePath: String): ByteArray {
+      imageLoads++
+      imageFailure?.let { throw it }
+      return images[imagePath] ?: throw IllegalStateException("No image at $imagePath")
+    }
   }
 
   private class FakePhotoStorage : PhotoStorage {

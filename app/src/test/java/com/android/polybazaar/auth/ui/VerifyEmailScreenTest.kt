@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.AuthRepository
@@ -18,6 +19,7 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.viewmodel.RESEND_COOLDOWN_SECONDS
 import com.android.polybazaar.auth.viewmodel.VerifyEmailUiState
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
+import com.android.polybazaar.error.model.AppError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -128,12 +130,59 @@ class VerifyEmailScreenTest {
 
   @Test
   fun errorMessage_isDisplayedWhenPresent() {
-    setContent(uiState = VerifyEmailUiState(errorMessage = "Email not verified yet"))
+    setContent(uiState = VerifyEmailUiState(error = AppError.NETWORK))
 
     composeTestRule
         .onNodeWithTag(VerifyEmailScreenTags.ERROR_MESSAGE)
         .assertIsDisplayed()
-        .assertTextEquals("Email not verified yet")
+        .assertTextEquals("No connection. Check your internet and try again.")
+  }
+
+  @Test
+  fun notVerifiedYet_isDisplayedWhenSet() {
+    setContent(uiState = VerifyEmailUiState(isNotVerifiedYet = true))
+
+    composeTestRule
+        .onNodeWithTag(VerifyEmailScreenTags.ERROR_MESSAGE)
+        .assertIsDisplayed()
+        .assertTextEquals(
+            "Your email isn’t verified yet. Open the link we sent you, then try again."
+        )
+  }
+
+  @Test
+  fun errorAndNotVerifiedYet_showsOnlyTheError() {
+    setContent(uiState = VerifyEmailUiState(error = AppError.NETWORK, isNotVerifiedYet = true))
+
+    composeTestRule
+        .onNodeWithTag(VerifyEmailScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("No connection. Check your internet and try again.")
+    composeTestRule
+        .onNodeWithText("Your email isn’t verified yet. Open the link we sent you, then try again.")
+        .assertDoesNotExist()
+  }
+
+  @Test
+  fun screen_failedManualCheck_showsMappedMessageNotTheExceptionText() {
+    val repository =
+        FakeAuthRepository(refreshUserResult = Result.failure(IllegalStateException("raw text")))
+    val viewModel = VerifyEmailViewModel(repository)
+    composeTestRule.setContent {
+      VerifyEmailScreen(
+          verifyEmailViewModel = viewModel,
+          email = email,
+          onVerified = {},
+          onUseAnotherAccount = {},
+      )
+    }
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.CHECK_BUTTON).performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule
+        .onNodeWithTag(VerifyEmailScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Something went wrong. Please try again.")
+    composeTestRule.onNodeWithText("raw text").assertDoesNotExist()
   }
 
   @Test
@@ -189,7 +238,9 @@ class VerifyEmailScreenTest {
     composeTestRule
         .onNodeWithTag(VerifyEmailScreenTags.ERROR_MESSAGE)
         .assertIsDisplayed()
-        .assertTextEquals("Email not verified yet")
+        .assertTextEquals(
+            "Your email isn’t verified yet. Open the link we sent you, then try again."
+        )
   }
 
   @Test

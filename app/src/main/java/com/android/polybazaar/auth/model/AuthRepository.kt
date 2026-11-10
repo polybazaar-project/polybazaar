@@ -9,8 +9,28 @@ class NoSessionException : Exception("No user is currently logged in")
 
 interface AuthRepository {
 
+  /**
+   * Signs in with [email] and [password].
+   *
+   * Fails with an exception that [com.android.polybazaar.error.model.toAppError] maps to the
+   * message to show: [com.android.polybazaar.error.model.AppError.INVALID_CREDENTIALS] if the
+   * password is wrong or the account does not exist or is disabled,
+   * [com.android.polybazaar.error.model.AppError.INVALID_EMAIL] if [email] is badly formatted,
+   * [com.android.polybazaar.error.model.AppError.NETWORK] offline.
+   */
   suspend fun signIn(email: String, password: String): Result<User>
 
+  /**
+   * Creates an account, reserves [username] for it and sends the verification email.
+   *
+   * Fails with an exception that [com.android.polybazaar.error.model.toAppError] maps to the
+   * message to show: [com.android.polybazaar.error.model.AppError.USERNAME_TAKEN] if another
+   * account uses [username], [com.android.polybazaar.error.model.AppError.EMAIL_ALREADY_IN_USE] if
+   * one uses [email], [com.android.polybazaar.error.model.AppError.WEAK_PASSWORD] if Firebase
+   * rejects [password], [com.android.polybazaar.error.model.AppError.NETWORK] offline. Inputs the
+   * sign-up screen already rejects, such as a non-EPFL email, map to
+   * [com.android.polybazaar.error.model.AppError.UNKNOWN].
+   */
   suspend fun signUp(email: String, password: String, username: String): Result<User>
 
   suspend fun signOut()
@@ -23,8 +43,25 @@ interface AuthRepository {
    */
   suspend fun getCurrentUser(): User
 
+  /**
+   * Sends the verification email again to the signed-in user.
+   *
+   * Fails with an exception that [com.android.polybazaar.error.model.toAppError] maps to the
+   * message to show: [com.android.polybazaar.error.model.AppError.UNAUTHENTICATED] if no user is
+   * signed in or the account was deleted or disabled,
+   * [com.android.polybazaar.error.model.AppError.TOO_MANY_REQUESTS] if emails were sent too often,
+   * [com.android.polybazaar.error.model.AppError.NETWORK] offline.
+   */
   suspend fun sendVerificationEmail(): Result<Unit>
 
+  /**
+   * Reloads the signed-in user from the server, to learn whether their email is now verified.
+   *
+   * Fails with an exception that [com.android.polybazaar.error.model.toAppError] maps to the
+   * message to show: [com.android.polybazaar.error.model.AppError.UNAUTHENTICATED] if no user is
+   * signed in, the session expired or the account was deleted or disabled,
+   * [com.android.polybazaar.error.model.AppError.NETWORK] offline.
+   */
   suspend fun refreshUser(): Result<User>
 
   /**

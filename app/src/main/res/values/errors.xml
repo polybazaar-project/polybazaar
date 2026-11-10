@@ -10,6 +10,7 @@
     <string name="error_invalid_email">Enter a valid email address.</string>
     <string name="error_weak_password">This password is too weak. Choose a stronger one.</string>
     <string name="error_email_already_in_use">An account already exists with this email.</string>
+    <string name="error_username_taken">This username is already taken.</string>
     <string name="error_too_many_requests">Too many attempts. Wait a few minutes, then try again.</string>
     <string name="error_invalid_link">This reset link has expired or was already used. Go back to sign in and tap Forgot password? to get a new one.</string>
     <string name="error_unknown">Something went wrong. Please try again.</string>

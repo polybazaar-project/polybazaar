@@ -46,6 +46,9 @@ enum class AppError {
   /** An account already uses this email address. */
   EMAIL_ALREADY_IN_USE,
 
+  /** The username is already used by another account. */
+  USERNAME_TAKEN,
+
   /** Too many requests were sent from this device, or a quota was exceeded. */
   TOO_MANY_REQUESTS,
 

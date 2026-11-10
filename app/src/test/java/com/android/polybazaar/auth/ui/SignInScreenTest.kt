@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -14,6 +15,7 @@ import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.viewmodel.AuthUiState
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.error.model.AppError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -107,12 +109,12 @@ class SignInScreenTest {
 
   @Test
   fun errorMessage_isDisplayedWhenPresent() {
-    setContent(uiState = AuthUiState(errorMessage = "Wrong password"))
+    setContent(uiState = AuthUiState(error = AppError.INVALID_CREDENTIALS))
 
     composeTestRule
         .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
         .assertIsDisplayed()
-        .assertTextEquals("Wrong password")
+        .assertTextEquals("Incorrect email or password.")
   }
 
   @Test
@@ -174,9 +176,11 @@ class SignInScreenTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
     composeTestRule.waitForIdle()
 
+    // An unrecognised exception shows the generic message, never its own text.
     composeTestRule
         .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Invalid credentials")
+        .assertTextEquals("Something went wrong. Please try again.")
+    composeTestRule.onNodeWithText("Invalid credentials").assertDoesNotExist()
     assertFalse(signedIn)
     assertNull(viewModel.uiState.value.user)
   }

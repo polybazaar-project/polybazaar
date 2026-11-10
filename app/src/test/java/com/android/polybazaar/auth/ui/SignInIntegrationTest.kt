@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -15,8 +16,11 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
@@ -122,28 +126,88 @@ class SignInIntegrationTest {
   }
 
   @Test
-  fun firebaseRejection_showsItsMessageAndDoesNotSignIn() {
+  fun firebaseRejection_showsMappedMessageAndDoesNotSignIn() {
     whenever(mockAuth.signInWithEmailAndPassword("ada@epfl.ch", "wrong"))
-        .thenReturn(Tasks.forException(Exception("The supplied auth credential is incorrect.")))
+        .thenReturn(
+            Tasks.forException(
+                FirebaseAuthInvalidCredentialsException(
+                    "ERROR_WRONG_PASSWORD",
+                    "The supplied auth credential is incorrect.",
+                )
+            )
+        )
 
     fillAndSubmit("ada@epfl.ch", "wrong")
 
     composeTestRule
         .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("The supplied auth credential is incorrect.")
+        .assertTextEquals("Incorrect email or password.")
+    composeTestRule
+        .onNodeWithText("The supplied auth credential is incorrect.")
+        .assertDoesNotExist()
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).assertIsEnabled()
     assertNull(viewModel.uiState.value.user)
     assertEquals(0, signedInCount)
   }
 
   @Test
+  fun unknownAccount_showsSameMessageAsWrongPassword() {
+    whenever(mockAuth.signInWithEmailAndPassword("nobody@epfl.ch", "secret123"))
+        .thenReturn(
+            Tasks.forException(
+                FirebaseAuthInvalidUserException(
+                    "ERROR_USER_NOT_FOUND",
+                    "There is no user record corresponding to this identifier.",
+                )
+            )
+        )
+
+    fillAndSubmit("nobody@epfl.ch", "secret123")
+
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
+    composeTestRule
+        .onNodeWithText("There is no user record corresponding to this identifier.")
+        .assertDoesNotExist()
+    assertEquals(0, signedInCount)
+  }
+
+  @Test
+  fun offline_showsNetworkMessage() {
+    whenever(mockAuth.signInWithEmailAndPassword("ada@epfl.ch", "secret123"))
+        .thenReturn(
+            Tasks.forException(
+                FirebaseNetworkException("A network error (such as timeout) has occurred.")
+            )
+        )
+
+    fillAndSubmit("ada@epfl.ch", "secret123")
+
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("No connection. Check your internet and try again.")
+    composeTestRule
+        .onNodeWithText("A network error (such as timeout) has occurred.")
+        .assertDoesNotExist()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).assertIsEnabled()
+    assertEquals(0, signedInCount)
+  }
+
+  @Test
   fun retryAfterFailure_clearsErrorAndSignsIn() {
     whenever(mockAuth.signInWithEmailAndPassword("ada@epfl.ch", "wrong"))
-        .thenReturn(Tasks.forException(Exception("Wrong password")))
+        .thenReturn(
+            Tasks.forException(
+                FirebaseAuthInvalidCredentialsException("ERROR_WRONG_PASSWORD", "Wrong password")
+            )
+        )
     whenever(mockAuth.signInWithEmailAndPassword("ada@epfl.ch", "wrong1"))
         .thenReturn(Tasks.forResult(mockAuthResult))
     fillAndSubmit("ada@epfl.ch", "wrong")
-    composeTestRule.onNodeWithTag(SignInScreenTags.ERROR_MESSAGE).assertTextEquals("Wrong password")
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
 
     composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("1")
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
@@ -154,14 +218,16 @@ class SignInIntegrationTest {
   }
 
   @Test
-  fun firebaseReturningNoUser_showsSignInFailedMessage() {
+  fun firebaseReturningNoUser_showsUnknownErrorMessage() {
     whenever(mockAuthResult.user).thenReturn(null)
     whenever(mockAuth.signInWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(Tasks.forResult(mockAuthResult))
 
     fillAndSubmit("ada@epfl.ch", "secret123")
 
-    composeTestRule.onNodeWithTag(SignInScreenTags.ERROR_MESSAGE).assertTextEquals("Sign in failed")
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Something went wrong. Please try again.")
     assertEquals(0, signedInCount)
   }
 
@@ -175,7 +241,7 @@ class SignInIntegrationTest {
 
     composeTestRule
         .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Username not found for the current user")
+        .assertTextEquals("Something went wrong. Please try again.")
     assertEquals(0, signedInCount)
   }
 

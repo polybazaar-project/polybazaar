@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
@@ -49,6 +50,8 @@ internal object AuthColors {
   val Outline = Color(0xFFF1E1D5)
   val Accent = Color(0xFFC86A3B)
   val AccentContainer = Color(0xFFF7E6D8)
+  /** The fill of a selected pill, such as a Browse category or a Toolbox filter. */
+  val SelectedBackground = Color(0xFFFFE9DC)
   val TextPrimary = Color(0xFF20231F)
   val TextSecondary = Color(0xFF70756D)
   val Danger = Color(0xFFA63D2B)
@@ -69,13 +72,17 @@ internal fun AuthCard(content: @Composable ColumnScope.() -> Unit) {
   )
 }
 
-/** The filled accent button that submits an auth form. */
+/**
+ * The filled accent button that submits an auth form, with an optional [trailingIcon] after its
+ * text (the arrow of "Choose dates" on the listing detail).
+ */
 @Composable
 internal fun AuthPrimaryButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    @DrawableRes trailingIcon: Int? = null,
 ) {
   Button(
       onClick = onClick,
@@ -91,6 +98,15 @@ internal fun AuthPrimaryButton(
           ),
   ) {
     Text(text = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    // Decorative: the text already says what the button does, so TalkBack skips the icon. Tinted
+    // with the button's content colour (white), so it works on any background.
+    trailingIcon?.let {
+      Icon(
+          painter = painterResource(it),
+          contentDescription = null,
+          modifier = Modifier.padding(start = 10.dp).size(17.dp),
+      )
+    }
   }
 }
 
@@ -106,12 +122,18 @@ internal fun AuthLinkButton(text: String, onClick: () -> Unit, tag: String) {
   }
 }
 
-/** The outlined button next to [AuthPrimaryButton] that cancels a form. */
+/** The outlined button next to [AuthPrimaryButton] that cancels a form. Faded when disabled. */
 @Composable
-internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun AuthSecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
   OutlinedButton(
       onClick = onClick,
-      modifier = modifier,
+      enabled = enabled,
+      modifier = modifier.alpha(if (enabled) 1f else DISABLED_ALPHA),
       shape = RoundedCornerShape(20.dp),
       border = BorderStroke(1.dp, AuthColors.Outline),
       colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
@@ -120,18 +142,22 @@ internal fun AuthSecondaryButton(text: String, onClick: () -> Unit, modifier: Mo
   }
 }
 
-/** A 38dp round, outlined icon button, as used in the screen headers. */
+/** A 38dp round, outlined icon button, as used in the screen headers. Faded when disabled. */
 @Composable
 internal fun AuthRoundIconButton(
     @DrawableRes iconRes: Int,
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
   IconButton(
       onClick = onClick,
+      enabled = enabled,
       modifier =
           modifier
+              // The icon keeps its own colours (Color.Unspecified), so it is faded here instead.
+              .alpha(if (enabled) 1f else DISABLED_ALPHA)
               .size(38.dp)
               .background(AuthColors.Background, CircleShape)
               .border(1.dp, AuthColors.Outline, CircleShape),
@@ -147,14 +173,22 @@ internal fun AuthRoundIconButton(
 
 /** The round back arrow at the start of a screen header. */
 @Composable
-internal fun AuthBackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun AuthBackButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
   AuthRoundIconButton(
       iconRes = R.drawable.ic_back_arrow,
       contentDescription = "Back",
       onClick = onClick,
       modifier = modifier,
+      enabled = enabled,
   )
 }
+
+/** How faded a disabled outlined button is. */
+private const val DISABLED_ALPHA = 0.45f
 
 /** A screen title with its eyebrow ("ACCOUNT" by default) above it. */
 @Composable

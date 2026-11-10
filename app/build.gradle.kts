@@ -73,6 +73,10 @@ android {
     res.directories.addAll(test.res.directories)
     resources.directories.clear()
     resources.directories.addAll(test.resources.directories)
+
+    // Fakes shared with the instrumented tests. Kotlin keeps its own directory list, which the
+    // redirection above does not touch.
+    kotlin.directories.add("src/sharedTest/java")
   }
 
   sourceSets.getByName("test") {
@@ -80,7 +84,28 @@ android {
     res.directories.clear()
     resources.directories.clear()
   }
+
+  sourceSets.getByName("androidTest") { kotlin.directories.add("src/sharedTest/java") }
 }
+
+// ktfmt's per-source-set tasks do not see the shared test folder, so it gets its own pair.
+val sharedTestSources = layout.projectDirectory.dir("src/sharedTest")
+
+val ktfmtCheckSharedTest by
+    tasks.registering(com.ncorti.ktfmt.gradle.tasks.KtfmtCheckTask::class) {
+      source(sharedTestSources)
+      include("**/*.kt")
+    }
+
+val ktfmtFormatSharedTest by
+    tasks.registering(com.ncorti.ktfmt.gradle.tasks.KtfmtFormatTask::class) {
+      source(sharedTestSources)
+      include("**/*.kt")
+    }
+
+tasks.named("ktfmtCheck") { dependsOn(ktfmtCheckSharedTest) }
+
+tasks.named("ktfmtFormat") { dependsOn(ktfmtFormatSharedTest) }
 
 // With AGP 9+ the JVM target is set outside the Android block.
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
