@@ -9,6 +9,7 @@ import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
 import java.time.Instant
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -223,5 +224,103 @@ class InboxViewModelTest {
     )
     // The cancellation of the old collection is not reported as an error.
     assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun otherPerson_isTheLenderWhenIRentAndTheRenterWhenILend() {
+    chat.myConversations.value = Result.success(listOf(drillWithAlice, bikeWithBob))
+
+    loadInbox()
+
+    assertEquals(
+        listOf(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, bob)),
+        viewModel.uiState.value.conversations,
+    )
+    assertNull(profiles.lookups[me.uid])
+  }
+
+  @Test
+  fun samePersonInTwoConversations_isLookedUpOncePerEmission() {
+    // I also rent Alice's tent.
+    val tentWithAlice = drillWithAlice.copy(listingId = "tent", listingTitle = "Tent")
+    chat.myConversations.value = Result.success(listOf(drillWithAlice, tentWithAlice))
+
+    loadInbox()
+
+    assertEquals(
+        listOf(InboxConversation(drillWithAlice, alice), InboxConversation(tentWithAlice, alice)),
+        viewModel.uiState.value.conversations,
+    )
+    assertEquals(mapOf(alice.uid to 1), profiles.lookups)
+
+    emit(tentWithAlice, drillWithAlice)
+
+    assertEquals(mapOf(alice.uid to 2), profiles.lookups)
+  }
+
+  @Test
+  fun missingProfile_keepsTheRowWithoutOtherUserOrError() {
+    val tentWithCarol =
+        drillWithAlice.copy(listingId = "tent", listingTitle = "Tent", lenderUid = "carol")
+    chat.myConversations.value = Result.success(listOf(tentWithCarol, drillWithAlice))
+
+    loadInbox()
+
+    assertEquals(
+        InboxUiState(
+            conversations =
+                listOf(
+                    InboxConversation(tentWithCarol, null),
+                    InboxConversation(drillWithAlice, alice),
+                ),
+            isLoading = false,
+            error = null,
+        ),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun failingProfileLookup_keepsTheRowWithoutOtherUserOrError() {
+    profiles.failingUids += bob.uid
+    chat.myConversations.value = Result.success(listOf(drillWithAlice, bikeWithBob))
+
+    loadInbox()
+
+    assertEquals(
+        InboxUiState(
+            conversations =
+                listOf(
+                    InboxConversation(drillWithAlice, alice),
+                    InboxConversation(bikeWithBob, null),
+                ),
+            isLoading = false,
+            error = null,
+        ),
+        viewModel.uiState.value,
+    )
+    assertEquals(1, profiles.lookups[bob.uid])
+  }
+
+  @Test
+  fun loadInboxAgain_whileAProfileLookupWaits_cancelsItWithoutError() {
+    profiles.gate = CompletableDeferred()
+    chat.myConversations.value = Result.success(listOf(drillWithAlice))
+    loadInbox()
+    // The rows wait for their profiles, so the first load is still in progress.
+    assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
+
+    profiles.gate = null
+    loadInbox()
+
+    assertEquals(
+        InboxUiState(
+            conversations = listOf(InboxConversation(drillWithAlice, alice)),
+            isLoading = false,
+            error = null,
+        ),
+        viewModel.uiState.value,
+    )
+    assertEquals(1, chat.myConversations.subscriptionCount.value)
   }
 }
