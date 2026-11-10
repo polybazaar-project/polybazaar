@@ -18,7 +18,9 @@ import {
   getDoc,
   getDocs,
   limit,
+  orderBy,
   query,
+  serverTimestamp,
   setDoc,
   updateDoc,
   where,
@@ -27,6 +29,7 @@ import {
 
 const ALICE = "alice-uid";
 const BOB = "bob-uid";
+const EVE = "eve-uid";
 
 let env;
 
@@ -706,5 +709,434 @@ describe("listings", () => {
     await seed("listings/l1", itemListing());
     await assertFails(updateDoc(doc(verified(BOB), "listings/l1"), { paused: true }));
     await assertFails(updateDoc(doc(unverified(ALICE), "listings/l1"), { paused: true }));
+  });
+});
+
+// Bob rents Alice's listing l1.
+const CONVERSATION_ID = `l1_${BOB}`;
+const CONVERSATION = `conversations/${CONVERSATION_ID}`;
+
+function newConversation(overrides = {}) {
+  return {
+    listingId: "l1",
+    listingTitle: "Drill",
+    renterUid: BOB,
+    lenderUid: ALICE,
+    participants: [BOB, ALICE],
+    lastMessageAt: serverTimestamp(),
+    lastMessageId: "m1",
+    ...overrides,
+  };
+}
+
+function newMessage(senderUid, overrides = {}) {
+  return {
+    senderUid,
+    text: "Is it available on Saturday?",
+    sentAt: serverTimestamp(),
+    ...overrides,
+  };
+}
+
+/**
+ * Commits what sending a message writes: a merge on the conversation, which creates it or only
+ * updates it and names the new message, and that message, in one batch.
+ */
+function sendMessage(db, senderUid, { id = CONVERSATION_ID, conversation = {}, message = {} } = {}) {
+  const messageRef = doc(collection(db, `conversations/${id}/messages`));
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, `conversations/${id}`),
+    newConversation({ lastMessageId: messageRef.id, ...conversation }),
+    { merge: true },
+  );
+  batch.set(messageRef, newMessage(senderUid, message));
+  return batch.commit();
+}
+
+/** Seeds Alice's listing and a conversation Bob started earlier, with its message m1. */
+async function seedConversation(listing = itemListing()) {
+  if (listing) await seed("listings/l1", listing);
+  await seed(CONVERSATION, newConversation({ lastMessageAt: new Date(0) }));
+  await seed(`${CONVERSATION}/messages/m1`, { senderUid: BOB, text: "Hi", sentAt: new Date(0) });
+}
+
+describe("conversations", () => {
+  test("a verified renter starts a conversation with their first message", async () => {
+    await seed("listings/l1", itemListing());
+    await assertSucceeds(sendMessage(verified(BOB), BOB));
+  });
+
+  test("an unverified, non-EPFL or signed-out user cannot start a conversation", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(sendMessage(unverified(BOB), BOB));
+    await assertFails(sendMessage(outsider(BOB), BOB));
+    await assertFails(sendMessage(signedOut(), BOB));
+  });
+
+  test("only the renter can start a conversation", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(sendMessage(verified(ALICE), ALICE));
+    await assertFails(sendMessage(verified(EVE), EVE));
+  });
+
+  test("an owner cannot message their own listing", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      sendMessage(verified(ALICE), ALICE, {
+        id: `l1_${ALICE}`,
+        conversation: { renterUid: ALICE, participants: [ALICE, ALICE] },
+      }),
+    );
+  });
+
+  test("the id is the listing and the renter", async () => {
+    await seed("listings/l1", itemListing());
+    await seed("listings/l2", itemListing());
+    const db = verified(BOB);
+    await assertFails(sendMessage(db, BOB, { id: `l2_${BOB}` }));
+    await assertFails(sendMessage(db, BOB, { id: `l1_${EVE}` }));
+    await assertFails(sendMessage(db, BOB, { id: "l1" }));
+    await assertFails(sendMessage(db, BOB, { id: `${BOB}_l1` }));
+  });
+
+  // The renter is read from the id, so a listing id with '_' would make it ambiguous.
+  test("a conversation id holds exactly one underscore", async () => {
+    const listingId = `x_${BOB}`;
+    await seed(`listings/${listingId}`, itemListing());
+    await assertFails(
+      sendMessage(verified(BOB), BOB, { id: `${listingId}_${BOB}`, conversation: { listingId } }),
+    );
+  });
+
+  test("the lender is the listing's owner and the participants are renter and lender", async () => {
+    await seed("listings/l1", itemListing());
+    const db = verified(BOB);
+    await assertFails(
+      sendMessage(db, BOB, { conversation: { lenderUid: EVE, participants: [BOB, EVE] } }),
+    );
+    await assertFails(sendMessage(db, BOB, { conversation: { participants: [ALICE, BOB] } }));
+    await assertFails(sendMessage(db, BOB, { conversation: { participants: [BOB, ALICE, EVE] } }));
+    await assertFails(sendMessage(db, BOB, { conversation: { renterUid: EVE } }));
+  });
+
+  test("a conversation holds only its fields", async () => {
+    await seed("listings/l1", itemListing());
+    const db = verified(BOB);
+    await assertFails(sendMessage(db, BOB, { conversation: { createdAt: serverTimestamp() } }));
+    const { listingTitle, ...withoutTitle } = newConversation();
+    const batch = writeBatch(db);
+    batch.set(doc(db, CONVERSATION), withoutTitle);
+    batch.set(doc(db, `${CONVERSATION}/messages/m1`), newMessage(BOB));
+    await assertFails(batch.commit());
+  });
+
+  test("a conversation needs a listing that exists and is not paused", async () => {
+    await assertFails(sendMessage(verified(BOB), BOB));
+    await seed("listings/l1", itemListing({ paused: true }));
+    await assertFails(sendMessage(verified(BOB), BOB));
+  });
+
+  test("the conversation shows the listing's own title", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      sendMessage(verified(BOB), BOB, { conversation: { listingTitle: "Free drill" } }),
+    );
+  });
+
+  test("both participants can reply in an existing conversation", async () => {
+    await seedConversation();
+    await assertSucceeds(sendMessage(verified(BOB), BOB));
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE));
+  });
+
+  test("an unverified participant cannot reply", async () => {
+    await seedConversation();
+    await assertFails(sendMessage(unverified(BOB), BOB));
+    await assertFails(sendMessage(unverified(ALICE), ALICE));
+  });
+
+  test("a paused listing still accepts messages in an existing conversation", async () => {
+    await seedConversation(itemListing({ paused: true }));
+    await assertSucceeds(sendMessage(verified(BOB), BOB));
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE));
+  });
+
+  test("a deleted listing accepts no more messages", async () => {
+    await seedConversation(null);
+    await assertFails(sendMessage(verified(BOB), BOB));
+    await assertFails(sendMessage(verified(ALICE), ALICE));
+  });
+
+  // Clients choose listing ids, so someone else can re-create a deleted listing under its id.
+  test("a listing re-created by another user does not revive the conversation", async () => {
+    for (const owner of [BOB, EVE]) {
+      await env.clearFirestore();
+      await seedConversation(null);
+      await seed("listings/l1", itemListing({ ownerUid: owner, title: "Re-listed drill" }));
+      const title = { listingTitle: "Re-listed drill" };
+      await assertFails(sendMessage(verified(BOB), BOB));
+      await assertFails(sendMessage(verified(BOB), BOB, { conversation: title }));
+      await assertFails(sendMessage(verified(ALICE), ALICE));
+    }
+  });
+
+  test("a conversation cannot be created without its first message", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(setDoc(doc(verified(BOB), CONVERSATION), newConversation()));
+  });
+
+  test("a renter cannot create a conversation for another renter", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      sendMessage(verified(BOB), BOB, {
+        conversation: { renterUid: EVE, participants: [EVE, ALICE] },
+      }),
+    );
+  });
+
+  test("an owner cannot open a conversation in another renter's name", async () => {
+    await seed("listings/l1", itemListing({ ownerUid: BOB }));
+    await assertFails(
+      sendMessage(verified(BOB), BOB, {
+        conversation: { renterUid: EVE, lenderUid: BOB, participants: [EVE, BOB] },
+      }),
+    );
+  });
+
+  test("a conversation cannot be created with a client time", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      sendMessage(verified(BOB), BOB, {
+        conversation: { lastMessageAt: new Date(Date.now() + 86_400_000) },
+      }),
+    );
+  });
+
+  test("a conversation cannot be bumped without a message", async () => {
+    await seedConversation();
+    const ref = doc(verified(BOB), CONVERSATION);
+    const at = serverTimestamp();
+    await assertFails(updateDoc(ref, { lastMessageAt: at }));
+    // m1 exists but was sent earlier; m9 is not written by this request.
+    await assertFails(updateDoc(ref, { lastMessageAt: at, lastMessageId: "m1" }));
+    await assertFails(updateDoc(ref, { lastMessageAt: at, lastMessageId: "m9" }));
+  });
+
+  test("a reply names its own message", async () => {
+    await seedConversation();
+    await assertFails(sendMessage(verified(BOB), BOB, { conversation: { lastMessageId: "m1" } }));
+    await assertFails(sendMessage(verified(BOB), BOB, { conversation: { lastMessageId: "m9" } }));
+  });
+
+  test("a batch writes only the message the conversation names", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const batch = writeBatch(db);
+    batch.set(doc(db, CONVERSATION), newConversation({ lastMessageId: "m2" }), { merge: true });
+    batch.set(doc(db, `${CONVERSATION}/messages/m2`), newMessage(BOB));
+    batch.set(doc(db, `${CONVERSATION}/messages/m3`), newMessage(BOB));
+    await assertFails(batch.commit());
+  });
+
+  test("a reply can refresh the title to the listing's current one", async () => {
+    await seedConversation(itemListing({ title: "Hammer drill" }));
+    await assertSucceeds(
+      sendMessage(verified(ALICE), ALICE, { conversation: { listingTitle: "Hammer drill" } }),
+    );
+  });
+
+  test("a reply can keep the title it had", async () => {
+    await seedConversation(itemListing({ title: "Hammer drill" }));
+    await assertSucceeds(sendMessage(verified(BOB), BOB));
+  });
+
+  test("a reply that leaves out the title keeps the stored one", async () => {
+    await seedConversation(itemListing({ title: "Hammer drill" }));
+    const db = verified(BOB);
+    const messageRef = doc(collection(db, `${CONVERSATION}/messages`));
+    const { listingTitle, ...withoutTitle } = newConversation({ lastMessageId: messageRef.id });
+    const batch = writeBatch(db);
+    batch.set(doc(db, CONVERSATION), withoutTitle, { merge: true });
+    batch.set(messageRef, newMessage(BOB));
+    await assertSucceeds(batch.commit());
+  });
+
+  test("a reply cannot set a title the listing does not have", async () => {
+    await seedConversation();
+    await assertFails(
+      sendMessage(verified(BOB), BOB, { conversation: { listingTitle: "Free drill" } }),
+    );
+  });
+
+  test("a reply can change only lastMessageAt, lastMessageId and the title", async () => {
+    await seedConversation();
+    await seed("listings/l2", itemListing());
+    const db = verified(BOB);
+    const reply = (conversation) => sendMessage(db, BOB, { conversation });
+    await assertSucceeds(reply({}));
+    await assertFails(reply({ lenderUid: EVE }));
+    await assertFails(reply({ renterUid: EVE }));
+    await assertFails(reply({ participants: [BOB, EVE] }));
+    await assertFails(reply({ listingId: "l2" }));
+    await assertFails(reply({ createdAt: serverTimestamp() }));
+  });
+
+  test("a reply moves lastMessageAt to the server time", async () => {
+    await seedConversation();
+    await assertFails(
+      sendMessage(verified(BOB), BOB, { conversation: { lastMessageAt: new Date() } }),
+    );
+  });
+
+  test("a non-participant cannot update a conversation", async () => {
+    await seedConversation();
+    await assertFails(sendMessage(verified(EVE), EVE));
+  });
+
+  test("only verified participants can read a conversation", async () => {
+    await seedConversation();
+    await assertSucceeds(getDoc(doc(verified(BOB), CONVERSATION)));
+    await assertSucceeds(getDoc(doc(verified(ALICE), CONVERSATION)));
+    await assertFails(getDoc(doc(verified(EVE), CONVERSATION)));
+    await assertFails(getDoc(doc(unverified(BOB), CONVERSATION)));
+    await assertFails(getDoc(doc(outsider(BOB), CONVERSATION)));
+    await assertFails(getDoc(doc(signedOut(), CONVERSATION)));
+  });
+
+  test("the renter can open their conversation before it exists", async () => {
+    await seed("listings/l1", itemListing());
+    await assertSucceeds(getDoc(doc(verified(BOB), CONVERSATION)));
+    await assertSucceeds(getDocs(collection(verified(BOB), `${CONVERSATION}/messages`)));
+    await assertFails(getDoc(doc(verified(EVE), CONVERSATION)));
+    await assertFails(getDocs(collection(verified(EVE), `${CONVERSATION}/messages`)));
+    await assertFails(getDoc(doc(unverified(BOB), CONVERSATION)));
+  });
+
+  test("a participant can list only their own conversations", async () => {
+    await seedConversation();
+    const mine = (db, uid) =>
+      getDocs(
+        query(
+          collection(db, "conversations"),
+          where("participants", "array-contains", uid),
+          orderBy("lastMessageAt", "desc"),
+        ),
+      );
+    await assertSucceeds(mine(verified(BOB), BOB));
+    await assertSucceeds(mine(verified(ALICE), ALICE));
+    await assertFails(mine(verified(EVE), BOB));
+    await assertFails(mine(unverified(BOB), BOB));
+    await assertFails(getDocs(collection(verified(BOB), "conversations")));
+  });
+
+  test("a conversation cannot be deleted", async () => {
+    await seedConversation();
+    await assertFails(deleteDoc(doc(verified(BOB), CONVERSATION)));
+    await assertFails(deleteDoc(doc(verified(ALICE), CONVERSATION)));
+  });
+});
+
+describe("messages", () => {
+  test("a message needs the conversation update in the same batch", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    await assertFails(
+      setDoc(doc(db, `${CONVERSATION}/messages/m2`), {
+        senderUid: BOB,
+        text: "Hi",
+        sentAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test("a first message needs the conversation it creates", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      setDoc(doc(verified(BOB), `${CONVERSATION}/messages/m1`), {
+        senderUid: BOB,
+        text: "Hi",
+        sentAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test("a non-participant cannot write a message", async () => {
+    await seedConversation();
+    await assertFails(
+      setDoc(doc(verified(EVE), `${CONVERSATION}/messages/m2`), {
+        senderUid: EVE,
+        text: "Hi",
+        sentAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test("a message is sent by the caller at the server time", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    await assertFails(sendMessage(db, BOB, { message: { senderUid: ALICE } }));
+    await assertFails(sendMessage(db, BOB, { message: { sentAt: new Date() } }));
+  });
+
+  test("a message holds only its fields", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    await assertFails(sendMessage(db, BOB, { message: { imageUrl: "https://example.com/0.jpg" } }));
+    const batch = writeBatch(db);
+    batch.set(doc(db, CONVERSATION), newConversation({ lastMessageId: "m2" }), { merge: true });
+    batch.set(doc(db, `${CONVERSATION}/messages/m2`), { senderUid: BOB, text: "Hi" });
+    await assertFails(batch.commit());
+  });
+
+  test("a message can have surrounding whitespace", async () => {
+    await seedConversation();
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: { text: "  Hi there \n" } }));
+  });
+
+  test("a message cannot be empty or blank", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    await assertFails(sendMessage(db, BOB, { message: { text: "" } }));
+    await assertFails(sendMessage(db, BOB, { message: { text: "   \n\t " } }));
+  });
+
+  test("a message is text of 1 to 1000 characters once trimmed", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const long = "x".repeat(1000);
+    await assertSucceeds(sendMessage(db, BOB, { message: { text: "x" } }));
+    await assertSucceeds(sendMessage(db, BOB, { message: { text: long } }));
+    await assertSucceeds(sendMessage(db, BOB, { message: { text: `  ${long}\n` } }));
+    await assertFails(sendMessage(db, BOB, { message: { text: `${long}x` } }));
+    await assertFails(sendMessage(db, BOB, { message: { text: 42 } }));
+  });
+
+  test("a message's untrimmed text is at most 2000 characters", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const long = "x".repeat(1000);
+    const padding = " ".repeat(600);
+    await assertSucceeds(sendMessage(db, BOB, { message: { text: ` ${long} ` } }));
+    await assertFails(sendMessage(db, BOB, { message: { text: `${padding}${long}${padding}` } }));
+  });
+
+  test("only verified participants can read messages", async () => {
+    await seedConversation();
+    const messages = (db) => getDocs(query(collection(db, `${CONVERSATION}/messages`), orderBy("sentAt")));
+    await assertSucceeds(messages(verified(BOB)));
+    await assertSucceeds(messages(verified(ALICE)));
+    await assertSucceeds(getDoc(doc(verified(ALICE), `${CONVERSATION}/messages/m1`)));
+    await assertFails(messages(verified(EVE)));
+    await assertFails(getDoc(doc(verified(EVE), `${CONVERSATION}/messages/m1`)));
+    await assertFails(messages(unverified(BOB)));
+    await assertFails(messages(signedOut()));
+  });
+
+  test("a message cannot be edited or deleted", async () => {
+    await seedConversation();
+    const ref = doc(verified(BOB), `${CONVERSATION}/messages/m1`);
+    await assertFails(updateDoc(ref, { text: "Edited" }));
+    await assertFails(deleteDoc(ref));
   });
 });

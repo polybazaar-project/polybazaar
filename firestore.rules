@@ -119,6 +119,103 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // One conversation per listing and renter. It is created and bumped only in the same batch as a
+    // message: lastMessageId names that message, and the message checks it is the one named.
+    match /conversations/{conversationId} {
+      function listingPath(listingId) {
+        return /databases/$(database)/documents/listings/$(listingId);
+      }
+
+      function listingData(listingId) {
+        return get(listingPath(listingId)).data;
+      }
+
+      function conversationPath() {
+        return /databases/$(database)/documents/conversations/$(conversationId);
+      }
+
+      // Only a message written by this request has sentAt == request.time: the message rule
+      // enforces it, and earlier messages cannot be edited.
+      function isNewMessage(messageId) {
+        return messageId is string
+            && getAfter(/databases/$(database)/documents/conversations/$(conversationId)/messages/$(messageId)).data.sentAt == request.time;
+      }
+
+      // The id is listingId_renterUid. Clients choose listing ids, so ids with more than one '_' are
+      // refused, which makes the renter readable from the id before the conversation exists.
+      function isRenterInId() {
+        let parts = conversationId.split('_');
+        return parts.size() == 2 && parts[1] == request.auth.uid;
+      }
+
+      function validNewConversation(data) {
+        let listing = listingData(data.listingId);
+        return data.keys().hasAll(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId'])
+            && data.keys().hasOnly(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId'])
+            && data.listingId is string
+            && conversationId == data.listingId + '_' + request.auth.uid
+            && isRenterInId()
+            && data.renterUid == request.auth.uid
+            && data.lenderUid == listing.ownerUid
+            && data.renterUid != data.lenderUid
+            // Lists the two participants so the inbox can query with array-contains.
+            && data.participants == [data.renterUid, data.lenderUid]
+            && listing.paused == false
+            && data.listingTitle == listing.title
+            && data.lastMessageAt == request.time
+            && isNewMessage(data.lastMessageId);
+      }
+
+      allow get: if isVerified()
+          && (isRenterInId() || (resource != null && resource.data.lenderUid == request.auth.uid));
+      allow list: if isVerified() && request.auth.uid in resource.data.participants;
+
+      allow create: if isVerified() && validNewConversation(request.resource.data);
+
+      // Each send merges the whole conversation again, so only what a send refreshes may change.
+      // A paused listing still accepts messages; a deleted one does not. Checking the owner, not
+      // only existence, refuses a listing someone else re-created under the deleted one's id.
+      allow update: if isVerified()
+          && request.auth.uid in resource.data.participants
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'listingTitle', 'lastMessageId'])
+          && request.resource.data.lastMessageAt == request.time
+          // Also forces lastMessageId to change: the previous message's sentAt is in the past.
+          && isNewMessage(request.resource.data.lastMessageId)
+          && listingData(resource.data.listingId).ownerUid == resource.data.lenderUid
+          && (request.resource.data.listingTitle == resource.data.listingTitle
+              || request.resource.data.listingTitle == listingData(resource.data.listingId).title);
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        // getAfter, because the first message creates the conversation in the same batch. Requiring
+        // the conversation to name this message allows one message per batch.
+        function validMessage(data) {
+          let conversation = getAfter(conversationPath()).data;
+          return request.auth.uid in conversation.participants
+              && conversation.lastMessageAt == request.time
+              && conversation.lastMessageId == messageId
+              && data.keys().hasAll(['senderUid', 'text', 'sentAt'])
+              && data.keys().hasOnly(['senderUid', 'text', 'sentAt'])
+              && data.senderUid == request.auth.uid
+              && data.sentAt == request.time
+              // The app trims before sending; surrounding whitespace does not count, but is capped.
+              && data.text is string
+              && data.text.trim().size() >= 1
+              && data.text.trim().size() <= 1000
+              && data.text.size() <= 2000
+              && listingData(conversation.listingId).ownerUid == conversation.lenderUid;
+        }
+
+        allow read: if isVerified()
+            && (isRenterInId() || get(conversationPath()).data.lenderUid == request.auth.uid);
+
+        allow create: if isVerified() && validMessage(request.resource.data);
+
+        allow update, delete: if false;
+      }
+    }
+
     match /listings/{listingId} {
       // Storage paths, not download URLs, as for photoPath. Only the listing's own images/0 to
       // images/4, the paths storage.rules lets its owner write, each at most once: so at most 5.
