@@ -95,7 +95,8 @@ class ListingDetailScreenTest {
   @Test
   fun beforeTheListingArrives_showsTheIndicatorAndBack() {
     var backs = 0
-    setContent(ListingDetailUiState(isLoading = true), ListingDetailActions(onBack = { backs++ }))
+    // The state before the first load starts: no listing and no error counts as loading.
+    setContent(ListingDetailUiState(), ListingDetailActions(onBack = { backs++ }))
 
     node(ListingDetailScreenTags.LOADING_INDICATOR).assertIsDisplayed()
     node(ListingDetailScreenTags.BACK_BUTTON).performClick()
@@ -195,6 +196,16 @@ class ListingDetailScreenTest {
     node(ListingDetailScreenTags.TITLE).assertIsDisplayed()
     node(ListingDetailScreenTags.LENDER_RETRY_BUTTON).performScrollTo().performClick()
     assertEquals(1, retries)
+  }
+
+  @Test
+  fun lenderUnknown_showsOnlyMessageLender() {
+    // Still loading, or the owner has no profile: both look the same.
+    setContent(ListingDetailUiState(listing = drill, canContactLender = true))
+
+    node(ListingDetailScreenTags.LENDER).assertDoesNotExist()
+    node(ListingDetailScreenTags.LENDER_ERROR).assertDoesNotExist()
+    node(ListingDetailScreenTags.MESSAGE_BUTTON).assertIsEnabled()
   }
 
   @Test
