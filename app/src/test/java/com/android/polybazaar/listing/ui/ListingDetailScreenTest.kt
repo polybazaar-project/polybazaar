@@ -2,6 +2,9 @@
 package com.android.polybazaar.listing.ui
 
 import android.content.Context
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
@@ -99,7 +102,8 @@ class ListingDetailScreenTest {
   @Test
   fun beforeTheListingArrives_showsTheIndicatorAndBack() {
     var backs = 0
-    setContent(ListingDetailUiState(isLoading = true), ListingDetailActions(onBack = { backs++ }))
+    // The state before the first load starts: no listing and no error counts as loading.
+    setContent(ListingDetailUiState(), ListingDetailActions(onBack = { backs++ }))
 
     node(ListingDetailScreenTags.LOADING_INDICATOR).assertIsDisplayed()
     node(ListingDetailScreenTags.BACK_BUTTON).performClick()
@@ -137,7 +141,7 @@ class ListingDetailScreenTest {
     node(ListingDetailScreenTags.CATEGORY).assertTextEquals("TOOLS")
     node(ListingDetailScreenTags.TITLE).assertTextEquals("Bosch drill set")
     node(ListingDetailScreenTags.DESCRIPTION).assertTextEquals("Cordless drill with two batteries.")
-    val perDay = context.getString(R.string.listing_detail_price_per_day)
+    val perDay = context.getString(R.string.browse_price_per_day)
     node(ListingDetailScreenTags.PRICE).assertTextEquals("CHF 8 $perDay")
     node(ListingDetailScreenTags.DEPOSIT)
         .assertTextEquals(context.getString(R.string.listing_detail_deposit, "CHF 120"))
@@ -158,7 +162,7 @@ class ListingDetailScreenTest {
 
     text(context.getString(R.string.listing_detail_service_terms_title)).assertExists()
     node(ListingDetailScreenTags.PRICE)
-        .assertTextEquals("CHF 25.50 ${context.getString(R.string.listing_detail_price_per_day)}")
+        .assertTextEquals("CHF 25.50 ${context.getString(R.string.browse_price_per_day)}")
     node(ListingDetailScreenTags.DEPOSIT).assertDoesNotExist()
     text(returnsPending()).assertDoesNotExist()
   }
@@ -255,13 +259,40 @@ class ListingDetailScreenTest {
   }
 
   @Test
-  fun lenderFailed_showsWhyInItsSectionOnly() {
-    setContent(ListingDetailUiState(listing = drill, lenderError = AppError.NETWORK))
+  fun lenderFailed_showsWhyInItsSectionOnly_andRetryReloads() {
+    var retries = 0
+    setContent(
+        ListingDetailUiState(listing = drill, lenderError = AppError.NETWORK),
+        onRetry = { retries++ },
+    )
 
     node(ListingDetailScreenTags.LENDER_ERROR)
         .assertTextEquals(context.getString(R.string.error_network))
     node(ListingDetailScreenTags.LENDER).assertDoesNotExist()
     node(ListingDetailScreenTags.TITLE).assertIsDisplayed()
+    node(ListingDetailScreenTags.LENDER_RETRY_BUTTON).performScrollTo().performClick()
+    assertEquals(1, retries)
+  }
+
+  @Test
+  fun lenderUnknown_showsOnlyMessageLender() {
+    // Still loading, or the owner has no profile: both look the same.
+    setContent(ListingDetailUiState(listing = drill, canContactLender = true))
+
+    node(ListingDetailScreenTags.LENDER).assertDoesNotExist()
+    node(ListingDetailScreenTags.LENDER_ERROR).assertDoesNotExist()
+    node(ListingDetailScreenTags.MESSAGE_BUTTON).assertIsEnabled()
+  }
+
+  @Test
+  fun lenderShown_staysWhenItsStreamFails() {
+    setContent(
+        ListingDetailUiState(listing = drill, lender = lender, lenderError = AppError.NETWORK)
+    )
+
+    node(ListingDetailScreenTags.LENDER_NAME)
+        .assertTextEquals(context.getString(R.string.listing_detail_lender_name, "james"))
+    node(ListingDetailScreenTags.LENDER_ERROR).assertDoesNotExist()
   }
 
   @Test
@@ -285,6 +316,21 @@ class ListingDetailScreenTest {
 
     node(ListingDetailScreenTags.MESSAGE_BUTTON).assertIsNotEnabled()
     node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real text widths, so the price really is wide.
+  fun longPriceOnANarrowScreen_keepsChooseDatesFullWidth() {
+    composeTestRule.setContent {
+      Box(modifier = Modifier.width(320.dp)) {
+        ListingDetailContent(
+            uiState = ListingDetailUiState(listing = drill.copy(price = 9999.5)),
+            actions = ListingDetailActions(),
+        )
+      }
+    }
+
+    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertWidthIsEqualTo(166.dp)
   }
 
   @Test

@@ -77,6 +77,7 @@ object ListingDetailScreenTags {
   const val LENDER = "listing_detail_lender"
   const val LENDER_NAME = "listing_detail_lender_name"
   const val LENDER_ERROR = "listing_detail_lender_error"
+  const val LENDER_RETRY_BUTTON = "listing_detail_lender_retry_button"
   const val MESSAGE_BUTTON = "listing_detail_message_button"
   const val PRICE = "listing_detail_price"
   const val DEPOSIT = "listing_detail_deposit"
@@ -163,7 +164,7 @@ fun ListingDetailContent(
       }
       ListingDetailBody.DETAIL ->
           // Only DETAIL has a listing; the check gives the smart cast.
-          if (listing != null) ListingDetail(listing, uiState, actions)
+          if (listing != null) ListingDetail(listing, uiState, actions, onRetry)
     }
   }
 }
@@ -174,6 +175,7 @@ private fun ColumnScope.ListingDetail(
     listing: Listing,
     uiState: ListingDetailUiState,
     actions: ListingDetailActions,
+    onRetry: () -> Unit,
 ) {
   // weight(1f): the details take the height the booking bar leaves, and scroll inside it.
   Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
@@ -185,7 +187,7 @@ private fun ColumnScope.ListingDetail(
       Overview(listing, uiState.pendingDetails)
       DescriptionSection(listing, uiState.pendingDetails)
       TermsSection(listing, uiState.pendingDetails)
-      LenderSection(listing, uiState, actions)
+      LenderSection(listing, uiState, actions, onRetry)
     }
   }
   BookingBar(
@@ -340,31 +342,40 @@ private fun ItemTerms(item: ItemListing) {
   }
 }
 
-/** The lender's name and bio, and "Message lender". */
+/**
+ * The lender's name and bio, and "Message lender".
+ *
+ * @param onRetry reloads the listing, which also restarts a lender observation that failed.
+ */
 @Composable
 private fun LenderSection(
     listing: Listing,
     uiState: ListingDetailUiState,
     actions: ListingDetailActions,
+    onRetry: () -> Unit,
 ) {
   Section(title = stringResource(R.string.listing_detail_lender_title)) {
     val lender = uiState.lender
     val lenderError = uiState.lenderError
     val ownerUid = listing.ownerUid
     when {
-      // The listing stays usable without its lender, so only this section says what failed.
-      lenderError != null ->
-          SecondaryText(
-              text = lenderError.message(),
-              color = AuthColors.Danger,
-              modifier = Modifier.testTag(ListingDetailScreenTags.LENDER_ERROR),
-          )
+      // A lender already shown stays shown if its stream fails later, like the listing itself.
       lender != null && ownerUid != null ->
           LenderSummary(
               lender = lender,
               photo = uiState.lenderPhoto,
               onClick = { actions.onOpenLender(ownerUid) },
           )
+      // The listing stays usable without its lender, so only this section says what failed.
+      lenderError != null ->
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            SecondaryText(
+                text = lenderError.message(),
+                color = AuthColors.Danger,
+                modifier = Modifier.weight(1f).testTag(ListingDetailScreenTags.LENDER_ERROR),
+            )
+            RetryButton(onRetry = onRetry, tag = ListingDetailScreenTags.LENDER_RETRY_BUTTON)
+          }
     }
     // Null and no error: still loading, or the owner has no profile. Nothing to show in both cases.
     MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
@@ -459,7 +470,8 @@ private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> 
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-      PriceBlock(listing)
+      // weight(1f): the price gives way on a narrow screen, so the button keeps its 166dp.
+      PriceBlock(listing = listing, modifier = Modifier.weight(1f))
       // 166dp x 48dp: the Figma "Choose dates button".
       AuthPrimaryButton(
           text = stringResource(R.string.listing_detail_choose_dates),
@@ -483,8 +495,8 @@ private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> 
 }
 
 @Composable
-private fun PriceBlock(listing: Listing) {
-  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun PriceBlock(listing: Listing, modifier: Modifier = Modifier) {
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
     // One Text with two styles, so "/ day" sits on the price's baseline as in the Figma.
     Text(
         text =
@@ -494,7 +506,7 @@ private fun PriceBlock(listing: Listing) {
               }
               withStyle(SpanStyle(fontSize = 12.sp, color = AuthColors.TextSecondary)) {
                 append(" ")
-                append(stringResource(R.string.listing_detail_price_per_day))
+                append(stringResource(R.string.browse_price_per_day))
               }
             },
         color = AuthColors.TextPrimary,
@@ -570,16 +582,19 @@ private fun LoadError(text: String, onRetry: () -> Unit) {
         fontSize = 14.sp,
         modifier = Modifier.weight(1f).testTag(ListingDetailScreenTags.ERROR_MESSAGE),
     )
-    TextButton(
-        onClick = onRetry,
-        modifier = Modifier.testTag(ListingDetailScreenTags.RETRY_BUTTON),
-    ) {
-      Text(
-          text = stringResource(R.string.listing_detail_retry),
-          color = AuthColors.Accent,
-          fontWeight = FontWeight.Bold,
-      )
-    }
+    RetryButton(onRetry = onRetry, tag = ListingDetailScreenTags.RETRY_BUTTON)
+  }
+}
+
+/** "Retry" as a text button (48dp touch target), for the listing and the lender errors. */
+@Composable
+private fun RetryButton(onRetry: () -> Unit, tag: String) {
+  TextButton(onClick = onRetry, modifier = Modifier.testTag(tag)) {
+    Text(
+        text = stringResource(R.string.listing_detail_retry),
+        color = AuthColors.Accent,
+        fontWeight = FontWeight.Bold,
+    )
   }
 }
 

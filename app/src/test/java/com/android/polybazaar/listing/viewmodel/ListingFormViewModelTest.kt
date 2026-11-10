@@ -323,7 +323,7 @@ class ListingFormViewModelTest {
     assertEquals(listing, repository.createdListing)
     assertEquals(createdListing, viewModel.uiState.value.savedListing)
     assertFalse(viewModel.uiState.value.isSaving)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.saveError)
   }
 
   @Test
@@ -420,7 +420,7 @@ class ListingFormViewModelTest {
     assertTrue(viewModel.uiState.value.isSaving)
     assertFalse(viewModel.uiState.value.canSave)
     assertNull(viewModel.uiState.value.savedListing)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.saveError)
     // The repository is reading the photos, so none can be removed.
     viewModel.removePhoto(uris(1).single())
     assertEquals(uris(1), viewModel.uiState.value.photos)
@@ -431,32 +431,75 @@ class ListingFormViewModelTest {
   }
 
   @Test
-  fun create_exposesRepositoryFailureAndKeepsThePhotos() = runTest {
-    repository.failure = IllegalStateException("Storage unavailable")
+  fun create_offlineFailureIsNetworkAndKeepsThePhotos() = runTest {
+    repository.failure =
+        FirebaseFirestoreException("offline", FirebaseFirestoreException.Code.UNAVAILABLE)
     fillForm()
     viewModel.addPhotos(uris(1))
 
     viewModel.save()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    // A repository failure stops the creation and exposes the exception message.
+    // A repository failure stops the creation and exposes the matching AppError.
     assertFalse(viewModel.uiState.value.isSaving)
     assertNull(viewModel.uiState.value.savedListing)
-    assertEquals("Storage unavailable", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.saveError)
     assertEquals(uris(1), viewModel.uiState.value.photos)
     assertTrue(photoStorage.deleted.isEmpty())
   }
 
   @Test
-  fun create_usesFallbackMessageWhenRepositoryFailureHasNoMessage() = runTest {
-    repository.failure = IllegalStateException()
+  fun create_unrecognisedFailureIsUnknown() = runTest {
+    repository.failure = IllegalStateException("Storage unavailable")
     fillForm()
 
     viewModel.save()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    // An exception without a message still gives the UI a default error to display.
-    assertEquals("Unable to create listing", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.saveError)
+  }
+
+  @Test
+  fun create_unknownHostFailureIsNetwork() = runTest {
+    repository.failure = UnknownHostException("firestore.googleapis.com")
+    fillForm()
+
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.saveError)
+  }
+
+  @Test
+  fun create_saveErrorIsNotRestoredAfterTheAppIsKilled() = runTest {
+    repository.failure = UnknownHostException("offline")
+    fillForm()
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.saveError)
+
+    val restored =
+        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle))
+
+    // The form comes back, the error of a save that no longer runs does not.
+    assertEquals("Math tutoring", restored.uiState.value.title)
+    assertNull(restored.uiState.value.saveError)
+    assertFalse(restored.uiState.value.isSaving)
+  }
+
+  @Test
+  fun create_cancellationAfterAFailureResetsSavingAndLeavesNoError() = runTest {
+    repository.failure = UnknownHostException("offline")
+    fillForm()
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.failure = CancellationException()
+
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertFalse(viewModel.uiState.value.isSaving)
+    assertNull(viewModel.uiState.value.saveError)
   }
 
   @Test
@@ -476,14 +519,14 @@ class ListingFormViewModelTest {
     // A retry must immediately discard the prior failure while its request is pending.
     assertTrue(viewModel.uiState.value.isSaving)
     assertNull(viewModel.uiState.value.savedListing)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.saveError)
 
     gate.complete(createdListing)
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(viewModel.uiState.value.isSaving)
     assertEquals(createdListing, viewModel.uiState.value.savedListing)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.saveError)
   }
 
   @Test
@@ -497,7 +540,7 @@ class ListingFormViewModelTest {
     // Cancellation is control flow, so it must not be rendered as a creation failure.
     assertFalse(viewModel.uiState.value.isSaving)
     assertNull(viewModel.uiState.value.savedListing)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.saveError)
   }
 
   @Test
@@ -547,7 +590,7 @@ class ListingFormViewModelTest {
 
     assertNull(viewModel.uiState.value.savedListing)
     assertFalse(viewModel.uiState.value.isSaving)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.saveError)
   }
 
   // Edit mode
@@ -794,17 +837,41 @@ class ListingFormViewModelTest {
   }
 
   @Test
-  fun edit_saveFailureKeepsTheChangesAndUsesAnEditMessage() = runTest {
+  fun edit_saveFailureKeepsTheChangesAndMapsTheError() = runTest {
     val editViewModel = editForm()
     editViewModel.updateTitle("Cordless drill")
-    repository.failure = IllegalStateException()
+    repository.failure =
+        FirebaseFirestoreException("denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
 
     editViewModel.save()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals("Unable to save changes", editViewModel.uiState.value.errorMessage)
+    assertEquals(AppError.PERMISSION_DENIED, editViewModel.uiState.value.saveError)
+    assertNull(editViewModel.uiState.value.loadError)
     assertEquals("Cordless drill", editViewModel.uiState.value.title)
     assertFalse(editViewModel.uiState.value.isSaving)
+  }
+
+  @Test
+  fun edit_unrecognisedSaveFailureIsUnknown() = runTest {
+    val editViewModel = editForm()
+    repository.failure = IllegalArgumentException("Listing l1 is invalid")
+
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.UNKNOWN, editViewModel.uiState.value.saveError)
+  }
+
+  @Test
+  fun edit_loadFailureSetsLoadErrorNotSaveError() = runTest {
+    repository.storedListing = storedItem
+    repository.loadFailure = UnknownHostException("offline")
+    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.NETWORK, editViewModel.uiState.value.loadError)
+    assertNull(editViewModel.uiState.value.saveError)
   }
 
   // Listings saved before the photo limit existed may hold more photos than a form allows.

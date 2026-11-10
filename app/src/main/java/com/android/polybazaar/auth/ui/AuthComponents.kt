@@ -95,12 +95,12 @@ internal fun AuthPrimaryButton(
           ),
   ) {
     Text(text = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-    // Decorative: the text already says what the button does, so TalkBack skips the icon.
+    // Decorative: the text already says what the button does, so TalkBack skips the icon. Tinted
+    // with the button's content colour (white), so it works on any background.
     trailingIcon?.let {
       Icon(
           painter = painterResource(it),
           contentDescription = null,
-          tint = Color.Unspecified,
           modifier = Modifier.padding(start = 10.dp).size(17.dp),
       )
     }

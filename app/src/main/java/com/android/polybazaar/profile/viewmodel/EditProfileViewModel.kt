@@ -6,6 +6,8 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.model.ProfileRules
 import kotlinx.coroutines.CancellationException
@@ -25,8 +27,9 @@ data class EditProfileUiState(
     val isSaved: Boolean = false,
     /** Whether the save that set [isSaved] uploaded a new photo. */
     val isNewPhotoSaved: Boolean = false,
+    /** Whether the bio was saved but the photo removal failed; saving again retries it. */
     val isPartiallySaved: Boolean = false,
-    val errorMessage: String? = null,
+    val error: AppError? = null,
 ) {
   val photoPath: String?
     get() =
@@ -66,11 +69,11 @@ class EditProfileViewModel(
     val state = _uiState.value
     if (!state.canEdit()) return
     if (state.profile == null) {
-      _uiState.update { it.copy(errorMessage = "Profile is not available to save") }
+      _uiState.update { it.copy(error = AppError.NOT_FOUND) }
       return
     }
 
-    _uiState.update { it.copy(isSaving = true, isSaved = false, errorMessage = null) }
+    _uiState.update { it.copy(isSaving = true, isSaved = false, error = null) }
 
     viewModelScope.launch {
       var profileUpdateSucceeded = false
@@ -113,7 +116,7 @@ class EditProfileViewModel(
               bio = ProfileRules.limitBio(bio),
               isSaved = false,
               isPartiallySaved = false,
-              errorMessage = null,
+              error = null,
           )
 
   private fun EditProfileUiState.withSelectedPhoto(photoUri: Uri): EditProfileUiState =
@@ -124,7 +127,7 @@ class EditProfileViewModel(
               isPhotoRemoved = false,
               isSaved = false,
               isPartiallySaved = false,
-              errorMessage = null,
+              error = null,
           )
 
   private fun EditProfileUiState.withRemovedPhoto(): EditProfileUiState =
@@ -135,7 +138,7 @@ class EditProfileViewModel(
               isPhotoRemoved = true,
               isSaved = false,
               isPartiallySaved = false,
-              errorMessage = null,
+              error = null,
           )
 
   private fun EditProfileUiState.withObservedProfile(profile: User?): EditProfileUiState =
@@ -143,7 +146,7 @@ class EditProfileViewModel(
         copy(
             profile = null,
             isLoading = false,
-            errorMessage = "Profile not found",
+            error = AppError.NOT_FOUND,
         )
       } else {
         val hasDraftChanges =
@@ -155,14 +158,14 @@ class EditProfileViewModel(
             profile = profile,
             bio = if (hasDraftChanges) this.bio else profile.bio,
             isLoading = false,
-            errorMessage = null,
+            error = null,
         )
       }
 
   private fun EditProfileUiState.withObservationFailure(exception: Exception): EditProfileUiState =
       copy(
           isLoading = false,
-          errorMessage = exception.message ?: "Unable to load profile",
+          error = exception.toAppError(),
       )
 
   private fun EditProfileUiState.withSavedProfile(
@@ -201,14 +204,12 @@ class EditProfileViewModel(
             isSaving = false,
             isSaved = false,
             isPartiallySaved = true,
-            errorMessage =
-                "Bio was saved, but the profile photo could not be removed: " +
-                    (exception.message ?: "Unknown error"),
+            error = null,
         )
       } else {
         copy(
             isSaving = false,
-            errorMessage = exception.message ?: "Unable to save profile",
+            error = exception.toAppError(),
         )
       }
 }

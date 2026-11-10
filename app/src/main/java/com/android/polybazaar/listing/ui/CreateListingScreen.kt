@@ -42,6 +42,7 @@ import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthCard
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
+import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRules
@@ -337,9 +338,9 @@ private fun PriceAndCategoryRow(
 /** The creation error, if any, the "Create listing" button and the closing tagline. */
 @Composable
 private fun ColumnScope.CreateListingFooter(uiState: ListingFormUiState, onCreate: () -> Unit) {
-  uiState.errorMessage?.let {
+  uiState.saveError?.let {
     Text(
-        text = it,
+        text = it.message(),
         color = AuthColors.Danger,
         fontSize = 12.sp,
         modifier =

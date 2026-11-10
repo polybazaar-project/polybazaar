@@ -284,7 +284,7 @@ fun AppNavHost(
               profile = profileState.profile,
               photo = profileState.photo,
               isLoading = profileState.isLoading,
-              errorMessage = profileState.errorMessage,
+              error = profileState.error,
               onEditProfile = {
                 navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true }
               },
@@ -329,7 +329,8 @@ fun AppNavHost(
               selectedPhotoUri = editState.selectedPhotoUri,
               isPhotoRemoved = editState.isPhotoRemoved,
               isSaving = editState.isSaving,
-              errorMessage = editState.errorMessage,
+              isPartiallySaved = editState.isPartiallySaved,
+              error = editState.error,
               actions =
                   EditProfileActions(
                       onBioChange = editViewModel::updateBio,

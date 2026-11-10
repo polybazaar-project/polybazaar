@@ -14,12 +14,15 @@ import kotlinx.coroutines.tasks.await
 class FirebaseBookingRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val onWriteFailure: (Exception) -> Unit = {
+    private val logWriteFailure: (Exception) -> Unit = {
       Log.e("BookingRepository", "Booking request failed", it)
     },
 ) : BookingRepository {
 
-  override suspend fun requestBooking(booking: Booking) {
+  override suspend fun requestBooking(
+      booking: Booking,
+      onWriteFailure: (Exception) -> Unit,
+  ) {
     val renterUid =
         auth.currentUser?.uid
             ?: throw FirebaseFirestoreException(
@@ -41,7 +44,10 @@ class FirebaseBookingRepository(
                 "status" to booking.status.name,
             )
         )
-        .addOnFailureListener(Executor { it.run() }, onWriteFailure)
+        .addOnFailureListener(Executor { it.run() }) {
+          logWriteFailure(it)
+          onWriteFailure(it)
+        }
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> {
