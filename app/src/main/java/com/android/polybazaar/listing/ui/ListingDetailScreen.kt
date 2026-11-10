@@ -455,7 +455,7 @@ private fun PriceBlock(listing: Listing, modifier: Modifier = Modifier) {
               }
               withStyle(SpanStyle(fontSize = 12.sp, color = AuthColors.TextSecondary)) {
                 append(" ")
-                append(stringResource(R.string.listing_detail_price_per_day))
+                append(stringResource(R.string.browse_price_per_day))
               }
             },
         color = AuthColors.TextPrimary,

@@ -133,7 +133,7 @@ class ListingDetailScreenTest {
     node(ListingDetailScreenTags.CATEGORY).assertTextEquals("TOOLS")
     node(ListingDetailScreenTags.TITLE).assertTextEquals("Bosch drill set")
     node(ListingDetailScreenTags.DESCRIPTION).assertTextEquals("Cordless drill with two batteries.")
-    val perDay = context.getString(R.string.listing_detail_price_per_day)
+    val perDay = context.getString(R.string.browse_price_per_day)
     node(ListingDetailScreenTags.PRICE).assertTextEquals("CHF 8 $perDay")
     node(ListingDetailScreenTags.DEPOSIT)
         .assertTextEquals(context.getString(R.string.listing_detail_deposit, "CHF 120"))
@@ -154,7 +154,7 @@ class ListingDetailScreenTest {
 
     text(context.getString(R.string.listing_detail_service_terms_title)).assertExists()
     node(ListingDetailScreenTags.PRICE)
-        .assertTextEquals("CHF 25.50 ${context.getString(R.string.listing_detail_price_per_day)}")
+        .assertTextEquals("CHF 25.50 ${context.getString(R.string.browse_price_per_day)}")
     node(ListingDetailScreenTags.DEPOSIT).assertDoesNotExist()
     text(returnsPending()).assertDoesNotExist()
   }
