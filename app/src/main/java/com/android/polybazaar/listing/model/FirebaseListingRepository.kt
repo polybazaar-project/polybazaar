@@ -274,8 +274,12 @@ class FirebaseListingRepository(
 
   /**
    * The stored available days. Absent on a listing written before the field existed, which reads as
-   * no day. An entry that is not a day (the rules cannot check each one) is left out instead of
-   * hiding the listing.
+   * no day.
+   *
+   * An entry that is not a day is left out, where a malformed `maxRentalDays` hides the whole
+   * listing. The difference is deliberate: the rules check `maxRentalDays`, so a wrong one means a
+   * broken document, but they cannot check each entry of a list, so a wrong one is expected and
+   * must not hide the listing from everyone.
    */
   private fun DocumentSnapshot.availableDates(): Set<LocalDate> =
       (get(AVAILABLE_DATES) as? List<*>)

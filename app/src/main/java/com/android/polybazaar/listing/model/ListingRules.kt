@@ -71,6 +71,8 @@ object ListingRules {
       // Null means no limit, so only a set duration is checked.
       listing is ItemListing && listing.maxRentalDays?.let { it !in 1..MAX_RENTAL_DAYS } == true ->
           RENTAL_DAYS_RANGE_MESSAGE
+      // The calendar never offers more than a year of days. Checked all the same, like the rental
+      // duration, so the repository refuses what the security rules would, before uploading photos.
       listing.availableDates.size > MAX_AVAILABLE_DAYS -> AVAILABLE_DAYS_LIMIT_MESSAGE
       else -> null
     }

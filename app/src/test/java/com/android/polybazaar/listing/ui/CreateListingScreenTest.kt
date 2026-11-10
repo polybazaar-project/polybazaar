@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -64,6 +65,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -1121,7 +1123,33 @@ class CreateListingScreenTest {
         .assertTextEquals(context.getString(R.string.listing_form_availability_item_title))
     node(AvailabilityCalendarTags.day(today)).performClick()
 
+    // At midnight exactly, the calendar may already be on the next day: nothing to check then.
+    assumeTrue(LocalDate.now() == today)
     assertEquals(setOf(today), viewModel.uiState.value.availableDates)
+  }
+
+  @Test
+  fun availability_isNamedForTalkBack() {
+    composeTestRule.setContent {
+      CreateListingContent(uiState = ListingFormUiState(), actions = ListingFormActions())
+    }
+
+    availabilityField()
+        .assertContentDescriptionEquals(context.getString(R.string.listing_form_availability_label))
+  }
+
+  @Test
+  fun availability_cannotBeOpenedWhileSaving() {
+    composeTestRule.setContent {
+      CreateListingContent(
+          uiState = ListingFormUiState(isSaving = true),
+          actions = ListingFormActions(),
+      )
+    }
+
+    availabilityField().assertIsNotEnabled().performClick()
+
+    node(AvailabilityCalendarSheetTags.TITLE).assertDoesNotExist()
   }
 
   @Test

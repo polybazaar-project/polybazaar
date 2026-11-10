@@ -359,6 +359,8 @@ internal fun ListingDetailsFields(
       type = uiState.type,
       availableDates = uiState.availableDates,
       onChange = actions.onAvailableDatesChange,
+      // Not while saving: an edit form then shows the listing as saved, and would lose the change.
+      enabled = uiState.canEdit && !uiState.isSaving,
   )
 }
 
@@ -371,16 +373,21 @@ private fun AvailabilityField(
     type: ListingType,
     availableDates: Set<LocalDate>,
     onChange: (Set<LocalDate>) -> Unit,
+    enabled: Boolean,
 ) {
   var isChoosing by rememberSaveable { mutableStateOf(false) }
   val shape = RoundedCornerShape(14.dp)
-  FormField(label = stringResource(R.string.listing_form_availability_label)) {
+  val label = stringResource(R.string.listing_form_availability_label)
+  FormField(label = label) {
     Row(
         modifier =
             Modifier.fillMaxWidth()
                 .background(AuthColors.Background, shape)
                 .border(1.dp, AuthColors.Outline, shape)
-                .clickable(role = Role.Button) { isChoosing = true }
+                .clickable(enabled = enabled, role = Role.Button) { isChoosing = true }
+                // TalkBack reads "Availability" before the days: the label above is not part of
+                // the button.
+                .semantics { contentDescription = label }
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .testTag(CreateListingScreenTags.AVAILABILITY_FIELD),
         verticalAlignment = Alignment.CenterVertically,
@@ -399,7 +406,7 @@ private fun AvailabilityField(
           modifier = Modifier.weight(1f),
       )
       Icon(
-          painter = painterResource(R.drawable.ic_chevron_down),
+          painter = painterResource(R.drawable.ic_calendar),
           contentDescription = null,
           tint = AuthColors.TextSecondary,
           modifier = Modifier.size(16.dp),
