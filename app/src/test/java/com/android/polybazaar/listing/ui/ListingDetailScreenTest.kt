@@ -187,6 +187,17 @@ class ListingDetailScreenTest {
   }
 
   @Test
+  fun lenderShown_staysWhenItsStreamFails() {
+    setContent(
+        ListingDetailUiState(listing = drill, lender = lender, lenderError = AppError.NETWORK)
+    )
+
+    node(ListingDetailScreenTags.LENDER_NAME)
+        .assertTextEquals(context.getString(R.string.listing_detail_lender_name, "james"))
+    node(ListingDetailScreenTags.LENDER_ERROR).assertDoesNotExist()
+  }
+
+  @Test
   fun canContactLender_enablesBothActions() {
     var messages = 0
     var dates = 0

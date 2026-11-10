@@ -311,6 +311,9 @@ private fun LenderSection(
     val lenderError = uiState.lenderError
     val ownerUid = listing.ownerUid
     when {
+      // A lender already shown stays shown if its stream fails later, like the listing itself.
+      lender != null && ownerUid != null ->
+          LenderSummary(lender = lender, onClick = { actions.onOpenLender(ownerUid) })
       // The listing stays usable without its lender, so only this section says what failed.
       lenderError != null ->
           SecondaryText(
@@ -318,8 +321,6 @@ private fun LenderSection(
               color = AuthColors.Danger,
               modifier = Modifier.testTag(ListingDetailScreenTags.LENDER_ERROR),
           )
-      lender != null && ownerUid != null ->
-          LenderSummary(lender = lender, onClick = { actions.onOpenLender(ownerUid) })
     }
     // Null and no error: still loading, or the owner has no profile. Nothing to show in both cases.
     MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
