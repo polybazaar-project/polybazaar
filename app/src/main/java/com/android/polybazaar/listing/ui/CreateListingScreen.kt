@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -68,6 +69,11 @@ object CreateListingScreenTags {
 
   fun removePhoto(index: Int) = "create_listing_remove_photo_$index"
 
+  /** A saved photo of an edited listing, by its index among the saved photos. */
+  fun storedPhoto(index: Int) = "create_listing_stored_photo_$index"
+
+  fun removeStoredPhoto(index: Int) = "create_listing_remove_stored_photo_$index"
+
   const val TITLE_FIELD = "create_listing_title_field"
   const val TITLE_COUNTER = "create_listing_title_counter"
   const val DESCRIPTION_FIELD = "create_listing_description_field"
@@ -75,6 +81,7 @@ object CreateListingScreenTags {
   const val PRICE_LABEL = "create_listing_price_label"
   const val PRICE_FIELD = "create_listing_price_field"
   const val PRICE_ERROR = "create_listing_price_error"
+  const val PRICE_HINT = "create_listing_price_hint"
   const val REFUND_FIELD = "create_listing_refund_field"
   const val REFUND_ERROR = "create_listing_refund_error"
   const val CATEGORY_FIELD = "create_listing_category_field"
@@ -109,8 +116,8 @@ private fun formTextsFor(type: ListingType): ListingFormTexts =
           )
     }
 
-/** What the user can do on the "Create listing" screen. */
-class CreateListingActions(
+/** What the user can do in the listing form, on the "Create listing" and "Edit listing" screens. */
+class ListingFormActions(
     val onTypeSelected: (ListingType) -> Unit = {},
     val onTitleChange: (String) -> Unit = {},
     val onDescriptionChange: (String) -> Unit = {},
@@ -121,11 +128,35 @@ class CreateListingActions(
     val onCategorySelected: (ListingCategory) -> Unit = {},
     val onPhotosPicked: (List<Uri>) -> Unit = {},
     val onPhotoRemoved: (Uri) -> Unit = {},
+    /** Removes a saved photo of the edited listing, given its Storage path. */
+    val onStoredPhotoRemoved: (String) -> Unit = {},
+    /** Asks for the saved photo at this Storage path to be downloaded, for its thumbnail. */
+    val onStoredPhotoShown: (String) -> Unit = {},
     /** Returns the URI the camera app writes the photo to, or null when none can be created. */
     val startTakingPhoto: (retakeIndex: Int?) -> Uri? = { null },
     val finishTakingPhoto: (saved: Boolean) -> Unit = {},
-    val onCreate: () -> Unit = {},
+    val onSave: () -> Unit = {},
 )
+
+/** The form actions wired to [viewModel]. */
+internal fun listingFormActions(viewModel: ListingFormViewModel) =
+    ListingFormActions(
+        onTypeSelected = viewModel::selectType,
+        onTitleChange = viewModel::updateTitle,
+        onDescriptionChange = viewModel::updateDescription,
+        onPriceChange = viewModel::updatePrice,
+        onPriceFieldLeft = viewModel::leavePriceField,
+        onRefundValueChange = viewModel::updateRefundValue,
+        onRefundFieldLeft = viewModel::leaveRefundField,
+        onCategorySelected = viewModel::selectCategory,
+        onPhotosPicked = viewModel::addPhotos,
+        onPhotoRemoved = viewModel::removePhoto,
+        onStoredPhotoRemoved = viewModel::removeStoredPhoto,
+        onStoredPhotoShown = viewModel::loadStoredPhoto,
+        startTakingPhoto = viewModel::startTakingPhoto,
+        finishTakingPhoto = viewModel::finishTakingPhoto,
+        onSave = viewModel::save,
+    )
 
 /**
  * "Create listing" screen.
@@ -140,24 +171,7 @@ fun CreateListingScreen(
   // Collected without dispatching, so each keystroke reaches the text fields before the next
   // one: a field that lags behind its input can jump its cursor or drop characters.
   val uiState by listingViewModel.uiState.collectAsState(context = Dispatchers.Main.immediate)
-  val actions =
-      remember(listingViewModel) {
-        CreateListingActions(
-            onTypeSelected = listingViewModel::selectType,
-            onTitleChange = listingViewModel::updateTitle,
-            onDescriptionChange = listingViewModel::updateDescription,
-            onPriceChange = listingViewModel::updatePrice,
-            onPriceFieldLeft = listingViewModel::leavePriceField,
-            onRefundValueChange = listingViewModel::updateRefundValue,
-            onRefundFieldLeft = listingViewModel::leaveRefundField,
-            onCategorySelected = listingViewModel::selectCategory,
-            onPhotosPicked = listingViewModel::addPhotos,
-            onPhotoRemoved = listingViewModel::removePhoto,
-            startTakingPhoto = listingViewModel::startTakingPhoto,
-            finishTakingPhoto = listingViewModel::finishTakingPhoto,
-            onCreate = listingViewModel::save,
-        )
-      }
+  val actions = remember(listingViewModel) { listingFormActions(listingViewModel) }
   LaunchedEffect(uiState.savedListing) {
     uiState.savedListing?.let { createdListing ->
       onListingCreated(createdListing)
@@ -176,7 +190,7 @@ fun CreateListingScreen(
  * @param actions called when the user edits the form, adds photos or creates the listing.
  */
 @Composable
-fun CreateListingContent(uiState: ListingFormUiState, actions: CreateListingActions) {
+fun CreateListingContent(uiState: ListingFormUiState, actions: ListingFormActions) {
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -196,7 +210,7 @@ fun CreateListingContent(uiState: ListingFormUiState, actions: CreateListingActi
       )
       ListingDetailsFields(uiState = uiState, actions = actions)
     }
-    CreateListingFooter(uiState = uiState, onCreate = actions.onCreate)
+    CreateListingFooter(uiState = uiState, onCreate = actions.onSave)
   }
 }
 
@@ -221,11 +235,21 @@ private fun CreateListingHeader() {
   }
 }
 
-/** "What would you like to offer?" with a choice between a service and an item. */
+/**
+ * "What would you like to offer?" with a choice between a service and an item.
+ *
+ * @param enabled false when the type is locked, as for a saved listing: the other type is then
+ *   faded and cannot be selected.
+ */
 @Composable
-private fun ListingTypeSelector(selected: ListingType, onSelect: (ListingType) -> Unit) {
+internal fun ListingTypeSelector(
+    selected: ListingType,
+    onSelect: (ListingType) -> Unit,
+    enabled: Boolean = true,
+    label: String = "What would you like to offer?",
+) {
   Text(
-      text = "What would you like to offer?",
+      text = label,
       color = AuthColors.TextPrimary,
       fontSize = 14.sp,
       fontWeight = FontWeight.SemiBold,
@@ -240,6 +264,7 @@ private fun ListingTypeSelector(selected: ListingType, onSelect: (ListingType) -
         subtitle = "Share your skills",
         icon = R.drawable.ic_service,
         selected = selected == ListingType.SERVICE,
+        enabled = enabled,
         onClick = { onSelect(ListingType.SERVICE) },
         tag = CreateListingScreenTags.TYPE_SERVICE,
         modifier = Modifier.weight(1f),
@@ -249,6 +274,7 @@ private fun ListingTypeSelector(selected: ListingType, onSelect: (ListingType) -
         subtitle = "Lend something",
         icon = R.drawable.ic_item,
         selected = selected == ListingType.ITEM,
+        enabled = enabled,
         onClick = { onSelect(ListingType.ITEM) },
         tag = CreateListingScreenTags.TYPE_ITEM,
         modifier = Modifier.weight(1f),
@@ -256,9 +282,17 @@ private fun ListingTypeSelector(selected: ListingType, onSelect: (ListingType) -
   }
 }
 
-/** Title, description, price, category and, for items, the refund value. */
+/**
+ * Title, description, price, category and, for items, the refund value.
+ *
+ * @param priceHint shown under the price, such as when a price change only applies to new bookings.
+ */
 @Composable
-private fun ListingDetailsFields(uiState: ListingFormUiState, actions: CreateListingActions) {
+internal fun ListingDetailsFields(
+    uiState: ListingFormUiState,
+    actions: ListingFormActions,
+    priceHint: String? = null,
+) {
   val texts = formTextsFor(uiState.type)
   FormField(
       label = "Title",
@@ -292,6 +326,13 @@ private fun ListingDetailsFields(uiState: ListingFormUiState, actions: CreateLis
         text = ListingRules.PRICE_RANGE_MESSAGE,
         tag = CreateListingScreenTags.PRICE_ERROR,
     )
+  } else if (priceHint != null) {
+    Text(
+        text = priceHint,
+        color = AuthColors.TextSecondary,
+        fontSize = 12.sp,
+        modifier = Modifier.testTag(CreateListingScreenTags.PRICE_HINT),
+    )
   }
   if (uiState.type == ListingType.ITEM) {
     RefundValueField(
@@ -306,7 +347,7 @@ private fun ListingDetailsFields(uiState: ListingFormUiState, actions: CreateLis
 @Composable
 private fun PriceAndCategoryRow(
     uiState: ListingFormUiState,
-    actions: CreateListingActions,
+    actions: ListingFormActions,
     priceLabel: String,
 ) {
   Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -401,11 +442,14 @@ private fun TypeOption(
     onClick: () -> Unit,
     tag: String,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
   val shape = RoundedCornerShape(16.dp)
   Row(
       modifier =
           modifier
+              // A locked type keeps the selected option readable and fades the other.
+              .alpha(if (enabled || selected) 1f else 0.45f)
               .background(
                   if (selected) AuthColors.Accent.copy(alpha = 0.12f)
                   else AuthColors.CardBackground,
@@ -417,7 +461,7 @@ private fun TypeOption(
                   shape,
               )
               .semantics { this.selected = selected }
-              .clickable(role = Role.RadioButton, onClick = onClick)
+              .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
               .padding(12.dp)
               .testTag(tag),
       verticalAlignment = Alignment.CenterVertically,
@@ -452,5 +496,5 @@ private fun TypeOption(
 @Preview(showBackground = true, widthDp = 412, heightDp = 924)
 @Composable
 private fun CreateListingContentPreview() {
-  CreateListingContent(uiState = ListingFormUiState(), actions = CreateListingActions())
+  CreateListingContent(uiState = ListingFormUiState(), actions = ListingFormActions())
 }

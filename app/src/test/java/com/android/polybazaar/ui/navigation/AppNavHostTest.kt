@@ -17,6 +17,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
@@ -30,6 +31,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -61,7 +63,9 @@ import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
+import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -111,6 +115,8 @@ class AppNavHostTest {
           ApplicationProvider.getApplicationContext(),
           FilePhotoStorage.CREATE_FORM,
       )
+  private val editPhotoStorage =
+      FilePhotoStorage(ApplicationProvider.getApplicationContext(), FilePhotoStorage.EDIT_FORM)
   private lateinit var navController: NavHostController
 
   /** Shows the app, under [lifecycleOwner] when given so a test can pause and resume it. */
@@ -133,6 +139,7 @@ class AppNavHostTest {
             profileRepository = profileRepository,
             listingRepository = listingRepository,
             photoStorage = photoStorage,
+            editPhotoStorage = editPhotoStorage,
             navController = navController,
         )
       }
@@ -170,6 +177,7 @@ class AppNavHostTest {
             profileRepository = profileRepository,
             listingRepository = listingRepository,
             photoStorage = photoStorage,
+            editPhotoStorage = editPhotoStorage,
             navController = navController,
         )
       }
@@ -461,6 +469,7 @@ class AppNavHostTest {
           profileRepository = profileRepository,
           listingRepository = listingRepository,
           photoStorage = photoStorage,
+          editPhotoStorage = editPhotoStorage,
           navController = navController,
       )
     }
@@ -472,6 +481,65 @@ class AppNavHostTest {
 
     assertEquals(Routes.BROWSE, navController.currentBackStackEntry?.destination?.route)
     assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun editListingRoute_loadsTheListing_andSavingReturnsToTheScreenBefore() {
+    listingRepository.myListings =
+        listOf(
+            ItemListing(
+                listingId = "drill",
+                ownerUid = user.uid,
+                category = ListingCategory.ITEM_TOOLS,
+                price = 12.0,
+                title = "Bosch drill",
+                description = "Cordless",
+            )
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule.runOnUiThread { navController.navigate(Routes.editListing("drill")) }
+    composeTestRule.onNodeWithTag(EditListingScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .assertTextContains("Bosch drill")
+
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextClearance()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .performTextInput("Bosch drill set")
+    composeTestRule
+        .onNodeWithTag(EditListingScreenTags.SAVE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals("Bosch drill set", listingRepository.updatedListings.single().title)
+  }
+
+  @Test
+  fun editListingRoute_backReturnsWithoutSaving() {
+    listingRepository.myListings =
+        listOf(
+            ServiceListing(
+                listingId = "tutoring",
+                ownerUid = user.uid,
+                category = ListingCategory.SERVICE_TUTORING,
+                price = 25.0,
+                title = "Math tutoring",
+                description = "One hour",
+            )
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule.runOnUiThread { navController.navigate(Routes.editListing("tutoring")) }
+    composeTestRule.onNodeWithTag(EditListingScreenTags.BACK_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertTrue(listingRepository.updatedListings.isEmpty())
   }
 
   @Test
@@ -756,6 +824,7 @@ class AppNavHostTest {
           profileRepository = profileRepository,
           listingRepository = listingRepository,
           photoStorage = photoStorage,
+          editPhotoStorage = editPhotoStorage,
           navController = navController,
       )
     }
@@ -829,6 +898,7 @@ class AppNavHostTest {
           profileRepository = profileRepository,
           listingRepository = listingRepository,
           photoStorage = photoStorage,
+          editPhotoStorage = editPhotoStorage,
           navController = navController,
       )
     }

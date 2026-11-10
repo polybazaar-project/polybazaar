@@ -56,6 +56,8 @@ class EndToEndFlowTest {
           ApplicationProvider.getApplicationContext(),
           FilePhotoStorage.CREATE_FORM,
       )
+  private val editPhotoStorage =
+      FilePhotoStorage(ApplicationProvider.getApplicationContext(), FilePhotoStorage.EDIT_FORM)
   private lateinit var authViewModel: AuthViewModel
   private lateinit var navController: NavHostController
 
@@ -69,6 +71,7 @@ class EndToEndFlowTest {
           profileRepository = backend,
           listingRepository = listingRepository,
           photoStorage = photoStorage,
+          editPhotoStorage = editPhotoStorage,
           navController = navController,
       )
     }

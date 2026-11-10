@@ -50,6 +50,17 @@
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
 
+    <!-- Edit listing screen -->
+    <string name="edit_listing_eyebrow">EDIT</string>
+    <string name="edit_listing_title">My listing</string>
+    <string name="edit_listing_type_label">What you offer</string>
+    <string name="edit_listing_type_locked">A listing’s type can’t be changed. Create a new listing to offer something else.</string>
+    <string name="edit_listing_price_hint">A new price only applies to new bookings.</string>
+    <string name="edit_listing_cancel">Cancel</string>
+    <string name="edit_listing_save">Save changes</string>
+    <string name="edit_listing_saving">Saving…</string>
+    <string name="edit_listing_retry">Retry</string>
+
     <!-- Toolbox -->
     <string name="toolbox_title">My Toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>

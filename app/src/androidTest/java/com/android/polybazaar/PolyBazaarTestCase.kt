@@ -46,6 +46,11 @@ abstract class PolyBazaarTestCase :
                   ApplicationProvider.getApplicationContext(),
                   FilePhotoStorage.CREATE_FORM,
               ),
+          editPhotoStorage =
+              FilePhotoStorage(
+                  ApplicationProvider.getApplicationContext(),
+                  FilePhotoStorage.EDIT_FORM,
+              ),
           navController = rememberNavController(),
       )
     }

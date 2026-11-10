@@ -37,10 +37,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
@@ -59,6 +61,7 @@ import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
+import com.android.polybazaar.listing.ui.EditListingScreen
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
@@ -90,6 +93,8 @@ object AppNavHostTags {
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
  * @param photoStorage keeps the photos of the listing being created.
+ * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
+ *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
  */
 @Composable
 fun AppNavHost(
@@ -98,6 +103,7 @@ fun AppNavHost(
     profileRepository: ProfileRepository,
     listingRepository: ListingRepository,
     photoStorage: PhotoStorage,
+    editPhotoStorage: PhotoStorage,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -262,6 +268,31 @@ fun AppNavHost(
               onListingCreated = { navController.openNewBrowse() },
           )
         }
+        composable(
+            route = Routes.EDIT_LISTING,
+            arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
+        ) { entry ->
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          val listingViewModel: ListingFormViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          ListingFormViewModel(
+                              listingId = listingId,
+                              listingRepository = listingRepository,
+                              photoStorage = editPhotoStorage,
+                              savedStateHandle = createSavedStateHandle(),
+                          )
+                        }
+                      }
+              )
+          EditListingScreen(
+              listingViewModel = listingViewModel,
+              onBack = { navController.popBackStack() },
+              onListingSaved = { navController.popBackStack() },
+          )
+        }
         composable(Routes.PROFILE) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
@@ -373,6 +404,7 @@ private val signedInRoutes =
         Routes.VERIFY_EMAIL,
         Routes.BROWSE,
         Routes.CREATE_LISTING,
+        Routes.EDIT_LISTING,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,
