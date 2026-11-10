@@ -909,6 +909,17 @@ describe("conversations", () => {
     await assertSucceeds(sendMessage(verified(BOB), BOB));
   });
 
+  test("a reply that leaves out the title keeps the stored one", async () => {
+    await seedConversation(itemListing({ title: "Hammer drill" }));
+    const db = verified(BOB);
+    const messageRef = doc(collection(db, `${CONVERSATION}/messages`));
+    const { listingTitle, ...withoutTitle } = newConversation({ lastMessageId: messageRef.id });
+    const batch = writeBatch(db);
+    batch.set(doc(db, CONVERSATION), withoutTitle, { merge: true });
+    batch.set(messageRef, newMessage(BOB));
+    await assertSucceeds(batch.commit());
+  });
+
   test("a reply cannot set a title the listing does not have", async () => {
     await seedConversation();
     await assertFails(
