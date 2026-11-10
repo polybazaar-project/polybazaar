@@ -3,6 +3,7 @@ package com.android.polybazaar.toolbox.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,8 +25,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -50,22 +54,37 @@ object ToolboxCardTags {
   const val ERROR = "toolbox_error"
   const val RETRY_BUTTON = "toolbox_retry_button"
   const val EMPTY = "toolbox_empty"
+  const val FILTER_ALL = "toolbox_filter_all"
+  const val FILTER_ITEMS = "toolbox_filter_items"
+  const val FILTER_SERVICES = "toolbox_filter_services"
+  const val FILTER_EMPTY = "toolbox_filter_empty"
 }
 
 @Composable
 fun ToolboxCard(viewModel: ToolboxViewModel) {
   val uiState by viewModel.uiState.collectAsState()
-  ToolboxContent(uiState = uiState, onRetry = viewModel::loadListings)
+  ToolboxContent(
+      uiState = uiState,
+      onRetry = viewModel::loadListings,
+      onTypeSelected = viewModel::selectType,
+  )
 }
 
 /**
- * The "My toolbox" card of the profile, listing the user's own listings.
+ * The "My Toolbox" card of the profile, listing the user's own listings. The buttons under the
+ * title show all of them (All, selected by default) or only items or services; [onTypeSelected]
+ * gets the chosen type, or null for All.
  *
  * Fills the height it is given: the title stays in place and the rows scroll inside the card, so it
  * needs a bounded height.
  */
 @Composable
-fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+fun ToolboxContent(
+    uiState: ToolboxUiState,
+    onRetry: () -> Unit,
+    onTypeSelected: (ListingType?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
   val shape = RoundedCornerShape(20.dp)
   Column(
       modifier =
@@ -76,12 +95,40 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
               .padding(16.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    Text(
-        text = stringResource(R.string.toolbox_title),
-        color = AuthColors.TextPrimary,
-        fontSize = 22.sp,
-        fontWeight = FontWeight.Bold,
-    )
+    // A tighter group than the rest of the card, so the header takes less of the profile.
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text(
+          text = stringResource(R.string.toolbox_title),
+          color = AuthColors.TextPrimary,
+          fontSize = 18.sp,
+          fontWeight = FontWeight.Bold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+      )
+      // The filters get their own line, so the title keeps its full width on narrow phones.
+      if (uiState.listings.isNotEmpty()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+          TypeFilterButton(
+              text = stringResource(R.string.toolbox_filter_all),
+              isSelected = uiState.selectedType == null,
+              onClick = { onTypeSelected(null) },
+              modifier = Modifier.testTag(ToolboxCardTags.FILTER_ALL),
+          )
+          TypeFilterButton(
+              text = stringResource(R.string.toolbox_filter_items),
+              isSelected = uiState.selectedType == ListingType.ITEM,
+              onClick = { onTypeSelected(ListingType.ITEM) },
+              modifier = Modifier.testTag(ToolboxCardTags.FILTER_ITEMS),
+          )
+          TypeFilterButton(
+              text = stringResource(R.string.toolbox_filter_services),
+              isSelected = uiState.selectedType == ListingType.SERVICE,
+              onClick = { onTypeSelected(ListingType.SERVICE) },
+              modifier = Modifier.testTag(ToolboxCardTags.FILTER_SERVICES),
+          )
+        }
+      }
+    }
     uiState.error?.let { error ->
       Row(
           modifier = Modifier.fillMaxWidth().testTag(ToolboxCardTags.ERROR),
@@ -118,61 +165,105 @@ fun ToolboxContent(uiState: ToolboxUiState, onRetry: () -> Unit, modifier: Modif
           modifier = Modifier.testTag(ToolboxCardTags.EMPTY),
       )
     }
-    if (uiState.listings.isNotEmpty()) {
+    val filteredListings = uiState.filteredListings
+    if (filteredListings.isNotEmpty()) {
       LazyColumn(
           modifier = Modifier.fillMaxWidth().weight(1f).testTag(ToolboxCardTags.LISTINGS),
           verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        items(uiState.listings) { ToolboxListingRow(it) }
+        items(filteredListings) { ToolboxListingRow(it) }
       }
+    } else if (uiState.listings.isNotEmpty()) {
+      // Only reached with a filter selected: the user has listings, none of that type.
+      Text(
+          text =
+              stringResource(
+                  when (uiState.selectedType) {
+                    ListingType.SERVICE -> R.string.toolbox_empty_services
+                    else -> R.string.toolbox_empty_items
+                  }
+              ),
+          color = AuthColors.TextSecondary,
+          fontSize = 15.sp,
+          modifier = Modifier.testTag(ToolboxCardTags.FILTER_EMPTY),
+      )
     }
   }
+}
+
+/**
+ * A pill that filters the listings by type, styled like the Browse category selector but more
+ * compact, so the Toolbox header stays short.
+ */
+@Composable
+private fun TypeFilterButton(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  val shape = RoundedCornerShape(24.dp)
+  Text(
+      text = text,
+      color = if (isSelected) AuthColors.Accent else AuthColors.TextSecondary,
+      fontSize = 14.sp,
+      fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+      modifier =
+          modifier
+              .semantics { selected = isSelected }
+              .clip(shape)
+              .background(
+                  if (isSelected) AuthColors.SelectedBackground else AuthColors.CardBackground
+              )
+              .border(1.dp, if (isSelected) AuthColors.Accent else AuthColors.Outline, shape)
+              .clickable(onClick = onClick)
+              .padding(horizontal = 16.dp, vertical = 6.dp),
+  )
 }
 
 @Composable
 private fun ToolboxListingRow(listing: Listing) {
-  Row(
-      modifier = Modifier.fillMaxWidth().testTag(ToolboxCardTags.LISTING_ROW),
-      verticalAlignment = Alignment.CenterVertically,
+  val shape = RoundedCornerShape(18.dp)
+  Column(
+      modifier =
+          Modifier.fillMaxWidth()
+              .background(AuthColors.Background, shape)
+              .border(1.dp, AuthColors.Outline, shape)
+              .padding(horizontal = 14.dp, vertical = 12.dp)
+              .testTag(ToolboxCardTags.LISTING_ROW),
+      verticalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    Column(modifier = Modifier.weight(1f)) {
+    Text(
+        text = listing.title,
+        color = AuthColors.TextPrimary,
+        fontSize = 17.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Row {
       Text(
-          text = listing.title,
-          color = AuthColors.TextPrimary,
-          fontSize = 17.sp,
-          fontWeight = FontWeight.Bold,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
+          text = "${listing.category.displayName} · ",
+          color = AuthColors.TextSecondary,
+          fontSize = 15.sp,
       )
       Text(
-          text =
-              stringResource(
-                  when (listing.type) {
-                    ListingType.ITEM -> R.string.toolbox_type_item
-                    ListingType.SERVICE -> R.string.toolbox_type_service
-                  }
-              ),
+          text = formatChf(listing.price),
+          color = AuthColors.Accent,
+          fontSize = 15.sp,
+          fontWeight = FontWeight.Bold,
+      )
+      Spacer(modifier = Modifier.width(4.dp))
+      Text(
+          text = stringResource(R.string.browse_price_per_day),
           color = AuthColors.TextSecondary,
-          fontSize = 14.sp,
+          fontSize = 15.sp,
       )
     }
-    Spacer(modifier = Modifier.width(12.dp))
-    Text(
-        text = formatChf(listing.price),
-        color = AuthColors.Accent,
-        fontSize = 16.sp,
-        fontWeight = FontWeight.Bold,
-    )
-    Spacer(modifier = Modifier.width(4.dp))
-    Text(
-        text = stringResource(R.string.browse_price_per_day),
-        color = AuthColors.TextSecondary,
-        fontSize = 16.sp,
-    )
   }
 }
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 240)
+@Preview(showBackground = true, widthDp = 412, heightDp = 320)
 @Composable
 internal fun ToolboxContentPreview() {
   ToolboxContent(
@@ -197,5 +288,6 @@ internal fun ToolboxContentPreview() {
                   )
           ),
       onRetry = {},
+      onTypeSelected = {},
   )
 }
