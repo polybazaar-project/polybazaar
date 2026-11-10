@@ -451,18 +451,23 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
   }
 
-  /** Sign-in and sign-up both fail with "Wrong password" in this repository. */
+  /**
+   * Sign-in and sign-up both fail with [AppError.INVALID_CREDENTIALS]: the fake returns the sign-in
+   * result for both.
+   */
   private fun failingAuthRepository() =
       FakeAuthRepository(
           currentUser = null,
-          signInResult = Result.failure(IllegalArgumentException("Wrong password")),
+          signInResult = Result.failure(AppException(AppError.INVALID_CREDENTIALS)),
       )
 
   private fun failSignIn() {
     composeTestRule.onNodeWithTag(SignInScreenTags.EMAIL_FIELD).performTextInput("ada@epfl.ch")
     composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("wrong")
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
-    composeTestRule.onNodeWithTag(SignInScreenTags.ERROR_MESSAGE).assertTextEquals("Wrong password")
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
   }
 
   /** Opens Create account and submits a valid form, so the repository is reached and fails. */
@@ -487,7 +492,7 @@ class AppNavHostTest {
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
         .performScrollTo()
-        .assertTextEquals("Wrong password")
+        .assertTextEquals("Incorrect email or password.")
   }
 
   private fun assertOnSignInWithoutError() {
@@ -504,7 +509,7 @@ class AppNavHostTest {
 
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE).assertDoesNotExist()
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -547,7 +552,9 @@ class AppNavHostTest {
     }
 
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(SignInScreenTags.ERROR_MESSAGE).assertTextEquals("Wrong password")
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
   }
 
   @Test
