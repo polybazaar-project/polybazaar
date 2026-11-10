@@ -3,7 +3,6 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
-import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -16,27 +15,19 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.android.polybazaar.auth.model.AuthRepository
-import com.android.polybazaar.auth.model.NoSessionException
-import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
-import com.android.polybazaar.error.model.AppError
-import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
-import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
+import com.android.polybazaar.testing.InMemoryBackend
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Rule
@@ -257,93 +248,5 @@ class EndToEndFlowTest {
     assertNotEquals(adaProfileEntryId, navController.currentBackStackEntry?.id)
     composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("grace")
     composeTestRule.onNodeWithText("Ada's bio").assertDoesNotExist()
-  }
-
-  private class InMemoryBackend : AuthRepository, ProfileRepository {
-    private class Account(val password: String, val user: User)
-
-    private val accounts = mutableMapOf<String, Account>()
-    private val verifiedUids = mutableSetOf<String>()
-    private var signedInUid: String? = null
-    val profiles = MutableStateFlow<Map<String, User>>(emptyMap())
-
-    /** Accounts registered by a test are verified unless [verified] says otherwise. */
-    fun register(
-        email: String,
-        password: String,
-        username: String,
-        verified: Boolean = true,
-    ): User {
-      val user = User(uid = "uid-$username", email = email, username = username)
-      accounts[email] = Account(password, user)
-      if (verified) verifiedUids += user.uid
-      profiles.value = profiles.value + (user.uid to user)
-      return user
-    }
-
-    /** Simulates the user clicking the link in the verification email. */
-    fun openVerificationLink(email: String) {
-      verifiedUids += accounts.getValue(email).user.uid
-    }
-
-    private fun withVerification(user: User) = user.copy(isEmailVerified = user.uid in verifiedUids)
-
-    fun setBio(uid: String, bio: String) {
-      profiles.value = profiles.value + (uid to profiles.value.getValue(uid).copy(bio = bio))
-    }
-
-    fun setSignedIn(uid: String?) {
-      signedInUid = uid
-    }
-
-    override suspend fun signIn(email: String, password: String): Result<User> {
-      val account = accounts[email]
-      if (account == null || account.password != password) {
-        return Result.failure(AppException(AppError.INVALID_CREDENTIALS))
-      }
-      signedInUid = account.user.uid
-      return Result.success(withVerification(account.user))
-    }
-
-    override suspend fun signUp(email: String, password: String, username: String): Result<User> {
-      if (accounts.values.any { it.user.username == username }) {
-        return Result.failure(AppException(AppError.USERNAME_TAKEN))
-      }
-      val user = register(email, password, username, verified = false)
-      signedInUid = user.uid
-      return Result.success(user)
-    }
-
-    override suspend fun signOut() {
-      signedInUid = null
-    }
-
-    override suspend fun getCurrentUser(): User {
-      val uid = signedInUid ?: throw NoSessionException()
-      return withVerification(profiles.value.getValue(uid))
-    }
-
-    override suspend fun sendVerificationEmail(): Result<Unit> = Result.success(Unit)
-
-    override suspend fun refreshUser(): Result<User> = Result.success(getCurrentUser())
-
-    override suspend fun confirmPasswordReset(code: String, newPassword: String): Result<Unit> =
-        Result.failure(IllegalStateException("Not used"))
-
-    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> =
-        Result.failure(IllegalStateException("Not used"))
-
-    override fun observeProfile(uid: String): Flow<User?> = profiles.map { it[uid] }
-
-    override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = "photo-path"
-
-    override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
-
-    override suspend fun removeProfilePhoto(uid: String) = Unit
-
-    override suspend fun updateProfile(uid: String, photoPath: String?, bio: String) {
-      val current = profiles.value.getValue(uid)
-      profiles.value = profiles.value + (uid to current.copy(bio = bio))
-    }
   }
 }
