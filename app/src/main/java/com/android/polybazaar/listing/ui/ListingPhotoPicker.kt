@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -59,7 +60,8 @@ import kotlinx.coroutines.withContext
  *
  * @param storedPhotos when editing, the Storage paths of the saved photos, shown before [photos].
  * @param enabled whether photos can be added, retaken or removed.
- * @param loadStoredPhoto downloads a saved photo for its thumbnail, or returns null when it cannot.
+ * @param storedPhotoBytes the saved photos downloaded so far, by Storage path. A missing photo is
+ *   asked for through [ListingFormActions.onStoredPhotoShown].
  */
 @Composable
 internal fun ListingPhotosField(
@@ -67,7 +69,7 @@ internal fun ListingPhotosField(
     actions: ListingFormActions,
     enabled: Boolean,
     storedPhotos: List<String> = emptyList(),
-    loadStoredPhoto: suspend (String) -> ByteArray? = { null },
+    storedPhotoBytes: Map<String, ByteArray> = emptyMap(),
 ) {
   val remainingPhotos = MAX_PHOTOS - storedPhotos.size - photos.size
   // PickMultipleVisualMedia needs a limit above 1, so the last free slot uses the single picker.
@@ -96,7 +98,9 @@ internal fun ListingPhotosField(
       enabled = enabled,
       storedPhotos = storedPhotos,
       onRemoveStoredPhoto = actions.onStoredPhotoRemoved,
-      storedPreview = { rememberStoredPhotoPreview(it, loadStoredPhoto) },
+      storedPreview = { path ->
+        rememberStoredPhotoPreview(path, storedPhotoBytes[path], actions.onStoredPhotoShown)
+      },
   )
   if (camera.showPermissionExplanation) {
     CameraPermissionDialog(onDismiss = camera::dismissPermissionExplanation)
@@ -152,15 +156,20 @@ internal suspend fun loadPhotoPreview(
 
 internal const val PHOTO_PREVIEW_MAX_SIZE = 512
 
-/** Downloads the saved photo at [path] with [load] and decodes its thumbnail, or null meanwhile. */
+/**
+ * The thumbnail of the saved photo at [path], decoded from its downloaded [bytes], or null until
+ * they are there. Asks for them with [download] when the thumbnail first shows.
+ */
 @Composable
 private fun rememberStoredPhotoPreview(
     path: String,
-    load: suspend (String) -> ByteArray?,
+    bytes: ByteArray?,
+    download: (String) -> Unit,
 ): ImageBitmap? {
+  LaunchedEffect(path) { if (bytes == null) download(path) }
   val preview by
-      produceState<ImageBitmap?>(initialValue = null, path) {
-        value = load(path)?.let { decodePhotoPreview(it) }
+      produceState<ImageBitmap?>(initialValue = null, bytes) {
+        value = bytes?.let { decodePhotoPreview(it) }
       }
   return preview
 }

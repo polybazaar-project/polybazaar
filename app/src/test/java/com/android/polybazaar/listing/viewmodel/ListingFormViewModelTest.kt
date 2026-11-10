@@ -938,27 +938,46 @@ class ListingFormViewModelTest {
   }
 
   @Test
-  fun loadStoredPhoto_returnsTheDownloadedBytes() = runTest {
+  fun loadStoredPhoto_publishesTheDownloadedBytes() {
     repository.images = mapOf("listings/l1/0.jpg" to byteArrayOf(1, 2, 3))
 
-    assertArrayEquals(byteArrayOf(1, 2, 3), viewModel.loadStoredPhoto("listings/l1/0.jpg"))
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertArrayEquals(
+        byteArrayOf(1, 2, 3),
+        viewModel.storedPhotoBytes.value["listings/l1/0.jpg"],
+    )
   }
 
   @Test
-  fun loadStoredPhoto_returnsNullWhenTheDownloadFails() = runTest {
+  fun loadStoredPhoto_downloadsEachPhotoOnce() {
+    repository.images = mapOf("listings/l1/0.jpg" to byteArrayOf(1))
+
+    // Asked twice before the download ends, as when a thumbnail recomposes, then once after it.
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, repository.imageLoads)
+  }
+
+  @Test
+  fun loadStoredPhoto_failure_leavesNoBytesAndAllowsARetry() {
     repository.imageFailure = IOException("Offline")
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
 
-    assertNull(viewModel.loadStoredPhoto("listings/l1/0.jpg"))
-  }
+    assertTrue(viewModel.storedPhotoBytes.value.isEmpty())
 
-  @Test
-  fun loadStoredPhoto_rethrowsCancellation() = runTest {
-    repository.imageFailure = CancellationException("Screen closed")
+    repository.imageFailure = null
+    repository.images = mapOf("listings/l1/0.jpg" to byteArrayOf(4))
+    viewModel.loadStoredPhoto("listings/l1/0.jpg")
+    testDispatcher.scheduler.advanceUntilIdle()
 
-    // A closed screen must stop the download, not show an empty thumbnail.
-    val thrown = runCatching { viewModel.loadStoredPhoto("listings/l1/0.jpg") }.exceptionOrNull()
-
-    assertTrue(thrown is CancellationException)
+    assertArrayEquals(byteArrayOf(4), viewModel.storedPhotoBytes.value["listings/l1/0.jpg"])
   }
 
   private class FakeListingRepository : ListingRepository {
@@ -1014,7 +1033,10 @@ class ListingFormViewModelTest {
     var images: Map<String, ByteArray> = emptyMap()
     var imageFailure: Exception? = null
 
+    var imageLoads = 0
+
     override suspend fun loadListingImage(imagePath: String): ByteArray {
+      imageLoads++
       imageFailure?.let { throw it }
       return images[imagePath] ?: throw IllegalStateException("No image at $imagePath")
     }

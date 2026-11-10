@@ -31,6 +31,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import java.io.ByteArrayOutputStream
 import java.net.UnknownHostException
@@ -323,6 +324,27 @@ class EditListingScreenTest {
     node(EditListingScreenTags.CANCEL_BUTTON).assertIsEnabled()
     composeTestRule.runOnIdle { dispatcher.onBackPressed() }
     assertEquals(1, systemBacks)
+  }
+
+  @Test
+  fun savedPhotos_askForTheirDownloadOnlyWhileMissing() {
+    val requested = mutableListOf<String>()
+    composeTestRule.setContent {
+      EditListingContent(
+          uiState =
+              ListingFormUiState(
+                  listingId = "drill",
+                  storedPhotos = listOf("listings/drill/0.jpg", "listings/drill/1.jpg"),
+              ),
+          actions = ListingFormActions(onStoredPhotoShown = { requested += it }),
+          onBack = {},
+          onRetry = {},
+          // The first photo is already downloaded.
+          storedPhotoBytes = mapOf("listings/drill/0.jpg" to byteArrayOf(1)),
+      )
+    }
+
+    composeTestRule.runOnIdle { assertEquals(listOf("listings/drill/1.jpg"), requested) }
   }
 
   @Test

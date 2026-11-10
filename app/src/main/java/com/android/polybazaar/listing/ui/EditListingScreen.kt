@@ -78,6 +78,7 @@ fun EditListingScreen(
   // Collected without dispatching for the same reason as on the Create screen: a text field that
   // lags behind its input can jump its cursor or drop characters.
   val uiState by listingViewModel.uiState.collectAsState(context = Dispatchers.Main.immediate)
+  val storedPhotoBytes by listingViewModel.storedPhotoBytes.collectAsState()
   val actions = remember(listingViewModel) { listingFormActions(listingViewModel) }
   LaunchedEffect(uiState.savedListing) {
     uiState.savedListing?.let { savedListing ->
@@ -95,7 +96,7 @@ fun EditListingScreen(
       actions = actions,
       onBack = onBack,
       onRetry = listingViewModel::loadListing,
-      loadStoredPhoto = listingViewModel::loadStoredPhoto,
+      storedPhotoBytes = storedPhotoBytes,
   )
 }
 
@@ -105,7 +106,8 @@ fun EditListingScreen(
  * listing cannot change, so its selector is locked.
  *
  * @param onRetry loads the listing again after a failure.
- * @param loadStoredPhoto downloads a saved photo for its thumbnail, or returns null when it cannot.
+ * @param storedPhotoBytes the saved photos downloaded so far, by Storage path, for their
+ *   thumbnails.
  */
 @Composable
 fun EditListingContent(
@@ -113,7 +115,7 @@ fun EditListingContent(
     actions: ListingFormActions,
     onBack: () -> Unit,
     onRetry: () -> Unit,
-    loadStoredPhoto: suspend (String) -> ByteArray? = { null },
+    storedPhotoBytes: Map<String, ByteArray> = emptyMap(),
 ) {
   Column(
       modifier =
@@ -151,7 +153,7 @@ fun EditListingContent(
               // The repository is still reading these photos, so none may be removed or replaced.
               enabled = !uiState.isSaving,
               storedPhotos = uiState.storedPhotos,
-              loadStoredPhoto = loadStoredPhoto,
+              storedPhotoBytes = storedPhotoBytes,
           )
           ListingDetailsFields(
               uiState = uiState,

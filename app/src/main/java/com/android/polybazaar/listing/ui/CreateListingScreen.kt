@@ -130,6 +130,8 @@ class ListingFormActions(
     val onPhotoRemoved: (Uri) -> Unit = {},
     /** Removes a saved photo of the edited listing, given its Storage path. */
     val onStoredPhotoRemoved: (String) -> Unit = {},
+    /** Asks for the saved photo at this Storage path to be downloaded, for its thumbnail. */
+    val onStoredPhotoShown: (String) -> Unit = {},
     /** Returns the URI the camera app writes the photo to, or null when none can be created. */
     val startTakingPhoto: (retakeIndex: Int?) -> Uri? = { null },
     val finishTakingPhoto: (saved: Boolean) -> Unit = {},
@@ -150,6 +152,7 @@ internal fun listingFormActions(viewModel: ListingFormViewModel) =
         onPhotosPicked = viewModel::addPhotos,
         onPhotoRemoved = viewModel::removePhoto,
         onStoredPhotoRemoved = viewModel::removeStoredPhoto,
+        onStoredPhotoShown = viewModel::loadStoredPhoto,
         startTakingPhoto = viewModel::startTakingPhoto,
         finishTakingPhoto = viewModel::finishTakingPhoto,
         onSave = viewModel::save,

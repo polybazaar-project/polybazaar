@@ -158,6 +158,16 @@ class ListingFormViewModel(
   private val _uiState = MutableStateFlow(savedStateHandle.restoreForm(listingId))
   val uiState: StateFlow<ListingFormUiState> = _uiState.asStateFlow()
 
+  /**
+   * The downloaded saved photos, by Storage path, for their thumbnails. Kept apart from [uiState]:
+   * they are not part of the form, and are too large to save when Android kills the app.
+   */
+  private val _storedPhotoBytes = MutableStateFlow<Map<String, ByteArray>>(emptyMap())
+  val storedPhotoBytes: StateFlow<Map<String, ByteArray>> = _storedPhotoBytes.asStateFlow()
+
+  /** The saved photos being downloaded, so that each is downloaded once at a time. */
+  private val photosDownloading = mutableSetOf<String>()
+
   /** The photo the camera app is taking, until it closes. */
   private var pendingPhoto: Uri?
     get() = savedStateHandle[PENDING_PHOTO]
@@ -352,17 +362,25 @@ class ListingFormViewModel(
   fun clearSavedListing() = updateState { it.copy(savedListing = null) }
 
   /**
-   * Downloads the saved photo at [path], one of [ListingFormUiState.storedPhotos], to show its
-   * thumbnail. Returns null when it cannot be downloaded: the thumbnail then stays empty, and the
-   * photo is still kept unless the user removes it.
+   * Downloads the saved photo at [path], one of [ListingFormUiState.storedPhotos], into
+   * [storedPhotoBytes] to show its thumbnail. A photo already downloaded or downloading is not
+   * downloaded again. If the download fails the thumbnail stays empty, the photo is still kept
+   * unless the user removes it, and a later call tries again.
    */
-  suspend fun loadStoredPhoto(path: String): ByteArray? =
+  fun loadStoredPhoto(path: String) {
+    if (path in _storedPhotoBytes.value || !photosDownloading.add(path)) return
+    viewModelScope.launch {
       try {
-        listingRepository.loadListingImage(path)
+        val bytes = listingRepository.loadListingImage(path)
+        _storedPhotoBytes.update { it + (path to bytes) }
       } catch (exception: Exception) {
+        // Cancellation means the screen was closed: it is not an error to show.
         if (exception is CancellationException) throw exception
-        null
+      } finally {
+        photosDownloading.remove(path)
       }
+    }
+  }
 
   /** A change the user makes to the form, ignored while they cannot edit it. */
   private fun changeForm(transform: (ListingFormUiState) -> ListingFormUiState) {
