@@ -95,35 +95,38 @@ fun ToolboxContent(
               .padding(16.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    Text(
-        text = stringResource(R.string.toolbox_title),
-        color = AuthColors.TextPrimary,
-        fontSize = 22.sp,
-        fontWeight = FontWeight.Bold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
-    // The filters get their own line, so the title keeps its full width on narrow phones.
-    if (uiState.listings.isNotEmpty()) {
-      Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        TypeFilterButton(
-            text = stringResource(R.string.toolbox_filter_all),
-            isSelected = uiState.selectedType == null,
-            onClick = { onTypeSelected(null) },
-            modifier = Modifier.testTag(ToolboxCardTags.FILTER_ALL),
-        )
-        TypeFilterButton(
-            text = stringResource(R.string.toolbox_filter_items),
-            isSelected = uiState.selectedType == ListingType.ITEM,
-            onClick = { onTypeSelected(ListingType.ITEM) },
-            modifier = Modifier.testTag(ToolboxCardTags.FILTER_ITEMS),
-        )
-        TypeFilterButton(
-            text = stringResource(R.string.toolbox_filter_services),
-            isSelected = uiState.selectedType == ListingType.SERVICE,
-            onClick = { onTypeSelected(ListingType.SERVICE) },
-            modifier = Modifier.testTag(ToolboxCardTags.FILTER_SERVICES),
-        )
+    // A tighter group than the rest of the card, so the header takes less of the profile.
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text(
+          text = stringResource(R.string.toolbox_title),
+          color = AuthColors.TextPrimary,
+          fontSize = 18.sp,
+          fontWeight = FontWeight.Bold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+      )
+      // The filters get their own line, so the title keeps its full width on narrow phones.
+      if (uiState.listings.isNotEmpty()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+          TypeFilterButton(
+              text = stringResource(R.string.toolbox_filter_all),
+              isSelected = uiState.selectedType == null,
+              onClick = { onTypeSelected(null) },
+              modifier = Modifier.testTag(ToolboxCardTags.FILTER_ALL),
+          )
+          TypeFilterButton(
+              text = stringResource(R.string.toolbox_filter_items),
+              isSelected = uiState.selectedType == ListingType.ITEM,
+              onClick = { onTypeSelected(ListingType.ITEM) },
+              modifier = Modifier.testTag(ToolboxCardTags.FILTER_ITEMS),
+          )
+          TypeFilterButton(
+              text = stringResource(R.string.toolbox_filter_services),
+              isSelected = uiState.selectedType == ListingType.SERVICE,
+              onClick = { onTypeSelected(ListingType.SERVICE) },
+              modifier = Modifier.testTag(ToolboxCardTags.FILTER_SERVICES),
+          )
+        }
       }
     }
     uiState.error?.let { error ->
@@ -188,7 +191,10 @@ fun ToolboxContent(
   }
 }
 
-/** A pill that filters the listings by type, styled like the Browse category selector. */
+/**
+ * A pill that filters the listings by type, styled like the Browse category selector but more
+ * compact, so the Toolbox header stays short.
+ */
 @Composable
 private fun TypeFilterButton(
     text: String,
@@ -200,7 +206,7 @@ private fun TypeFilterButton(
   Text(
       text = text,
       color = if (isSelected) AuthColors.Accent else AuthColors.TextSecondary,
-      fontSize = 16.sp,
+      fontSize = 14.sp,
       fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
       modifier =
           modifier
@@ -211,7 +217,7 @@ private fun TypeFilterButton(
               )
               .border(1.dp, if (isSelected) AuthColors.Accent else AuthColors.Outline, shape)
               .clickable(onClick = onClick)
-              .padding(horizontal = 18.dp, vertical = 11.dp),
+              .padding(horizontal = 16.dp, vertical = 6.dp),
   )
 }
 
