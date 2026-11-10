@@ -23,7 +23,13 @@ class ProfileFlowTest : PolyBazaarTestCase() {
       onComposeScreen<ProfilePage>(composeTestRule) { assertIsDisplayed() }
     }
     step("Edit the bio") {
-      onComposeScreen<ProfilePage>(composeTestRule) { editProfileButton.performClick() }
+      onComposeScreen<ProfilePage>(composeTestRule) {
+        // The button stays disabled until the profile has loaded, and sits below the fold on a
+        // small screen; a click on it in either state is dropped.
+        editProfileButton.assertIsEnabled()
+        editProfileButton.performScrollTo()
+        editProfileButton.performClick()
+      }
       onComposeScreen<EditProfilePage>(composeTestRule) {
         bioField.performTextInput("Mathematician")
         saveButton.performClick()
@@ -36,7 +42,11 @@ class ProfileFlowTest : PolyBazaarTestCase() {
       }
     }
     step("Sign out from the settings") {
-      onComposeScreen<ProfilePage>(composeTestRule) { settingsButton.performClick() }
+      onComposeScreen<ProfilePage>(composeTestRule) {
+        // The profile keeps its scroll offset after Edit profile, which can push the header up.
+        settingsButton.performScrollTo()
+        settingsButton.performClick()
+      }
       onComposeScreen<SettingsPage>(composeTestRule) {
         signOutButton.performClick()
         signOutConfirm.performClick()

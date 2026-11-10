@@ -13,6 +13,7 @@ import com.android.polybazaar.screens.BottomBarPage
 import com.android.polybazaar.screens.CreateListingPage
 import com.kaspersky.kaspresso.device.permissions.Permissions
 import io.github.kakaocup.compose.node.element.ComposeScreen.Companion.onComposeScreen
+import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,6 +25,7 @@ class CameraPermissionTest : PolyBazaarTestCase() {
     const val DIALOG_TIMEOUT_MS = 15_000L
     const val CAMERA_TIMEOUT_MS = 15_000L
     const val MAX_BACK_PRESSES = 3
+    const val HIERARCHY_DUMP_LIMIT = 3_000
   }
 
   private val appPackage: String
@@ -41,6 +43,13 @@ class CameraPermissionTest : PolyBazaarTestCase() {
   private fun awaitPermissionDialogButton(buttonId: String) {
     val button = By.res("com.android.permissioncontroller", buttonId)
     assertTrue(device.uiDevice.wait(Until.hasObject(button), DIALOG_TIMEOUT_MS))
+  }
+
+  private fun foregroundDiagnostics(): String {
+    val hierarchy = ByteArrayOutputStream()
+    device.uiDevice.dumpWindowHierarchy(hierarchy)
+    return "Foreground package: ${device.uiDevice.currentPackageName}. " +
+        "Window hierarchy: ${hierarchy.toString(Charsets.UTF_8).take(HIERARCHY_DUMP_LIMIT)}"
   }
 
   @Test
@@ -81,7 +90,14 @@ class CameraPermissionTest : PolyBazaarTestCase() {
         assertTrue(cameraGranted())
       }
       step("Leave the camera app without taking a photo") {
-        assertTrue(device.uiDevice.wait(Until.gone(By.pkg(appPackage)), CAMERA_TIMEOUT_MS))
+        // PolyBazaar is also out of the foreground while the permission dialog closes, so wait for
+        // another app: a back press before the camera opens would leave PolyBazaar instead.
+        flakySafely(timeoutMs = CAMERA_TIMEOUT_MS) {
+          val foreground = device.uiDevice.currentPackageName
+          check(foreground != appPackage && !foreground.contains("permissioncontroller")) {
+            "The camera app is not in the foreground yet: $foreground"
+          }
+        }
         // Back from the camera app, never from PolyBazaar: it would leave Create listing. A
         // first-run prompt of the camera app can swallow a press, hence the bounded retries.
         var returned = false
@@ -90,7 +106,10 @@ class CameraPermissionTest : PolyBazaarTestCase() {
           returned = device.uiDevice.wait(Until.hasObject(By.pkg(appPackage)), CAMERA_TIMEOUT_MS)
           if (returned) break
         }
-        assertTrue("PolyBazaar did not come back from the camera app", returned)
+        assertTrue(
+            "PolyBazaar did not come back from the camera app. ${foregroundDiagnostics()}",
+            returned,
+        )
         onComposeScreen<CreateListingPage>(composeTestRule) {
           takePhoto.assertIsDisplayed()
           cameraPermissionDialog.assertDoesNotExist()

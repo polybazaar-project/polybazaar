@@ -117,6 +117,17 @@ jobs:
           disable-animations: true
           script: ./gradlew connectedCheck --parallel --build-cache
 
+      # The emulator is gone after the run, so keep the instrumented test results for debugging.
+      - name: Upload instrumented test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: instrumented-test-results
+          path: |
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
+          if-no-files-found: ignore
+
       # This step generates the coverage report which will be uploaded to sonar
       - name: Generate Coverage Report
         run: |
