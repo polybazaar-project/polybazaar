@@ -88,7 +88,7 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
-  fun sendMessageMergesConversationAndWritesTrimmedMessageInOneBatch() = runTest {
+  fun sendMessageFirstMessageMergesFullConversationAndTrimmedMessageInOneBatch() = runTest {
     repository.sendMessage(conversation, "  Is it available on Saturday?  ")
 
     val order = inOrder(batch)
@@ -122,6 +122,41 @@ class FirebaseChatRepositoryTest {
             ),
         )
     order.verify(batch).commit()
+  }
+
+  @Test
+  fun sendMessageReplyLeavesStoredListingTitleUnchanged() = runTest {
+    val stored = conversation.copy(lastMessageAt = Instant.ofEpochSecond(1_700_000_000))
+
+    repository.sendMessage(stored, "Still available?")
+
+    verify(batch)
+        .set(
+            eq(conversationRef),
+            eq(
+                mapOf(
+                    "listingId" to "listing",
+                    "renterUid" to "renter",
+                    "lenderUid" to "lender",
+                    "participants" to listOf("renter", "lender"),
+                    "lastMessageAt" to FieldValue.serverTimestamp(),
+                    "lastMessageId" to "message-id",
+                )
+            ),
+            eq(SetOptions.merge()),
+        )
+    verify(batch)
+        .set(
+            eq(messageRef),
+            eq(
+                mapOf(
+                    "senderUid" to "renter",
+                    "text" to "Still available?",
+                    "sentAt" to FieldValue.serverTimestamp(),
+                )
+            ),
+        )
+    verify(batch).commit()
   }
 
   @Test

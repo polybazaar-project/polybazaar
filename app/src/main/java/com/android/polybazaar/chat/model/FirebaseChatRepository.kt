@@ -40,23 +40,25 @@ class FirebaseChatRepository(
     }
     val conversationRef = conversationDocument(conversation.id)
     val messageRef = conversationRef.collection(MESSAGES).document()
+    val conversationFields =
+        mutableMapOf<String, Any>(
+            "listingId" to conversation.listingId,
+            "renterUid" to conversation.renterUid,
+            "lenderUid" to conversation.lenderUid,
+            "participants" to conversation.participants,
+            "lastMessageAt" to FieldValue.serverTimestamp(),
+            "lastMessageId" to messageRef.id,
+        )
+    // A reply leaves the title as stored, so an outdated title on this device cannot get the
+    // reply rejected.
+    if (conversation.lastMessageAt == null) {
+      conversationFields["listingTitle"] = conversation.listingTitle
+    }
     firestore
         .batch()
         // A merge leaves unchanged fields out of the rules' affected keys, so the same write
         // creates the conversation on the first message and only bumps it on later ones.
-        .set(
-            conversationRef,
-            mapOf(
-                "listingId" to conversation.listingId,
-                "listingTitle" to conversation.listingTitle,
-                "renterUid" to conversation.renterUid,
-                "lenderUid" to conversation.lenderUid,
-                "participants" to conversation.participants,
-                "lastMessageAt" to FieldValue.serverTimestamp(),
-                "lastMessageId" to messageRef.id,
-            ),
-            SetOptions.merge(),
-        )
+        .set(conversationRef, conversationFields, SetOptions.merge())
         .set(
             messageRef,
             mapOf(

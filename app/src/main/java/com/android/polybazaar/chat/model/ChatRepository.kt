@@ -9,9 +9,9 @@ interface ChatRepository {
    * first message creates the conversation; later ones update it. Firestore may later reject the
    * write and report the failure through [onWriteFailure].
    *
-   * @param conversation its [Conversation.listingTitle] must be the listing's current title: the
-   *   rules accept only the current title on the first message, and the stored or current one
-   *   after.
+   * @param conversation for the first message, a new [Conversation] (no lastMessageAt) whose
+   *   listingTitle is the listing's current title; for a reply, the conversation from
+   *   [observeConversation], whose title is left as stored.
    * @param onWriteFailure receives a write failure that arrives after local queuing. It may run on
    *   a Firestore background thread and must not throw.
    */
