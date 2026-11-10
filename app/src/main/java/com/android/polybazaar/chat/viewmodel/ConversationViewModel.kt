@@ -37,11 +37,9 @@ enum class ListingStatus {
  * @property myUid uid of the signed-in user, to tell their messages apart.
  * @property messages the messages, oldest first.
  * @property conversation the conversation, or null while it does not exist yet.
- * @property listingTitle title for the header: the listing's, or once it is deleted the one stored
- *   in the conversation, else the last one loaded. Null until any is known.
- * @property listingStatus the state of the listing, or null until it is known. A listing whose
- *   owner is not the conversation's lender was deleted and re-created under the same ID, so it
- *   counts as [ListingStatus.DELETED].
+ * @property listingTitle title for the header: the last loaded listing's, else the one stored in
+ *   the conversation. Null until either is known.
+ * @property listingStatus the state of the listing, or null until it is known.
  * @property otherUser profile of the other participant, or null while it loads, after a failure, or
  *   when they have no profile.
  * @property draft the message being typed.
@@ -67,11 +65,7 @@ data class ConversationUiState(
 )
 
 /** The listing as last loaded, kept in one reference so other threads never see half of it. */
-private data class LoadedListing(
-    val listing: Listing? = null,
-    val status: ListingStatus? = null,
-    val lastTitle: String? = null,
-)
+private data class LoadedListing(val listing: Listing? = null, val status: ListingStatus? = null)
 
 /**
  * Shows and sends the messages between the renter [renterUid] and the owner of the listing
@@ -104,7 +98,6 @@ class ConversationViewModel(
   private var messagesSettled = false
   private var messagesFailed = false
   private var otherUserUid: String? = null
-  private var otherUserObservation: Job? = null
   private var sendInFlight = false
 
   init {
@@ -167,12 +160,11 @@ class ConversationViewModel(
 
   /**
    * The conversation the first message creates, or null when it cannot be created: the rules only
-   * let the renter named in its ID create it, and never with themselves as the lender.
+   * let the renter named in its ID create it.
    */
-  private fun firstConversation(): Conversation? {
-    val listing = loaded.listing ?: return null
-    val ownerUid = listing.ownerUid ?: return null
-    if (myUid != renterUid || ownerUid == myUid) return null
+  private fun firstConversation(listing: Listing? = loaded.listing): Conversation? {
+    val ownerUid = listing?.ownerUid ?: return null
+    if (myUid != renterUid) return null
     return Conversation(listingId, listing.title, renterUid, ownerUid, lastMessageAt = null)
   }
 
@@ -203,7 +195,7 @@ class ConversationViewModel(
             .getListing(listingId)
             .onSuccess { listing ->
               val status = if (listing.isPaused) ListingStatus.PAUSED else ListingStatus.ACTIVE
-              loaded = LoadedListing(listing, status, listing.title)
+              loaded = LoadedListing(listing, status)
               _uiState.update { it.derived() }
               observeOtherUser()
             }
@@ -211,7 +203,8 @@ class ConversationViewModel(
               if (exception is CancellationException) throw exception
               val error = exception.toAppError()
               if (error == AppError.NOT_FOUND) {
-                loaded = LoadedListing(status = ListingStatus.DELETED, lastTitle = loaded.lastTitle)
+                // The listing loaded before, if any, keeps the header's title.
+                loaded = loaded.copy(status = ListingStatus.DELETED)
                 _uiState.update { it.derived() }
               } else {
                 listingFailed = true
@@ -267,20 +260,15 @@ class ConversationViewModel(
 
   /**
    * Keeps [ConversationUiState.otherUser] up to date once the other participant is known. Started
-   * once per participant: a failed observation is not retried on every new message. The participant
-   * changes when the listing, loaded first, was re-created by someone else and the conversation
-   * then names the real lender.
+   * once, so a failed observation is not retried on every new message.
    */
   private fun observeOtherUser() {
     val uid =
         if (myUid != renterUid) renterUid
         else _uiState.value.conversation?.lenderUid ?: loaded.listing?.ownerUid
-    if (uid == null || uid == otherUserUid) return
+    if (uid == null || otherUserUid != null) return
     otherUserUid = uid
-    // Otherwise the previous participant's live profile could keep overwriting the new one.
-    otherUserObservation?.cancel()
-    _uiState.update { it.copy(otherUser = null) }
-    otherUserObservation = viewModelScope.launch {
+    viewModelScope.launch {
       profileRepository
           .observeProfile(uid)
           // The chat works without the profile, so no error is shown; toAppError() still logs
@@ -297,23 +285,15 @@ class ConversationViewModel(
 
   /** This state with the fields that derive from the loaded listing and the draft recomputed. */
   private fun ConversationUiState.derived(): ConversationUiState {
-    val loaded = loaded
-    val ownerUid = loaded.listing?.ownerUid
-    val recreated = conversation != null && ownerUid != null && ownerUid != conversation.lenderUid
-    val listing = loaded.listing.takeUnless { recreated }
-    val status = if (recreated) ListingStatus.DELETED else loaded.status
-    val canCreate =
-        status == ListingStatus.ACTIVE &&
-            myUid == renterUid &&
-            ownerUid != null &&
-            ownerUid != myUid
+    val (listing, status) = loaded
     val sendable =
         ChatRules.isSendable(draft) &&
             status != null &&
             status != ListingStatus.DELETED &&
-            (conversation != null || canCreate)
+            (conversation != null ||
+                (status == ListingStatus.ACTIVE && firstConversation(listing) != null))
     return copy(
-        listingTitle = listing?.title ?: conversation?.listingTitle ?: loaded.lastTitle,
+        listingTitle = listing?.title ?: conversation?.listingTitle,
         listingStatus = status,
         canSend = sendable,
     )
