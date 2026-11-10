@@ -587,6 +587,22 @@ class FirebaseAuthRepositoryTest {
   }
 
   @Test
+  fun sendVerificationEmail_accountDeletedOrDisabled_failsWithUnauthenticated() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    for (code in listOf("ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED")) {
+      val exception = FirebaseAuthInvalidUserException(code, "No user")
+      whenever(firebaseUser.sendEmailVerification()).thenReturn(Tasks.forException(exception))
+
+      val result = repository.sendVerificationEmail()
+
+      // Not INVALID_CREDENTIALS: the verify email screen has no email or password field.
+      val failure = result.exceptionOrNull() as AppException
+      assertEquals(AppError.UNAUTHENTICATED, failure.error)
+      assertSame(exception, failure.cause)
+    }
+  }
+
+  @Test
   fun refreshUser_emailVerifiedSinceLastLoad_returnsVerifiedUser() = runTest {
     whenever(auth.currentUser).thenReturn(firebaseUser)
     var verifiedOnServer = false
@@ -667,6 +683,22 @@ class FirebaseAuthRepositoryTest {
     val result = repository.refreshUser()
 
     assertEquals(AppError.UNAUTHENTICATED, result.exceptionOrNull()?.toAppError())
+  }
+
+  @Test
+  fun refreshUser_accountDeletedOrDisabled_failsWithUnauthenticated() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    for (code in listOf("ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED")) {
+      val exception = FirebaseAuthInvalidUserException(code, "No user")
+      whenever(firebaseUser.reload()).thenReturn(Tasks.forException(exception))
+
+      val result = repository.refreshUser()
+
+      // Not INVALID_CREDENTIALS: the verify email screen has no email or password field.
+      val failure = result.exceptionOrNull() as AppException
+      assertEquals(AppError.UNAUTHENTICATED, failure.error)
+      assertSame(exception, failure.cause)
+    }
   }
 
   @Test

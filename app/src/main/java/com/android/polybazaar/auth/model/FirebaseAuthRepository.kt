@@ -126,7 +126,7 @@ class FirebaseAuthRepository(
       Result.success(getCurrentUser())
     } catch (e: Exception) {
       if (e is CancellationException) throw e
-      Result.failure(e)
+      Result.failure(signedInUserFailure(e))
     }
   }
 
@@ -136,9 +136,19 @@ class FirebaseAuthRepository(
       Result.success(Unit)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
-      Result.failure(e)
+      Result.failure(signedInUserFailure(e))
     }
   }
+
+  /**
+   * The failure to return when an operation on the signed-in user throws [e].
+   *
+   * If the account was deleted or disabled meanwhile, Firebase throws
+   * [FirebaseAuthInvalidUserException], which toAppError maps to "Incorrect email or password" for
+   * sign-in. These screens have no email or password field, so report it as an ended session.
+   */
+  private fun signedInUserFailure(e: Exception): Exception =
+      if (e is FirebaseAuthInvalidUserException) AppException(AppError.UNAUTHENTICATED, e) else e
 
   override suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
     // Firebase throws IllegalArgumentException on an empty string before any request is sent,

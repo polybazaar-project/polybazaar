@@ -48,8 +48,9 @@ interface AuthRepository {
    *
    * Fails with an exception that [com.android.polybazaar.error.model.toAppError] maps to the
    * message to show: [com.android.polybazaar.error.model.AppError.UNAUTHENTICATED] if no user is
-   * signed in, [com.android.polybazaar.error.model.AppError.TOO_MANY_REQUESTS] if emails were sent
-   * too often, [com.android.polybazaar.error.model.AppError.NETWORK] offline.
+   * signed in or the account was deleted or disabled,
+   * [com.android.polybazaar.error.model.AppError.TOO_MANY_REQUESTS] if emails were sent too often,
+   * [com.android.polybazaar.error.model.AppError.NETWORK] offline.
    */
   suspend fun sendVerificationEmail(): Result<Unit>
 
@@ -58,8 +59,8 @@ interface AuthRepository {
    *
    * Fails with an exception that [com.android.polybazaar.error.model.toAppError] maps to the
    * message to show: [com.android.polybazaar.error.model.AppError.UNAUTHENTICATED] if no user is
-   * signed in or the session expired, [com.android.polybazaar.error.model.AppError.NETWORK]
-   * offline.
+   * signed in, the session expired or the account was deleted or disabled,
+   * [com.android.polybazaar.error.model.AppError.NETWORK] offline.
    */
   suspend fun refreshUser(): Result<User>
 
