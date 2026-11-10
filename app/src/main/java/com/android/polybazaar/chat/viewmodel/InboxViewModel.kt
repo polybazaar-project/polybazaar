@@ -12,6 +12,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -44,12 +45,15 @@ enum class ListingStatus {
  * @property listingTitle the listing's current title, or the title stored on the conversation when
  *   the listing could not be read.
  * @property listingStatus whether the listing is active, paused, deleted or could not be read.
+ * @property listingPhotoPath Storage path of the listing's first photo, null when it has none or
+ *   could not be read. The other person's photo path is [User.photoPath] of [otherUser].
  */
 data class InboxConversation(
     val conversation: Conversation,
     val otherUser: User?,
     val listingTitle: String,
     val listingStatus: ListingStatus,
+    val listingPhotoPath: String?,
 )
 
 /** State of the inbox screen. */
@@ -60,6 +64,11 @@ data class InboxUiState(
     val isLoading: Boolean = true,
     /** Why the conversations could not be loaded; the rows already shown are kept. */
     val error: AppError? = null,
+    /**
+     * The photos downloaded so far, listing and profile photos alike, keyed by Storage path. A
+     * photo still downloading or that failed to download is missing.
+     */
+    val photos: Map<String, ByteArray> = emptyMap(),
 )
 
 /** Lists the signed-in user's conversations for the inbox, with each one's listing state. */
@@ -78,27 +87,70 @@ class InboxViewModel(
    * Loads the conversations of [myUid], the signed-in user, and keeps them updated. Calling it
    * again drops the previous load and starts over, which is how the screen retries after an error.
    * Each person's profile is looked up once per load, so a profile change shows on the next load.
+   * The photos already downloaded are kept.
    */
   fun loadInbox(myUid: String) {
     loadJob?.cancel()
-    _uiState.value = InboxUiState()
+    _uiState.update { InboxUiState(photos = it.photos) }
     loadJob = viewModelScope.launch { collectConversations(myUid) }
   }
 
   /**
-   * Collects the conversations of [myUid]. Profiles found during this load are kept, keyed by uid,
-   * so a later emission only looks up the people it has not seen yet.
+   * Shows each emission's rows as soon as they are built, then downloads their missing photos in
+   * the background. A download runs until it ends even if the flow fails, so the rows kept on error
+   * still get their photos. Profiles found during this load are kept, keyed by uid, so a later
+   * emission only looks up the people it has not seen yet.
    */
-  private suspend fun collectConversations(myUid: String) {
+  private suspend fun collectConversations(myUid: String) = coroutineScope {
     val profiles = mutableMapOf<String, User?>()
+    // Paths downloading in this load, so a later emission does not start them again.
+    val downloading = mutableSetOf<String>()
     try {
       chatRepository.observeMyConversations().collect { conversations ->
         val rows = loadRows(myUid, conversations, profiles)
         _uiState.update { it.copy(conversations = rows, isLoading = false) }
+        downloadPhotos(rows, downloading)
       }
     } catch (exception: Exception) {
       if (exception is CancellationException) throw exception
       _uiState.update { it.copy(isLoading = false, error = exception.toAppError()) }
+    }
+  }
+
+  /** Starts downloading, in parallel, each photo of [rows] not downloaded nor [downloading] yet. */
+  private fun CoroutineScope.downloadPhotos(
+      rows: List<InboxConversation>,
+      downloading: MutableSet<String>,
+  ) {
+    rows.forEach { row ->
+      row.listingPhotoPath?.let { path ->
+        downloadPhoto(path, downloading) { listingRepository.loadListingImage(path) }
+      }
+      row.otherUser?.photoPath?.let { path ->
+        downloadPhoto(path, downloading) { profileRepository.loadProfilePhoto(path) }
+      }
+    }
+  }
+
+  /**
+   * Downloads the photo at [path] with [download] and adds it to [InboxUiState.photos]. A failure
+   * leaves it missing, without an error, so the next emission tries again.
+   */
+  private fun CoroutineScope.downloadPhoto(
+      path: String,
+      downloading: MutableSet<String>,
+      download: suspend () -> ByteArray,
+  ) {
+    if (path in _uiState.value.photos || !downloading.add(path)) return
+    launch {
+      try {
+        val photo = download()
+        _uiState.update { it.copy(photos = it.photos + (path to photo)) }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+      } finally {
+        downloading -= path
+      }
     }
   }
 
@@ -122,6 +174,7 @@ class InboxViewModel(
           otherUser = profiles[conversation.otherUid(myUid)],
           listingTitle = listing.listing?.title ?: conversation.listingTitle,
           listingStatus = listing.status,
+          listingPhotoPath = listing.listing?.imagePaths?.firstOrNull(),
       )
     }
   }

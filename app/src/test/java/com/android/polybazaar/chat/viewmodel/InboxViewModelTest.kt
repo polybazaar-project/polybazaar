@@ -108,9 +108,18 @@ class InboxViewModelTest {
           listingId = conversation.listingId,
       )
 
-  /** The row for [conversation] with [otherUser], its listing active under its stored title. */
+  /**
+   * The row for [conversation] with [otherUser], its listing active under its stored title and
+   * without photos.
+   */
   private fun row(conversation: Conversation, otherUser: User?) =
-      InboxConversation(conversation, otherUser, conversation.listingTitle, ListingStatus.ACTIVE)
+      InboxConversation(
+          conversation,
+          otherUser,
+          conversation.listingTitle,
+          ListingStatus.ACTIVE,
+          listingPhotoPath = null,
+      )
 
   /** The state once [rows] are shown, with [error] if loading then failed. */
   private fun loaded(vararg rows: InboxConversation, error: AppError? = null) =
