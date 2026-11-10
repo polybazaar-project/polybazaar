@@ -43,9 +43,9 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.listing.model.formatChf
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
-import java.util.Locale
 
 object ToolboxCardTags {
   const val LISTINGS = "toolbox_listings"
@@ -247,9 +247,8 @@ private fun ToolboxListingRow(listing: Listing) {
           color = AuthColors.TextSecondary,
           fontSize = 15.sp,
       )
-      // Whole prices stay short, and Locale.ROOT keeps the decimal point.
       Text(
-          text = "CHF " + String.format(Locale.ROOT, "%.2f", listing.price).removeSuffix(".00"),
+          text = formatChf(listing.price),
           color = AuthColors.Accent,
           fontSize = 15.sp,
           fontWeight = FontWeight.Bold,
