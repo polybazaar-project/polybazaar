@@ -97,12 +97,14 @@ class FirebaseBookingRepositoryTest {
     whenever(document.set(any<Map<String, Any>>())).thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
     val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+    var reportedToCaller: Exception? = null
 
-    repository.requestBooking(booking)
+    repository.requestBooking(booking) { reportedToCaller = it }
     val failure = IllegalStateException("Write rejected")
     pendingWrite.setException(failure)
 
     assertSame(failure, reportedFailure)
+    assertSame(failure, reportedToCaller)
   }
 
   @Test

@@ -47,6 +47,9 @@
     <string name="listing_detail_choose_dates">Choose dates</string>
     <string name="listing_detail_reassurance">See your full total before you request to book.</string>
 
+    <!-- Edit profile screen -->
+    <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
+
     <!-- Toolbox -->
     <string name="toolbox_title">My toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>

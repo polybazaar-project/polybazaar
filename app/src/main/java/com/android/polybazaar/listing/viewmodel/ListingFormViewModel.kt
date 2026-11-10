@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
  * @property loadError why the edited listing could not be loaded, or null. The form cannot be saved
  *   until a Retry succeeds.
  * @property savedListing the saved listing, until the screen has handled it.
- * @property errorMessage why the last save failed, or null.
+ * @property saveError why the last save failed, or null.
  */
 data class ListingFormUiState(
     val listingId: String? = null,
@@ -67,7 +67,7 @@ data class ListingFormUiState(
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
     val isSaving: Boolean = false,
-    val errorMessage: String? = null,
+    val saveError: AppError? = null,
 ) {
   /** Whether this form edits a saved listing rather than creating one. */
   val isEditing: Boolean
@@ -325,7 +325,7 @@ class ListingFormViewModel(
     pendingPhoto = null
     retakeIndex = null
 
-    updateState { it.copy(savedListing = null, isSaving = true, errorMessage = null) }
+    updateState { it.copy(savedListing = null, isSaving = true, saveError = null) }
     viewModelScope.launch {
       try {
         val savedListing =
@@ -344,8 +344,7 @@ class ListingFormViewModel(
           updateState { it.copy(isSaving = false) }
           throw exception
         }
-        val fallback = if (state.isEditing) "Unable to save changes" else "Unable to create listing"
-        updateState { it.copy(isSaving = false, errorMessage = exception.message ?: fallback) }
+        updateState { it.copy(isSaving = false, saveError = exception.toAppError()) }
       }
     }
   }
