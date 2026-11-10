@@ -14,6 +14,7 @@ import java.util.concurrent.Executor
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
 
 class FirebaseChatRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
@@ -52,7 +53,9 @@ class FirebaseChatRepository(
     // A reply leaves the title as stored, so an outdated title on this device cannot get the
     // reply rejected.
     if (conversation.lastMessageAt == null) {
-      conversationFields["listingTitle"] = conversation.listingTitle
+      // The rules require the listing's current title, and the one this screen loaded may be
+      // outdated.
+      conversationFields["listingTitle"] = currentListingTitle(conversation.listingId)
     }
     firestore
         .batch()
@@ -147,6 +150,15 @@ class FirebaseChatRepository(
     awaitClose { listener.remove() }
   }
 
+  private suspend fun currentListingTitle(listingId: String): String {
+    val listing = firestore.collection(LISTINGS).document(listingId).get().await()
+    return listing.takeIf { it.exists() }?.getString("title")
+        ?: throw FirebaseFirestoreException(
+            "Listing $listingId no longer exists",
+            FirebaseFirestoreException.Code.NOT_FOUND,
+        )
+  }
+
   private fun conversationDocument(id: String) = firestore.collection(CONVERSATIONS).document(id)
 
   // A write not yet confirmed by the server has no sentAt or lastMessageAt; ESTIMATE gives it the
@@ -181,5 +193,6 @@ class FirebaseChatRepository(
   private companion object {
     const val CONVERSATIONS = "conversations"
     const val MESSAGES = "messages"
+    const val LISTINGS = "listings"
   }
 }

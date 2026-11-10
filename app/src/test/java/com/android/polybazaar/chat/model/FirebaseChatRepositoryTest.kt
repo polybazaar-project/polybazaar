@@ -53,6 +53,9 @@ class FirebaseChatRepositoryTest {
   private val recentConversations = mock<Query>()
   private val batch = mock<WriteBatch>()
   private val registration = mock<ListenerRegistration>()
+  private val listings = mock<CollectionReference>()
+  private val listingRef = mock<DocumentReference>()
+  private val listing = mock<DocumentSnapshot>()
   private val repository = FirebaseChatRepository(firestore, auth)
   private val conversation =
       Conversation(
@@ -78,6 +81,11 @@ class FirebaseChatRepositoryTest {
     whenever(batch.set(any(), any())).thenReturn(batch)
     whenever(batch.set(any(), any(), any<SetOptions>())).thenReturn(batch)
     whenever(batch.commit()).thenReturn(Tasks.forResult(null))
+    whenever(firestore.collection("listings")).thenReturn(listings)
+    whenever(listings.document("listing")).thenReturn(listingRef)
+    whenever(listingRef.get()).thenReturn(Tasks.forResult(listing))
+    whenever(listing.exists()).thenReturn(true)
+    whenever(listing.getString("title")).thenReturn("Drill")
   }
 
   @Test
@@ -122,10 +130,49 @@ class FirebaseChatRepositoryTest {
             ),
         )
     order.verify(batch).commit()
+    verify(listingRef).get()
   }
 
   @Test
-  fun sendMessageReplyLeavesStoredListingTitleUnchanged() = runTest {
+  fun sendMessageFirstMessageSendsListingCurrentTitle() = runTest {
+    whenever(listing.getString("title")).thenReturn("Hammer drill")
+
+    repository.sendMessage(conversation, "Hi")
+
+    verify(batch)
+        .set(
+            eq(conversationRef),
+            eq(
+                mapOf(
+                    "listingId" to "listing",
+                    "listingTitle" to "Hammer drill",
+                    "renterUid" to "renter",
+                    "lenderUid" to "lender",
+                    "participants" to listOf("renter", "lender"),
+                    "lastMessageAt" to FieldValue.serverTimestamp(),
+                    "lastMessageId" to "message-id",
+                )
+            ),
+            eq(SetOptions.merge()),
+        )
+  }
+
+  @Test
+  fun sendMessageFirstMessageRejectsDeletedListing() = runTest {
+    whenever(listing.exists()).thenReturn(false)
+
+    val error = runCatching { repository.sendMessage(conversation, "Hi") }.exceptionOrNull()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.NOT_FOUND,
+        (error as FirebaseFirestoreException).code,
+    )
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun sendMessageReplyLeavesStoredListingTitleUnchangedWithoutReadingListing() = runTest {
     val stored = conversation.copy(lastMessageAt = Instant.ofEpochSecond(1_700_000_000))
 
     repository.sendMessage(stored, "Still available?")
@@ -157,6 +204,7 @@ class FirebaseChatRepositoryTest {
             ),
         )
     verify(batch).commit()
+    verify(listingRef, never()).get()
   }
 
   @Test

@@ -6,12 +6,13 @@ import kotlinx.coroutines.flow.Flow
 interface ChatRepository {
   /**
    * Queues a message from the signed-in participant without waiting for server confirmation. The
-   * first message creates the conversation; later ones update it. Firestore may later reject the
-   * write and report the failure through [onWriteFailure].
+   * first message creates the conversation, and fails with NOT_FOUND when the listing no longer
+   * exists; later ones update it. Firestore may later reject the write and report the failure
+   * through [onWriteFailure].
    *
-   * @param conversation for the first message, a new [Conversation] (no lastMessageAt) whose
-   *   listingTitle is the listing's current title; for a reply, the conversation from
-   *   [observeConversation], whose title is left as stored.
+   * @param conversation for the first message, a new [Conversation] (no lastMessageAt); its
+   *   listingTitle is not used, the listing's current title is sent instead. For a reply, the
+   *   conversation from [observeConversation], whose title is left as stored.
    * @param onWriteFailure receives a write failure that arrives after local queuing. It may run on
    *   a Firestore background thread and must not throw.
    */
