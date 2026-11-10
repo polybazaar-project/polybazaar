@@ -5,6 +5,9 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
@@ -28,6 +31,7 @@ class InboxViewModelTest {
   private val testDispatcher = StandardTestDispatcher()
   private lateinit var chat: FakeChatRepository
   private lateinit var profiles: FakeProfileRepository
+  private lateinit var listings: FakeListingRepository
   private lateinit var viewModel: InboxViewModel
 
   private val me = User(uid = "me", email = "", username = "Me")
@@ -62,7 +66,11 @@ class InboxViewModelTest {
     Dispatchers.setMain(testDispatcher)
     chat = FakeChatRepository()
     profiles = FakeProfileRepository(listOf(me, alice, bob).associateBy { it.uid })
-    viewModel = InboxViewModel(chat, profiles)
+    listings =
+        FakeListingRepository(
+            listOf(drillWithAlice, bikeWithBob, tentWithAlice).map { listingOf(it) }
+        )
+    viewModel = InboxViewModel(chat, profiles, listings)
   }
 
   @After
@@ -89,6 +97,20 @@ class InboxViewModelTest {
 
   private fun firestoreError(code: FirebaseFirestoreException.Code) =
       FirebaseFirestoreException(code.name, code)
+
+  /** The active listing [conversation] is about, under the title it stores. */
+  private fun listingOf(conversation: Conversation) =
+      ItemListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 1.0,
+          title = conversation.listingTitle,
+          description = "",
+          listingId = conversation.listingId,
+      )
+
+  /** The row for [conversation] with [otherUser], its listing active under its stored title. */
+  private fun row(conversation: Conversation, otherUser: User?) =
+      InboxConversation(conversation, otherUser, conversation.listingTitle, ListingStatus.ACTIVE)
 
   /** The state once [rows] are shown, with [error] if loading then failed. */
   private fun loaded(vararg rows: InboxConversation, error: AppError? = null) =
@@ -145,8 +167,8 @@ class InboxViewModelTest {
 
     assertEquals(
         loaded(
-            InboxConversation(bikeWithNewMessage, bob),
-            InboxConversation(drillWithAlice, alice),
+            row(bikeWithNewMessage, bob),
+            row(drillWithAlice, alice),
         ),
         viewModel.uiState.value,
     )
@@ -160,7 +182,7 @@ class InboxViewModelTest {
     fail(firestoreError(FirebaseFirestoreException.Code.UNAUTHENTICATED))
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), error = AppError.UNAUTHENTICATED),
+        loaded(row(drillWithAlice, alice), error = AppError.UNAUTHENTICATED),
         viewModel.uiState.value,
     )
   }
@@ -187,7 +209,7 @@ class InboxViewModelTest {
     assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
     testDispatcher.scheduler.advanceUntilIdle()
     assertEquals(
-        loaded(InboxConversation(bikeWithBob, bob), InboxConversation(drillWithAlice, alice)),
+        loaded(row(bikeWithBob, bob), row(drillWithAlice, alice)),
         viewModel.uiState.value,
     )
   }
@@ -204,7 +226,7 @@ class InboxViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(1, chat.myConversations.subscriptionCount.value)
-    assertEquals(loaded(InboxConversation(drillWithAlice, me)), viewModel.uiState.value)
+    assertEquals(loaded(row(drillWithAlice, me)), viewModel.uiState.value)
   }
 
   @Test
@@ -214,7 +236,7 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, bob)),
+        loaded(row(drillWithAlice, alice), row(bikeWithBob, bob)),
         viewModel.uiState.value,
     )
     assertNull(profiles.lookups[me.uid])
@@ -227,7 +249,7 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(tentWithAlice, alice)),
+        loaded(row(drillWithAlice, alice), row(tentWithAlice, alice)),
         viewModel.uiState.value,
     )
     assertEquals(mapOf(alice.uid to 1), profiles.lookups)
@@ -238,9 +260,9 @@ class InboxViewModelTest {
     assertEquals(mapOf(alice.uid to 1, bob.uid to 1), profiles.lookups)
     assertEquals(
         loaded(
-            InboxConversation(bikeWithBob, bob),
-            InboxConversation(tentWithAlice, alice),
-            InboxConversation(drillWithAlice, alice),
+            row(bikeWithBob, bob),
+            row(tentWithAlice, alice),
+            row(drillWithAlice, alice),
         ),
         viewModel.uiState.value,
     )
@@ -254,7 +276,7 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(tentWithCarol, null), InboxConversation(drillWithAlice, alice)),
+        loaded(row(tentWithCarol, null), row(drillWithAlice, alice)),
         viewModel.uiState.value,
     )
 
@@ -269,7 +291,7 @@ class InboxViewModelTest {
     profiles.failingUids += bob.uid
     given(bikeWithBob)
     loadInbox()
-    assertEquals(loaded(InboxConversation(bikeWithBob, null)), viewModel.uiState.value)
+    assertEquals(loaded(row(bikeWithBob, null)), viewModel.uiState.value)
 
     profiles.failingUids -= bob.uid
     emit(bikeWithBob.copy(lastMessageAt = Instant.ofEpochSecond(300)))
@@ -286,7 +308,7 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, null)),
+        loaded(row(drillWithAlice, alice), row(bikeWithBob, null)),
         viewModel.uiState.value,
     )
     assertEquals(1, profiles.lookups[bob.uid])
@@ -303,7 +325,7 @@ class InboxViewModelTest {
     profiles.gate = null
     loadInbox()
 
-    assertEquals(loaded(InboxConversation(drillWithAlice, alice)), viewModel.uiState.value)
+    assertEquals(loaded(row(drillWithAlice, alice)), viewModel.uiState.value)
     assertEquals(1, chat.myConversations.subscriptionCount.value)
   }
 }
