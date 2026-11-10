@@ -14,6 +14,7 @@ import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.viewmodel.AuthUiState
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.error.model.AppError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -196,12 +197,12 @@ class CreateAccountScreenTest {
 
   @Test
   fun errorMessage_isDisplayedWhenPresent() {
-    setContent(uiState = AuthUiState(errorMessage = "Email already exists"))
+    setContent(uiState = AuthUiState(error = AppError.EMAIL_ALREADY_IN_USE))
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
         .assertIsDisplayed()
-        .assertTextEquals("Email already exists")
+        .assertTextEquals("An account already exists with this email.")
   }
 
   @Test

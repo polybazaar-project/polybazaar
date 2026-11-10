@@ -340,7 +340,17 @@ class FirebaseAuthRepositoryTest {
     val result = repository.signUp(email, password, username)
 
     assertTrue(result.isFailure)
-    assertEquals("Username is already taken", result.exceptionOrNull()?.message)
+    assertEquals(AppError.USERNAME_TAKEN, result.exceptionOrNull()?.toAppError())
+  }
+
+  @Test
+  fun signUp_usernameTaken_doesNotCreateAccount() = runTest {
+    mockUsernameDocument(exists = true)
+
+    val result = repository.signUp(email, password, username)
+
+    assertEquals(AppError.USERNAME_TAKEN, (result.exceptionOrNull() as AppException).error)
+    verify(auth, never()).createUserWithEmailAndPassword(any(), any())
   }
 
   @Test
@@ -561,7 +571,7 @@ class FirebaseAuthRepositoryTest {
     val result = repository.sendVerificationEmail()
 
     assertTrue(result.isFailure)
-    assertEquals("No user is currently logged in", result.exceptionOrNull()?.message)
+    assertEquals(AppError.UNAUTHENTICATED, result.exceptionOrNull()?.toAppError())
   }
 
   @Test
@@ -574,6 +584,22 @@ class FirebaseAuthRepositoryTest {
 
     assertTrue(result.isFailure)
     assertEquals(exception, result.exceptionOrNull())
+  }
+
+  @Test
+  fun sendVerificationEmail_accountDeletedOrDisabled_failsWithUnauthenticated() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    for (code in listOf("ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED")) {
+      val exception = FirebaseAuthInvalidUserException(code, "No user")
+      whenever(firebaseUser.sendEmailVerification()).thenReturn(Tasks.forException(exception))
+
+      val result = repository.sendVerificationEmail()
+
+      // Not INVALID_CREDENTIALS: the verify email screen has no email or password field.
+      val failure = result.exceptionOrNull() as AppException
+      assertEquals(AppError.UNAUTHENTICATED, failure.error)
+      assertSame(exception, failure.cause)
+    }
   }
 
   @Test
@@ -631,7 +657,48 @@ class FirebaseAuthRepositoryTest {
     val result = repository.refreshUser()
 
     assertTrue(result.isFailure)
-    assertEquals("No user is currently logged in", result.exceptionOrNull()?.message)
+    assertEquals(AppError.UNAUTHENTICATED, result.exceptionOrNull()?.toAppError())
+  }
+
+  @Test
+  fun refreshUser_noUserLoggedIn_doesNotReloadAnything() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val result = repository.refreshUser()
+
+    assertEquals(AppError.UNAUTHENTICATED, (result.exceptionOrNull() as AppException).error)
+    verify(firebaseUser, never()).reload()
+  }
+
+  @Test
+  fun refreshUser_sessionExpired_mapsToUnauthenticated() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    whenever(firebaseUser.reload())
+        .thenReturn(
+            Tasks.forException(
+                FirebaseAuthInvalidUserException("ERROR_USER_TOKEN_EXPIRED", "Token expired")
+            )
+        )
+
+    val result = repository.refreshUser()
+
+    assertEquals(AppError.UNAUTHENTICATED, result.exceptionOrNull()?.toAppError())
+  }
+
+  @Test
+  fun refreshUser_accountDeletedOrDisabled_failsWithUnauthenticated() = runTest {
+    whenever(auth.currentUser).thenReturn(firebaseUser)
+    for (code in listOf("ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED")) {
+      val exception = FirebaseAuthInvalidUserException(code, "No user")
+      whenever(firebaseUser.reload()).thenReturn(Tasks.forException(exception))
+
+      val result = repository.refreshUser()
+
+      // Not INVALID_CREDENTIALS: the verify email screen has no email or password field.
+      val failure = result.exceptionOrNull() as AppException
+      assertEquals(AppError.UNAUTHENTICATED, failure.error)
+      assertSame(exception, failure.cause)
+    }
   }
 
   @Test

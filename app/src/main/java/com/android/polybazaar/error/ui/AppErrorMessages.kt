@@ -20,6 +20,7 @@ val AppError.messageRes: Int
         AppError.INVALID_EMAIL -> R.string.error_invalid_email
         AppError.WEAK_PASSWORD -> R.string.error_weak_password
         AppError.EMAIL_ALREADY_IN_USE -> R.string.error_email_already_in_use
+        AppError.USERNAME_TAKEN -> R.string.error_username_taken
         AppError.TOO_MANY_REQUESTS -> R.string.error_too_many_requests
         AppError.INVALID_LINK -> R.string.error_invalid_link
         AppError.UNKNOWN -> R.string.error_unknown
