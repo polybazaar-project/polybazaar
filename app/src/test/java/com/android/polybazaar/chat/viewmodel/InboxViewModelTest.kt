@@ -54,6 +54,9 @@ class InboxViewModelTest {
           lastMessageAt = Instant.ofEpochSecond(100),
       )
 
+  /** I also rent Alice's tent. */
+  private val tentWithAlice = drillWithAlice.copy(listingId = "tent", listingTitle = "Tent")
+
   @Before
   fun setUp() {
     Dispatchers.setMain(testDispatcher)
@@ -67,9 +70,14 @@ class InboxViewModelTest {
     Dispatchers.resetMain()
   }
 
+  /** Sets what the repository emits, without letting the ViewModel run yet. */
+  private fun given(vararg conversations: Conversation) {
+    chat.myConversations.value = Result.success(conversations.toList())
+  }
+
   /** Makes the repository emit [conversations], then lets the ViewModel handle them. */
   private fun emit(vararg conversations: Conversation) {
-    chat.myConversations.value = Result.success(conversations.toList())
+    given(*conversations)
     testDispatcher.scheduler.advanceUntilIdle()
   }
 
@@ -82,6 +90,10 @@ class InboxViewModelTest {
   private fun firestoreError(code: FirebaseFirestoreException.Code) =
       FirebaseFirestoreException(code.name, code)
 
+  /** The state once [rows] are shown, with [error] if loading then failed. */
+  private fun loaded(vararg rows: InboxConversation, error: AppError? = null) =
+      InboxUiState(conversations = rows.toList(), isLoading = false, error = error)
+
   /** The conversations shown, without the profiles. */
   private fun shownConversations() = viewModel.uiState.value.conversations.map { it.conversation }
 
@@ -92,24 +104,8 @@ class InboxViewModelTest {
   }
 
   @Test
-  fun loadInbox_showsConversationWithTheOtherPersonsProfile() {
-    chat.myConversations.value = Result.success(listOf(drillWithAlice))
-
-    loadInbox()
-
-    assertEquals(
-        InboxUiState(
-            conversations = listOf(InboxConversation(drillWithAlice, alice)),
-            isLoading = false,
-            error = null,
-        ),
-        viewModel.uiState.value,
-    )
-  }
-
-  @Test
   fun loadInbox_isLoadingUntilTheFirstEmissionArrives() {
-    chat.myConversations.value = Result.success(listOf(drillWithAlice))
+    given(drillWithAlice)
 
     viewModel.loadInbox(me.uid)
 
@@ -124,7 +120,7 @@ class InboxViewModelTest {
     // Oldest message first, so a ViewModel that sorts by lastMessageAt would swap them.
     val older = bikeWithBob.copy(lastMessageAt = Instant.ofEpochSecond(1))
     val newer = drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(2))
-    chat.myConversations.value = Result.success(listOf(older, newer))
+    given(older, newer)
 
     loadInbox()
 
@@ -135,36 +131,36 @@ class InboxViewModelTest {
   fun loadInbox_withNoConversations_showsAnEmptyListWithoutError() {
     loadInbox()
 
-    assertEquals(InboxUiState(isLoading = false), viewModel.uiState.value)
+    assertEquals(loaded(), viewModel.uiState.value)
   }
 
   @Test
   fun laterEmission_replacesTheList() {
-    chat.myConversations.value = Result.success(listOf(drillWithAlice, bikeWithBob))
+    given(drillWithAlice, bikeWithBob)
     loadInbox()
 
     // Bob sends a new message: the bike conversation moves to the top.
     val bikeWithNewMessage = bikeWithBob.copy(lastMessageAt = Instant.ofEpochSecond(300))
     emit(bikeWithNewMessage, drillWithAlice)
 
-    assertEquals(listOf(bikeWithNewMessage, drillWithAlice), shownConversations())
-    assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.error)
+    assertEquals(
+        loaded(
+            InboxConversation(bikeWithNewMessage, bob),
+            InboxConversation(drillWithAlice, alice),
+        ),
+        viewModel.uiState.value,
+    )
   }
 
   @Test
   fun signedOutFailure_setsUnauthenticatedAndKeepsTheRows() {
-    chat.myConversations.value = Result.success(listOf(drillWithAlice))
+    given(drillWithAlice)
     loadInbox()
 
     fail(firestoreError(FirebaseFirestoreException.Code.UNAUTHENTICATED))
 
     assertEquals(
-        InboxUiState(
-            conversations = listOf(InboxConversation(drillWithAlice, alice)),
-            isLoading = false,
-            error = AppError.UNAUTHENTICATED,
-        ),
+        loaded(InboxConversation(drillWithAlice, alice), error = AppError.UNAUTHENTICATED),
         viewModel.uiState.value,
     )
   }
@@ -175,81 +171,64 @@ class InboxViewModelTest {
 
     loadInbox()
 
-    assertEquals(
-        InboxUiState(conversations = emptyList(), isLoading = false, error = AppError.NETWORK),
-        viewModel.uiState.value,
-    )
+    assertEquals(loaded(error = AppError.NETWORK), viewModel.uiState.value)
   }
 
   @Test
   fun loadInboxAgain_afterAFailure_clearsTheErrorAndLoadsAgain() {
-    chat.myConversations.value = Result.success(listOf(drillWithAlice))
+    given(drillWithAlice)
     loadInbox()
     fail(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
     assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
 
-    chat.myConversations.value = Result.success(listOf(bikeWithBob, drillWithAlice))
+    given(bikeWithBob, drillWithAlice)
     viewModel.loadInbox(me.uid)
 
     assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
     testDispatcher.scheduler.advanceUntilIdle()
     assertEquals(
-        InboxUiState(
-            conversations =
-                listOf(
-                    InboxConversation(bikeWithBob, bob),
-                    InboxConversation(drillWithAlice, alice),
-                ),
-            isLoading = false,
-            error = null,
-        ),
+        loaded(InboxConversation(bikeWithBob, bob), InboxConversation(drillWithAlice, alice)),
         viewModel.uiState.value,
     )
   }
 
   @Test
   fun loadInboxAgain_cancelsThePreviousCollection() {
-    chat.myConversations.value = Result.success(listOf(drillWithAlice))
+    given(drillWithAlice)
     loadInbox()
     assertEquals(1, chat.myConversations.subscriptionCount.value)
 
-    // Load again as Alice: an old collection still running as me would overwrite her rows.
+    // Load again as Alice: an old collection still running as me would overwrite her rows. The
+    // cancellation of the old collection is not reported as an error.
     viewModel.loadInbox(alice.uid)
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(1, chat.myConversations.subscriptionCount.value)
-    assertEquals(
-        listOf(InboxConversation(drillWithAlice, me)),
-        viewModel.uiState.value.conversations,
-    )
-    // The cancellation of the old collection is not reported as an error.
-    assertNull(viewModel.uiState.value.error)
+    assertEquals(loaded(InboxConversation(drillWithAlice, me)), viewModel.uiState.value)
   }
 
   @Test
   fun otherPerson_isTheLenderWhenIRentAndTheRenterWhenILend() {
-    chat.myConversations.value = Result.success(listOf(drillWithAlice, bikeWithBob))
+    given(drillWithAlice, bikeWithBob)
 
     loadInbox()
 
     assertEquals(
-        listOf(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, bob)),
-        viewModel.uiState.value.conversations,
+        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, bob)),
+        viewModel.uiState.value,
     )
     assertNull(profiles.lookups[me.uid])
   }
 
   @Test
   fun samePersonInTwoConversations_isLookedUpOncePerEmission() {
-    // I also rent Alice's tent.
-    val tentWithAlice = drillWithAlice.copy(listingId = "tent", listingTitle = "Tent")
-    chat.myConversations.value = Result.success(listOf(drillWithAlice, tentWithAlice))
+    given(drillWithAlice, tentWithAlice)
 
     loadInbox()
 
     assertEquals(
-        listOf(InboxConversation(drillWithAlice, alice), InboxConversation(tentWithAlice, alice)),
-        viewModel.uiState.value.conversations,
+        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(tentWithAlice, alice)),
+        viewModel.uiState.value,
     )
     assertEquals(mapOf(alice.uid to 1), profiles.lookups)
 
@@ -260,22 +239,13 @@ class InboxViewModelTest {
 
   @Test
   fun missingProfile_keepsTheRowWithoutOtherUserOrError() {
-    val tentWithCarol =
-        drillWithAlice.copy(listingId = "tent", listingTitle = "Tent", lenderUid = "carol")
-    chat.myConversations.value = Result.success(listOf(tentWithCarol, drillWithAlice))
+    val tentWithCarol = tentWithAlice.copy(lenderUid = "carol")
+    given(tentWithCarol, drillWithAlice)
 
     loadInbox()
 
     assertEquals(
-        InboxUiState(
-            conversations =
-                listOf(
-                    InboxConversation(tentWithCarol, null),
-                    InboxConversation(drillWithAlice, alice),
-                ),
-            isLoading = false,
-            error = null,
-        ),
+        loaded(InboxConversation(tentWithCarol, null), InboxConversation(drillWithAlice, alice)),
         viewModel.uiState.value,
     )
   }
@@ -283,20 +253,12 @@ class InboxViewModelTest {
   @Test
   fun failingProfileLookup_keepsTheRowWithoutOtherUserOrError() {
     profiles.failingUids += bob.uid
-    chat.myConversations.value = Result.success(listOf(drillWithAlice, bikeWithBob))
+    given(drillWithAlice, bikeWithBob)
 
     loadInbox()
 
     assertEquals(
-        InboxUiState(
-            conversations =
-                listOf(
-                    InboxConversation(drillWithAlice, alice),
-                    InboxConversation(bikeWithBob, null),
-                ),
-            isLoading = false,
-            error = null,
-        ),
+        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, null)),
         viewModel.uiState.value,
     )
     assertEquals(1, profiles.lookups[bob.uid])
@@ -305,7 +267,7 @@ class InboxViewModelTest {
   @Test
   fun loadInboxAgain_whileAProfileLookupWaits_cancelsItWithoutError() {
     profiles.gate = CompletableDeferred()
-    chat.myConversations.value = Result.success(listOf(drillWithAlice))
+    given(drillWithAlice)
     loadInbox()
     // The rows wait for their profiles, so the first load is still in progress.
     assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
@@ -313,14 +275,7 @@ class InboxViewModelTest {
     profiles.gate = null
     loadInbox()
 
-    assertEquals(
-        InboxUiState(
-            conversations = listOf(InboxConversation(drillWithAlice, alice)),
-            isLoading = false,
-            error = null,
-        ),
-        viewModel.uiState.value,
-    )
+    assertEquals(loaded(InboxConversation(drillWithAlice, alice)), viewModel.uiState.value)
     assertEquals(1, chat.myConversations.subscriptionCount.value)
   }
 }
