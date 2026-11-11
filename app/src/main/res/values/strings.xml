@@ -183,4 +183,28 @@
     <string name="calendar_sheet_range_pending">Range from %1$s: tap its last day</string>
     <string name="calendar_sheet_hint">Tap a day to select it. Hold a day, then tap another, to select every day in between.</string>
     <string name="calendar_sheet_done">Done</string>
+
+    <!-- Booking request -->
+    <string name="booking_request_title">Request to book</string>
+    <string name="booking_request_dates_label">Dates</string>
+    <string name="booking_request_dates_placeholder">Choose your dates</string>
+    <string name="booking_request_dates_sheet_title">When do you need it?</string>
+    <string name="booking_request_no_days">The lender has not offered any days yet.</string>
+    <plurals name="booking_request_too_long">
+        <item quantity="one">This item can be kept for at most %1$d day.</item>
+        <item quantity="other">This item can be kept for at most %1$d days.</item>
+    </plurals>
+    <plurals name="booking_request_price_line">
+        <item quantity="one">%1$s / day × %2$d day</item>
+        <item quantity="other">%1$s / day × %2$d days</item>
+    </plurals>
+    <string name="booking_request_total_label">Total</string>
+    <string name="booking_request_damage">Damage compensation: %1$s if the item is damaged.</string>
+    <string name="booking_request_payment">Payment is arranged between you and the lender.</string>
+    <string name="booking_request_not_allowed">You cannot request this listing.</string>
+    <string name="booking_request_submit">Request booking</string>
+    <string name="booking_request_sent_title">Request sent</string>
+    <string name="booking_request_sent_message">You asked for %1$s. The lender still has to accept it.</string>
+    <string name="booking_request_done">Done</string>
+    <string name="booking_request_retry">Retry</string>
 </resources>
