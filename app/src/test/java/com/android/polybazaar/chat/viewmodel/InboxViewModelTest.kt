@@ -12,6 +12,7 @@ import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
 import java.time.Instant
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -336,5 +337,91 @@ class InboxViewModelTest {
 
     assertEquals(loaded(row(drillWithAlice, alice)), viewModel.uiState.value)
     assertEquals(1, chat.myConversations.subscriptionCount.value)
+  }
+
+  @Test
+  fun renamedListing_showsItsCurrentTitle() {
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(title = "Bosch drill 18V"))
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingTitle = "Bosch drill 18V")),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun pausedListing_isPaused() {
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(isPaused = true))
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingStatus = ListingStatus.PAUSED)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun deletedListing_keepsTheRowWithTheStoredTitleAndNoError() {
+    // The fake fails with NOT_FOUND for an id it does not have.
+    val kayakWithBob = bikeWithBob.copy(listingId = "kayak", listingTitle = "Old kayak")
+    given(drillWithAlice, kayakWithBob)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(
+            row(drillWithAlice, alice),
+            row(kayakWithBob, bob).copy(listingStatus = ListingStatus.DELETED),
+        ),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun otherListingFailure_isUnknownWithTheStoredTitleAndNoError() {
+    // Renamed, so a row that used the listing would show the new title.
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(title = "Bosch drill 18V"))
+    listings.failure = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingStatus = ListingStatus.UNKNOWN)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun cancelledListingRead_isNotShownAsUnknownNorAsAnError() {
+    listings.failure = CancellationException("cancelled")
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
+  }
+
+  @Test
+  fun sameListingInTwoConversations_isReadOncePerEmission() {
+    val bikeWithCarol = bikeWithBob.copy(renterUid = "carol")
+    given(bikeWithBob, bikeWithCarol)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(bikeWithBob, bob), row(bikeWithCarol, null)),
+        viewModel.uiState.value,
+    )
+    assertEquals(1, listings.getListingCalls)
+
+    emit(bikeWithCarol, bikeWithBob)
+
+    assertEquals(2, listings.getListingCalls)
   }
 }
