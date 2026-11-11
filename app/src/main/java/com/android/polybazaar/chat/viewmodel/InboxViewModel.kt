@@ -99,6 +99,8 @@ class InboxViewModel(
         Result.success(profileRepository.observeProfile(uid).first())
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
+        // Not shown to the user, but an unexpected failure is logged, to explain a missing name.
+        exception.toAppError()
         Result.failure(exception)
       }
 }
