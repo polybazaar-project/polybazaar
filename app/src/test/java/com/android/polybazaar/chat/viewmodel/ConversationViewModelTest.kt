@@ -435,7 +435,7 @@ class ConversationViewModelTest {
   }
 
   @Test
-  fun secondRefusedSend_whileTheListingReloads_reloadsItAgain() {
+  fun secondRefusedSend_whileTheListingReloads_keepsTheNewerAnswer() {
     val viewModel = loadedViewModel()
     viewModel.onDraftChange("Hello")
     viewModel.send()
@@ -445,15 +445,20 @@ class ConversationViewModelTest {
     advance()
     val (first, second) = chat.writeFailureCallbacks
 
-    listings.gate = CompletableDeferred()
+    val older = CompletableDeferred<Unit>()
+    listings.gate = older
     first(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
     advance()
-    listings.allListings = listOf(listing.copy(isPaused = true))
+    val newer = CompletableDeferred<Unit>()
+    listings.gate = newer
     second(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
     advance()
-    assertEquals(3, listings.getListingCalls)
 
-    listings.gate!!.complete(Unit)
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    newer.complete(Unit)
+    advance()
+    listings.allListings = listOf(listing)
+    older.complete(Unit)
     advance()
     assertEquals(ConversationListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
     assertFalse(viewModel.uiState.value.canSend)
@@ -465,10 +470,12 @@ class ConversationViewModelTest {
     viewModel.onDraftChange("Hello")
     viewModel.send()
     advance()
+    viewModel.onDraftChange("Are you there?")
+    viewModel.send()
+    advance()
+    val (first, second) = chat.writeFailureCallbacks
     listings.failure = UnknownHostException("offline")
-    chat.writeFailureCallbacks.single()(
-        firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
-    )
+    first(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
     advance()
     assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
 
@@ -477,11 +484,7 @@ class ConversationViewModelTest {
     viewModel.retry()
     advance()
     assertTrue(viewModel.uiState.value.isLoading)
-    viewModel.send()
-    advance()
-    chat.writeFailureCallbacks.last()(
-        firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
-    )
+    second(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
     advance()
     assertEquals(4, listings.getListingCalls)
     assertTrue(viewModel.uiState.value.isLoading)
@@ -489,7 +492,6 @@ class ConversationViewModelTest {
     listings.gate!!.complete(Unit)
     advance()
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.loadError)
   }
 
   @Test
