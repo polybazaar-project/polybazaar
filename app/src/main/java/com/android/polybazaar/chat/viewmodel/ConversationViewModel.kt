@@ -240,7 +240,7 @@ class ConversationViewModel(
               }
             }
       } finally {
-        // A cancelled load was replaced by a newer one, which settles the listing instead.
+        // A load cancelled by a newer one leaves settling to it.
         if (isActive) {
           listingSettled = true
           updateLoading()
