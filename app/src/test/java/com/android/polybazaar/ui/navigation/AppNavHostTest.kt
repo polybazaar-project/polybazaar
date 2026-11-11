@@ -57,6 +57,7 @@ import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
+import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -110,6 +111,7 @@ class AppNavHostTest {
 
   // Listings published in these tests belong to the signed-in user, as with the real repository.
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
+  private val chatRepository = FakeChatRepository()
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -140,6 +142,7 @@ class AppNavHostTest {
             listingRepository = listingRepository,
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
+            chatRepository = chatRepository,
             navController = navController,
         )
       }
@@ -178,6 +181,7 @@ class AppNavHostTest {
             listingRepository = listingRepository,
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
+            chatRepository = chatRepository,
             navController = navController,
         )
       }
@@ -470,6 +474,7 @@ class AppNavHostTest {
           listingRepository = listingRepository,
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
+          chatRepository = chatRepository,
           navController = navController,
       )
     }
@@ -825,6 +830,7 @@ class AppNavHostTest {
           listingRepository = listingRepository,
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
+          chatRepository = chatRepository,
           navController = navController,
       )
     }
@@ -899,6 +905,7 @@ class AppNavHostTest {
           listingRepository = listingRepository,
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
+          chatRepository = chatRepository,
           navController = navController,
       )
     }
