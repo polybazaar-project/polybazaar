@@ -119,6 +119,8 @@ class ConversationViewModel(
   fun send() {
     val state = _uiState.value
     if (!state.canSend || sendInFlight) return
+    // Before the conversation has loaded, a renter's message is sent as a first one: the merge
+    // write becomes an update when the conversation exists, and the rules accept it.
     val target = state.conversation ?: firstConversation() ?: return
     val text = state.draft
     sendInFlight = true
