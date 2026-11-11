@@ -69,7 +69,8 @@ data class InboxUiState(
     /**
      * The photos downloaded so far, listing and profile photos alike, keyed by Storage path. A
      * photo still downloading or that failed to download is missing. They last for one load: a
-     * changed photo keeps its Storage path, so each load downloads them again.
+     * changed photo keeps its Storage path, so each load downloads them again. Only the photos the
+     * current rows use are kept.
      */
     val photos: Map<String, ByteArray> = emptyMap(),
 )
@@ -100,10 +101,11 @@ class InboxViewModel(
   }
 
   /**
-   * Shows each emission's rows as soon as they are built, then downloads their missing photos in
-   * the background. A download runs until it ends even if the flow fails, so the rows kept on error
-   * still get their photos. Profiles and listings found during this load are kept, so a later
-   * emission only looks up the people and listings it has not seen yet.
+   * Shows each emission's rows as soon as they are built, dropping the photos no row uses any more,
+   * then downloads their missing photos in the background. A download runs until it ends even if
+   * the flow fails, so the rows kept on error still get their photos. Profiles and listings found
+   * during this load are kept, so a later emission only looks up the people and listings it has not
+   * seen yet.
    */
   private suspend fun collectConversations(myUid: String) = coroutineScope {
     val profiles = mutableMapOf<String, User?>()
@@ -113,7 +115,16 @@ class InboxViewModel(
     try {
       chatRepository.observeMyConversations().collect { conversations ->
         val rows = loadRows(myUid, conversations, profiles, listings)
-        _uiState.update { it.copy(conversations = rows, isLoading = false) }
+        val used =
+            rows.flatMap { listOfNotNull(it.listingPhotoPath, it.otherUser?.photoPath) }.toSet()
+        // In the same update as the rows, so a row never shows without a photo already downloaded.
+        _uiState.update {
+          it.copy(
+              conversations = rows,
+              isLoading = false,
+              photos = it.photos.filterKeys { path -> path in used },
+          )
+        }
         downloadPhotos(rows, downloading)
       }
     } catch (exception: Exception) {

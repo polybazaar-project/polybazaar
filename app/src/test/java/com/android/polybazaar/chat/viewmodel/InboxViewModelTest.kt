@@ -535,6 +535,19 @@ class InboxViewModelTest {
   }
 
   @Test
+  fun photoNoRowUses_isDropped() {
+    givePhotos()
+    given(drillWithAlice, tentWithAlice)
+    loadInbox()
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+
+    // The drill conversation is gone; Alice is still in the tent one.
+    emit(tentWithAlice)
+
+    assertEquals(setOf(alicePhoto), photoPaths())
+  }
+
+  @Test
   fun failedPhoto_isNotAnErrorAndIsRetriedOnTheNextEmission() {
     givePhotos()
     profiles.failingPhotoPaths += alicePhoto
