@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import com.android.polybazaar.R
 import java.time.Duration
@@ -9,7 +10,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /** How long ago a conversation's last message was sent, as an inbox row shows it. */
 internal sealed interface InboxTime {
@@ -49,7 +49,7 @@ internal fun inboxTime(
   }
 }
 
-/** The short label of this time: "now", "5m", "3h", "2d" or "12 Nov". */
+/** The short label of this time: "now", "5m", "3h", "2d" or "12 Nov" in the app's locale. */
 @Composable
 internal fun InboxTime.label(): String =
     when (this) {
@@ -57,5 +57,7 @@ internal fun InboxTime.label(): String =
       is InboxTime.Minutes -> stringResource(R.string.inbox_time_minutes, count)
       is InboxTime.Hours -> stringResource(R.string.inbox_time_hours, count)
       is InboxTime.Days -> stringResource(R.string.inbox_time_days, count)
-      is InboxTime.Date -> date.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))
+      is InboxTime.Date ->
+          // From the configuration, so the date follows a change of locale.
+          date.format(DateTimeFormatter.ofPattern("d MMM", LocalConfiguration.current.locales[0]))
     }
