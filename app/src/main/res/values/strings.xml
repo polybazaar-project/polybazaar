@@ -91,6 +91,20 @@
     <!-- Verify email screen -->
     <string name="verify_email_not_verified_yet">Your email isn’t verified yet. Open the link we sent you, then try again.</string>
 
+    <!-- Inbox screen -->
+    <string name="inbox_eyebrow">POLYBAZAAR</string>
+    <string name="inbox_title">Conversations</string>
+    <string name="inbox_messages_heading">Messages</string>
+    <string name="inbox_username">@%1$s</string>
+    <string name="inbox_listing_paused">Listing paused</string>
+    <string name="inbox_listing_deleted">Listing deleted</string>
+    <string name="inbox_open_conversation">Open conversation</string>
+    <string name="inbox_footer">Good finds. Great neighbours.</string>
+    <string name="inbox_time_now">now</string>
+    <string name="inbox_time_minutes">%1$dm</string>
+    <string name="inbox_time_hours">%1$dh</string>
+    <string name="inbox_time_days">%1$dd</string>
+
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>
     <string name="reset_password_heading">Create a new password</string>
