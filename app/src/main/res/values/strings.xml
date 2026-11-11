@@ -9,6 +9,7 @@
     <string name="nav_profile">Profile</string>
 
     <!-- Browse screen -->
+    <string name="browse_open_listing">Open listing</string>
     <string name="browse_header_title">Polybazaar</string>
     <string name="browse_header_subtitle">Good tools. Great neighbours.</string>
     <string name="browse_search_placeholder">What would you like to borrow?</string>
@@ -62,6 +63,7 @@
     <string name="edit_listing_retry">Retry</string>
 
     <!-- Toolbox -->
+    <string name="toolbox_open_listing">Open listing</string>
     <string name="toolbox_title">My Toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
     <string name="toolbox_filter_all">All</string>

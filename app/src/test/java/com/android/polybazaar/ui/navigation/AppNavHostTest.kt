@@ -21,6 +21,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -66,8 +67,10 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
+import com.android.polybazaar.listing.ui.ListingDetailScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
+import com.android.polybazaar.profile.ui.LenderProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.profile.ui.photoPicker
 import com.android.polybazaar.profile.ui.redPhoto
@@ -540,6 +543,142 @@ class AppNavHostTest {
 
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
     assertTrue(listingRepository.updatedListings.isEmpty())
+  }
+
+  /** A listing another user offers, so Browse shows it to the signed-in user. */
+  private val gracesDrill =
+      ItemListing(
+          listingId = "drill",
+          ownerUid = "uid-grace",
+          category = ListingCategory.ITEM_TOOLS,
+          price = 8.0,
+          title = "Bosch drill set",
+          description = "Cordless",
+      )
+
+  private fun assertOnListingDetail(title: String) {
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.TITLE).assertTextEquals(title)
+  }
+
+  @Test
+  fun browseCard_opensTheListingDetail_andBackReturnsToBrowse() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).performClick()
+
+    assertOnListingDetail("Bosch drill set")
+    assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "drill")
+    assertBottomBarHidden()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun listingDetail_lenderOpensTheirProfile_whoseListingOpensItsDetail() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).performClick()
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.LENDER).performScrollTo().performClick()
+
+    composeTestRule.onNodeWithTag(LenderProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertCurrentRoute(Routes.LENDER_PROFILE, Routes.LENDER_UID, "uid-grace")
+    assertBottomBarHidden()
+    composeTestRule
+        .onNodeWithTag(LenderProfileScreenTags.SCREEN)
+        .performScrollToNode(hasTestTag(LenderProfileScreenTags.listing("drill")))
+    composeTestRule.onNodeWithTag(LenderProfileScreenTags.listing("drill")).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    // Back walks the same way: lender profile, the first detail, then Browse.
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(LenderProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(LenderProfileScreenTags.BACK_BUTTON).performClick()
+    assertOnListingDetail("Bosch drill set")
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun toolboxRow_opensTheListingDetail_andBackReturnsToProfile() {
+    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+
+    assertOnListingDetail("Bosch drill set")
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun listingDetail_showsTheSavedChangesAfterEditingTheListing() {
+    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    // The owner's Edit button comes with #258; the route is what it will open.
+    composeTestRule.runOnUiThread { navController.navigate(Routes.editListing("drill")) }
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextClearance()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .performTextInput("Makita drill")
+    composeTestRule
+        .onNodeWithTag(EditListingScreenTags.SAVE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    assertOnListingDetail("Makita drill")
+  }
+
+  @Test
+  fun signOut_fromTheListingDetail_returnsToSignIn() {
+    listingRepository.allListings = listOf(gracesDrill)
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    viewModel.signOut()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun signOut_fromTheLenderProfile_returnsToSignIn() {
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.runOnUiThread { navController.navigate(Routes.lenderProfile("uid-grace")) }
+    composeTestRule.onNodeWithTag(LenderProfileScreenTags.SCREEN).assertIsDisplayed()
+
+    viewModel.signOut()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun listingDetailRoute_keepsAnIdWithReservedCharacters() {
+    listingRepository.allListings = listOf(gracesDrill.copy(listingId = "a/b?c"))
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).performClick()
+
+    assertOnListingDetail("Bosch drill set")
+    assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "a/b?c")
+  }
+
+  /** Checks the screen on top is [route] with its argument [key] set to [value]. */
+  private fun assertCurrentRoute(route: String, key: String, value: String) {
+    val entry = navController.currentBackStackEntry
+    assertEquals(route, entry?.destination?.route)
+    assertEquals(value, entry?.arguments?.getString(key))
   }
 
   @Test

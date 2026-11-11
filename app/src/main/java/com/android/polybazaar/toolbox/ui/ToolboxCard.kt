@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -60,13 +61,15 @@ object ToolboxCardTags {
   const val FILTER_EMPTY = "toolbox_filter_empty"
 }
 
+/** @param onOpenListing called with a listing's id when the user taps its row. */
 @Composable
-fun ToolboxCard(viewModel: ToolboxViewModel) {
+fun ToolboxCard(viewModel: ToolboxViewModel, onOpenListing: (String) -> Unit = {}) {
   val uiState by viewModel.uiState.collectAsState()
   ToolboxContent(
       uiState = uiState,
       onRetry = viewModel::loadListings,
       onTypeSelected = viewModel::selectType,
+      onOpenListing = onOpenListing,
   )
 }
 
@@ -77,6 +80,8 @@ fun ToolboxCard(viewModel: ToolboxViewModel) {
  *
  * Fills the height it is given: the title stays in place and the rows scroll inside the card, so it
  * needs a bounded height.
+ *
+ * @param onOpenListing called with a listing's id when the user taps its row.
  */
 @Composable
 fun ToolboxContent(
@@ -84,6 +89,7 @@ fun ToolboxContent(
     onRetry: () -> Unit,
     onTypeSelected: (ListingType?) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenListing: (String) -> Unit = {},
 ) {
   val shape = RoundedCornerShape(20.dp)
   Column(
@@ -171,7 +177,11 @@ fun ToolboxContent(
           modifier = Modifier.fillMaxWidth().weight(1f).testTag(ToolboxCardTags.LISTINGS),
           verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        items(filteredListings) { ToolboxListingRow(it) }
+        items(filteredListings) { listing ->
+          // A listing loaded from the repository always has its id.
+          val id = listing.listingId
+          ToolboxListingRow(listing = listing, onClick = id?.let { { onOpenListing(it) } })
+        }
       }
     } else if (uiState.listings.isNotEmpty()) {
       // Only reached with a filter selected: the user has listings, none of that type.
@@ -221,12 +231,22 @@ private fun TypeFilterButton(
   )
 }
 
+/** @param onClick called when the user taps the row, or null for a row that cannot be tapped. */
 @Composable
-private fun ToolboxListingRow(listing: Listing) {
+private fun ToolboxListingRow(listing: Listing, onClick: (() -> Unit)?) {
   val shape = RoundedCornerShape(18.dp)
+  val openLabel = stringResource(R.string.toolbox_open_listing)
+  // Clipped first, so the ripple follows the row's rounded corners.
+  val clickModifier =
+      if (onClick == null) Modifier
+      else
+          Modifier.clip(shape)
+              // Role.Button and the label let TalkBack announce the row as "Open listing".
+              .clickable(role = Role.Button, onClickLabel = openLabel, onClick = onClick)
   Column(
       modifier =
           Modifier.fillMaxWidth()
+              .then(clickModifier)
               .background(AuthColors.Background, shape)
               .border(1.dp, AuthColors.Outline, shape)
               .padding(horizontal = 14.dp, vertical = 12.dp)
