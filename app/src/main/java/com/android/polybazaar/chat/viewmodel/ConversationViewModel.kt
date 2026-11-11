@@ -136,7 +136,9 @@ class ConversationViewModel(
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
-        _uiState.update { it.copy(sendError = exception.toAppError()) }
+        val error = exception.toAppError()
+        _uiState.update { it.copy(sendError = error) }
+        reloadListingAfter(error)
       } finally {
         sendInFlight = false
       }
@@ -160,7 +162,8 @@ class ConversationViewModel(
 
   /**
    * The conversation the first message creates, or null when it cannot be created: the rules only
-   * let the renter named in its ID create it.
+   * let the renter named in its ID create it. The repository sends the listing's current title in
+   * place of this one.
    */
   private fun firstConversation(listing: Listing? = loaded.listing): Conversation? {
     val ownerUid = listing?.ownerUid ?: return null
@@ -172,9 +175,14 @@ class ConversationViewModel(
   private fun onWriteFailure(text: String, exception: Exception) {
     val error = exception.toAppError()
     _uiState.update { it.copy(sendError = error, draft = restoredDraft(text, it.draft)).derived() }
-    // Usually the listing was renamed, paused or deleted since it was loaded: reloading it lets
-    // the next send use the current title, or disables sending.
-    if (error == AppError.PERMISSION_DENIED) viewModelScope.launch { loadListing() }
+    reloadListingAfter(error)
+  }
+
+  private fun reloadListingAfter(error: AppError) {
+    // Usually the listing was paused or deleted since it was loaded: reloading it disables sending.
+    if (error == AppError.NOT_FOUND || error == AppError.PERMISSION_DENIED) {
+      viewModelScope.launch { loadListing() }
+    }
   }
 
   private fun restoredDraft(text: String, draft: String): String =

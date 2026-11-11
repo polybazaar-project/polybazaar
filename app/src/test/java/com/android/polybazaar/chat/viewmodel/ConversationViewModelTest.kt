@@ -414,42 +414,39 @@ class ConversationViewModelTest {
   }
 
   @Test
-  fun permissionDeniedWriteFailure_reloadsTheListing_soTheNextSendUsesTheNewTitle() {
-    val viewModel = loadedViewModel()
-    viewModel.onDraftChange("Hello")
-    viewModel.send()
-    advance()
-    assertEquals(1, listings.getListingCalls)
-
-    // The owner renamed the listing since the screen opened, so the rules refused the old title.
-    listings.allListings = listOf(listing.copy(title = "Bosch drill set"))
-    chat.writeFailureCallbacks.single()(
-        firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
-    )
-    advance()
-
-    assertEquals(2, listings.getListingCalls)
-    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.sendError)
-    assertEquals("Bosch drill set", viewModel.uiState.value.listingTitle)
-    viewModel.send()
-    advance()
-    assertEquals("Bosch drill set", chat.sentMessages.last().first.listingTitle)
-  }
-
-  @Test
-  fun permissionDeniedWriteFailure_afterADeletion_disablesSendingAndKeepsTheTitle() {
+  fun permissionDeniedWriteFailure_afterAPause_reloadsTheListingAndDisablesTheFirstMessage() {
     val viewModel = loadedViewModel()
     viewModel.onDraftChange("Hello")
     viewModel.send()
     advance()
 
-    listings.allListings = emptyList()
+    listings.allListings = listOf(listing.copy(isPaused = true))
     chat.writeFailureCallbacks.single()(
         firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
     )
     advance()
 
     val state = viewModel.uiState.value
+    assertEquals(2, listings.getListingCalls)
+    assertEquals(AppError.PERMISSION_DENIED, state.sendError)
+    assertEquals(ListingStatus.PAUSED, state.listingStatus)
+    assertEquals("Hello", state.draft)
+    assertFalse(state.canSend)
+  }
+
+  @Test
+  fun firstMessage_toADeletedListing_reloadsItAndDisablesSendingAndKeepsTheTitle() {
+    val viewModel = loadedViewModel()
+    listings.allListings = emptyList()
+    chat.sendFailure = firestoreError(FirebaseFirestoreException.Code.NOT_FOUND)
+    viewModel.onDraftChange("Hello")
+
+    viewModel.send()
+    advance()
+
+    val state = viewModel.uiState.value
+    assertEquals(AppError.NOT_FOUND, state.sendError)
+    assertEquals("Hello", state.draft)
     assertEquals(2, listings.getListingCalls)
     assertEquals(ListingStatus.DELETED, state.listingStatus)
     assertFalse(state.canSend)
