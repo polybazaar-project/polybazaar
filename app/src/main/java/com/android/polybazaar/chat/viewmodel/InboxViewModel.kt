@@ -69,8 +69,8 @@ data class InboxUiState(
     /**
      * The photos downloaded so far, listing and profile photos alike, keyed by Storage path. A
      * photo still downloading or that failed to download is missing. They last for one load: a
-     * changed photo keeps its Storage path, so each load downloads them again. Only the photos the
-     * current rows use are kept.
+     * changed photo keeps its Storage path, so each load downloads them again, failed ones
+     * included. Only the photos the current rows use are kept.
      */
     val photos: Map<String, ByteArray> = emptyMap(),
 )
@@ -110,8 +110,8 @@ class InboxViewModel(
   private suspend fun collectConversations(myUid: String) = coroutineScope {
     val profiles = mutableMapOf<String, User?>()
     val listings = mutableMapOf<String, ListingLookup>()
-    // Paths downloading in this load, so a later emission does not start them again.
-    val downloading = mutableSetOf<String>()
+    // Paths downloading or failed in this load, so a later emission does not start them again.
+    val downloadingOrFailed = mutableSetOf<String>()
     try {
       chatRepository.observeMyConversations().collect { conversations ->
         val rows = loadRows(myUid, conversations, profiles, listings)
@@ -125,7 +125,7 @@ class InboxViewModel(
               photos = it.photos.filterKeys { path -> path in used },
           )
         }
-        downloadPhotos(rows, downloading)
+        downloadPhotos(rows, downloadingOrFailed)
       }
     } catch (exception: Exception) {
       if (exception is CancellationException) throw exception
@@ -133,39 +133,40 @@ class InboxViewModel(
     }
   }
 
-  /** Starts downloading, in parallel, each photo of [rows] not downloaded nor [downloading] yet. */
+  /**
+   * Starts downloading, in parallel, each photo of [rows] not downloaded yet nor in
+   * [downloadingOrFailed].
+   */
   private fun CoroutineScope.downloadPhotos(
       rows: List<InboxConversation>,
-      downloading: MutableSet<String>,
+      downloadingOrFailed: MutableSet<String>,
   ) {
     rows.forEach { row ->
       row.listingPhotoPath?.let { path ->
-        downloadPhoto(path, downloading) { listingRepository.loadListingImage(path) }
+        downloadPhoto(path, downloadingOrFailed) { listingRepository.loadListingImage(path) }
       }
       row.otherUser?.photoPath?.let { path ->
-        downloadPhoto(path, downloading) { profileRepository.loadProfilePhoto(path) }
+        downloadPhoto(path, downloadingOrFailed) { profileRepository.loadProfilePhoto(path) }
       }
     }
   }
 
   /**
    * Downloads the photo at [path] with [download] and adds it to [InboxUiState.photos]. A failure,
-   * a stray [CancellationException] included, leaves it missing, without an error, so the next
-   * emission tries again.
+   * a stray [CancellationException] included, leaves it missing, without an error, and keeps [path]
+   * in [downloadingOrFailed], so it is not tried again before the next load.
    */
   private fun CoroutineScope.downloadPhoto(
       path: String,
-      downloading: MutableSet<String>,
+      downloadingOrFailed: MutableSet<String>,
       download: suspend () -> ByteArray,
   ) {
-    if (path in _uiState.value.photos || !downloading.add(path)) return
+    if (path in _uiState.value.photos || !downloadingOrFailed.add(path)) return
     launch {
-      try {
-        attempt(download).onSuccess { photo ->
-          _uiState.update { it.copy(photos = it.photos + (path to photo)) }
-        }
-      } finally {
-        downloading -= path
+      attempt(download).onSuccess { photo ->
+        _uiState.update { it.copy(photos = it.photos + (path to photo)) }
+        // Downloaded again if a later row needs it after it was dropped.
+        downloadingOrFailed -= path
       }
     }
   }

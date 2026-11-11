@@ -548,7 +548,7 @@ class InboxViewModelTest {
   }
 
   @Test
-  fun failedPhoto_isNotAnErrorAndIsRetriedOnTheNextEmission() {
+  fun failedPhoto_isNotAnErrorAndIsNotRetriedOnTheNextEmission() {
     givePhotos()
     profiles.failingPhotoPaths += alicePhoto
     given(drillWithAlice)
@@ -559,6 +559,20 @@ class InboxViewModelTest {
 
     profiles.failingPhotoPaths.clear()
     emit(drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto), photoPaths())
+  }
+
+  @Test
+  fun failedPhoto_isRetriedOnTheNextLoad() {
+    givePhotos()
+    profiles.failingPhotoPaths += alicePhoto
+    given(drillWithAlice)
+    loadInbox()
+
+    profiles.failingPhotoPaths.clear()
+    loadInbox()
 
     assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
     assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
