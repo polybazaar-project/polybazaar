@@ -435,6 +435,64 @@ class ConversationViewModelTest {
   }
 
   @Test
+  fun secondRefusedSend_whileTheListingReloads_reloadsItAgain() {
+    val viewModel = loadedViewModel()
+    viewModel.onDraftChange("Hello")
+    viewModel.send()
+    advance()
+    viewModel.onDraftChange("Are you there?")
+    viewModel.send()
+    advance()
+    val (first, second) = chat.writeFailureCallbacks
+
+    listings.gate = CompletableDeferred()
+    first(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
+    advance()
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    second(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
+    advance()
+    assertEquals(3, listings.getListingCalls)
+
+    listings.gate!!.complete(Unit)
+    advance()
+    assertEquals(ListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
+    assertFalse(viewModel.uiState.value.canSend)
+  }
+
+  @Test
+  fun retryLoad_replacedByAReloadAfterARefusedSend_staysLoadingUntilTheReloadAnswers() {
+    val viewModel = loadedViewModel()
+    viewModel.onDraftChange("Hello")
+    viewModel.send()
+    advance()
+    listings.failure = UnknownHostException("offline")
+    chat.writeFailureCallbacks.single()(
+        firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    )
+    advance()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+
+    listings.failure = null
+    listings.gate = CompletableDeferred()
+    viewModel.retry()
+    advance()
+    assertTrue(viewModel.uiState.value.isLoading)
+    viewModel.send()
+    advance()
+    chat.writeFailureCallbacks.last()(
+        firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    )
+    advance()
+    assertEquals(4, listings.getListingCalls)
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    listings.gate!!.complete(Unit)
+    advance()
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.loadError)
+  }
+
+  @Test
   fun firstMessage_toADeletedListing_reloadsItAndDisablesSendingAndKeepsTheTitle() {
     val viewModel = loadedViewModel()
     listings.allListings = emptyList()

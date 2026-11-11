@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** What the listing a conversation is about has become. */
@@ -202,9 +203,12 @@ class ConversationViewModel(
         else -> text + "\n" + draft
       }
 
-  /** Loads the listing. Ignored while a load is running: an older answer could overwrite it. */
+  /**
+   * Loads the listing. A load still running is cancelled, so its older answer cannot overwrite the
+   * newer one.
+   */
   private fun loadListing() {
-    if (listingLoad?.isActive == true) return
+    listingLoad?.cancel()
     listingFailed = false
     listingLoad = viewModelScope.launch {
       try {
@@ -229,8 +233,11 @@ class ConversationViewModel(
               }
             }
       } finally {
-        listingSettled = true
-        updateLoading()
+        // A cancelled load was replaced by a newer one, which settles the listing instead.
+        if (isActive) {
+          listingSettled = true
+          updateLoading()
+        }
       }
     }
   }
