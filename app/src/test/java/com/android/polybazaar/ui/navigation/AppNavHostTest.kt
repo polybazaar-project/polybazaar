@@ -1251,7 +1251,10 @@ class AppNavHostTest {
         )
     setContent(FakeAuthRepository(currentUser = user))
 
-    composeTestRule.onNode(hasScrollAction()).performScrollToNode(hasText("Bosch drill set"))
+    // The category chips scroll too, so target the listing list itself.
+    composeTestRule
+        .onNodeWithTag(BrowseScreenTags.SCREEN)
+        .performScrollToNode(hasText("Bosch drill set"))
 
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
   }
