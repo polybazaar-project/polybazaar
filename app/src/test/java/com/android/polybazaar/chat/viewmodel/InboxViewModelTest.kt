@@ -584,17 +584,17 @@ class InboxViewModelTest {
   }
 
   @Test
-  fun loadInboxAgain_keepsThePhotosWithoutDownloadingThemAgain() {
+  fun loadInboxAgain_clearsThePhotosAndDownloadsThemAgain() {
+    // A changed photo keeps its Storage path, so a photo from the last load may be stale.
     givePhotos()
     given(drillWithAlice)
     loadInbox()
 
     viewModel.loadInbox(me.uid)
 
-    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
-    assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value.copy(photos = emptyMap()))
+    assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
     testDispatcher.scheduler.advanceUntilIdle()
-    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
     assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
   }
 }

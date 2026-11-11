@@ -68,7 +68,8 @@ data class InboxUiState(
     val error: AppError? = null,
     /**
      * The photos downloaded so far, listing and profile photos alike, keyed by Storage path. A
-     * photo still downloading or that failed to download is missing.
+     * photo still downloading or that failed to download is missing. They last for one load: a
+     * changed photo keeps its Storage path, so each load downloads them again.
      */
     val photos: Map<String, ByteArray> = emptyMap(),
 )
@@ -89,11 +90,12 @@ class InboxViewModel(
    * Loads the conversations of [myUid], the signed-in user, and keeps them updated. Calling it
    * again drops the previous load and starts over, which is how the screen retries after an error.
    * Each person's profile and each listing are looked up once per load, so a change to them, such
-   * as a listing being paused, shows on the next load. The photos already downloaded are kept.
+   * as a listing being paused, shows on the next load. The photos are downloaded again too, since a
+   * changed photo keeps its Storage path; within one load, each photo is downloaded once.
    */
   fun loadInbox(myUid: String) {
     loadJob?.cancel()
-    _uiState.update { InboxUiState(photos = it.photos) }
+    _uiState.value = InboxUiState()
     loadJob = viewModelScope.launch { collectConversations(myUid) }
   }
 
