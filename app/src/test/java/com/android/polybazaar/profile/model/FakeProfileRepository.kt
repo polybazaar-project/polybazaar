@@ -12,17 +12,19 @@ import kotlinx.coroutines.flow.flow
  * A [ProfileRepository] for tests.
  *
  * [observeProfile] emits the user with that uid from [users], or null when there is none, like the
- * real repository for a missing profile. For a uid in [failingUids] it fails with a network error
- * instead. [lookups] counts how many times each uid's profile was collected. Set [gate] to keep
- * every lookup waiting until the test completes it, to look at one in progress. [loadProfilePhoto]
- * returns an empty photo, counted per path in [photoLoads]. It waits for [photoGate] when set, and
- * fails with a network error for a path in [failingPhotoPaths]. The other calls do nothing.
+ * real repository for a missing profile. For a uid in [failingUids] it fails with [failure]
+ * instead, a network error unless the test sets another. [lookups] counts how many times each uid's
+ * profile was collected. Set [gate] to keep every lookup waiting until the test completes it, to
+ * look at one in progress. [loadProfilePhoto] returns an empty photo, counted per path in
+ * [photoLoads]. It waits for [photoGate] when set, and fails with [failure] for a path in
+ * [failingPhotoPaths]. The other calls do nothing.
  */
 class FakeProfileRepository(private val users: Map<String, User> = emptyMap()) : ProfileRepository {
   val failingUids = mutableSetOf<String>()
   var gate: CompletableDeferred<Unit>? = null
   val failingPhotoPaths = mutableSetOf<String>()
   var photoGate: CompletableDeferred<Unit>? = null
+  var failure: Exception = UnknownHostException("offline")
 
   private val lookupCounts = mutableMapOf<String, Int>()
   private val photoLoadCounts = mutableMapOf<String, Int>()
@@ -38,7 +40,7 @@ class FakeProfileRepository(private val users: Map<String, User> = emptyMap()) :
   override fun observeProfile(uid: String): Flow<User?> = flow {
     lookupCounts[uid] = (lookupCounts[uid] ?: 0) + 1
     gate?.await()
-    if (uid in failingUids) throw UnknownHostException("offline")
+    if (uid in failingUids) throw failure
     emit(users[uid])
   }
 
@@ -47,7 +49,7 @@ class FakeProfileRepository(private val users: Map<String, User> = emptyMap()) :
   override suspend fun loadProfilePhoto(photoPath: String): ByteArray {
     photoLoadCounts[photoPath] = (photoLoadCounts[photoPath] ?: 0) + 1
     photoGate?.await()
-    if (photoPath in failingPhotoPaths) throw UnknownHostException("offline")
+    if (photoPath in failingPhotoPaths) throw failure
     return ByteArray(0)
   }
 

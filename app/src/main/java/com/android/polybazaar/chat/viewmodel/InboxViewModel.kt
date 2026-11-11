@@ -17,6 +17,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -134,8 +136,9 @@ class InboxViewModel(
   }
 
   /**
-   * Downloads the photo at [path] with [download] and adds it to [InboxUiState.photos]. A failure
-   * leaves it missing, without an error, so the next emission tries again.
+   * Downloads the photo at [path] with [download] and adds it to [InboxUiState.photos]. A failure,
+   * a stray [CancellationException] included, leaves it missing, without an error, so the next
+   * emission tries again.
    */
   private fun CoroutineScope.downloadPhoto(
       path: String,
@@ -145,10 +148,9 @@ class InboxViewModel(
     if (path in _uiState.value.photos || !downloading.add(path)) return
     launch {
       try {
-        val photo = download()
-        _uiState.update { it.copy(photos = it.photos + (path to photo)) }
-      } catch (exception: Exception) {
-        if (exception is CancellationException) throw exception
+        attempt(download).onSuccess { photo ->
+          _uiState.update { it.copy(photos = it.photos + (path to photo)) }
+        }
       } finally {
         downloading -= path
       }
@@ -199,15 +201,11 @@ class InboxViewModel(
         .associate { (uid, result) -> uid to result.getOrNull() }
   }
 
-  private suspend fun loadProfile(uid: String): Result<User?> =
-      try {
-        Result.success(profileRepository.observeProfile(uid).first())
-      } catch (exception: Exception) {
-        if (exception is CancellationException) throw exception
-        // Not shown to the user, but an unexpected failure is logged, to explain a missing name.
-        exception.toAppError()
-        Result.failure(exception)
-      }
+  private suspend fun loadProfile(uid: String): Result<User?> = attempt {
+    profileRepository.observeProfile(uid).first()
+  }
+      // Not shown to the user, but an unexpected failure is logged, to explain a missing name.
+      .onFailure { it.toAppError() }
 
   /** Reads each of [listingIds] once, in parallel. */
   private suspend fun loadListings(listingIds: List<String>): Map<String, ListingLookup> =
@@ -217,17 +215,11 @@ class InboxViewModel(
 
   /**
    * Reads one listing. A failure never becomes the screen's error: `NOT_FOUND` means the listing
-   * was deleted, anything else leaves its state unknown.
+   * was deleted, anything else, a stray [CancellationException] included, leaves its state unknown.
    */
   private suspend fun loadListing(listingId: String): ListingLookup {
-    val result =
-        try {
-          listingRepository.getListing(listingId)
-        } catch (exception: Exception) {
-          Result.failure(exception)
-        }
+    val result = attempt { listingRepository.getListing(listingId).getOrThrow() }
     val failure = result.exceptionOrNull()
-    if (failure is CancellationException) throw failure
     if (failure == null) {
       val listing = result.getOrThrow()
       return ListingLookup(
@@ -241,6 +233,20 @@ class InboxViewModel(
     return ListingLookup(null, status)
   }
 }
+
+/**
+ * Runs [block] and returns its result, or its failure. A [CancellationException] is rethrown only
+ * when the calling coroutine is itself cancelled, so loading again still drops the old load. One
+ * thrown by a call that was cancelled on its own, such as a cancelled Firebase task, is returned as
+ * a failure like any other, so it cannot leave the inbox loading forever.
+ */
+private suspend fun <T> attempt(block: suspend () -> T): Result<T> =
+    try {
+      Result.success(block())
+    } catch (exception: Exception) {
+      if (exception is CancellationException) currentCoroutineContext().ensureActive()
+      Result.failure(exception)
+    }
 
 /** A listing as read for the inbox: [listing] is null when it could not be read. */
 private data class ListingLookup(val listing: Listing?, val status: ListingStatus)

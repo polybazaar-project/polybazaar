@@ -325,6 +325,21 @@ class InboxViewModelTest {
   }
 
   @Test
+  fun cancelledProfileLookup_keepsTheRowWithoutOtherUserOrError() {
+    // A lookup cancelled on its own, while the inbox is not, must not leave it loading forever.
+    profiles.failingUids += bob.uid
+    profiles.failure = CancellationException("cancelled")
+    given(drillWithAlice, bikeWithBob)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice), row(bikeWithBob, null)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
   fun loadInboxAgain_whileAProfileLookupWaits_cancelsItWithoutError() {
     profiles.gate = CompletableDeferred()
     given(drillWithAlice)
@@ -398,13 +413,18 @@ class InboxViewModelTest {
   }
 
   @Test
-  fun cancelledListingRead_isNotShownAsUnknownNorAsAnError() {
+  fun cancelledListingRead_isUnknownWithTheStoredTitleAndNoError() {
+    // A read cancelled on its own, while the inbox is not, must not leave it loading forever.
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(title = "Bosch drill 18V"))
     listings.failure = CancellationException("cancelled")
     given(drillWithAlice)
 
     loadInbox()
 
-    assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingStatus = ListingStatus.UNKNOWN)),
+        viewModel.uiState.value,
+    )
   }
 
   @Test
@@ -529,6 +549,22 @@ class InboxViewModelTest {
 
     assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
     assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun cancelledPhoto_staysMissingWithoutError() {
+    givePhotos()
+    profiles.failingPhotoPaths += alicePhoto
+    profiles.failure = CancellationException("cancelled")
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, aliceWithPhoto).copy(listingPhotoPath = drillPhoto)),
+        viewModel.uiState.value.copy(photos = emptyMap()),
+    )
+    assertEquals(setOf(drillPhoto), photoPaths())
   }
 
   @Test
