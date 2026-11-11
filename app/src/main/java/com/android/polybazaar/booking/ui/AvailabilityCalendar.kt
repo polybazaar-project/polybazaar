@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -105,7 +108,9 @@ private val fullDate = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.EN
  * @param dayState what each day of the month is.
  * @param onDayClick called when a selectable or selected day is tapped. Null makes the calendar
  *   read-only: no day can be tapped or held.
- * @param onDayLongClick called when a selectable or selected day is held, to start a range.
+ * @param onDayLongClick called when a day that [canStartRange] is held, to start a range.
+ * @param canStartRange whether holding a day starts a range from it. A day that cannot is not
+ *   offered the hold, for example a selected day that can no longer be chosen.
  * @param rangeAnchor the day a range starts from while its end is being chosen, drawn with a ring.
  */
 @Composable
@@ -116,9 +121,13 @@ internal fun AvailabilityCalendar(
     modifier: Modifier = Modifier,
     onDayClick: ((LocalDate) -> Unit)? = null,
     onDayLongClick: ((LocalDate) -> Unit)? = null,
+    canStartRange: (LocalDate) -> Boolean = { true },
     rangeAnchor: LocalDate? = null,
     today: LocalDate = LocalDate.now(),
 ) {
+  // The swipe handler below is only restarted when the month changes: it reads the callback from
+  // here, so that a caller passing a new one is not left with the first.
+  val currentOnMonthChange by rememberUpdatedState(onMonthChange)
   val canGoBack = month > YearMonth.from(today)
   val canGoForward = month < YearMonth.from(lastSelectableDay(today))
   Column(modifier = modifier.fillMaxWidth().testTag(AvailabilityCalendarTags.CALENDAR)) {
@@ -139,8 +148,8 @@ internal fun AvailabilityCalendar(
               detectHorizontalDragGestures(
                   onDragStart = { swiped = 0f },
                   onDragEnd = {
-                    if (swiped < -enough && canGoForward) onMonthChange(month.plusMonths(1))
-                    if (swiped > enough && canGoBack) onMonthChange(month.minusMonths(1))
+                    if (swiped < -enough && canGoForward) currentOnMonthChange(month.plusMonths(1))
+                    if (swiped > enough && canGoBack) currentOnMonthChange(month.minusMonths(1))
                   },
               ) { _, amount ->
                 swiped += amount
@@ -153,7 +162,14 @@ internal fun AvailabilityCalendar(
             val day = firstCell.plusDays((week * DAYS_IN_WEEK + weekday).toLong())
             val cell = Modifier.weight(1f).height(48.dp)
             if (YearMonth.from(day) == month) {
-              DayCell(day, dayState(day), day == rangeAnchor, onDayClick, onDayLongClick, cell)
+              DayCell(
+                  day = day,
+                  state = dayState(day),
+                  isRangeAnchor = day == rangeAnchor,
+                  onClick = onDayClick,
+                  onLongClick = onDayLongClick.takeIf { canStartRange(day) },
+                  modifier = cell,
+              )
             } else {
               OutsideDay(day, cell)
             }
@@ -261,6 +277,9 @@ private fun DayCell(
   val stateText =
       stringResource(
           when {
+            // A range can start from a day already selected: both are said.
+            isRangeAnchor && state == CalendarDayState.SELECTED ->
+                R.string.calendar_day_selected_range_start
             isRangeAnchor -> R.string.calendar_day_range_start
             state == CalendarDayState.DISABLED -> R.string.calendar_day_unavailable
             state == CalendarDayState.SELECTED -> R.string.calendar_day_selected
@@ -303,10 +322,15 @@ private fun DayCell(
 
 /**
  * Selected days and the start of a range can be told apart without colour: a selected day is a
- * filled circle, and the start of a range a thick ring on a tinted circle.
+ * filled circle, and the start of a range a thick ring on a tinted circle. A selected day a range
+ * starts from is both: the ring, with a smaller filled circle inside it.
  */
 private fun Modifier.dayShape(state: CalendarDayState, isRangeAnchor: Boolean): Modifier =
     when {
+      isRangeAnchor && state == CalendarDayState.SELECTED ->
+          border(2.dp, AuthColors.Accent, CircleShape)
+              .padding(4.dp)
+              .background(AuthColors.Accent, CircleShape)
       isRangeAnchor ->
           background(AuthColors.AccentContainer, CircleShape)
               .border(2.dp, AuthColors.Accent, CircleShape)
@@ -316,6 +340,7 @@ private fun Modifier.dayShape(state: CalendarDayState, isRangeAnchor: Boolean): 
 
 private fun dayTextColor(state: CalendarDayState, isRangeAnchor: Boolean): Color =
     when {
+      state == CalendarDayState.SELECTED -> Color.White
       // The start of a range sits on a light circle, where a selected day's white would not show.
       isRangeAnchor -> AuthColors.Accent
       state == CalendarDayState.DISABLED -> AuthColors.TextSecondary.copy(alpha = 0.45f)

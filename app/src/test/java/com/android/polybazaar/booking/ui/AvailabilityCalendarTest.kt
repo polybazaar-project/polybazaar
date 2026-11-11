@@ -4,6 +4,7 @@ package com.android.polybazaar.booking.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -67,6 +68,7 @@ class AvailabilityCalendarTest {
       onMonthChange: (YearMonth) -> Unit = {},
       onDayClick: ((LocalDate) -> Unit)? = {},
       onDayLongClick: ((LocalDate) -> Unit)? = null,
+      canStartRange: (LocalDate) -> Boolean = { true },
       rangeAnchor: LocalDate? = null,
   ) {
     composeTestRule.setContent {
@@ -76,6 +78,7 @@ class AvailabilityCalendarTest {
           dayState = mixedStates,
           onDayClick = onDayClick,
           onDayLongClick = onDayLongClick,
+          canStartRange = canStartRange,
           rangeAnchor = rangeAnchor,
           today = today,
       )
@@ -161,6 +164,25 @@ class AvailabilityCalendarTest {
   }
 
   @Test
+  fun aSelectedDayARangeStartsFrom_saysBoth() {
+    setCalendar(rangeAnchor = nov(13))
+
+    day(nov(13)).assertState(R.string.calendar_day_selected_range_start)
+  }
+
+  @Test
+  fun aDayThatCannotStartARange_isNotOfferedTheHold() {
+    val held = mutableListOf<LocalDate>()
+    setCalendar(onDayLongClick = { held += it }, canStartRange = { it != nov(13) })
+
+    day(nov(13)).assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnLongClick))
+    day(nov(13)).assertHasClickAction()
+    day(nov(20)).assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick))
+    day(nov(13)).performTouchInput { longClick() }
+    assertEquals(emptyList<LocalDate>(), held)
+  }
+
+  @Test
   fun theMonthButtons_reportTheNextAndThePreviousMonth() {
     val december = YearMonth.of(2026, 12)
     var shown by mutableStateOf(december)
@@ -234,6 +256,30 @@ class AvailabilityCalendarTest {
     weeks.performTouchInput { swipeRight() }
 
     assertEquals(listOf(YearMonth.of(2027, 1), november), asked)
+  }
+
+  @Test
+  fun aSwipe_reportsToTheCallbackGivenLast() {
+    val december = YearMonth.of(2026, 12)
+    val first = mutableListOf<YearMonth>()
+    val second = mutableListOf<YearMonth>()
+    var useSecond by mutableStateOf(false)
+    composeTestRule.setContent {
+      AvailabilityCalendar(
+          month = december,
+          onMonthChange = if (useSecond) ({ second += it }) else ({ first += it }),
+          dayState = mixedStates,
+          onDayClick = {},
+          today = today,
+      )
+    }
+
+    useSecond = true
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag(AvailabilityCalendarTags.WEEKS).performTouchInput { swipeLeft() }
+
+    assertEquals(emptyList<YearMonth>(), first)
+    assertEquals(listOf(YearMonth.of(2027, 1)), second)
   }
 
   @Test

@@ -113,6 +113,7 @@
     <string name="calendar_day_not_selected">Not selected</string>
     <string name="calendar_day_selected">Selected</string>
     <string name="calendar_day_range_start">Start of a range. Tap another day to select the days in between.</string>
+    <string name="calendar_day_selected_range_start">Selected, and start of a range. Tap another day to select the days in between.</string>
     <!-- Lower case: TalkBack reads it after "Double-tap and hold to". -->
     <string name="calendar_start_range">start a range from this day</string>
     <string name="calendar_sheet_no_selection">No dates selected</string>

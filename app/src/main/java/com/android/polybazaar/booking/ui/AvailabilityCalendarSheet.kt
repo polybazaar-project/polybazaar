@@ -31,6 +31,7 @@ import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.booking.model.DateRun
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
+import com.android.polybazaar.booking.model.isSelectable
 import com.android.polybazaar.booking.model.rangeStartAfterHold
 import com.android.polybazaar.booking.model.selectionAfterTap
 import com.android.polybazaar.booking.model.upcomingDays
@@ -114,8 +115,15 @@ internal fun AvailabilityCalendarSheetContent(
 ) {
   // Past days cannot be reached in the calendar, so they could not be unselected: they are dropped.
   val chosen = remember(selection, today) { upcomingDays(selection, today) }
-  // Opens on the first chosen day, or on this month when there is none.
-  var month by rememberSaveable { mutableStateOf(YearMonth.from(chosen.minOrNull() ?: today)) }
+  // Opens on the first chosen day, else on the first day that can be chosen, so that a renter does
+  // not land on a month without any day on offer. Without either, on this month.
+  var month by rememberSaveable {
+    val firstDay =
+        chosen.minOrNull()
+            ?: selectableDays?.filter { isSelectable(it, today, selectableDays) }?.minOrNull()
+            ?: today
+    mutableStateOf(YearMonth.from(firstDay))
+  }
   var rangeStart by rememberSaveable { mutableStateOf<LocalDate?>(null) }
   // The calendar keeps 12dp margins, so that seven days of 48dp fit a 360dp phone; the rest 20dp.
   val text = Modifier.padding(horizontal = 8.dp)
@@ -148,6 +156,8 @@ internal fun AvailabilityCalendarSheetContent(
         onDayLongClick = { day ->
           rangeStart = rangeStartAfterHold(rangeStart, day, today, selectableDays)
         },
+        // A day still selected that is no longer on offer can be unselected, not extended.
+        canStartRange = { isSelectable(it, today, selectableDays) },
         rangeAnchor = rangeStart,
         today = today,
     )
