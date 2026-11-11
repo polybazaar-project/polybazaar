@@ -106,7 +106,7 @@ class ConversationViewModelTest {
     advance()
     val state = viewModel.uiState.value
     assertFalse(state.isLoading)
-    assertEquals(ListingStatus.ACTIVE, state.listingStatus)
+    assertEquals(ConversationListingStatus.ACTIVE, state.listingStatus)
     assertEquals(listOf(hello, hi), state.messages)
     assertEquals(conversation, state.conversation)
     assertEquals("Bosch drill", state.listingTitle)
@@ -213,7 +213,7 @@ class ConversationViewModelTest {
     listings.allListings = listOf(listing.copy(isPaused = true))
     val viewModel = loadedViewModel()
     viewModel.onDraftChange("Hello")
-    assertEquals(ListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
+    assertEquals(ConversationListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
     assertFalse(viewModel.uiState.value.canSend)
 
     givenConversation()
@@ -234,7 +234,7 @@ class ConversationViewModelTest {
     viewModel.onDraftChange("Hello")
 
     val state = viewModel.uiState.value
-    assertEquals(ListingStatus.DELETED, state.listingStatus)
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
     assertFalse(state.canSend)
     assertEquals(listOf(hello, hi), state.messages)
     assertEquals("Bosch drill", state.listingTitle)
@@ -251,7 +251,7 @@ class ConversationViewModelTest {
     viewModel.send()
     advance()
 
-    assertEquals(ListingStatus.ACTIVE, viewModel.uiState.value.listingStatus)
+    assertEquals(ConversationListingStatus.ACTIVE, viewModel.uiState.value.listingStatus)
     assertFalse(viewModel.uiState.value.canSend)
     assertTrue(chat.sentMessages.isEmpty())
   }
@@ -429,7 +429,7 @@ class ConversationViewModelTest {
     val state = viewModel.uiState.value
     assertEquals(2, listings.getListingCalls)
     assertEquals(AppError.PERMISSION_DENIED, state.sendError)
-    assertEquals(ListingStatus.PAUSED, state.listingStatus)
+    assertEquals(ConversationListingStatus.PAUSED, state.listingStatus)
     assertEquals("Hello", state.draft)
     assertFalse(state.canSend)
   }
@@ -455,7 +455,7 @@ class ConversationViewModelTest {
 
     listings.gate!!.complete(Unit)
     advance()
-    assertEquals(ListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
+    assertEquals(ConversationListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
     assertFalse(viewModel.uiState.value.canSend)
   }
 
@@ -506,7 +506,7 @@ class ConversationViewModelTest {
     assertEquals(AppError.NOT_FOUND, state.sendError)
     assertEquals("Hello", state.draft)
     assertEquals(2, listings.getListingCalls)
-    assertEquals(ListingStatus.DELETED, state.listingStatus)
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
     assertFalse(state.canSend)
     assertEquals("Bosch drill", state.listingTitle)
     assertNull(state.loadError)
@@ -529,7 +529,7 @@ class ConversationViewModelTest {
 
     val state = viewModel.uiState.value
     assertNull(state.loadError)
-    assertEquals(ListingStatus.ACTIVE, state.listingStatus)
+    assertEquals(ConversationListingStatus.ACTIVE, state.listingStatus)
     assertEquals(2, listings.getListingCalls)
     assertEquals(1, chat.observeConversationCalls)
     assertEquals(1, chat.observeMessagesCalls)

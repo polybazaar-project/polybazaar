@@ -26,7 +26,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** What the listing a conversation is about has become. */
-enum class ListingStatus {
+enum class ConversationListingStatus {
   ACTIVE,
   PAUSED,
   DELETED,
@@ -56,7 +56,7 @@ data class ConversationUiState(
     val messages: List<ChatMessage> = emptyList(),
     val conversation: Conversation? = null,
     val listingTitle: String? = null,
-    val listingStatus: ListingStatus? = null,
+    val listingStatus: ConversationListingStatus? = null,
     val otherUser: User? = null,
     val draft: String = "",
     val canSend: Boolean = false,
@@ -66,7 +66,10 @@ data class ConversationUiState(
 )
 
 /** The listing as last loaded, kept in one reference so other threads never see half of it. */
-private data class LoadedListing(val listing: Listing? = null, val status: ListingStatus? = null)
+private data class LoadedListing(
+    val listing: Listing? = null,
+    val status: ConversationListingStatus? = null,
+)
 
 /**
  * Shows and sends the messages between the renter [renterUid] and the owner of the listing
@@ -217,7 +220,9 @@ class ConversationViewModel(
         listingRepository
             .getListing(listingId)
             .onSuccess { listing ->
-              val status = if (listing.isPaused) ListingStatus.PAUSED else ListingStatus.ACTIVE
+              val status =
+                  if (listing.isPaused) ConversationListingStatus.PAUSED
+                  else ConversationListingStatus.ACTIVE
               loaded = LoadedListing(listing, status)
               _uiState.update { it.derived() }
               observeOtherUser()
@@ -227,7 +232,7 @@ class ConversationViewModel(
               val error = exception.toAppError()
               if (error == AppError.NOT_FOUND) {
                 // The listing loaded before, if any, keeps the header's title.
-                loaded = loaded.copy(status = ListingStatus.DELETED)
+                loaded = loaded.copy(status = ConversationListingStatus.DELETED)
                 _uiState.update { it.derived() }
               } else {
                 listingFailed = true
@@ -315,9 +320,9 @@ class ConversationViewModel(
     val sendable =
         ChatRules.isSendable(draft) &&
             status != null &&
-            status != ListingStatus.DELETED &&
+            status != ConversationListingStatus.DELETED &&
             (conversation != null ||
-                (status == ListingStatus.ACTIVE && firstConversation(listing) != null))
+                (status == ConversationListingStatus.ACTIVE && firstConversation(listing) != null))
     return copy(
         listingTitle = listing?.title ?: conversation?.listingTitle,
         listingStatus = status,
