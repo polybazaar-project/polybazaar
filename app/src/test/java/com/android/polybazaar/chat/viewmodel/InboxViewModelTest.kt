@@ -424,4 +424,119 @@ class InboxViewModelTest {
 
     assertEquals(2, listings.getListingCalls)
   }
+
+  private val alicePhoto = "profiles/alice.jpg"
+  private val drillPhoto = "listings/drill/0.jpg"
+  private val aliceWithPhoto = alice.copy(photoPath = alicePhoto)
+
+  /** Gives Alice a profile photo and the drill two photos, and starts a new ViewModel on them. */
+  private fun givePhotos() {
+    profiles = FakeProfileRepository(listOf(me, aliceWithPhoto, bob).associateBy { it.uid })
+    listings.allListings =
+        listOf(
+            listingOf(drillWithAlice).copy(imagePaths = listOf(drillPhoto, "listings/drill/1.jpg")),
+            listingOf(tentWithAlice),
+        )
+    viewModel = InboxViewModel(chat, profiles, listings)
+  }
+
+  /** The Storage paths of the photos downloaded so far. */
+  private fun photoPaths() = viewModel.uiState.value.photos.keys
+
+  @Test
+  fun photos_areKeyedByPathAndArriveAfterTheRows() {
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+
+    loadInbox()
+
+    // The listing's first photo is the row's; Alice's photo is still downloading.
+    assertEquals(
+        listOf(row(drillWithAlice, aliceWithPhoto).copy(listingPhotoPath = drillPhoto)),
+        viewModel.uiState.value.conversations,
+    )
+    assertEquals(setOf(drillPhoto), photoPaths())
+
+    profiles.photoGate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun downloadedPhoto_isNotDownloadedAgain() {
+    givePhotos()
+    // Alice is in both conversations, so her photo is in two rows.
+    given(drillWithAlice, tentWithAlice)
+    loadInbox()
+
+    emit(tentWithAlice, drillWithAlice)
+
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun photoStillDownloading_isNotStartedAgainByALaterEmission() {
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+    loadInbox()
+
+    emit(drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+    profiles.photoGate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun failedPhoto_isNotAnErrorAndIsRetriedOnTheNextEmission() {
+    givePhotos()
+    profiles.failingPhotoPaths += alicePhoto
+    given(drillWithAlice)
+    loadInbox()
+
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(setOf(drillPhoto), photoPaths())
+
+    profiles.failingPhotoPaths.clear()
+    emit(drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+
+    assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun photoDownload_finishesAfterTheFlowFails() {
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+    loadInbox()
+
+    fail(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
+    profiles.photoGate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun loadInboxAgain_keepsThePhotosWithoutDownloadingThemAgain() {
+    givePhotos()
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.loadInbox(me.uid)
+
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+    assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value.copy(photos = emptyMap()))
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
 }

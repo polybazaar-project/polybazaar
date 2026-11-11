@@ -14,18 +14,26 @@ import kotlinx.coroutines.flow.flow
  * [observeProfile] emits the user with that uid from [users], or null when there is none, like the
  * real repository for a missing profile. For a uid in [failingUids] it fails with a network error
  * instead. [lookups] counts how many times each uid's profile was collected. Set [gate] to keep
- * every lookup waiting until the test completes it, to look at one in progress. The other calls do
- * nothing.
+ * every lookup waiting until the test completes it, to look at one in progress. [loadProfilePhoto]
+ * returns an empty photo, counted per path in [photoLoads]. It waits for [photoGate] when set, and
+ * fails with a network error for a path in [failingPhotoPaths]. The other calls do nothing.
  */
 class FakeProfileRepository(private val users: Map<String, User> = emptyMap()) : ProfileRepository {
   val failingUids = mutableSetOf<String>()
   var gate: CompletableDeferred<Unit>? = null
+  val failingPhotoPaths = mutableSetOf<String>()
+  var photoGate: CompletableDeferred<Unit>? = null
 
   private val lookupCounts = mutableMapOf<String, Int>()
+  private val photoLoadCounts = mutableMapOf<String, Int>()
 
   /** How many times each uid's profile was collected. */
   val lookups: Map<String, Int>
     get() = lookupCounts
+
+  /** How many times each photo path was downloaded. */
+  val photoLoads: Map<String, Int>
+    get() = photoLoadCounts
 
   override fun observeProfile(uid: String): Flow<User?> = flow {
     lookupCounts[uid] = (lookupCounts[uid] ?: 0) + 1
@@ -36,7 +44,12 @@ class FakeProfileRepository(private val users: Map<String, User> = emptyMap()) :
 
   override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri) = ""
 
-  override suspend fun loadProfilePhoto(photoPath: String) = ByteArray(0)
+  override suspend fun loadProfilePhoto(photoPath: String): ByteArray {
+    photoLoadCounts[photoPath] = (photoLoadCounts[photoPath] ?: 0) + 1
+    photoGate?.await()
+    if (photoPath in failingPhotoPaths) throw UnknownHostException("offline")
+    return ByteArray(0)
+  }
 
   override suspend fun removeProfilePhoto(uid: String) = Unit
 
