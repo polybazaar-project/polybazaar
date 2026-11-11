@@ -408,7 +408,7 @@ class InboxViewModelTest {
   }
 
   @Test
-  fun sameListingInTwoConversations_isReadOncePerEmission() {
+  fun sameListing_isReadOnceAcrossEmissions() {
     val bikeWithCarol = bikeWithBob.copy(renterUid = "carol")
     given(bikeWithBob, bikeWithCarol)
 
@@ -420,9 +420,31 @@ class InboxViewModelTest {
     )
     assertEquals(1, listings.getListingCalls)
 
-    emit(bikeWithCarol, bikeWithBob)
+    // A new message in a conversation about the drill: only the drill is new.
+    emit(drillWithAlice, bikeWithCarol, bikeWithBob)
 
     assertEquals(2, listings.getListingCalls)
+    assertEquals(
+        loaded(row(drillWithAlice, alice), row(bikeWithCarol, null), row(bikeWithBob, bob)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun failedListingRead_isTriedAgainOnTheNextEmission() {
+    listings.failure = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    given(drillWithAlice)
+    loadInbox()
+    assertEquals(
+        ListingStatus.UNKNOWN,
+        viewModel.uiState.value.conversations.single().listingStatus,
+    )
+
+    listings.failure = null
+    emit(drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+
+    assertEquals(2, listings.getListingCalls)
+    assertEquals(ListingStatus.ACTIVE, viewModel.uiState.value.conversations.single().listingStatus)
   }
 
   private val alicePhoto = "profiles/alice.jpg"

@@ -86,8 +86,8 @@ class InboxViewModel(
   /**
    * Loads the conversations of [myUid], the signed-in user, and keeps them updated. Calling it
    * again drops the previous load and starts over, which is how the screen retries after an error.
-   * Each person's profile is looked up once per load, so a profile change shows on the next load.
-   * The photos already downloaded are kept.
+   * Each person's profile and each listing are looked up once per load, so a change to them, such
+   * as a listing being paused, shows on the next load. The photos already downloaded are kept.
    */
   fun loadInbox(myUid: String) {
     loadJob?.cancel()
@@ -98,16 +98,17 @@ class InboxViewModel(
   /**
    * Shows each emission's rows as soon as they are built, then downloads their missing photos in
    * the background. A download runs until it ends even if the flow fails, so the rows kept on error
-   * still get their photos. Profiles found during this load are kept, keyed by uid, so a later
-   * emission only looks up the people it has not seen yet.
+   * still get their photos. Profiles and listings found during this load are kept, so a later
+   * emission only looks up the people and listings it has not seen yet.
    */
   private suspend fun collectConversations(myUid: String) = coroutineScope {
     val profiles = mutableMapOf<String, User?>()
+    val listings = mutableMapOf<String, ListingLookup>()
     // Paths downloading in this load, so a later emission does not start them again.
     val downloading = mutableSetOf<String>()
     try {
       chatRepository.observeMyConversations().collect { conversations ->
-        val rows = loadRows(myUid, conversations, profiles)
+        val rows = loadRows(myUid, conversations, profiles, listings)
         _uiState.update { it.copy(conversations = rows, isLoading = false) }
         downloadPhotos(rows, downloading)
       }
@@ -155,20 +156,26 @@ class InboxViewModel(
   }
 
   /**
-   * Builds the rows for [conversations], looking up each listing and each other person not yet in
-   * [profiles] once, all in parallel. The profiles found are added to [profiles].
+   * Builds the rows for [conversations], looking up each other person not yet in [profiles] and
+   * each listing not yet in [listings] once, all in parallel. What is found is added to [profiles]
+   * and [listings]; a listing that could not be read is not, so the next emission reads it again.
    */
   private suspend fun loadRows(
       myUid: String,
       conversations: List<Conversation>,
       profiles: MutableMap<String, User?>,
+      listings: MutableMap<String, ListingLookup>,
   ): List<InboxConversation> = coroutineScope {
     val otherUids = conversations.map { it.otherUid(myUid) }.distinct()
     val newProfiles = async { loadProfiles(otherUids.filterNot { it in profiles }) }
-    val listings = async { loadListings(conversations.map { it.listingId }.distinct()) }
+    val listingIds = conversations.map { it.listingId }.distinct()
+    val newListings = async { loadListings(listingIds.filterNot { it in listings }) }
     profiles += newProfiles.await()
+    val found = newListings.await()
+    val lookups = listings + found
+    listings += found.filterValues { it.status != ListingStatus.UNKNOWN }
     conversations.map { conversation ->
-      val listing = listings.await().getValue(conversation.listingId)
+      val listing = lookups.getValue(conversation.listingId)
       InboxConversation(
           conversation = conversation,
           otherUser = profiles[conversation.otherUid(myUid)],
