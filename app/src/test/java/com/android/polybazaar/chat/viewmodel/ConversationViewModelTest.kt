@@ -478,6 +478,24 @@ class ConversationViewModelTest {
   }
 
   @Test
+  fun retry_fromTheFullErrorState_isLoadingUntilTheRestartedLoadAnswers() {
+    listings.failure = UnknownHostException("offline")
+    val viewModel = loadedViewModel()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+
+    listings.failure = null
+    listings.gate = CompletableDeferred()
+    viewModel.retry()
+    advance()
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.loadError)
+
+    listings.gate!!.complete(Unit)
+    advance()
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
   fun messagesFailure_setsLoadErrorAndKeepsTheMessages_andRetryRestartsOnlyThatFlow() {
     givenConversation(messages = arrayOf(hello))
     val viewModel = loadedViewModel()
@@ -492,7 +510,7 @@ class ConversationViewModelTest {
     chat.messagesGate = CompletableDeferred()
     viewModel.retry()
     advance()
-    assertFalse(viewModel.uiState.value.isLoading)
+    assertTrue(viewModel.uiState.value.isLoading)
     assertEquals(listOf(hello), viewModel.uiState.value.messages)
 
     chat.messagesGate!!.complete(Unit)

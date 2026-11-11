@@ -45,7 +45,7 @@ enum class ListingStatus {
  * @property draft the message being typed.
  * @property canSend whether the draft can be sent now.
  * @property isLoading true until the listing, the conversation and the messages have each been
- *   loaded once or failed.
+ *   loaded or failed, and again while a retry reloads any of them.
  * @property loadError why the conversation could not be loaded; the screen offers Retry. What is
  *   already shown is kept.
  * @property sendError why the last message could not be sent; its text is back in the draft.
@@ -146,14 +146,23 @@ class ConversationViewModel(
   }
 
   /**
-   * Clears [ConversationUiState.loadError] and restarts whatever failed to load. What is shown is
-   * kept meanwhile, so [ConversationUiState.isLoading] stays false.
+   * Clears [ConversationUiState.loadError] and restarts whatever failed to load, which is loading
+   * again until it answers. What is shown is kept meanwhile.
    */
   fun retry() {
+    val listing = listingFailed
+    val conversation = conversationFailed
+    val messages = messagesFailed
+    if (listing) listingSettled = false
+    if (conversation) conversationSettled = false
+    if (messages) messagesSettled = false
+    // Before the restarts: on the main dispatcher a restart can fail synchronously, and clearing
+    // loadError after it would hide that new failure.
     _uiState.update { it.copy(loadError = null) }
-    if (listingFailed) loadListing()
-    if (conversationFailed) observeConversation()
-    if (messagesFailed) observeMessages()
+    updateLoading()
+    if (listing) loadListing()
+    if (conversation) observeConversation()
+    if (messages) observeMessages()
   }
 
   fun dismissSendError() {
