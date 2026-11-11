@@ -221,7 +221,7 @@ class InboxViewModelTest {
   }
 
   @Test
-  fun samePersonInTwoConversations_isLookedUpOncePerEmission() {
+  fun samePerson_isLookedUpOnceAcrossEmissions() {
     given(drillWithAlice, tentWithAlice)
 
     loadInbox()
@@ -232,9 +232,18 @@ class InboxViewModelTest {
     )
     assertEquals(mapOf(alice.uid to 1), profiles.lookups)
 
-    emit(tentWithAlice, drillWithAlice)
+    // A new message in a conversation with Bob: only Bob is new.
+    emit(bikeWithBob, tentWithAlice, drillWithAlice)
 
-    assertEquals(mapOf(alice.uid to 2), profiles.lookups)
+    assertEquals(mapOf(alice.uid to 1, bob.uid to 1), profiles.lookups)
+    assertEquals(
+        loaded(
+            InboxConversation(bikeWithBob, bob),
+            InboxConversation(tentWithAlice, alice),
+            InboxConversation(drillWithAlice, alice),
+        ),
+        viewModel.uiState.value,
+    )
   }
 
   @Test
@@ -248,6 +257,25 @@ class InboxViewModelTest {
         loaded(InboxConversation(tentWithCarol, null), InboxConversation(drillWithAlice, alice)),
         viewModel.uiState.value,
     )
+
+    // A missing profile is a real answer: it is not looked up again.
+    emit(drillWithAlice, tentWithCarol)
+
+    assertEquals(1, profiles.lookups["carol"])
+  }
+
+  @Test
+  fun failedProfileLookup_isTriedAgainOnTheNextEmission() {
+    profiles.failingUids += bob.uid
+    given(bikeWithBob)
+    loadInbox()
+    assertEquals(loaded(InboxConversation(bikeWithBob, null)), viewModel.uiState.value)
+
+    profiles.failingUids -= bob.uid
+    emit(bikeWithBob.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+
+    assertEquals(2, profiles.lookups[bob.uid])
+    assertEquals(bob, viewModel.uiState.value.conversations.single().otherUser)
   }
 
   @Test
