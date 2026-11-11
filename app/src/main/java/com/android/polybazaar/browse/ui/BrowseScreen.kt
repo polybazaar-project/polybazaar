@@ -289,7 +289,7 @@ internal fun CategorySelector(
 @Composable
 internal fun ListingCard(listing: BrowseListing, onClick: (() -> Unit)? = null) {
   val shape = RoundedCornerShape(28.dp)
-  val openLabel = stringResource(R.string.browse_open_listing)
+  val openLabel = stringResource(R.string.open_listing)
   // Clipped first, so the ripple follows the card's rounded corners.
   val clickModifier =
       if (onClick == null) Modifier

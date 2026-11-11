@@ -235,7 +235,7 @@ private fun TypeFilterButton(
 @Composable
 private fun ToolboxListingRow(listing: Listing, onClick: (() -> Unit)?) {
   val shape = RoundedCornerShape(18.dp)
-  val openLabel = stringResource(R.string.toolbox_open_listing)
+  val openLabel = stringResource(R.string.open_listing)
   // Clipped first, so the ripple follows the row's rounded corners.
   val clickModifier =
       if (onClick == null) Modifier

@@ -2,9 +2,6 @@
 // Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.browse.ui
 
-import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.getOrNull
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
@@ -29,6 +26,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.testing.hasClickLabel
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
@@ -256,7 +254,7 @@ class BrowseScreenTest {
 
     composeTestRule
         .onNodeWithTag(BrowseScreenTags.LISTING_CARD)
-        .assert(hasClickLabel(string(R.string.browse_open_listing)))
+        .assert(hasClickLabel(string(R.string.open_listing)))
         .performClick()
 
     assertEquals(listOf(drillCard.id), opened)
@@ -372,12 +370,6 @@ class BrowseScreenTest {
     assertTrue(card.top >= search.bottom)
     assertTrue(card.bottom <= screen.bottom)
   }
-
-  /** Matches a node whose click action TalkBack announces as [label]. */
-  private fun hasClickLabel(label: String) =
-      SemanticsMatcher("has click label \"$label\"") {
-        it.config.getOrNull(SemanticsActions.OnClick)?.label == label
-      }
 
   private fun string(id: Int): String =
       ApplicationProvider.getApplicationContext<android.content.Context>().getString(id)

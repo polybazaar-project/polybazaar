@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.getOrNull
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
@@ -36,6 +34,7 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.testing.hasClickLabel
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import java.net.UnknownHostException
@@ -401,7 +400,7 @@ class ToolboxCardTest {
 
     composeTestRule
         .onNode(hasTestTag(ToolboxCardTags.LISTING_ROW) and hasText("Math tutoring"))
-        .assert(hasClickLabel(string(R.string.toolbox_open_listing)))
+        .assert(hasClickLabel(string(R.string.open_listing)))
         .performClick()
 
     assertEquals(listOf("math"), opened)
@@ -430,12 +429,6 @@ class ToolboxCardTest {
       )
     }
   }
-
-  /** Matches a node whose click action TalkBack announces as [label]. */
-  private fun hasClickLabel(label: String) =
-      SemanticsMatcher("has click label \"$label\"") {
-        it.config.getOrNull(SemanticsActions.OnClick)?.label == label
-      }
 
   private fun string(id: Int): String =
       ApplicationProvider.getApplicationContext<android.content.Context>().getString(id)

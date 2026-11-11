@@ -8,8 +8,10 @@
     <string name="nav_create_listing">Create listing</string>
     <string name="nav_profile">Profile</string>
 
+    <!-- Listing cards, in Browse, the Toolbox and the lender profile -->
+    <string name="open_listing">Open listing</string>
+
     <!-- Browse screen -->
-    <string name="browse_open_listing">Open listing</string>
     <string name="browse_header_title">Polybazaar</string>
     <string name="browse_header_subtitle">Good tools. Great neighbours.</string>
     <string name="browse_search_placeholder">What would you like to borrow?</string>
@@ -26,7 +28,6 @@
     <string name="lender_profile_listings_title">Their listings</string>
     <string name="lender_profile_no_listings">This lender has no listings yet.</string>
     <string name="lender_profile_not_found">This profile no longer exists.</string>
-    <string name="lender_profile_open_listing">Open listing</string>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
@@ -63,7 +64,6 @@
     <string name="edit_listing_retry">Retry</string>
 
     <!-- Toolbox -->
-    <string name="toolbox_open_listing">Open listing</string>
     <string name="toolbox_title">My Toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
     <string name="toolbox_filter_all">All</string>
