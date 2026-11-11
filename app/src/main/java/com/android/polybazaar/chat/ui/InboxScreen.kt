@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,12 +50,15 @@ import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.AuthColors
+import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.auth.ui.AuthTitleGroup
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.viewmodel.InboxConversation
 import com.android.polybazaar.chat.viewmodel.InboxUiState
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.chat.viewmodel.ListingStatus
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.ui.decodePhotoPreview
 import java.time.Duration
 import java.time.Instant
@@ -61,6 +67,11 @@ object InboxScreenTags {
   const val LIST = "inbox_list"
   const val PAUSED_BADGE = "inbox_paused_badge"
   const val DELETED_BADGE = "inbox_deleted_badge"
+  const val LOADING_INDICATOR = "inbox_loading_indicator"
+  const val ERROR_MESSAGE = "inbox_error_message"
+  const val RETRY_BUTTON = "inbox_retry_button"
+  const val EMPTY_STATE = "inbox_empty_state"
+  const val BROWSE_BUTTON = "inbox_browse_button"
 
   /** Tag of the row showing the conversation with [conversationId]. */
   fun row(conversationId: String) = "inbox_row_$conversationId"
@@ -70,7 +81,31 @@ object InboxScreenTags {
 data class InboxActions(
     /** Called with the conversation of the row the user tapped. */
     val onConversationClick: (Conversation) -> Unit = {},
+    /** Called when the user taps Retry after an error. */
+    val onRetry: () -> Unit = {},
+    /** Called when the user taps "Browse listings" on the empty inbox. */
+    val onBrowse: () -> Unit = {},
 )
+
+/** What the screen shows under its header, decided by [inboxBody]. */
+internal enum class InboxBody {
+  LOADING,
+  ERROR,
+  EMPTY,
+  CONVERSATIONS,
+}
+
+/**
+ * Picks the screen body for [state]. Rows already shown stay, even while loading again or after an
+ * error; the error then shows above them.
+ */
+internal fun inboxBody(state: InboxUiState): InboxBody =
+    when {
+      state.conversations.isNotEmpty() -> InboxBody.CONVERSATIONS
+      state.isLoading -> InboxBody.LOADING
+      state.error != null -> InboxBody.ERROR
+      else -> InboxBody.EMPTY
+    }
 
 /** Side margin of the page, the x of the header and the rows in the Figma. */
 private val PageMargin = 18.dp
@@ -86,40 +121,76 @@ private val DeletedBadgeText = Color(0xFF67564D)
 
 /**
  * The inbox screen: loads the conversations of [myUid], the signed-in user, into [viewModel] and
- * shows them.
+ * shows them. Retry loads them again.
  *
  * @param onConversationClick called with the conversation of the row the user tapped.
+ * @param onBrowse called when the user taps "Browse listings" on the empty inbox.
  */
 @Composable
 fun InboxScreen(
     viewModel: InboxViewModel,
     myUid: String,
     onConversationClick: (Conversation) -> Unit,
+    onBrowse: () -> Unit,
 ) {
   // Keyed on the uid, so the screen loads again only when another user signs in.
   LaunchedEffect(myUid) { viewModel.loadInbox(myUid) }
   val state by viewModel.uiState.collectAsState()
-  InboxContent(state = state, actions = InboxActions(onConversationClick = onConversationClick))
+  InboxContent(
+      state = state,
+      actions =
+          InboxActions(
+              onConversationClick = onConversationClick,
+              onRetry = { viewModel.loadInbox(myUid) },
+              onBrowse = onBrowse,
+          ),
+  )
 }
 
 /**
- * The list of the signed-in user's conversations, as in the Figma frame "Conversations — list".
+ * The signed-in user's conversations, as in the Figma frames "Conversations — list" and
+ * "Conversations — Empty list", with a spinner while loading and the error with Retry.
  *
  * @param state what [InboxViewModel] loaded.
  * @param now the time the rows' "5m"-style labels count from.
  */
 @Composable
 fun InboxContent(state: InboxUiState, actions: InboxActions, now: Instant = Instant.now()) {
-  // One lazy list, so the header, the rows and the footer scroll together.
+  Column(modifier = Modifier.fillMaxSize().background(AuthColors.Background).safeDrawingPadding()) {
+    Header()
+    val bodyModifier = Modifier.fillMaxWidth().weight(1f)
+    when (inboxBody(state)) {
+      InboxBody.LOADING ->
+          Box(modifier = bodyModifier, contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(
+                color = AuthColors.Accent,
+                modifier = Modifier.size(32.dp).testTag(InboxScreenTags.LOADING_INDICATOR),
+            )
+          }
+      InboxBody.ERROR ->
+          Box(modifier = bodyModifier) {
+            ErrorLine(error = state.error ?: AppError.UNKNOWN, onRetry = actions.onRetry)
+          }
+      InboxBody.EMPTY -> EmptyInbox(onBrowse = actions.onBrowse, modifier = bodyModifier)
+      InboxBody.CONVERSATIONS ->
+          ConversationList(state = state, actions = actions, now = now, modifier = bodyModifier)
+    }
+  }
+}
+
+/** The "Messages" heading, the rows and the footer, with the error above them if any. */
+@Composable
+private fun ConversationList(
+    state: InboxUiState,
+    actions: InboxActions,
+    now: Instant,
+    modifier: Modifier,
+) {
   LazyColumn(
-      modifier =
-          Modifier.fillMaxSize()
-              .background(AuthColors.Background)
-              .safeDrawingPadding()
-              .testTag(InboxScreenTags.LIST),
+      modifier = modifier.testTag(InboxScreenTags.LIST),
       contentPadding = PaddingValues(bottom = 14.dp),
   ) {
-    item { Header() }
+    state.error?.let { error -> item { ErrorLine(error = error, onRetry = actions.onRetry) } }
     item { MessagesHeading() }
     items(state.conversations, key = { it.conversation.id }) { row ->
       ConversationRow(
@@ -130,6 +201,84 @@ fun InboxContent(state: InboxUiState, actions: InboxActions, now: Instant = Inst
       )
     }
     item { Footer() }
+  }
+}
+
+/** Why the conversations could not be loaded, with a Retry button, as on Browse. */
+@Composable
+private fun ErrorLine(error: AppError, onRetry: () -> Unit) {
+  Row(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = PageMargin, vertical = 4.dp),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+        text = error.message(),
+        color = AuthColors.Danger,
+        fontSize = 14.sp,
+        modifier = Modifier.weight(1f).testTag(InboxScreenTags.ERROR_MESSAGE),
+    )
+    TextButton(onClick = onRetry, modifier = Modifier.testTag(InboxScreenTags.RETRY_BUTTON)) {
+      Text(
+          text = stringResource(R.string.inbox_retry),
+          color = AuthColors.Accent,
+          fontWeight = FontWeight.Bold,
+      )
+    }
+  }
+}
+
+/** The Figma frame "Conversations — Empty list": an icon, an explanation and "Browse listings". */
+@Composable
+private fun EmptyInbox(onBrowse: () -> Unit, modifier: Modifier) {
+  Column(
+      // 100dp at the bottom, as in the Figma, so the content sits a little above the centre.
+      modifier =
+          modifier
+              .padding(start = 28.dp, end = 28.dp, top = 24.dp, bottom = 100.dp)
+              .testTag(InboxScreenTags.EMPTY_STATE),
+      verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
+      horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    Box(
+        modifier =
+            Modifier.size(width = 64.dp, height = 52.dp)
+                .background(AuthColors.AccentContainer, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+      // Decorative: the title below says what the screen is about.
+      Icon(
+          painter = painterResource(R.drawable.ic_message_circle),
+          contentDescription = null,
+          tint = AuthColors.Accent,
+          modifier = Modifier.size(21.dp),
+      )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      Text(
+          text = stringResource(R.string.inbox_empty_title),
+          color = AuthColors.TextPrimary,
+          fontSize = 21.sp,
+          lineHeight = 32.sp,
+          fontWeight = FontWeight.Bold,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.fillMaxWidth(),
+      )
+      Text(
+          text = stringResource(R.string.inbox_empty_message),
+          color = AuthColors.TextSecondary,
+          fontSize = 14.sp,
+          lineHeight = 21.sp,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.fillMaxWidth(),
+      )
+    }
+    AuthPrimaryButton(
+        text = stringResource(R.string.inbox_browse_listings),
+        onClick = onBrowse,
+        enabled = true,
+        modifier = Modifier.width(240.dp).height(48.dp).testTag(InboxScreenTags.BROWSE_BUTTON),
+    )
   }
 }
 
@@ -377,4 +526,11 @@ internal fun InboxContentPreview() {
       actions = InboxActions(),
       now = now,
   )
+}
+
+/** The empty inbox, for the IDE preview. Internal so a test can render it too. */
+@Preview(showBackground = true, widthDp = 412, heightDp = 844)
+@Composable
+internal fun InboxEmptyPreview() {
+  InboxContent(state = InboxUiState(isLoading = false), actions = InboxActions())
 }

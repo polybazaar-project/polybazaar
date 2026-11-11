@@ -104,6 +104,10 @@
     <string name="inbox_time_minutes">%1$dm</string>
     <string name="inbox_time_hours">%1$dh</string>
     <string name="inbox_time_days">%1$dd</string>
+    <string name="inbox_retry">Retry</string>
+    <string name="inbox_empty_title">No conversations yet</string>
+    <string name="inbox_empty_message">Found something you like?\nOpen a listing and message its owner.\nYour conversations will appear here.</string>
+    <string name="inbox_browse_listings">Browse listings</string>
 
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>
