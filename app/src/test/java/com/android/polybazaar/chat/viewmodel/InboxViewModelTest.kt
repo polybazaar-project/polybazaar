@@ -23,6 +23,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -682,5 +683,54 @@ class InboxViewModelTest {
 
     assertEquals(1, chat.myConversations.subscriptionCount.value)
     assertEquals(loaded(row(drillWithAlice, me)), viewModel.uiState.value)
+  }
+
+  /** The only row shown once [conversation] is loaded in my inbox. */
+  private fun loadedRow(conversation: Conversation): InboxConversation {
+    given(conversation)
+    loadInbox()
+    return viewModel.uiState.value.conversations.single()
+  }
+
+  @Test
+  fun lastMessageFromTheOtherPersonINeverRead_isUnreadAndNotMine() {
+    val row =
+        loadedRow(drillWithAlice.copy(lastMessageText = "Hi", lastMessageSenderUid = alice.uid))
+
+    assertTrue(row.isUnread)
+    assertFalse(row.isLastMessageMine)
+  }
+
+  @Test
+  fun lastMessageIReadAlready_isNotUnread() {
+    val read =
+        drillWithAlice.copy(
+            lastMessageText = "Hi",
+            lastMessageSenderUid = alice.uid,
+            lastReadAt = mapOf(me.uid to Instant.ofEpochSecond(200)),
+        )
+
+    assertFalse(loadedRow(read).isUnread)
+  }
+
+  @Test
+  fun myOwnLastMessage_isMineAndNotUnread() {
+    val row = loadedRow(drillWithAlice.copy(lastMessageText = "Hi", lastMessageSenderUid = me.uid))
+
+    assertTrue(row.isLastMessageMine)
+    assertFalse(row.isUnread)
+  }
+
+  @Test
+  fun asTheLender_theRentersUnreadMessage_isUnreadAndNotMine() {
+    val row = loadedRow(bikeWithBob.copy(lastMessageText = "Hi", lastMessageSenderUid = bob.uid))
+
+    assertTrue(row.isUnread)
+    assertFalse(row.isLastMessageMine)
+  }
+
+  @Test
+  fun conversationStoredBeforePreviews_isNotMine() {
+    assertFalse(loadedRow(drillWithAlice).isLastMessageMine)
   }
 }

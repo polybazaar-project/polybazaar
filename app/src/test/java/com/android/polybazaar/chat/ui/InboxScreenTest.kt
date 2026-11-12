@@ -56,11 +56,16 @@ class InboxScreenTest {
           lastMessageAt = now.minus(Duration.ofMinutes(minutesAgo)),
       )
 
-  /** The row of [conversation] with Alice, its listing in [status] and titled "Current id". */
+  /**
+   * The row of [conversation] with Alice, its listing in [status] and titled "Current id"; read and
+   * with a last message from Alice unless [isUnread] or [isLastMessageMine] say otherwise.
+   */
   private fun row(
       conversation: Conversation,
       status: ListingStatus = ListingStatus.ACTIVE,
       otherUser: User? = alice,
+      isUnread: Boolean = false,
+      isLastMessageMine: Boolean = false,
   ) =
       InboxConversation(
           conversation = conversation,
@@ -68,6 +73,8 @@ class InboxScreenTest {
           listingTitle = "Current ${conversation.listingId}",
           listingStatus = status,
           listingPhotoPath = null,
+          isUnread = isUnread,
+          isLastMessageMine = isLastMessageMine,
       )
 
   private fun loaded(vararg rows: InboxConversation, error: AppError? = null) =
@@ -206,6 +213,55 @@ class InboxScreenTest {
     composeTestRule
         .onAllNodesWithTag(InboxScreenTags.DELETED_BADGE, useUnmergedTree = true)
         .assertCountEquals(1)
+  }
+
+  @Test
+  fun rowPreview_showsTheLastMessage() {
+    val drill = conversation("drill").copy(lastMessageText = "Does it come with the bits?")
+    setContent(loaded(row(drill)))
+
+    node(InboxScreenTags.preview(drill.id)).assertTextEquals("Does it come with the bits?")
+  }
+
+  @Test
+  fun rowPreview_ofMyOwnMessage_startsWithYou() {
+    val drill = conversation("drill").copy(lastMessageText = "See you at 6")
+    setContent(loaded(row(drill, isLastMessageMine = true)))
+
+    node(InboxScreenTags.preview(drill.id))
+        .assertTextEquals(context.getString(R.string.inbox_last_message_mine, "See you at 6"))
+  }
+
+  @Test
+  fun rowWithoutLastMessageText_showsNoPreview() {
+    val drill = conversation("drill")
+    setContent(loaded(row(drill, isUnread = true)))
+
+    node(InboxScreenTags.preview(drill.id)).assertDoesNotExist()
+    rowOf(drill).assert(hasText("Current drill"))
+  }
+
+  @Test
+  fun unreadDot_isShownOnlyOnUnreadRows() {
+    val unread = conversation("unread").copy(lastMessageText = "Hi")
+    val read = conversation("read").copy(lastMessageText = "Hi")
+    setContent(loaded(row(unread, isUnread = true), row(read)))
+
+    nodeInRow(unread, InboxScreenTags.UNREAD_DOT).assertIsDisplayed()
+    composeTestRule
+        .onAllNodesWithTag(InboxScreenTags.UNREAD_DOT, useUnmergedTree = true)
+        .assertCountEquals(1)
+  }
+
+  @Test
+  fun unreadRow_isReadAsUnreadByTalkBack() {
+    val unreadLabel = context.getString(R.string.inbox_unread)
+    val unread = conversation("unread").copy(lastMessageText = "Hi")
+    val read = conversation("read").copy(lastMessageText = "Hi")
+    setContent(loaded(row(unread, isUnread = true), row(read)))
+
+    rowOf(unread).assert(hasContentDescription(unreadLabel))
+    rowOf(read).assert(hasContentDescription(unreadLabel).not())
   }
 
   @Test
