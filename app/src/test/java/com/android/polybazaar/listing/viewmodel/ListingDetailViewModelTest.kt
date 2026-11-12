@@ -288,6 +288,41 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun ownerActions_whileAReloadIsRunning_areIgnored() {
+    val viewModel = ownerViewModel()
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.loadListing()
+    testDispatcher.scheduler.runCurrent()
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isUpdating)
+  }
+
+  @Test
+  fun reload_whileAPauseIsSaved_isIgnored_soThePauseStaysShown() {
+    val viewModel = ownerViewModel()
+    val readsBefore = listings.getListingCalls
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.setPaused(true)
+    viewModel.loadListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(readsBefore, listings.getListingCalls)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
   fun onDeletedHandled_resetsTheSignal() {
     val viewModel = ownerViewModel()
     viewModel.deleteListing()
@@ -296,6 +331,27 @@ class ListingDetailViewModelTest {
     viewModel.onDeletedHandled()
 
     assertFalse(viewModel.uiState.value.isDeleted)
+  }
+
+  @Test
+  fun afterADelete_ownerActionsAndReloadsAreIgnored_evenOnceHandled() {
+    val viewModel = ownerViewModel()
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.onDeletedHandled()
+    val readsBefore = listings.getListingCalls
+
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertEquals(listOf(listing.listingId!!), listings.deletedListingIds)
+    assertEquals(readsBefore, listings.getListingCalls)
+    assertNull(state.error)
+    assertNull(state.ownerActionError)
   }
 
   @Test
@@ -308,6 +364,14 @@ class ListingDetailViewModelTest {
 
     assertNull(viewModel.uiState.value.ownerActionError)
     assertFalse(viewModel.uiState.value.isUpdating)
+
+    // isUpdating was cleared in the finally, so the next tap goes through.
+    listings.failure = null
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(listing.listingId!! to true), listings.pauseCalls)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
   }
 
   @Test
