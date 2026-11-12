@@ -602,4 +602,88 @@ class ConversationViewModelTest {
     assertEquals(2, chat.observeConversationCalls)
     assertEquals(1, chat.observeMessagesCalls)
   }
+
+  /** The conversation after Lena replied, which Remi has not read yet. */
+  private val unreadReply =
+      conversation.copy(
+          lastMessageAt = hi.sentAt,
+          lastMessageText = hi.text,
+          lastMessageSenderUid = lender.uid,
+      )
+
+  @Test
+  fun unreadConversation_isMarkedReadOnceWhenOpened() {
+    chat = FakeChatRepository(myUid = renter.uid)
+    givenConversation(unreadReply)
+
+    loadedViewModel()
+
+    assertEquals(listOf(unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun lender_opensAConversationWithAnUnreadMessage_marksItRead() {
+    chat = FakeChatRepository(myUid = lender.uid)
+    givenConversation(
+        conversation.copy(lastMessageText = hello.text, lastMessageSenderUid = renter.uid)
+    )
+
+    loadedViewModel(myUid = lender.uid)
+
+    assertEquals(listOf(conversation.id), chat.markedRead)
+  }
+
+  @Test
+  fun alreadyReadConversation_isNotMarkedRead() {
+    givenConversation(unreadReply.copy(lastReadAt = mapOf(renter.uid to hi.sentAt)))
+
+    loadedViewModel()
+
+    assertEquals(emptyList<String>(), chat.markedRead)
+  }
+
+  @Test
+  fun myOwnLastMessage_isNotMarkedRead() {
+    givenConversation(
+        conversation.copy(lastMessageText = hello.text, lastMessageSenderUid = renter.uid)
+    )
+
+    loadedViewModel()
+
+    assertEquals(emptyList<String>(), chat.markedRead)
+  }
+
+  @Test
+  fun newMessageFromTheOtherPersonWhileOpen_isMarkedReadAgain() {
+    chat = FakeChatRepository(myUid = renter.uid)
+    givenConversation(unreadReply)
+    loadedViewModel()
+
+    val read = chat.myConversations.value.getOrThrow().single()
+    val later = Instant.ofEpochSecond(300)
+    chat.myConversations.value =
+        Result.success(listOf(read.copy(lastMessageAt = later, lastMessageText = "Tomorrow?")))
+    advance()
+
+    assertEquals(listOf(unreadReply.id, unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun sameUnreadMessageEmittedAgain_isNotMarkedReadTwice() {
+    // Without myUid, the fake keeps the conversation unread, like a write still pending.
+    givenConversation(unreadReply)
+    loadedViewModel()
+
+    chat.myConversations.value = Result.success(listOf(unreadReply.copy(listingTitle = "Drill")))
+    advance()
+
+    assertEquals(listOf(unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun noConversationYet_isNotMarkedRead() {
+    loadedViewModel()
+
+    assertEquals(emptyList<String>(), chat.markedRead)
+  }
 }
