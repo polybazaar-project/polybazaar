@@ -14,6 +14,7 @@ import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -103,6 +104,7 @@ class ConversationViewModel(
   private var messagesFailed = false
   private var otherUserUid: String? = null
   private var sendInFlight = false
+  private var lastMarkedReadAt: Instant? = null
 
   init {
     loadListing()
@@ -266,8 +268,22 @@ class ConversationViewModel(
             _uiState.update { it.copy(conversation = conversation).derived() }
             updateLoading()
             observeOtherUser()
+            markReadIfUnread(conversation)
           }
     }
+  }
+
+  /**
+   * Marks the open conversation read whenever its latest message is unread for me, also for
+   * messages that arrive while it is open. Only once per lastMessageAt: the conversation can be
+   * emitted again before the server confirms the write, and that must not write again.
+   */
+  private fun markReadIfUnread(conversation: Conversation?) {
+    if (conversation == null || !conversation.isUnreadFor(myUid)) return
+    val lastMessageAt = conversation.lastMessageAt
+    if (lastMessageAt == lastMarkedReadAt) return
+    lastMarkedReadAt = lastMessageAt
+    chatRepository.markRead(conversation.id)
   }
 
   private fun observeMessages() {
