@@ -143,12 +143,12 @@ class ListingDetailViewModel(
     lenderObservation = viewModelScope.launch {
       profileRepository
           .observeProfile(ownerUid)
-          // catch never sees a cancellation, so closing the screen is not shown as an error.
           .onEach { lender -> showLender(lender) }
           // Downloads the photo only when its path changes, not on every profile update (a new
           // bio).
           .map { it?.photoPath }
           .distinctUntilChanged()
+          // catch never sees a cancellation, so closing the screen is not shown as an error.
           .catch { exception -> _uiState.update { it.copy(lenderError = exception.toAppError()) } }
           // collectLatest cancels a download still running when the path changes again.
           .collectLatest { photoPath -> photoPath?.let { loadLenderPhoto(it) } }
@@ -157,8 +157,8 @@ class ListingDetailViewModel(
 
   private fun showLender(lender: User?) {
     _uiState.update {
-      // A removed photo goes back to the default one; otherwise the old photo stays until the new
-      // one has downloaded.
+      // A removed photo goes back to the default one. The path is always users/{uid}/profile.jpg,
+      // so a replaced photo keeps the same path and shows the next time the screen is opened.
       it.copy(
           lender = lender,
           lenderPhoto = if (lender?.photoPath == null) null else it.lenderPhoto,
