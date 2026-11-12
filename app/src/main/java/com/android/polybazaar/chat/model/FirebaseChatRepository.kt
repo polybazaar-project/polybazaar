@@ -87,6 +87,8 @@ class FirebaseChatRepository(
   override fun markRead(conversationId: String) {
     val uid = auth.currentUser?.uid ?: return
     // Not awaited, like sendMessage: the write is queued offline and the listener sees it at once.
+    // Until the server confirms it, the read time is this device's clock, so with a clock behind
+    // the server's lastMessageAt the conversation still shows unread until then.
     conversationDocument(conversationId)
         .update(FieldPath.of("lastReadAt", uid), FieldValue.serverTimestamp())
         .addOnFailureListener(Executor { it.run() }) { logWriteFailure(it) }
