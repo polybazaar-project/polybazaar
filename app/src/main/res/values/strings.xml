@@ -52,6 +52,10 @@
     <string name="listing_detail_deposit">%1$s deposit</string>
     <string name="listing_detail_choose_dates">Choose dates</string>
     <string name="listing_detail_reassurance">See your full total before you request to book.</string>
+    <string name="listing_detail_owner_name">%1$s (you)  ·  Verified</string>
+    <string name="listing_detail_edit">Edit listing</string>
+    <string name="listing_detail_owner_reassurance">Students can find and book this listing.</string>
+    <string name="listing_detail_owner_paused_reassurance">Only you can see this listing.</string>
 
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>

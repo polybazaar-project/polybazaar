@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.ui
 
+import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -82,17 +84,22 @@ object ListingDetailScreenTags {
   const val PRICE = "listing_detail_price"
   const val DEPOSIT = "listing_detail_deposit"
   const val CHOOSE_DATES_BUTTON = "listing_detail_choose_dates_button"
+  const val BOOKING_NOTE = "listing_detail_booking_note"
+  const val EDIT_BUTTON = "listing_detail_edit_button"
 }
 
 /**
  * Where the listing detail leads; every action does nothing by default. Retry is not here: it stays
  * inside the screen, so [ListingDetailScreen] wires it to the ViewModel.
+ *
+ * @property onEdit opens the "Edit listing" screen for the listing with this id (owner only).
  */
 class ListingDetailActions(
     val onBack: () -> Unit = {},
     val onOpenLender: (String) -> Unit = {},
     val onMessageLender: () -> Unit = {},
     val onChooseDates: () -> Unit = {},
+    val onEdit: (String) -> Unit = {},
 )
 
 /** What the screen shows, decided by [listingDetailBody]. */
@@ -135,7 +142,8 @@ fun ListingDetailScreen(viewModel: ListingDetailViewModel, actions: ListingDetai
  * description, terms, lender, and the price with "Choose dates" pinned at the bottom.
  *
  * "Message lender" and "Choose dates" are enabled only when [ListingDetailUiState.canContactLender]
- * is true, so the owner and unknown viewers see them disabled.
+ * is true, so unknown viewers see them disabled. The owner sees "Edit listing" instead (Figma
+ * "Rental listing detail — Owner active").
  *
  * @param onRetry called when the user taps Retry after the listing failed to load.
  */
@@ -190,11 +198,7 @@ private fun ColumnScope.ListingDetail(
       LenderSection(listing, uiState, actions, onRetry)
     }
   }
-  BookingBar(
-      listing = listing,
-      enabled = uiState.canContactLender,
-      onChooseDates = actions.onChooseDates,
-  )
+  BookingBar(listing = listing, uiState = uiState, actions = actions)
 }
 
 /** The back button, where the Figma "Listing navigation" row puts it (20dp in, 6dp down). */
@@ -343,7 +347,8 @@ private fun ItemTerms(item: ItemListing) {
 }
 
 /**
- * The lender's name and bio, and "Message lender".
+ * The lender's name and bio, and "Message lender". The owner sees "(you)" after their name and no
+ * "Message lender": they would be messaging themselves.
  *
  * @param onRetry reloads the listing, which also restarts a lender observation that failed.
  */
@@ -363,6 +368,7 @@ private fun LenderSection(
       lender != null && ownerUid != null ->
           LenderSummary(
               lender = lender,
+              isOwner = uiState.isOwner,
               photo = uiState.lenderPhoto,
               onClick = { actions.onOpenLender(ownerUid) },
           )
@@ -378,7 +384,9 @@ private fun LenderSection(
           }
     }
     // Null and no error: still loading, or the owner has no profile. Nothing to show in both cases.
-    MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
+    if (!uiState.isOwner) {
+      MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
+    }
   }
 }
 
@@ -386,10 +394,11 @@ private fun LenderSection(
  * The lender's photo, then their name with the "Verified" mark and their bio. The whole row opens
  * the lender's profile, so the touch target is at least 48dp without adding space between lines.
  *
+ * @param isOwner whether the viewer is this lender, who sees "(you)" after their name.
  * @param photo the encoded profile photo, or null for the default one.
  */
 @Composable
-private fun LenderSummary(lender: User, photo: ByteArray?, onClick: () -> Unit) {
+private fun LenderSummary(lender: User, isOwner: Boolean, photo: ByteArray?, onClick: () -> Unit) {
   Row(
       modifier =
           Modifier.fillMaxWidth()
@@ -409,7 +418,12 @@ private fun LenderSummary(lender: User, photo: ByteArray?, onClick: () -> Unit) 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
       // Every listing owner had a verified EPFL email when creating it (see Listing.ownerUid).
       Text(
-          text = stringResource(R.string.listing_detail_lender_name, lender.username),
+          text =
+              stringResource(
+                  if (isOwner) R.string.listing_detail_owner_name
+                  else R.string.listing_detail_lender_name,
+                  lender.username,
+              ),
           color = AuthColors.TextPrimary,
           fontSize = 14.sp,
           lineHeight = 19.sp,
@@ -454,9 +468,16 @@ private fun MessageLenderButton(enabled: Boolean, onClick: () -> Unit) {
   }
 }
 
-/** Price per day, the deposit for items, and "Choose dates", kept under the scrolling details. */
+/**
+ * Price per day, the deposit for items, and the main action, kept under the scrolling details:
+ * "Choose dates" for a renter, "Edit listing" for the owner.
+ */
 @Composable
-private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> Unit) {
+private fun BookingBar(
+    listing: Listing,
+    uiState: ListingDetailUiState,
+    actions: ListingDetailActions,
+) {
   HorizontalDivider(color = AuthColors.Outline)
   Column(
       modifier =
@@ -472,26 +493,64 @@ private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> 
     ) {
       // weight(1f): the price gives way on a narrow screen, so the button keeps its 166dp.
       PriceBlock(listing = listing, modifier = Modifier.weight(1f))
-      // 166dp x 48dp: the Figma "Choose dates button".
-      AuthPrimaryButton(
-          text = stringResource(R.string.listing_detail_choose_dates),
-          onClick = onChooseDates,
-          enabled = enabled,
-          trailingIcon = R.drawable.ic_arrow_right,
-          modifier =
-              Modifier.width(166.dp)
-                  .height(48.dp)
-                  .testTag(ListingDetailScreenTags.CHOOSE_DATES_BUTTON),
-      )
+      if (uiState.isOwner) {
+        // Saved listings always have an id; the check only gives the smart cast.
+        val listingId = listing.listingId
+        BarButton(
+            text = stringResource(R.string.listing_detail_edit),
+            icon = R.drawable.ic_pencil,
+            enabled = !uiState.isUpdating && listingId != null,
+            tag = ListingDetailScreenTags.EDIT_BUTTON,
+            onClick = { listingId?.let(actions.onEdit) },
+        )
+      } else {
+        BarButton(
+            text = stringResource(R.string.listing_detail_choose_dates),
+            icon = R.drawable.ic_arrow_right,
+            enabled = uiState.canContactLender,
+            tag = ListingDetailScreenTags.CHOOSE_DATES_BUTTON,
+            onClick = actions.onChooseDates,
+        )
+      }
     }
     Text(
-        text = stringResource(R.string.listing_detail_reassurance),
+        text = stringResource(bookingNote(uiState.isOwner, listing.isPaused)),
         color = AuthColors.TextSecondary,
         fontSize = 11.sp,
         textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag(ListingDetailScreenTags.BOOKING_NOTE),
     )
   }
+}
+
+/**
+ * The line under the booking bar's button: who can see the listing for its owner, the price
+ * reassurance for a renter.
+ */
+@StringRes
+internal fun bookingNote(isOwner: Boolean, isPaused: Boolean): Int =
+    when {
+      !isOwner -> R.string.listing_detail_reassurance
+      isPaused -> R.string.listing_detail_owner_paused_reassurance
+      else -> R.string.listing_detail_owner_reassurance
+    }
+
+/** The 166dp x 48dp accent button of the booking bar (the Figma "Choose dates button"). */
+@Composable
+private fun BarButton(
+    text: String,
+    @DrawableRes icon: Int,
+    enabled: Boolean,
+    tag: String,
+    onClick: () -> Unit,
+) {
+  AuthPrimaryButton(
+      text = text,
+      onClick = onClick,
+      enabled = enabled,
+      trailingIcon = icon,
+      modifier = Modifier.width(166.dp).height(48.dp).testTag(tag),
+  )
 }
 
 @Composable

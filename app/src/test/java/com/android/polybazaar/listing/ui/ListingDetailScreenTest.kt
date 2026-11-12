@@ -88,6 +88,10 @@ class ListingDetailScreenTest {
     }
   }
 
+  /** The drill as its owner, the lender, sees it. */
+  private fun ownerState(listing: ItemListing = drill) =
+      ListingDetailUiState(listing = listing, lender = lender, isOwner = true)
+
   /** The returns line of an item whose return terms are not stored yet. */
   private fun returnsPending() =
       context.getString(
@@ -367,10 +371,41 @@ class ListingDetailScreenTest {
     node(ListingDetailScreenTags.RETRY_BUTTON).performClick()
 
     node(ListingDetailScreenTags.TITLE).assertTextEquals("Bosch drill set")
+    // The viewer is the owner here, so they get the owner's view.
     node(ListingDetailScreenTags.LENDER_NAME)
-        .assertTextEquals(context.getString(R.string.listing_detail_lender_name, "james"))
-    // The viewer is the owner here, so both actions stay disabled.
-    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertIsNotEnabled()
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_name, "james"))
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertIsEnabled()
     assertEquals(2, listings.getListingCalls)
+  }
+
+  @Test
+  fun owner_seesEditListing_insteadOfTheRenterActions() {
+    val edited = mutableListOf<String>()
+    setContent(ownerState(), ListingDetailActions(onEdit = { edited += it }))
+
+    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.MESSAGE_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.LENDER_NAME)
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_name, "james"))
+    node(ListingDetailScreenTags.BOOKING_NOTE)
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_reassurance))
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertWidthIsEqualTo(166.dp).performClick()
+    assertEquals(listOf("drill"), edited)
+  }
+
+  @Test
+  fun renter_seesNoEdit() {
+    setContent(ListingDetailUiState(listing = drill, lender = lender, canContactLender = true))
+
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.BOOKING_NOTE)
+        .assertTextEquals(context.getString(R.string.listing_detail_reassurance))
+  }
+
+  @Test
+  fun ownerAction_beingSaved_disablesEdit() {
+    setContent(ownerState().copy(isUpdating = true))
+
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertIsNotEnabled()
   }
 }
