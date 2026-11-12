@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.ui.AuthBackButton
@@ -129,6 +130,12 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
   // Collected without dispatching, as on the listing forms: a text field that lags behind its input
   // can jump its cursor or drop characters.
   val uiState by viewModel.uiState.collectAsState(context = Dispatchers.Main.immediate)
+  // Messages are marked read only while the screen is started, not while the app is in the
+  // background with the conversation open.
+  LifecycleStartEffect(viewModel) {
+    viewModel.setVisible(true)
+    onStopOrDispose { viewModel.setVisible(false) }
+  }
   ConversationContent(
       uiState = uiState,
       onBack = onBack,
