@@ -1,4 +1,3 @@
-// Portions of this code were generated with the help of Claude Code.
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.profile.ui
 
@@ -8,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
@@ -47,6 +48,8 @@ private const val AVATAR_DECODE_SIZE_PX = 288
  * Shows [selectedPhotoUri] (a photo picked on this device) when there is one, then [savedPhoto]
  * (the encoded bytes of the photo stored in Firebase), and the default photo otherwise.
  *
+ * @param size the photo's diameter: 72dp on the profile screens, smaller next to a name elsewhere.
+ * @param showBadge whether to draw the check badge on the bottom right of the photo.
  * @param ioDispatcher runs the decoding, off the main thread.
  */
 @Composable
@@ -54,6 +57,8 @@ internal fun ProfileAvatar(
     modifier: Modifier = Modifier,
     selectedPhotoUri: Uri? = null,
     savedPhoto: ByteArray? = null,
+    size: Dp = 72.dp,
+    showBadge: Boolean = true,
     ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
   val contentResolver = LocalContext.current.contentResolver
@@ -65,31 +70,39 @@ internal fun ProfileAvatar(
       rememberDecodedPhoto(savedPhoto, ioDispatcher) {
         ImageDecoder.createSource(ByteBuffer.wrap(it))
       }
-  Box(modifier = modifier.size(72.dp).testTag(ProfileComponentTags.AVATAR)) {
+  Box(modifier = modifier.size(size).testTag(ProfileComponentTags.AVATAR)) {
     Image(
         painter =
             (decodedSelectedPhoto ?: decodedSavedPhoto)?.let { BitmapPainter(it) }
                 ?: painterResource(R.drawable.default_profile_photo),
         contentDescription = "Profile photo",
         contentScale = ContentScale.Crop,
-        modifier = Modifier.size(72.dp).clip(CircleShape),
+        modifier = Modifier.size(size).clip(CircleShape),
     )
-    Box(
-        modifier =
-            Modifier.align(Alignment.TopStart)
-                .offset(x = 50.dp, y = 49.dp)
-                .size(24.dp)
-                .background(AuthColors.Accent, CircleShape)
-                .border(2.dp, Color.White, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-      Icon(
-          painter = painterResource(R.drawable.ic_check),
-          contentDescription = null,
-          tint = Color.Unspecified,
-          modifier = Modifier.size(13.dp),
-      )
-    }
+    if (showBadge) VerifiedBadge()
+  }
+}
+
+/** The accent check badge on the bottom right of the avatar, whatever its size. */
+@Composable
+private fun BoxScope.VerifiedBadge() {
+  Box(
+      modifier =
+          // From the bottom-right corner, so it stays on the avatar at any size. 2dp right and 1dp
+          // down: where the profile Figma frames put it on the 72dp photo.
+          Modifier.align(Alignment.BottomEnd)
+              .offset(x = 2.dp, y = 1.dp)
+              .size(24.dp)
+              .background(AuthColors.Accent, CircleShape)
+              .border(2.dp, Color.White, CircleShape),
+      contentAlignment = Alignment.Center,
+  ) {
+    Icon(
+        painter = painterResource(R.drawable.ic_check),
+        contentDescription = null,
+        tint = Color.Unspecified,
+        modifier = Modifier.size(13.dp),
+    )
   }
 }
 

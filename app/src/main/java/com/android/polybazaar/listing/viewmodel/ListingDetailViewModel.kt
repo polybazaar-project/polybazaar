@@ -18,6 +18,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -27,6 +31,9 @@ import kotlinx.coroutines.launch
  * @property listing the listing shown, or null until it is loaded.
  * @property lender the profile of the listing's owner, or null while it loads, after a failure, or
  *   when the owner has no profile document.
+ * @property lenderPhoto the encoded bytes of the lender's profile photo, or null when they have
+ *   none, while it downloads, or if it could not be downloaded (the screen then shows the default
+ *   photo).
  * @property pendingDetails the design fields no listing stores yet. Always empty for now, so the
  *   screen shows its "to be confirmed" text for them.
  * @property canContactLender whether "Message" and "Request booking" are enabled, from
@@ -39,6 +46,7 @@ import kotlinx.coroutines.launch
 data class ListingDetailUiState(
     val listing: Listing? = null,
     val lender: User? = null,
+    val lenderPhoto: ByteArray? = null,
     val pendingDetails: ListingPendingDetails = ListingPendingDetails(),
     val canContactLender: Boolean = false,
     val isLoading: Boolean = false,
@@ -126,7 +134,7 @@ class ListingDetailViewModel(
         null
       }
 
-  /** Keeps [ListingDetailUiState.lender] up to date with the owner's profile. */
+  /** Keeps [ListingDetailUiState.lender] and its photo up to date with the owner's profile. */
   private fun observeLender(ownerUid: String) {
     // A listing's owner never changes, so a reload keeps the running observation instead of
     // starting a second one. A failed observation has ended, so a reload restarts it.
@@ -135,9 +143,38 @@ class ListingDetailViewModel(
     lenderObservation = viewModelScope.launch {
       profileRepository
           .observeProfile(ownerUid)
+          .onEach { lender -> showLender(lender) }
+          // Downloads the photo only when its path changes, not on every profile update (a new
+          // bio).
+          .map { it?.photoPath }
+          .distinctUntilChanged()
           // catch never sees a cancellation, so closing the screen is not shown as an error.
           .catch { exception -> _uiState.update { it.copy(lenderError = exception.toAppError()) } }
-          .collect { lender -> _uiState.update { it.copy(lender = lender) } }
+          // collectLatest cancels a download still running when the path changes again.
+          .collectLatest { photoPath -> photoPath?.let { loadLenderPhoto(it) } }
+    }
+  }
+
+  private fun showLender(lender: User?) {
+    _uiState.update {
+      // A removed photo goes back to the default one. The path is always users/{uid}/profile.jpg,
+      // so a replaced photo keeps the same path and shows the next time the screen is opened.
+      it.copy(
+          lender = lender,
+          lenderPhoto = if (lender?.photoPath == null) null else it.lenderPhoto,
+      )
+    }
+  }
+
+  /** On failure (offline, for example) the default photo stays: the photo is not worth an error. */
+  private suspend fun loadLenderPhoto(photoPath: String) {
+    try {
+      val photo = profileRepository.loadProfilePhoto(photoPath)
+      _uiState.update { it.copy(lenderPhoto = photo) }
+    } catch (exception: Exception) {
+      if (exception is CancellationException) throw exception
+      // Only for the log, as in currentViewer().
+      exception.toAppError()
     }
   }
 }
