@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.ui
 
 import android.content.Context
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -27,6 +28,10 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
@@ -161,6 +166,7 @@ class ConversationScreenTest {
   private fun showScreen(
       chat: FakeChatRepository,
       listings: FakeListingRepository = FakeListingRepository(allListings = listOf(drill)),
+      lifecycleOwner: LifecycleOwner? = null,
   ): ConversationViewModel {
     val viewModel =
         ConversationViewModel(
@@ -171,8 +177,22 @@ class ConversationScreenTest {
             profileRepository = FakeProfileRepository(mapOf(james.uid to james)),
             listingRepository = listings,
         )
-    composeTestRule.setContent { ConversationScreen(viewModel = viewModel, onBack = {}) }
+    composeTestRule.setContent {
+      CompositionLocalProvider(
+          LocalLifecycleOwner provides (lifecycleOwner ?: LocalLifecycleOwner.current)
+      ) {
+        ConversationScreen(viewModel = viewModel, onBack = {})
+      }
+    }
     return viewModel
+  }
+
+  /** A lifecycle a test moves by hand, to put the screen in the background and back. */
+  private class ManualLifecycleOwner : LifecycleOwner {
+    val registry =
+        LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
+    override val lifecycle: Lifecycle
+      get() = registry
   }
 
   @Test
@@ -520,6 +540,30 @@ class ConversationScreenTest {
 
     assertEquals(listOf("Is it free on Saturday?"), chat.sentMessages.map { it.second })
     node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft(""))
+  }
+
+  @Test
+  fun screen_marksReadOnlyWhileStarted() {
+    val unread = conversation.copy(lastMessageText = answer.text, lastMessageSenderUid = james.uid)
+    val chat =
+        FakeChatRepository(listOf(unread), myUid = "renter").apply {
+          messages.value = mapOf(conversation.id to listOf(question, answer))
+        }
+    val lifecycleOwner = ManualLifecycleOwner()
+    showScreen(chat, lifecycleOwner = lifecycleOwner)
+    composeTestRule.waitForIdle()
+    assertEquals(listOf(conversation.id), chat.markedRead)
+
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.CREATED }
+    val read = chat.myConversations.value.getOrThrow().single()
+    chat.myConversations.value =
+        Result.success(listOf(read.copy(lastMessageAt = Instant.parse("2026-11-11T09:20:00Z"))))
+    composeTestRule.waitForIdle()
+    assertEquals(listOf(conversation.id), chat.markedRead)
+
+    composeTestRule.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.STARTED }
+    composeTestRule.waitForIdle()
+    assertEquals(listOf(conversation.id, conversation.id), chat.markedRead)
   }
 
   @Test
