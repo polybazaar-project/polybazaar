@@ -10,6 +10,9 @@
     <string name="nav_conversations">Conversations</string>
     <string name="nav_profile">Profile</string>
 
+    <!-- Listing cards, in Browse, the Toolbox and the lender profile -->
+    <string name="open_listing">Open listing</string>
+
     <!-- Browse screen -->
     <string name="browse_header_title">Polybazaar</string>
     <string name="browse_header_subtitle">Good tools. Great neighbours.</string>
@@ -27,7 +30,6 @@
     <string name="lender_profile_listings_title">Their listings</string>
     <string name="lender_profile_no_listings">This lender has no listings yet.</string>
     <string name="lender_profile_not_found">This profile no longer exists.</string>
-    <string name="lender_profile_open_listing">Open listing</string>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>

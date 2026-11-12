@@ -7,12 +7,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
-import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -35,6 +36,7 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.testing.hasClickLabel
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
@@ -271,7 +273,7 @@ class BrowseScreenTest {
     composeTestRule.onNodeWithText("Test Item").assertIsDisplayed()
     // Without a distance the card shows only the category, which is also a selector chip.
     composeTestRule
-        .onNode(hasText("Other") and hasAnyAncestor(hasTestTag(BrowseScreenTags.LISTING_CARD)))
+        .onNode(hasTestTag(BrowseScreenTags.LISTING_CARD) and hasText("Other"))
         .assertIsDisplayed()
     composeTestRule.onNodeWithText("CHF 10").assertIsDisplayed()
     composeTestRule.onNodeWithText("/ day").assertIsDisplayed()
@@ -335,6 +337,34 @@ class BrowseScreenTest {
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.LOADING_INDICATOR).assertDoesNotExist()
     composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).assertIsDisplayed()
+  }
+
+  @Test
+  fun tappingAListingCard_opensThatListing() {
+    val opened = mutableListOf<String>()
+    composeTestRule.setContent {
+      BrowseContent(
+          uiState = BrowseUiState(listings = listOf(drillCard)),
+          onQueryChange = {},
+          onCategorySelected = {},
+          onRetry = {},
+          onOpenListing = { opened += it },
+      )
+    }
+
+    composeTestRule
+        .onNodeWithTag(BrowseScreenTags.LISTING_CARD)
+        .assert(hasClickLabel(string(R.string.open_listing)))
+        .performClick()
+
+    assertEquals(listOf(drillCard.id), opened)
+  }
+
+  @Test
+  fun listingCardWithoutOnClick_cannotBeTapped() {
+    composeTestRule.setContent { ListingCard(drillCard) }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).assertHasNoClickAction()
   }
 
   @Test
@@ -433,10 +463,7 @@ class BrowseScreenTest {
   private fun assertLastListingIsClearOfTheSearchField() {
     val card =
         composeTestRule
-            .onNode(
-                hasTestTag(BrowseScreenTags.LISTING_CARD) and
-                    hasAnyDescendant(hasText(LAST_LISTING))
-            )
+            .onNode(hasTestTag(BrowseScreenTags.LISTING_CARD) and hasText(LAST_LISTING))
             .getBoundsInRoot()
     val search = composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD).getBoundsInRoot()
     val screen = composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).getBoundsInRoot()

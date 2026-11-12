@@ -15,6 +15,9 @@ object Routes {
   const val CREATE_LISTING = "create_listing"
   const val LISTING_ID = "listingId"
   const val EDIT_LISTING = "edit_listing/{$LISTING_ID}"
+  const val LISTING_DETAIL = "listing_detail/{$LISTING_ID}"
+  const val LENDER_UID = "lenderUid"
+  const val LENDER_PROFILE = "lender_profile/{$LENDER_UID}"
   const val PROFILE = "profile"
   const val EDIT_PROFILE = "edit_profile"
   const val SETTINGS = "settings"
@@ -22,4 +25,10 @@ object Routes {
 
   /** The route of the "Edit listing" screen for the listing [listingId]. */
   fun editListing(listingId: String) = "edit_listing/${Uri.encode(listingId)}"
+
+  /** The route of the listing detail screen for the listing [listingId]. */
+  fun listingDetail(listingId: String) = "listing_detail/${Uri.encode(listingId)}"
+
+  /** The route of the profile of the lender with uid [lenderUid]. */
+  fun lenderProfile(lenderUid: String) = "lender_profile/${Uri.encode(lenderUid)}"
 }

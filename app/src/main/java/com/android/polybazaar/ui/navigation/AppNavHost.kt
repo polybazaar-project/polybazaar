@@ -65,12 +65,17 @@ import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
 import com.android.polybazaar.listing.ui.EditListingScreen
+import com.android.polybazaar.listing.ui.ListingDetailActions
+import com.android.polybazaar.listing.ui.ListingDetailScreen
+import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
+import com.android.polybazaar.profile.ui.LenderProfileScreen
 import com.android.polybazaar.profile.ui.ProfileContent
 import com.android.polybazaar.profile.viewmodel.EditProfileViewModel
+import com.android.polybazaar.profile.viewmodel.LenderProfileViewModel
 import com.android.polybazaar.profile.viewmodel.ProfileViewModel
 import com.android.polybazaar.settings.ui.SettingsContent
 import com.android.polybazaar.toolbox.ui.ToolboxCard
@@ -249,7 +254,10 @@ fun AppNavHost(
                   factory =
                       viewModelFactory { initializer { BrowseViewModel(listingRepository, uid) } },
               )
-          BrowseScreen(viewModel = browseViewModel)
+          BrowseScreen(
+              viewModel = browseViewModel,
+              onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+          )
         }
         composable(Routes.CREATE_LISTING) {
           val listingViewModel: ListingFormViewModel =
@@ -296,6 +304,57 @@ fun AppNavHost(
               listingViewModel = listingViewModel,
               onBack = { navController.popBackStack() },
               onListingSaved = { navController.popBackStack() },
+          )
+        }
+        composable(
+            route = Routes.LISTING_DETAIL,
+            arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
+        ) { entry ->
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          // Scoped to this entry: each listing opened gets its own ViewModel.
+          val detailViewModel: ListingDetailViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          ListingDetailViewModel(
+                              listingId = listingId,
+                              listingRepository = listingRepository,
+                              profileRepository = profileRepository,
+                              authRepository = authRepository,
+                          )
+                        }
+                      }
+              )
+          // The listing is read once, so coming back to it, for example after editing it, loads
+          // it again. On opening, the ViewModel ignores this call while its first load runs.
+          LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { detailViewModel.loadListing() }
+          ListingDetailScreen(
+              viewModel = detailViewModel,
+              actions =
+                  ListingDetailActions(
+                      onBack = { navController.popBackStack() },
+                      onOpenLender = { navController.navigate(Routes.lenderProfile(it)) },
+                  ),
+          )
+        }
+        composable(
+            route = Routes.LENDER_PROFILE,
+            arguments = listOf(navArgument(Routes.LENDER_UID) { type = NavType.StringType }),
+        ) { entry ->
+          val lenderUid = entry.arguments?.getString(Routes.LENDER_UID) ?: return@composable
+          val lenderViewModel: LenderProfileViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer { LenderProfileViewModel(profileRepository, listingRepository) }
+                      }
+              )
+          LenderProfileScreen(
+              viewModel = lenderViewModel,
+              lenderUid = lenderUid,
+              onBack = { navController.popBackStack() },
+              onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
           )
         }
         composable(Routes.INBOX) {
@@ -349,7 +408,12 @@ fun AppNavHost(
               onOpenSettings = {
                 navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
               },
-              toolbox = { ToolboxCard(viewModel = toolboxViewModel) },
+              toolbox = {
+                ToolboxCard(
+                    viewModel = toolboxViewModel,
+                    onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+                )
+              },
           )
         }
         composable(Routes.EDIT_PROFILE) {
@@ -432,6 +496,8 @@ private val signedInRoutes =
         Routes.BROWSE,
         Routes.CREATE_LISTING,
         Routes.EDIT_LISTING,
+        Routes.LISTING_DETAIL,
+        Routes.LENDER_PROFILE,
         Routes.INBOX,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
