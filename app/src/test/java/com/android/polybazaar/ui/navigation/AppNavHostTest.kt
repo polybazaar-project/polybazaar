@@ -702,9 +702,9 @@ class AppNavHostTest {
   /** A message the signed-in user sent, to tell which conversation a screen observes. */
   private val adasMessage = ChatMessage("m1", user.uid, "Is it free on Saturday?", Instant.EPOCH)
 
-  /** Gives the conversation [conversationId] the signed-in user's [adasMessage]. */
-  private fun giveAdasMessageTo(conversationId: String) {
-    chatRepository.messages.value = mapOf(conversationId to listOf(adasMessage))
+  /** Gives the conversation [conversationId] the one [message], by default [adasMessage]. */
+  private fun giveMessageTo(conversationId: String, message: ChatMessage = adasMessage) {
+    chatRepository.messages.value = mapOf(conversationId to listOf(message))
   }
 
   /** Opens the only listing Browse shows, titled [title], and taps "Message" on its detail. */
@@ -731,7 +731,7 @@ class AppNavHostTest {
   @Test
   fun listingDetailMessage_opensTheViewersConversationWithTheLender() {
     listingRepository.allListings = listOf(gracesDrill)
-    giveAdasMessageTo("drill_uid-ada")
+    giveMessageTo("drill_uid-ada")
     setContent(FakeAuthRepository(currentUser = user))
 
     messageTheLender("Bosch drill set")
@@ -758,7 +758,7 @@ class AppNavHostTest {
   @Test
   fun conversationRoute_keepsAListingIdWithReservedCharacters() {
     listingRepository.allListings = listOf(gracesDrill.copy(listingId = "a/b?c d"))
-    giveAdasMessageTo("a/b?c d_uid-ada")
+    giveMessageTo("a/b?c d_uid-ada")
     setContent(FakeAuthRepository(currentUser = user))
 
     messageTheLender("Bosch drill set")
@@ -1338,6 +1338,77 @@ class AppNavHostTest {
         .onNodeWithTag(InboxScreenTags.row(drill.id))
         .assertIsDisplayed()
         .assertHasClickAction()
+  }
+
+  /** Grace rents Ada's drill: Ada is the lender of this conversation. */
+  private val adasDrillRentedByGrace =
+      Conversation(
+          listingId = "drill",
+          listingTitle = "Bosch drill set",
+          renterUid = "uid-grace",
+          lenderUid = user.uid,
+      )
+
+  /** Ada rents Grace's drill: Ada is the renter of this conversation. */
+  private val gracesDrillRentedByAda =
+      Conversation(
+          listingId = "drill",
+          listingTitle = "Bosch drill set",
+          renterUid = user.uid,
+          lenderUid = "uid-grace",
+      )
+
+  /** Opens the Conversations tab and taps the row of [conversation]. */
+  private fun openFromInbox(conversation: Conversation) {
+    openInbox()
+    composeTestRule.onNodeWithTag(InboxScreenTags.row(conversation.id)).performClick()
+  }
+
+  @Test
+  fun inboxRow_ofARenter_opensTheirConversation() {
+    listingRepository.allListings = listOf(gracesDrill)
+    chatRepository.myConversations.value = Result.success(listOf(gracesDrillRentedByAda))
+    giveMessageTo("drill_uid-ada")
+    setContent(FakeAuthRepository(currentUser = user))
+
+    openFromInbox(gracesDrillRentedByAda)
+
+    assertOnConversation("Bosch drill set", listingId = "drill", renterUid = user.uid)
+    composeTestRule.onNodeWithTag(ConversationScreenTags.myMessage("m1")).assertIsDisplayed()
+    assertBottomBarHidden()
+  }
+
+  @Test
+  fun inboxRow_ofALender_opensTheRentersConversation() {
+    listingRepository.allListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    chatRepository.myConversations.value = Result.success(listOf(adasDrillRentedByGrace))
+    giveMessageTo(
+        "drill_uid-grace",
+        ChatMessage("m2", "uid-grace", "Can I pick it up today?", Instant.EPOCH),
+    )
+    setContent(FakeAuthRepository(currentUser = user))
+
+    openFromInbox(adasDrillRentedByGrace)
+
+    // The renter's conversation, not one where Ada would rent her own drill.
+    assertOnConversation("Bosch drill set", listingId = "drill", renterUid = "uid-grace")
+    composeTestRule.onNodeWithTag(ConversationScreenTags.theirMessage("m2")).assertIsDisplayed()
+  }
+
+  @Test
+  fun conversationBack_returnsToTheInbox() {
+    listingRepository.allListings = listOf(gracesDrill)
+    chatRepository.myConversations.value = Result.success(listOf(gracesDrillRentedByAda))
+    setContent(FakeAuthRepository(currentUser = user))
+    openFromInbox(gracesDrillRentedByAda)
+    composeTestRule.onNodeWithTag(ConversationScreenTags.SCREEN).assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag(ConversationScreenTags.BACK_BUTTON).performClick()
+
+    composeTestRule
+        .onNodeWithTag(InboxScreenTags.row(gracesDrillRentedByAda.id))
+        .assertIsDisplayed()
+    assertEquals(Routes.INBOX, navController.currentBackStackEntry?.destination?.route)
   }
 
   @Test
