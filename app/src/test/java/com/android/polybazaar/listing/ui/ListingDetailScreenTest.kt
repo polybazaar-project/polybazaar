@@ -179,8 +179,12 @@ class ListingDetailScreenTest {
   fun item_withoutARentalLimit_leavesTheLengthOut() {
     setContent(ListingDetailUiState(listing = drill.copy(maxRentalDays = null)))
 
-    text(context.resources.getQuantityString(R.plurals.listing_detail_max_days, 7, 7))
-        .assertDoesNotExist()
+    // "Rental length", read from the string, so no length at all is shown, not only "7 days".
+    val label =
+        context.resources
+            .getQuantityString(R.plurals.listing_detail_max_days, 7, 7)
+            .substringBefore(":")
+    composeTestRule.onAllNodesWithText(label, substring = true).assertCountEquals(0)
   }
 
   @Test
@@ -209,7 +213,7 @@ class ListingDetailScreenTest {
   }
 
   @Test
-  fun pendingDetails_whenUnknown_leaveTheBadgeLocationSpecsAndIncludedOut() {
+  fun pendingDetails_whenUnknown_leaveTheBadgeAndIncludedLineOut() {
     setContent(ListingDetailUiState(listing = drill))
 
     node(ListingDetailScreenTags.CONDITION).assertDoesNotExist()
