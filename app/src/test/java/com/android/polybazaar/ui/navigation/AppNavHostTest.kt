@@ -1112,6 +1112,28 @@ class AppNavHostTest {
   }
 
   @Test
+  fun backToTheConversationsTab_keepsTheInboxWithoutLoadingItAgain() {
+    val drill =
+        Conversation(
+            listingId = "drill",
+            listingTitle = "Bosch drill",
+            renterUid = user.uid,
+            lenderUid = "lender",
+        )
+    chatRepository.myConversations.value = Result.success(listOf(drill))
+    setContent(FakeAuthRepository(currentUser = user))
+    openInbox()
+
+    openBrowse()
+    openInbox()
+
+    composeTestRule.onNodeWithTag(InboxScreenTags.row(drill.id)).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(InboxScreenTags.LOADING_INDICATOR).assertDoesNotExist()
+    // A new load would read the drill listing again.
+    assertEquals(1, listingRepository.getListingCalls)
+  }
+
+  @Test
   fun emptyInbox_browseListingsOpensTheBrowseTab() {
     setContent(FakeAuthRepository(currentUser = user))
     openInbox()

@@ -133,8 +133,8 @@ fun InboxScreen(
     onConversationClick: (Conversation) -> Unit,
     onBrowse: () -> Unit,
 ) {
-  // Keyed on the uid, so the screen loads again only when another user signs in.
-  LaunchedEffect(myUid) { viewModel.loadInbox(myUid) }
+  // Runs each time the tab is opened; openInbox keeps a load still running for the same user.
+  LaunchedEffect(myUid) { viewModel.openInbox(myUid) }
   val state by viewModel.uiState.collectAsState()
   InboxContent(
       state = state,
