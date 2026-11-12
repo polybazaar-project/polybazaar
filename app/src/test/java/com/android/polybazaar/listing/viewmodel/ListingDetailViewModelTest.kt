@@ -126,6 +126,25 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun owner_isTheOwner() {
+    auth.currentUser = lender.copy(isEmailVerified = true)
+
+    assertTrue(loadedViewModel().uiState.value.isOwner)
+  }
+
+  @Test
+  fun someoneElse_isNotTheOwner() {
+    assertFalse(loadedViewModel().uiState.value.isOwner)
+  }
+
+  @Test
+  fun unknownViewer_isNotTheOwner() {
+    auth.currentUser = null
+
+    assertFalse(loadedViewModel().uiState.value.isOwner)
+  }
+
+  @Test
   fun unknownViewer_cannotContactTheLender_butTheListingIsShownWithoutError() {
     auth.currentUser = null
 

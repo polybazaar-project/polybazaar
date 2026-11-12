@@ -38,6 +38,8 @@ import kotlinx.coroutines.launch
  *   screen shows its "to be confirmed" text for them.
  * @property canContactLender whether "Message" and "Request booking" are enabled, from
  *   [ListingRules.canContactLender]. False until both the listing and the viewer are known.
+ * @property isOwner whether the viewer owns the listing, so the screen shows the owner's actions
+ *   (edit, pause or resume, delete) instead of the renter's. False until both are known.
  * @property isLoading true while the listing is being loaded.
  * @property error why the listing could not be loaded, or null.
  * @property lenderError why the lender's profile could not be loaded, or null. The listing is still
@@ -49,6 +51,7 @@ data class ListingDetailUiState(
     val lenderPhoto: ByteArray? = null,
     val pendingDetails: ListingPendingDetails = ListingPendingDetails(),
     val canContactLender: Boolean = false,
+    val isOwner: Boolean = false,
     val isLoading: Boolean = false,
     val error: AppError? = null,
     val lenderError: AppError? = null,
@@ -60,6 +63,13 @@ data class ListingDetailUiState(
  */
 internal fun contactAllowed(viewer: User?, listing: Listing): Boolean =
     viewer != null && ListingRules.canContactLender(viewer, listing)
+
+/**
+ * Whether [viewer] owns [listing]. An unknown viewer, for example offline before the first read,
+ * gets false: they see the renter's view with its actions disabled until the viewer is known.
+ */
+internal fun ownedBy(viewer: User?, listing: Listing): Boolean =
+    viewer != null && listing.ownerUid == viewer.uid
 
 /** Loads one listing, the viewer and the lender's profile for the listing detail screen. */
 class ListingDetailViewModel(
@@ -114,7 +124,11 @@ class ListingDetailViewModel(
     val viewer = knownViewer ?: currentViewer()
     knownViewer = viewer
     _uiState.update {
-      it.copy(listing = listing, canContactLender = contactAllowed(viewer, listing))
+      it.copy(
+          listing = listing,
+          canContactLender = contactAllowed(viewer, listing),
+          isOwner = ownedBy(viewer, listing),
+      )
     }
     listing.ownerUid?.let { observeLender(it) }
   }
