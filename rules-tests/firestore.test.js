@@ -1161,6 +1161,17 @@ describe("conversations", () => {
     assert.deepEqual(Object.keys(stored.lastReadAt).sort(), [ALICE, BOB].sort());
   });
 
+  test("a conversation stored before read times can be marked read", async () => {
+    await seed("listings/l1", itemListing());
+    const { lastMessageText, lastMessageSenderUid, lastReadAt, ...old } = newConversation({
+      lastMessageAt: new Date(0),
+    });
+    await seed(CONVERSATION, old);
+    await assertSucceeds(markRead(verified(ALICE), ALICE));
+    const stored = (await getDoc(doc(verified(ALICE), CONVERSATION))).data();
+    assert.deepEqual(Object.keys(stored.lastReadAt), [ALICE]);
+  });
+
   test("a conversation can be marked read on a paused or deleted listing", async () => {
     await seedConversation(itemListing({ paused: true }));
     await assertSucceeds(markRead(verified(ALICE), ALICE));
