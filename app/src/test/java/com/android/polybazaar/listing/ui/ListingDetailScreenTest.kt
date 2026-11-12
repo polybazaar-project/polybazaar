@@ -5,13 +5,16 @@ import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -26,10 +29,14 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
+import com.android.polybazaar.profile.ui.ProfileComponentTags
+import com.android.polybazaar.profile.ui.redPhoto
+import com.android.polybazaar.profile.ui.waitForAvatar
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
@@ -161,6 +168,64 @@ class ListingDetailScreenTest {
   }
 
   @Test
+  fun item_withARentalLimit_showsTheLongestRental() {
+    setContent(ListingDetailUiState(listing = drill))
+
+    text(context.resources.getQuantityString(R.plurals.listing_detail_max_days, 7, 7))
+        .assertExists()
+  }
+
+  @Test
+  fun item_withoutARentalLimit_leavesTheLengthOut() {
+    setContent(ListingDetailUiState(listing = drill.copy(maxRentalDays = null)))
+
+    // "Rental length", read from the string, so no length at all is shown, not only "7 days".
+    val label =
+        context.resources
+            .getQuantityString(R.plurals.listing_detail_max_days, 7, 7)
+            .substringBefore(":")
+    composeTestRule.onAllNodesWithText(label, substring = true).assertCountEquals(0)
+  }
+
+  @Test
+  fun pendingDetails_whenKnown_replaceThePlaceholders() {
+    val details =
+        ListingPendingDetails(
+            condition = "Like new",
+            location = "Lausanne",
+            specs = listOf("18 V", "2 batteries"),
+            includedItems = listOf("Case", "Bits"),
+            pickupTerms = "At the Rolex Learning Center.",
+            returnTerms = "Within the week.",
+            cancellationPolicy = "Free until the day before.",
+        )
+    setContent(ListingDetailUiState(listing = drill, pendingDetails = details))
+
+    node(ListingDetailScreenTags.CONDITION).assertTextEquals("LIKE NEW")
+    text("Lausanne").assertExists()
+    text("18 V  ·  2 batteries").assertExists()
+    text(context.getString(R.string.listing_detail_included, "Case, Bits")).assertExists()
+    text(context.getString(R.string.listing_detail_pickup, "At the Rolex Learning Center."))
+        .assertExists()
+    text(context.getString(R.string.listing_detail_returns, "Within the week.")).assertExists()
+    text(context.getString(R.string.listing_detail_cancellation, "Free until the day before."))
+        .assertExists()
+  }
+
+  @Test
+  fun pendingDetails_whenUnknown_leaveTheBadgeAndIncludedLineOut() {
+    setContent(ListingDetailUiState(listing = drill))
+
+    node(ListingDetailScreenTags.CONDITION).assertDoesNotExist()
+    composeTestRule
+        .onAllNodesWithText(
+            context.getString(R.string.listing_detail_included, ""),
+            substring = true,
+        )
+        .assertCountEquals(0)
+  }
+
+  @Test
   fun lender_showsTheirNameAndBio_andOpensTheirProfile() {
     var opened: String? = null
     setContent(
@@ -173,6 +238,21 @@ class ListingDetailScreenTest {
     text("Weekend maker").assertExists()
     node(ListingDetailScreenTags.LENDER).performScrollTo().performClick()
     assertEquals("lender-1", opened)
+  }
+
+  @Test
+  fun lenderWithoutAPhoto_showsTheDefault40dpAvatar() {
+    setContent(ListingDetailUiState(listing = drill, lender = lender))
+
+    node(ProfileComponentTags.AVATAR).assertWidthIsEqualTo(40.dp).assertHeightIsEqualTo(40.dp)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Decoding and drawing the photo need real bitmaps.
+  fun lenderPhoto_isDrawnNextToTheirName() {
+    setContent(ListingDetailUiState(listing = drill, lender = lender, lenderPhoto = redPhoto()))
+
+    composeTestRule.waitForAvatar(isRed = true)
   }
 
   @Test

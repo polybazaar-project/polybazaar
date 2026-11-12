@@ -4,6 +4,9 @@ package com.android.polybazaar.booking.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -146,6 +149,36 @@ class AvailabilityCalendarSheetTest {
     composeTestRule
         .onNodeWithTag(AvailabilityCalendarTags.MONTH_TITLE)
         .assertTextEquals("December 2026")
+  }
+
+  @Test
+  fun withNothingSelected_opensOnTheMonthOfTheFirstDayOnOffer() {
+    // The 2nd of November is already past, so the first day a renter can choose is in January.
+    setContent(selectableDays = setOf(nov(2), LocalDate.of(2027, 1, 8), LocalDate.of(2027, 2, 1)))
+
+    composeTestRule
+        .onNodeWithTag(AvailabilityCalendarTags.MONTH_TITLE)
+        .assertTextEquals("January 2027")
+  }
+
+  @Test
+  fun withNothingSelectedAndNothingOnOffer_opensOnThisMonth() {
+    setContent(selectableDays = emptySet())
+
+    composeTestRule
+        .onNodeWithTag(AvailabilityCalendarTags.MONTH_TITLE)
+        .assertTextEquals("November 2026")
+  }
+
+  @Test
+  fun aSelectedDayNoLongerOnOffer_canBeUnselected_butNotHeld() {
+    setContent(initial = setOf(nov(13)), selectableDays = setOf(nov(20)))
+
+    day(nov(13)).assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnLongClick))
+    day(nov(20)).assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick))
+    tap(nov(13))
+
+    assertEquals(emptySet<LocalDate>(), selection)
   }
 
   @Test
