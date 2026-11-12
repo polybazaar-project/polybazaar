@@ -111,7 +111,7 @@ class InboxViewModelTest {
 
   /**
    * The row for [conversation] with [otherUser], its listing active under its stored title and
-   * without photos.
+   * without photos, unread for me as [Conversation.isUnreadFor] says.
    */
   private fun row(conversation: Conversation, otherUser: User?) =
       InboxConversation(
@@ -120,6 +120,7 @@ class InboxViewModelTest {
           conversation.listingTitle,
           ListingStatus.ACTIVE,
           listingPhotoPath = null,
+          isUnread = conversation.isUnreadFor(me.uid),
       )
 
   /** The state once [rows] are shown, with [error] if loading then failed. */

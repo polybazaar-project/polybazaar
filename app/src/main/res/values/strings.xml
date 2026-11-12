@@ -140,6 +140,8 @@
     <string name="inbox_empty_title">No conversations yet</string>
     <string name="inbox_empty_message">Found something you like?\nOpen a listing and message its owner.\nYour conversations will appear here.</string>
     <string name="inbox_browse_listings">Browse listings</string>
+    <string name="inbox_last_message_mine">You: %1$s</string>
+    <string name="inbox_unread">Unread</string>
 
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>
