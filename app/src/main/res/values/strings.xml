@@ -1,4 +1,5 @@
 <!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
+<!-- Co-authored-by: Claude Code (Claude Fable 5.2) -->
 <resources>
     <string name="app_name">PolyBazaar</string>
     <string name="title_activity_main">PolyBazaar</string>
@@ -103,4 +104,20 @@
     <string name="reset_password_error_empty">Enter a new password.</string>
     <string name="reset_password_error_too_long">This password is too long. Choose a shorter one.</string>
     <string name="reset_password_error_mismatch">The two passwords don’t match.</string>
+
+    <!-- Availability calendar -->
+    <string name="calendar_previous_month">Previous month</string>
+    <string name="calendar_next_month">Next month</string>
+    <string name="calendar_day_unavailable">Unavailable</string>
+    <string name="calendar_day_available">Available</string>
+    <string name="calendar_day_not_selected">Not selected</string>
+    <string name="calendar_day_selected">Selected</string>
+    <string name="calendar_day_range_start">Start of a range. Tap another day to select the days in between.</string>
+    <string name="calendar_day_selected_range_start">Selected, and start of a range. Tap another day to select the days in between.</string>
+    <!-- Lower case: TalkBack reads it after "Double-tap and hold to". -->
+    <string name="calendar_start_range">start a range from this day</string>
+    <string name="calendar_sheet_no_selection">No dates selected</string>
+    <string name="calendar_sheet_range_pending">Range from %1$s: tap its last day</string>
+    <string name="calendar_sheet_hint">Tap a day to select it. Hold a day, then tap another, to select every day in between.</string>
+    <string name="calendar_sheet_done">Done</string>
 </resources>
