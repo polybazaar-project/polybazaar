@@ -57,7 +57,9 @@ import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.chat.model.ChatRepository
+import com.android.polybazaar.chat.ui.ConversationScreen
 import com.android.polybazaar.chat.ui.InboxScreen
+import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
@@ -335,6 +337,15 @@ fun AppNavHost(
                   ListingDetailActions(
                       onBack = { navController.popBackStack() },
                       onOpenLender = { navController.navigate(Routes.lenderProfile(it)) },
+                      // The viewer messages the owner as the renter. Single top, so a double tap
+                      // does not stack two conversation screens.
+                      onMessageLender = {
+                        uiState.user?.uid?.let { uid ->
+                          navController.navigate(Routes.conversation(listingId, uid)) {
+                            launchSingleTop = true
+                          }
+                        }
+                      },
                   ),
           )
         }
@@ -357,6 +368,41 @@ fun AppNavHost(
               onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
           )
         }
+        composable(
+            route = Routes.CONVERSATION,
+            arguments =
+                listOf(
+                    navArgument(Routes.LISTING_ID) { type = NavType.StringType },
+                    navArgument(Routes.RENTER_UID) { type = NavType.StringType },
+                ),
+        ) { entry ->
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val uid = uiState.user?.uid ?: return@composable
+          // The route requires both, so they are always there.
+          val listingId = entry.arguments!!.getString(Routes.LISTING_ID)!!
+          val renterUid = entry.arguments!!.getString(Routes.RENTER_UID)!!
+          // Scoped to this entry: each conversation opened gets its own ViewModel.
+          val conversationViewModel: ConversationViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          ConversationViewModel(
+                              listingId = listingId,
+                              renterUid = renterUid,
+                              myUid = uid,
+                              chatRepository = chatRepository,
+                              profileRepository = profileRepository,
+                              listingRepository = listingRepository,
+                          )
+                        }
+                      }
+              )
+          ConversationScreen(
+              viewModel = conversationViewModel,
+              onBack = { navController.popBackStack() },
+          )
+        }
         composable(Routes.INBOX) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
@@ -374,8 +420,12 @@ fun AppNavHost(
           InboxScreen(
               viewModel = inboxViewModel,
               myUid = uid,
-              // Null until #274 adds the conversation route, so no row is a dead button.
-              onConversationClick = null,
+              // The conversation's own renter, so this works for the renter and the lender alike.
+              onConversationClick = {
+                navController.navigate(Routes.conversation(it.listingId, it.renterUid)) {
+                  launchSingleTop = true
+                }
+              },
               onBrowse = { navController.navigateToTab(Routes.BROWSE) },
           )
         }
@@ -499,6 +549,7 @@ private val signedInRoutes =
         Routes.LISTING_DETAIL,
         Routes.LENDER_PROFILE,
         Routes.INBOX,
+        Routes.CONVERSATION,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,
