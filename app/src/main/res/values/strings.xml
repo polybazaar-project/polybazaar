@@ -1,4 +1,5 @@
 <!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
+<!-- Co-authored-by: Claude Code (Claude Fable 5.2) -->
 <resources>
     <string name="app_name">PolyBazaar</string>
     <string name="title_activity_main">PolyBazaar</string>
@@ -6,6 +7,7 @@
     <!-- Bottom navigation -->
     <string name="nav_browse">Browse</string>
     <string name="nav_create_listing">Create listing</string>
+    <string name="nav_conversations">Conversations</string>
     <string name="nav_profile">Profile</string>
 
     <!-- Listing cards, in Browse, the Toolbox and the lender profile -->
@@ -32,6 +34,7 @@
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
     <string name="listing_detail_description_title">DESCRIPTION</string>
+    <string name="listing_detail_included">Included: %1$s</string>
     <string name="listing_detail_item_terms_title">RENTAL TERMS</string>
     <string name="listing_detail_service_terms_title">SERVICE TERMS</string>
     <string name="listing_detail_pickup">Pickup: %1$s</string>
@@ -41,6 +44,10 @@
     <string name="listing_detail_cancellation">Cancellation: %1$s</string>
     <string name="listing_detail_cancellation_pending">Policy to be confirmed.</string>
     <string name="listing_detail_damage">Deposit &amp; damage: %1$s if the item is damaged.</string>
+    <plurals name="listing_detail_max_days">
+        <item quantity="one">Rental length: up to %d day.</item>
+        <item quantity="other">Rental length: up to %d days.</item>
+    </plurals>
     <string name="listing_detail_lender_title">LENDER PROFILE</string>
     <string name="listing_detail_lender_name">%1$s  ·  Verified</string>
     <string name="listing_detail_open_lender">Open lender profile</string>
@@ -87,6 +94,36 @@
     <!-- Verify email screen -->
     <string name="verify_email_not_verified_yet">Your email isn’t verified yet. Open the link we sent you, then try again.</string>
 
+    <!-- Inbox screen -->
+    <string name="inbox_eyebrow">POLYBAZAAR</string>
+    <string name="inbox_title">Conversations</string>
+    <string name="inbox_messages_heading">Messages</string>
+    <string name="inbox_username">@%1$s</string>
+    <string name="inbox_listing_paused">Listing paused</string>
+    <string name="inbox_listing_deleted">Listing deleted</string>
+    <string name="inbox_open_conversation">Open conversation</string>
+    <string name="inbox_footer">Good finds. Great neighbours.</string>
+    <string name="inbox_time_now">now</string>
+    <string name="inbox_time_minutes">%1$dm</string>
+    <string name="inbox_time_hours">%1$dh</string>
+    <string name="inbox_time_days">%1$dd</string>
+    <plurals name="inbox_time_minutes_spoken">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="inbox_time_hours_spoken">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="inbox_time_days_spoken">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <string name="inbox_retry">Retry</string>
+    <string name="inbox_empty_title">No conversations yet</string>
+    <string name="inbox_empty_message">Found something you like?\nOpen a listing and message its owner.\nYour conversations will appear here.</string>
+    <string name="inbox_browse_listings">Browse listings</string>
+
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>
     <string name="reset_password_heading">Create a new password</string>
@@ -105,4 +142,20 @@
     <string name="reset_password_error_empty">Enter a new password.</string>
     <string name="reset_password_error_too_long">This password is too long. Choose a shorter one.</string>
     <string name="reset_password_error_mismatch">The two passwords don’t match.</string>
+
+    <!-- Availability calendar -->
+    <string name="calendar_previous_month">Previous month</string>
+    <string name="calendar_next_month">Next month</string>
+    <string name="calendar_day_unavailable">Unavailable</string>
+    <string name="calendar_day_available">Available</string>
+    <string name="calendar_day_not_selected">Not selected</string>
+    <string name="calendar_day_selected">Selected</string>
+    <string name="calendar_day_range_start">Start of a range. Tap another day to select the days in between.</string>
+    <string name="calendar_day_selected_range_start">Selected, and start of a range. Tap another day to select the days in between.</string>
+    <!-- Lower case: TalkBack reads it after "Double-tap and hold to". -->
+    <string name="calendar_start_range">start a range from this day</string>
+    <string name="calendar_sheet_no_selection">No dates selected</string>
+    <string name="calendar_sheet_range_pending">Range from %1$s: tap its last day</string>
+    <string name="calendar_sheet_hint">Tap a day to select it. Hold a day, then tap another, to select every day in between.</string>
+    <string name="calendar_sheet_done">Done</string>
 </resources>

@@ -56,6 +56,9 @@ import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.chat.model.ChatRepository
+import com.android.polybazaar.chat.ui.InboxScreen
+import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.ListingRepository
@@ -88,8 +91,8 @@ object AppNavHostTags {
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
  * checked, then routes a signed-in user to Browse, or to the verify email screen while their email
- * is not verified, and everyone else to sign-in. Browse, Create listing and Profile share a bottom
- * bar.
+ * is not verified, and everyone else to sign-in. Browse, Create listing, Conversations and Profile
+ * share a bottom bar.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
@@ -97,6 +100,7 @@ object AppNavHostTags {
  * @param authRepository used by the screens that need their own ViewModel, such as forgot password.
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
+ * @param chatRepository gives the Conversations screen the signed-in user's conversations.
  * @param photoStorage keeps the photos of the listing being created.
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
@@ -109,6 +113,7 @@ fun AppNavHost(
     listingRepository: ListingRepository,
     photoStorage: PhotoStorage,
     editPhotoStorage: PhotoStorage,
+    chatRepository: ChatRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -352,6 +357,28 @@ fun AppNavHost(
               onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
           )
         }
+        composable(Routes.INBOX) {
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val uid = uiState.user?.uid ?: return@composable
+          // Keyed by uid: the conversations belong to the signed-in user.
+          val inboxViewModel: InboxViewModel =
+              viewModel(
+                  key = "inbox_$uid",
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          InboxViewModel(chatRepository, profileRepository, listingRepository)
+                        }
+                      },
+              )
+          InboxScreen(
+              viewModel = inboxViewModel,
+              myUid = uid,
+              // Null until #274 adds the conversation route, so no row is a dead button.
+              onConversationClick = null,
+              onBrowse = { navController.navigateToTab(Routes.BROWSE) },
+          )
+        }
         composable(Routes.PROFILE) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
@@ -471,6 +498,7 @@ private val signedInRoutes =
         Routes.EDIT_LISTING,
         Routes.LISTING_DETAIL,
         Routes.LENDER_PROFILE,
+        Routes.INBOX,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,

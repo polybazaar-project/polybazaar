@@ -21,6 +21,7 @@ object Routes {
   const val PROFILE = "profile"
   const val EDIT_PROFILE = "edit_profile"
   const val SETTINGS = "settings"
+  const val INBOX = "inbox"
 
   /** The route of the "Edit listing" screen for the listing [listingId]. */
   fun editListing(listingId: String) = "edit_listing/${Uri.encode(listingId)}"

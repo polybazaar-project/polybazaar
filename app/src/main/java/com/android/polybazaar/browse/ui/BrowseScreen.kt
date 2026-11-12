@@ -5,6 +5,7 @@ package com.android.polybazaar.browse.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
@@ -247,7 +249,10 @@ internal fun CategorySelector(
 ) {
   Row(
       modifier =
+          // Scrolls so every chip stays reachable; the padding sits inside the scroll so chips
+          // align with the search field at rest but scroll to the screen edge.
           Modifier.fillMaxWidth()
+              .horizontalScroll(rememberScrollState())
               .padding(
                   start = 24.dp,
                   end = 24.dp,
@@ -264,6 +269,8 @@ internal fun CategorySelector(
           color = if (isSelected) AuthColors.Accent else AuthColors.TextSecondary,
           fontSize = 16.sp,
           fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+          maxLines = 1,
+          softWrap = false,
           modifier =
               Modifier.clip(RoundedCornerShape(24.dp))
                   .background(

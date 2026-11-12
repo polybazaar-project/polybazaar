@@ -5,10 +5,14 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
 import java.time.Instant
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,6 +32,7 @@ class InboxViewModelTest {
   private val testDispatcher = StandardTestDispatcher()
   private lateinit var chat: FakeChatRepository
   private lateinit var profiles: FakeProfileRepository
+  private lateinit var listings: FakeListingRepository
   private lateinit var viewModel: InboxViewModel
 
   private val me = User(uid = "me", email = "", username = "Me")
@@ -62,7 +67,11 @@ class InboxViewModelTest {
     Dispatchers.setMain(testDispatcher)
     chat = FakeChatRepository()
     profiles = FakeProfileRepository(listOf(me, alice, bob).associateBy { it.uid })
-    viewModel = InboxViewModel(chat, profiles)
+    listings =
+        FakeListingRepository(
+            listOf(drillWithAlice, bikeWithBob, tentWithAlice).map { listingOf(it) }
+        )
+    viewModel = InboxViewModel(chat, profiles, listings)
   }
 
   @After
@@ -89,6 +98,29 @@ class InboxViewModelTest {
 
   private fun firestoreError(code: FirebaseFirestoreException.Code) =
       FirebaseFirestoreException(code.name, code)
+
+  /** The active listing [conversation] is about, under the title it stores. */
+  private fun listingOf(conversation: Conversation) =
+      ItemListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 1.0,
+          title = conversation.listingTitle,
+          description = "",
+          listingId = conversation.listingId,
+      )
+
+  /**
+   * The row for [conversation] with [otherUser], its listing active under its stored title and
+   * without photos.
+   */
+  private fun row(conversation: Conversation, otherUser: User?) =
+      InboxConversation(
+          conversation,
+          otherUser,
+          conversation.listingTitle,
+          ListingStatus.ACTIVE,
+          listingPhotoPath = null,
+      )
 
   /** The state once [rows] are shown, with [error] if loading then failed. */
   private fun loaded(vararg rows: InboxConversation, error: AppError? = null) =
@@ -145,8 +177,8 @@ class InboxViewModelTest {
 
     assertEquals(
         loaded(
-            InboxConversation(bikeWithNewMessage, bob),
-            InboxConversation(drillWithAlice, alice),
+            row(bikeWithNewMessage, bob),
+            row(drillWithAlice, alice),
         ),
         viewModel.uiState.value,
     )
@@ -160,7 +192,7 @@ class InboxViewModelTest {
     fail(firestoreError(FirebaseFirestoreException.Code.UNAUTHENTICATED))
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), error = AppError.UNAUTHENTICATED),
+        loaded(row(drillWithAlice, alice), error = AppError.UNAUTHENTICATED),
         viewModel.uiState.value,
     )
   }
@@ -187,7 +219,7 @@ class InboxViewModelTest {
     assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
     testDispatcher.scheduler.advanceUntilIdle()
     assertEquals(
-        loaded(InboxConversation(bikeWithBob, bob), InboxConversation(drillWithAlice, alice)),
+        loaded(row(bikeWithBob, bob), row(drillWithAlice, alice)),
         viewModel.uiState.value,
     )
   }
@@ -204,7 +236,7 @@ class InboxViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(1, chat.myConversations.subscriptionCount.value)
-    assertEquals(loaded(InboxConversation(drillWithAlice, me)), viewModel.uiState.value)
+    assertEquals(loaded(row(drillWithAlice, me)), viewModel.uiState.value)
   }
 
   @Test
@@ -214,7 +246,7 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, bob)),
+        loaded(row(drillWithAlice, alice), row(bikeWithBob, bob)),
         viewModel.uiState.value,
     )
     assertNull(profiles.lookups[me.uid])
@@ -227,7 +259,7 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(tentWithAlice, alice)),
+        loaded(row(drillWithAlice, alice), row(tentWithAlice, alice)),
         viewModel.uiState.value,
     )
     assertEquals(mapOf(alice.uid to 1), profiles.lookups)
@@ -238,9 +270,9 @@ class InboxViewModelTest {
     assertEquals(mapOf(alice.uid to 1, bob.uid to 1), profiles.lookups)
     assertEquals(
         loaded(
-            InboxConversation(bikeWithBob, bob),
-            InboxConversation(tentWithAlice, alice),
-            InboxConversation(drillWithAlice, alice),
+            row(bikeWithBob, bob),
+            row(tentWithAlice, alice),
+            row(drillWithAlice, alice),
         ),
         viewModel.uiState.value,
     )
@@ -254,7 +286,7 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(tentWithCarol, null), InboxConversation(drillWithAlice, alice)),
+        loaded(row(tentWithCarol, null), row(drillWithAlice, alice)),
         viewModel.uiState.value,
     )
 
@@ -269,7 +301,7 @@ class InboxViewModelTest {
     profiles.failingUids += bob.uid
     given(bikeWithBob)
     loadInbox()
-    assertEquals(loaded(InboxConversation(bikeWithBob, null)), viewModel.uiState.value)
+    assertEquals(loaded(row(bikeWithBob, null)), viewModel.uiState.value)
 
     profiles.failingUids -= bob.uid
     emit(bikeWithBob.copy(lastMessageAt = Instant.ofEpochSecond(300)))
@@ -286,10 +318,25 @@ class InboxViewModelTest {
     loadInbox()
 
     assertEquals(
-        loaded(InboxConversation(drillWithAlice, alice), InboxConversation(bikeWithBob, null)),
+        loaded(row(drillWithAlice, alice), row(bikeWithBob, null)),
         viewModel.uiState.value,
     )
     assertEquals(1, profiles.lookups[bob.uid])
+  }
+
+  @Test
+  fun cancelledProfileLookup_keepsTheRowWithoutOtherUserOrError() {
+    // A lookup cancelled on its own, while the inbox is not, must not leave it loading forever.
+    profiles.failingUids += bob.uid
+    profiles.failure = CancellationException("cancelled")
+    given(drillWithAlice, bikeWithBob)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice), row(bikeWithBob, null)),
+        viewModel.uiState.value,
+    )
   }
 
   @Test
@@ -303,7 +350,336 @@ class InboxViewModelTest {
     profiles.gate = null
     loadInbox()
 
-    assertEquals(loaded(InboxConversation(drillWithAlice, alice)), viewModel.uiState.value)
+    assertEquals(loaded(row(drillWithAlice, alice)), viewModel.uiState.value)
     assertEquals(1, chat.myConversations.subscriptionCount.value)
+  }
+
+  @Test
+  fun renamedListing_showsItsCurrentTitle() {
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(title = "Bosch drill 18V"))
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingTitle = "Bosch drill 18V")),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun pausedListing_isPaused() {
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(isPaused = true))
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingStatus = ListingStatus.PAUSED)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun deletedListing_keepsTheRowWithTheStoredTitleAndNoError() {
+    // The fake fails with NOT_FOUND for an id it does not have.
+    val kayakWithBob = bikeWithBob.copy(listingId = "kayak", listingTitle = "Old kayak")
+    given(drillWithAlice, kayakWithBob)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(
+            row(drillWithAlice, alice),
+            row(kayakWithBob, bob).copy(listingStatus = ListingStatus.DELETED),
+        ),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun otherListingFailure_isUnknownWithTheStoredTitleAndNoError() {
+    // Renamed, so a row that used the listing would show the new title.
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(title = "Bosch drill 18V"))
+    listings.failure = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingStatus = ListingStatus.UNKNOWN)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun cancelledListingRead_isUnknownWithTheStoredTitleAndNoError() {
+    // A read cancelled on its own, while the inbox is not, must not leave it loading forever.
+    listings.allListings = listOf(listingOf(drillWithAlice).copy(title = "Bosch drill 18V"))
+    listings.failure = CancellationException("cancelled")
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, alice).copy(listingStatus = ListingStatus.UNKNOWN)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun sameListing_isReadOnceAcrossEmissions() {
+    val bikeWithCarol = bikeWithBob.copy(renterUid = "carol")
+    given(bikeWithBob, bikeWithCarol)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(bikeWithBob, bob), row(bikeWithCarol, null)),
+        viewModel.uiState.value,
+    )
+    assertEquals(1, listings.getListingCalls)
+
+    // A new message in a conversation about the drill: only the drill is new.
+    emit(drillWithAlice, bikeWithCarol, bikeWithBob)
+
+    assertEquals(2, listings.getListingCalls)
+    assertEquals(
+        loaded(row(drillWithAlice, alice), row(bikeWithCarol, null), row(bikeWithBob, bob)),
+        viewModel.uiState.value,
+    )
+  }
+
+  @Test
+  fun failedListingRead_isTriedAgainOnTheNextEmission() {
+    listings.failure = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    given(drillWithAlice)
+    loadInbox()
+    assertEquals(
+        ListingStatus.UNKNOWN,
+        viewModel.uiState.value.conversations.single().listingStatus,
+    )
+
+    listings.failure = null
+    emit(drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+
+    assertEquals(2, listings.getListingCalls)
+    assertEquals(ListingStatus.ACTIVE, viewModel.uiState.value.conversations.single().listingStatus)
+  }
+
+  private val alicePhoto = "profiles/alice.jpg"
+  private val drillPhoto = "listings/drill/0.jpg"
+  private val aliceWithPhoto = alice.copy(photoPath = alicePhoto)
+
+  /** Gives Alice a profile photo and the drill two photos, and starts a new ViewModel on them. */
+  private fun givePhotos() {
+    profiles = FakeProfileRepository(listOf(me, aliceWithPhoto, bob).associateBy { it.uid })
+    listings.allListings =
+        listOf(
+            listingOf(drillWithAlice).copy(imagePaths = listOf(drillPhoto, "listings/drill/1.jpg")),
+            listingOf(tentWithAlice),
+        )
+    viewModel = InboxViewModel(chat, profiles, listings)
+  }
+
+  /** The Storage paths of the photos downloaded so far. */
+  private fun photoPaths() = viewModel.uiState.value.photos.keys
+
+  @Test
+  fun photos_areKeyedByPathAndArriveAfterTheRows() {
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+
+    loadInbox()
+
+    // The listing's first photo is the row's; Alice's photo is still downloading.
+    assertEquals(
+        listOf(row(drillWithAlice, aliceWithPhoto).copy(listingPhotoPath = drillPhoto)),
+        viewModel.uiState.value.conversations,
+    )
+    assertEquals(setOf(drillPhoto), photoPaths())
+
+    profiles.photoGate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun downloadedPhoto_isNotDownloadedAgain() {
+    givePhotos()
+    // Alice is in both conversations, so her photo is in two rows.
+    given(drillWithAlice, tentWithAlice)
+    loadInbox()
+
+    emit(tentWithAlice, drillWithAlice)
+
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun photoStillDownloading_isNotStartedAgainByALaterEmission() {
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+    loadInbox()
+
+    emit(drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+    profiles.photoGate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun photoNoRowUses_isDropped() {
+    givePhotos()
+    given(drillWithAlice, tentWithAlice)
+    loadInbox()
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+
+    // The drill conversation is gone; Alice is still in the tent one.
+    emit(tentWithAlice)
+
+    assertEquals(setOf(alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun failedPhoto_isNotAnErrorAndIsNotRetriedOnTheNextEmission() {
+    givePhotos()
+    profiles.failingPhotoPaths += alicePhoto
+    given(drillWithAlice)
+    loadInbox()
+
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(setOf(drillPhoto), photoPaths())
+
+    profiles.failingPhotoPaths.clear()
+    emit(drillWithAlice.copy(lastMessageAt = Instant.ofEpochSecond(300)))
+
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto), photoPaths())
+  }
+
+  @Test
+  fun failedPhoto_isRetriedOnTheNextLoad() {
+    givePhotos()
+    profiles.failingPhotoPaths += alicePhoto
+    given(drillWithAlice)
+    loadInbox()
+
+    profiles.failingPhotoPaths.clear()
+    loadInbox()
+
+    assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun cancelledPhoto_staysMissingWithoutError() {
+    givePhotos()
+    profiles.failingPhotoPaths += alicePhoto
+    profiles.failure = CancellationException("cancelled")
+    given(drillWithAlice)
+
+    loadInbox()
+
+    assertEquals(
+        loaded(row(drillWithAlice, aliceWithPhoto).copy(listingPhotoPath = drillPhoto)),
+        viewModel.uiState.value.copy(photos = emptyMap()),
+    )
+    assertEquals(setOf(drillPhoto), photoPaths())
+  }
+
+  @Test
+  fun photoDownload_finishesAfterTheFlowFails() {
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+    loadInbox()
+
+    fail(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
+    profiles.photoGate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun loadInboxAgain_clearsThePhotosAndDownloadsThemAgain() {
+    // A changed photo keeps its Storage path, so a photo from the last load may be stale.
+    givePhotos()
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.loadInbox(me.uid)
+
+    assertEquals(InboxUiState(isLoading = true), viewModel.uiState.value)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun openInbox_firstTime_loadsTheInbox() {
+    given(drillWithAlice)
+
+    viewModel.openInbox(me.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(loaded(row(drillWithAlice, alice)), viewModel.uiState.value)
+  }
+
+  @Test
+  fun openInboxAgain_whileItLoads_keepsTheRowsAndPhotos() {
+    // Coming back to the Conversations tab: the screen opens the inbox again.
+    givePhotos()
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.openInbox(me.uid)
+
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertFalse(viewModel.uiState.value.isLoading)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(1, chat.myConversations.subscriptionCount.value)
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+  }
+
+  @Test
+  fun openInboxAgain_afterAFailure_loadsAgainEvenWhileAPhotoDownloads() {
+    // The waiting download keeps the failed load running, so only the error tells it apart.
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+    loadInbox()
+    fail(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    profiles.photoGate = null
+    given(drillWithAlice)
+    viewModel.openInbox(me.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun openInbox_asAnotherUser_loadsTheirInbox() {
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.openInbox(alice.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, chat.myConversations.subscriptionCount.value)
+    assertEquals(loaded(row(drillWithAlice, me)), viewModel.uiState.value)
   }
 }

@@ -36,6 +36,7 @@ class ListingDetailViewModelTest {
   private val testDispatcher = StandardTestDispatcher()
 
   private val lender = User(uid = "lender", email = "lender@epfl.ch", username = "Lena")
+  private val photoBytes = byteArrayOf(1, 2, 3)
 
   private val listing =
       ItemListing(
@@ -284,6 +285,63 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun lenderWithAPhoto_downloadsIt() {
+    profiles.profile(lender.uid).value = lender.copy(photoPath = "users/lender/profile.jpg")
+    profiles.photos["users/lender/profile.jpg"] = photoBytes
+
+    val state = loadedViewModel().uiState.value
+
+    assertTrue(photoBytes.contentEquals(state.lenderPhoto))
+    assertEquals(listOf("users/lender/profile.jpg"), profiles.loadedPhotoPaths)
+  }
+
+  @Test
+  fun lenderWithoutAPhoto_downloadsNothing() {
+    val state = loadedViewModel().uiState.value
+
+    assertNull(state.lenderPhoto)
+    assertTrue(profiles.loadedPhotoPaths.isEmpty())
+  }
+
+  @Test
+  fun lenderPhotoFailure_keepsTheDefaultPhoto_withoutError() {
+    profiles.profile(lender.uid).value = lender.copy(photoPath = "users/lender/profile.jpg")
+    profiles.photoFailure = UnknownHostException("offline")
+
+    val state = loadedViewModel().uiState.value
+
+    assertNull(state.lenderPhoto)
+    assertNull(state.lenderError)
+    assertEquals("Lena", state.lender?.username)
+  }
+
+  @Test
+  fun lenderProfileUpdate_withTheSamePhoto_doesNotDownloadItAgain() {
+    profiles.profile(lender.uid).value = lender.copy(photoPath = "users/lender/profile.jpg")
+    profiles.photos["users/lender/profile.jpg"] = photoBytes
+    val viewModel = loadedViewModel()
+
+    profiles.profile(lender.uid).value =
+        lender.copy(photoPath = "users/lender/profile.jpg", bio = "New bio")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("New bio", viewModel.uiState.value.lender?.bio)
+    assertEquals(1, profiles.loadedPhotoPaths.size)
+  }
+
+  @Test
+  fun lenderRemovesTheirPhoto_goesBackToTheDefault() {
+    profiles.profile(lender.uid).value = lender.copy(photoPath = "users/lender/profile.jpg")
+    profiles.photos["users/lender/profile.jpg"] = photoBytes
+    val viewModel = loadedViewModel()
+
+    profiles.profile(lender.uid).value = lender.copy(photoPath = null)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.lenderPhoto)
+  }
+
+  @Test
   fun lenderFailure_showsALenderError_andKeepsTheListing() {
     profiles.failure =
         FirebaseFirestoreException("Denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
@@ -322,12 +380,16 @@ class ListingDetailViewModelTest {
 
   /**
    * A [ProfileRepository] whose [observeProfile] emits from one [MutableStateFlow] per uid, or
-   * fails with [failure] when it is set.
+   * fails with [failure] when it is set. [loadProfilePhoto] answers from [photos], or fails with
+   * [photoFailure], and records each path in [loadedPhotoPaths].
    */
   private class FakeProfileRepository(initial: Map<String, User>) : ProfileRepository {
     private val flows = initial.mapValues { MutableStateFlow<User?>(it.value) }.toMutableMap()
     var failure: Exception? = null
     val observedUids = mutableListOf<String>()
+    val photos = mutableMapOf<String, ByteArray>()
+    var photoFailure: Exception? = null
+    val loadedPhotoPaths = mutableListOf<String>()
 
     fun profile(uid: String): MutableStateFlow<User?> =
         flows.getOrPut(uid) { MutableStateFlow(null) }
@@ -340,7 +402,11 @@ class ListingDetailViewModelTest {
 
     override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri): String = error("Not used")
 
-    override suspend fun loadProfilePhoto(photoPath: String): ByteArray = error("Not used")
+    override suspend fun loadProfilePhoto(photoPath: String): ByteArray {
+      loadedPhotoPaths += photoPath
+      photoFailure?.let { throw it }
+      return photos.getValue(photoPath)
+    }
 
     override suspend fun removeProfilePhoto(uid: String) = error("Not used")
 
