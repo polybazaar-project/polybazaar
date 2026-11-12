@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar.listing.ui
 
 import androidx.activity.compose.BackHandler
@@ -43,6 +44,7 @@ import com.android.polybazaar.listing.model.ListingRules
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 
 /**
@@ -269,6 +271,7 @@ private fun EditListingContentPreview() {
   EditListingContent(
       uiState =
           ListingFormUiState(
+              today = LocalDate.now(),
               listingId = "preview",
               title = "Bosch drill set",
               description = "Cordless drill with two batteries and a set of bits.",

@@ -160,6 +160,14 @@
     <string name="reset_password_error_too_long">This password is too long. Choose a shorter one.</string>
     <string name="reset_password_error_mismatch">The two passwords don’t match.</string>
 
+    <!-- Listing form -->
+    <string name="listing_form_availability_label">Availability</string>
+    <string name="listing_form_availability_placeholder">Choose the days it is available</string>
+    <!-- What TalkBack reads for the field: its label, then the days chosen or the placeholder. -->
+    <string name="listing_form_availability_description">%1$s: %2$s</string>
+    <string name="listing_form_availability_item_title">When can you lend it?</string>
+    <string name="listing_form_availability_service_title">When can you offer it?</string>
+
     <!-- Availability calendar -->
     <string name="calendar_previous_month">Previous month</string>
     <string name="calendar_next_month">Next month</string>

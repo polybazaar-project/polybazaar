@@ -1,3 +1,4 @@
+// Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar.listing.ui
 
 import android.content.Context
@@ -24,6 +25,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
+import com.android.polybazaar.booking.model.formatRuns
+import com.android.polybazaar.booking.model.groupIntoRuns
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
@@ -35,6 +38,7 @@ import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import java.io.ByteArrayOutputStream
 import java.net.UnknownHostException
+import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -231,6 +235,39 @@ class EditListingScreenTest {
   }
 
   @Test
+  fun loadedListing_showsItsAvailableDays_andSavingKeepsThem() {
+    // Days still to come whenever the test runs: past ones are left out of the form.
+    val days = setOf(LocalDate.now().plusDays(1), LocalDate.now().plusDays(2))
+    val repository = FakeListingRepository(myListings = listOf(drill.copy(availableDates = days)))
+    setContent(repository = repository)
+
+    node(CreateListingScreenTags.AVAILABILITY_FIELD)
+        .performScrollTo()
+        .assertTextContains(formatRuns(groupIntoRuns(days)))
+
+    node(EditListingScreenTags.SAVE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(days, repository.updatedListings.single().availableDates)
+  }
+
+  @Test
+  fun whileSaving_theAvailableDaysCannotBeChanged() {
+    val repository = FakeListingRepository(myListings = listOf(drill))
+    setContent(repository = repository)
+
+    // Holds the save in progress.
+    repository.gate = CompletableDeferred()
+    node(EditListingScreenTags.SAVE_BUTTON).performScrollTo().performClick()
+
+    node(CreateListingScreenTags.AVAILABILITY_FIELD).assertIsNotEnabled()
+
+    repository.gate?.complete(Unit)
+    composeTestRule.waitForIdle()
+    node(CreateListingScreenTags.AVAILABILITY_FIELD).assertIsEnabled()
+  }
+
+  @Test
   fun removingASavedPhoto_dropsItFromTheSavedListing() {
     val repository = FakeListingRepository(myListings = listOf(drill))
     setContent(repository = repository)
@@ -333,6 +370,7 @@ class EditListingScreenTest {
       EditListingContent(
           uiState =
               ListingFormUiState(
+                  today = LocalDate.of(2026, 11, 10),
                   listingId = "drill",
                   storedPhotos = listOf("listings/drill/0.jpg", "listings/drill/1.jpg"),
               ),

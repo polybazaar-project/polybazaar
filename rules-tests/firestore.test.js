@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Copilot Claude Sonnet 5.5
@@ -490,6 +490,32 @@ describe("listings", () => {
     await assertFails(updateDoc(doc(db, "listings/l1"), { maxRentalDays: 181 }));
     await assertFails(updateDoc(doc(db, "listings/l1"), { maxRentalDays: 1.5 }));
     await assertFails(updateDoc(doc(db, "listings/s1"), { maxRentalDays: 7 }));
+  });
+
+  test("a listing can store up to 366 available days", async () => {
+    const db = verified(ALICE);
+    const year = Array.from({ length: 366 }, (_, day) => 20770 + day);
+    await assertSucceeds(setDoc(doc(db, "listings/l1"), itemListing({ availableDates: [20770, 20771] })));
+    await assertSucceeds(setDoc(doc(db, "listings/l2"), itemListing({ availableDates: year })));
+    await assertSucceeds(setDoc(doc(db, "listings/l3"), itemListing({ availableDates: [] })));
+    await assertSucceeds(setDoc(doc(db, "listings/s1"), serviceListing({ availableDates: [20770] })));
+  });
+
+  test("available days are a list of at most 366 different days", async () => {
+    const db = verified(ALICE);
+    const tooMany = Array.from({ length: 367 }, (_, day) => 20770 + day);
+    await assertFails(setDoc(doc(db, "listings/l1"), itemListing({ availableDates: tooMany })));
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ availableDates: [20770, 20770] })));
+    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ availableDates: "tomorrow" })));
+    await assertFails(setDoc(doc(db, "listings/l4"), itemListing({ availableDates: 20770 })));
+  });
+
+  test("an edit keeps the available days checks, and can remove them", async () => {
+    await seed("listings/l1", itemListing({ availableDates: [20770] }));
+    const listing = doc(verified(ALICE), "listings/l1");
+    await assertSucceeds(updateDoc(listing, { availableDates: [20771, 20772] }));
+    await assertFails(updateDoc(listing, { availableDates: [20771, 20771] }));
+    await assertSucceeds(updateDoc(listing, { availableDates: deleteField() }));
   });
 
   test("a listing is an ITEM or a SERVICE", async () => {
