@@ -59,8 +59,10 @@ import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
+import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
@@ -82,6 +84,7 @@ import com.android.polybazaar.profile.ui.waitForAvatar
 import com.android.polybazaar.settings.ui.SettingsScreenTags
 import com.android.polybazaar.toolbox.ui.ToolboxCardTags
 import java.net.UnknownHostException
+import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -694,6 +697,88 @@ class AppNavHostTest {
     val entry = navController.currentBackStackEntry
     assertEquals(route, entry?.destination?.route)
     assertEquals(value, entry?.arguments?.getString(key))
+  }
+
+  /** A message the signed-in user sent, to tell which conversation a screen observes. */
+  private val adasMessage = ChatMessage("m1", user.uid, "Is it free on Saturday?", Instant.EPOCH)
+
+  /** Gives the conversation [conversationId] the signed-in user's [adasMessage]. */
+  private fun giveAdasMessageTo(conversationId: String) {
+    chatRepository.messages.value = mapOf(conversationId to listOf(adasMessage))
+  }
+
+  /** Opens the only listing Browse shows, titled [title], and taps "Message" on its detail. */
+  private fun messageTheLender(title: String) {
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).performClick()
+    assertOnListingDetail(title)
+    composeTestRule
+        .onNodeWithTag(ListingDetailScreenTags.MESSAGE_BUTTON)
+        .performScrollTo()
+        .performClick()
+  }
+
+  /**
+   * Checks the conversation screen is on top, about the listing [listingId] titled [title] with the
+   * renter [renterUid].
+   */
+  private fun assertOnConversation(title: String, listingId: String, renterUid: String) {
+    composeTestRule.onNodeWithTag(ConversationScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ConversationScreenTags.LISTING_TITLE).assertTextEquals(title)
+    assertCurrentRoute(Routes.CONVERSATION, Routes.LISTING_ID, listingId)
+    assertCurrentRoute(Routes.CONVERSATION, Routes.RENTER_UID, renterUid)
+  }
+
+  @Test
+  fun listingDetailMessage_opensTheViewersConversationWithTheLender() {
+    listingRepository.allListings = listOf(gracesDrill)
+    giveAdasMessageTo("drill_uid-ada")
+    setContent(FakeAuthRepository(currentUser = user))
+
+    messageTheLender("Bosch drill set")
+
+    assertOnConversation("Bosch drill set", listingId = "drill", renterUid = user.uid)
+    // Shown only if the screen observes the conversation with the viewer as the renter.
+    composeTestRule.onNodeWithTag(ConversationScreenTags.myMessage("m1")).assertIsDisplayed()
+    assertBottomBarHidden()
+  }
+
+  @Test
+  fun conversationBack_returnsToTheListingDetail() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+    messageTheLender("Bosch drill set")
+    composeTestRule.onNodeWithTag(ConversationScreenTags.SCREEN).assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag(ConversationScreenTags.BACK_BUTTON).performClick()
+
+    assertOnListingDetail("Bosch drill set")
+    assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "drill")
+  }
+
+  @Test
+  fun conversationRoute_keepsAListingIdWithReservedCharacters() {
+    listingRepository.allListings = listOf(gracesDrill.copy(listingId = "a/b?c d"))
+    giveAdasMessageTo("a/b?c d_uid-ada")
+    setContent(FakeAuthRepository(currentUser = user))
+
+    messageTheLender("Bosch drill set")
+
+    assertOnConversation("Bosch drill set", listingId = "a/b?c d", renterUid = user.uid)
+    composeTestRule.onNodeWithTag(ConversationScreenTags.myMessage("m1")).assertIsDisplayed()
+  }
+
+  @Test
+  fun signOut_fromTheConversation_returnsToSignIn() {
+    listingRepository.allListings = listOf(gracesDrill)
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    messageTheLender("Bosch drill set")
+    composeTestRule.onNodeWithTag(ConversationScreenTags.SCREEN).assertIsDisplayed()
+
+    viewModel.signOut()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(navController.previousBackStackEntry)
   }
 
   @Test
