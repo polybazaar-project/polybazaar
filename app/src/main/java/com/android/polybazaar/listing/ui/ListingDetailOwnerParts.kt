@@ -2,8 +2,15 @@
 package com.android.polybazaar.listing.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -27,6 +34,9 @@ import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthRoundIconButton
+
+/** Text of the "Paused" badge, the same as the Inbox's "Listing paused" badge. */
+private val PausedBadgeText = Color(0xFF8C491F)
 
 /**
  * The owner's ⋮ button on the photo area and its menu: Pause or Resume, and Delete. Delete only
@@ -170,4 +180,52 @@ internal fun DeleteListingDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
         }
       },
   )
+}
+
+/** The "Paused" pill, next to the condition badge and with its size. */
+@Composable
+internal fun PausedBadge() {
+  Text(
+      text = stringResource(R.string.listing_detail_paused).uppercase(),
+      color = PausedBadgeText,
+      fontSize = 11.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier =
+          Modifier.background(AuthColors.AccentContainer, CircleShape)
+              .padding(horizontal = 10.dp, vertical = 7.dp)
+              .testTag(ListingDetailScreenTags.PAUSED_BADGE),
+  )
+}
+
+/**
+ * Why a paused listing cannot be booked, under the title: [text] tells the owner how to resume it,
+ * or a renter that the lender isn't taking bookings.
+ */
+@Composable
+internal fun PausedNotice(text: String) {
+  Row(
+      modifier =
+          Modifier.fillMaxWidth()
+              .background(AuthColors.SelectedBackground, RoundedCornerShape(14.dp))
+              .padding(12.dp)
+              .testTag(ListingDetailScreenTags.PAUSED_NOTICE),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    // Decorative: the title says the listing is paused.
+    Icon(
+        painter = painterResource(R.drawable.ic_pause),
+        contentDescription = null,
+        tint = AuthColors.Accent,
+        modifier = Modifier.size(18.dp),
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Text(
+          text = stringResource(R.string.listing_detail_paused_title),
+          color = AuthColors.TextPrimary,
+          fontSize = 13.sp,
+          fontWeight = FontWeight.SemiBold,
+      )
+      Text(text = text, color = AuthColors.TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+    }
+  }
 }

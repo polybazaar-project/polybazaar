@@ -98,6 +98,9 @@ object ListingDetailScreenTags {
   const val DELETE_DIALOG = "listing_detail_delete_dialog"
   const val DELETE_CONFIRM = "listing_detail_delete_confirm"
   const val DELETE_CANCEL = "listing_detail_delete_cancel"
+  const val PAUSED_BADGE = "listing_detail_paused_badge"
+  const val PAUSED_NOTICE = "listing_detail_paused_notice"
+  const val OWNER_ACTION_ERROR = "listing_detail_owner_action_error"
 }
 
 /**
@@ -245,6 +248,7 @@ private fun ColumnScope.ListingDetail(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       Overview(listing, uiState.pendingDetails)
+      if (listing.isPaused) PausedNotice(text = pausedNoticeText(uiState.isOwner))
       DescriptionSection(listing, uiState.pendingDetails)
       TermsSection(listing, uiState.pendingDetails)
       LenderSection(listing, uiState, actions, onRetry)
@@ -261,6 +265,14 @@ private fun ColumnScope.ListingDetail(
     )
   }
 }
+
+/** The paused notice's text: how to resume it for the owner, why it can't be booked for others. */
+@Composable
+private fun pausedNoticeText(isOwner: Boolean): String =
+    stringResource(
+        if (isOwner) R.string.listing_detail_owner_paused_text
+        else R.string.listing_detail_renter_paused_text
+    )
 
 /** The back button, where the Figma "Listing navigation" row puts it (20dp in, 6dp down). */
 @Composable
@@ -291,7 +303,10 @@ private fun PhotoArea(onBack: () -> Unit, ownerMenu: @Composable BoxScope.() -> 
   }
 }
 
-/** Category, condition badge, title and location. The badge and location show once known. */
+/**
+ * Category, the "Paused" and condition badges, title and location. The condition badge and location
+ * show once known.
+ */
 @Composable
 private fun Overview(listing: Listing, pending: ListingPendingDetails) {
   Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -308,7 +323,10 @@ private fun Overview(listing: Listing, pending: ListingPendingDetails) {
           letterSpacing = 0.6.sp,
           modifier = Modifier.testTag(ListingDetailScreenTags.CATEGORY),
       )
-      pending.condition?.let { ConditionBadge(it) }
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (listing.isPaused) PausedBadge()
+        pending.condition?.let { ConditionBadge(it) }
+      }
     }
     Text(
         text = listing.title,
@@ -532,7 +550,7 @@ private fun MessageLenderButton(enabled: Boolean, onClick: () -> Unit) {
 
 /**
  * Price per day, the deposit for items, and the main action, kept under the scrolling details:
- * "Choose dates" for a renter, "Edit listing" for the owner.
+ * "Choose dates" for a renter, "Edit listing" for the owner, with why a pause or delete failed.
  */
 @Composable
 private fun BookingBar(
@@ -574,6 +592,13 @@ private fun BookingBar(
             onClick = actions.onChooseDates,
         )
       }
+    }
+    uiState.ownerActionError?.let {
+      SecondaryText(
+          text = it.message(),
+          color = AuthColors.Danger,
+          modifier = Modifier.testTag(ListingDetailScreenTags.OWNER_ACTION_ERROR),
+      )
     }
     Text(
         text = stringResource(bookingNote(uiState.isOwner, listing.isPaused)),

@@ -473,6 +473,41 @@ class ListingDetailScreenTest {
   }
 
   @Test
+  fun ownerActionFailed_saysWhyUnderTheButton() {
+    setContent(ownerState().copy(ownerActionError = AppError.NETWORK))
+
+    node(ListingDetailScreenTags.OWNER_ACTION_ERROR)
+        .assertTextEquals(context.getString(R.string.error_network))
+  }
+
+  @Test
+  fun pausedListing_toItsOwner_saysHowToResumeIt() {
+    setContent(ownerState(drill.copy(isPaused = true)))
+
+    node(ListingDetailScreenTags.PAUSED_BADGE).assertIsDisplayed()
+    text(context.getString(R.string.listing_detail_owner_paused_text)).assertIsDisplayed()
+    node(ListingDetailScreenTags.BOOKING_NOTE)
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_paused_reassurance))
+  }
+
+  @Test
+  fun pausedListing_toARenter_saysWhyItCannotBeBooked() {
+    setContent(ListingDetailUiState(listing = drill.copy(isPaused = true), lender = lender))
+
+    node(ListingDetailScreenTags.PAUSED_BADGE).assertIsDisplayed()
+    text(context.getString(R.string.listing_detail_renter_paused_text)).assertIsDisplayed()
+    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun activeListing_hasNoPausedBadgeOrNotice() {
+    setContent(ownerState())
+
+    node(ListingDetailScreenTags.PAUSED_BADGE).assertDoesNotExist()
+    node(ListingDetailScreenTags.PAUSED_NOTICE).assertDoesNotExist()
+  }
+
+  @Test
   fun screen_afterTheOwnerDeletes_leavesOnce() {
     val listings = FakeListingRepository(allListings = listOf(drill))
     val profiles = mock<ProfileRepository> { on { observeProfile(any()) } doReturn flowOf(lender) }
