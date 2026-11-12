@@ -97,20 +97,29 @@ class ListingDetailViewModel(
   /** The viewer once read, kept for the rest of the screen's life (see [showListing]). */
   private var knownViewer: User? = null
 
+  /**
+   * Set once the listing is deleted and never reset, unlike [ListingDetailUiState.isDeleted] which
+   * [onDeletedHandled] clears. While the screen is still shown after a delete, it keeps the listing
+   * and isOwner, so without this its actions and Retry would reach a listing that is gone.
+   */
+  private var deleted = false
+
   init {
     loadListing()
   }
 
   /**
    * Loads the listing and, until it is known, the viewer, then starts observing the lender, for
-   * example again after a failure (Retry). Ignored while a load or an owner action is running. On
-   * failure the listing already shown is kept, so a reload while offline does not empty the screen.
+   * example again after a failure (Retry). Ignored while a load or an owner action is running, and
+   * once the listing is deleted. On failure the listing already shown is kept, so a reload while
+   * offline does not empty the screen.
    */
   fun loadListing() {
     val state = _uiState.value
     // Two loads at once could finish in any order, and the older answer would overwrite the newer.
     // A read started during a pause could likewise answer after it and put the old state back.
-    if (state.isLoading || state.isUpdating) return
+    // After a delete, the read could only answer NOT_FOUND.
+    if (deleted || state.isLoading || state.isUpdating) return
     _uiState.update { it.copy(isLoading = true, error = null) }
     viewModelScope.launch {
       try {
@@ -140,7 +149,7 @@ class ListingDetailViewModel(
     runOwnerAction(
         save = { listingRepository.setPaused(listingId, paused) },
         // Shown from the answer rather than read again: Firestore saved exactly this change.
-        onSaved = { it.copy(listing = it.listing?.withPaused(paused)) },
+        onSaved = { _uiState.update { it.copy(listing = it.listing?.withPaused(paused)) } },
     )
   }
 
@@ -154,14 +163,17 @@ class ListingDetailViewModel(
     val listingId = ownerActionTarget() ?: return
     runOwnerAction(
         save = { listingRepository.deleteListing(listingId) },
-        onSaved = { it.copy(isDeleted = true) },
+        onSaved = {
+          deleted = true
+          _uiState.update { it.copy(isDeleted = true) }
+        },
     )
   }
 
   /**
    * Called by the screen once it has left after a delete, so going back to it (it stays in the back
    * stack until popped) does not leave a second time. Same pattern as the listing form's
-   * `savedListing`.
+   * `savedListing`. The owner's actions stay refused (see [deleted]).
    */
   fun onDeletedHandled() {
     _uiState.update { it.copy(isDeleted = false) }
@@ -173,25 +185,25 @@ class ListingDetailViewModel(
     // isOwner is false until the viewer is known. The security rules refuse anyone else anyway,
     // but this keeps a stray call from reaching Firestore. While a reload runs, its answer could
     // come after the write and show the listing as it was before it (see loadListing).
-    if (!state.isOwner || state.isUpdating || state.isLoading) return null
+    if (deleted || !state.isOwner || state.isUpdating || state.isLoading) return null
     return state.listing?.listingId
   }
 
   /**
-   * Runs one of the owner's writes with [save], then applies [onSaved] to the state, or shows why
-   * it failed. Offline the write only answers once it reaches the server (Firestore keeps it and
-   * sends it on reconnection), so [ListingDetailUiState.isUpdating] stays true until then.
+   * Runs one of the owner's writes with [save], then calls [onSaved] to show it, or shows why it
+   * failed. Offline the write only answers once it reaches the server (Firestore keeps it and sends
+   * it on reconnection), so [ListingDetailUiState.isUpdating] stays true until then.
    */
   private fun runOwnerAction(
       save: suspend () -> Result<Unit>,
-      onSaved: (ListingDetailUiState) -> ListingDetailUiState,
+      onSaved: () -> Unit,
   ) {
     // Set before launching, so a second tap in the same frame is already refused.
     _uiState.update { it.copy(isUpdating = true, ownerActionError = null) }
     viewModelScope.launch {
       try {
         save()
-            .onSuccess { _uiState.update(onSaved) }
+            .onSuccess { onSaved() }
             .onFailure { exception ->
               if (exception is CancellationException) throw exception
               _uiState.update { it.copy(ownerActionError = exception.toAppError()) }
