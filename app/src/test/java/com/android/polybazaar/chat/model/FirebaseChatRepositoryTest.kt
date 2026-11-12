@@ -113,6 +113,9 @@ class FirebaseChatRepositoryTest {
                     "participants" to listOf("renter", "lender"),
                     "lastMessageAt" to FieldValue.serverTimestamp(),
                     "lastMessageId" to "message-id",
+                    "lastMessageText" to "Is it available on Saturday?",
+                    "lastMessageSenderUid" to "renter",
+                    "lastReadAt" to mapOf("renter" to FieldValue.serverTimestamp()),
                 )
             ),
             eq(SetOptions.merge()),
@@ -151,6 +154,9 @@ class FirebaseChatRepositoryTest {
                     "participants" to listOf("renter", "lender"),
                     "lastMessageAt" to FieldValue.serverTimestamp(),
                     "lastMessageId" to "message-id",
+                    "lastMessageText" to "Hi",
+                    "lastMessageSenderUid" to "renter",
+                    "lastReadAt" to mapOf("renter" to FieldValue.serverTimestamp()),
                 )
             ),
             eq(SetOptions.merge()),
@@ -188,6 +194,9 @@ class FirebaseChatRepositoryTest {
                     "participants" to listOf("renter", "lender"),
                     "lastMessageAt" to FieldValue.serverTimestamp(),
                     "lastMessageId" to "message-id",
+                    "lastMessageText" to "Still available?",
+                    "lastMessageSenderUid" to "renter",
+                    "lastReadAt" to mapOf("renter" to FieldValue.serverTimestamp()),
                 )
             ),
             eq(SetOptions.merge()),
