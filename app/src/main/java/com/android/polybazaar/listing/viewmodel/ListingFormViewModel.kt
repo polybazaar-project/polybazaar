@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
  * @property maxRentalDays kept from the edited listing, so that saving does not erase it. The form
  *   has no input for it yet.
  * @property availableDates the days the owner offers the listing on, chosen in the calendar.
+ * @property today the day earlier days cannot be offered from, for the calendar to use as well.
  * @property isLoading true while the edited listing is being loaded into the form.
  * @property loadError why the edited listing could not be loaded, or null. The form cannot be saved
  *   until a Retry succeeds.
@@ -67,6 +68,7 @@ data class ListingFormUiState(
     val photos: List<Uri> = emptyList(),
     val maxRentalDays: Int? = null,
     val availableDates: Set<LocalDate> = emptySet(),
+    val today: LocalDate = LocalDate.now(),
     val isLoading: Boolean = false,
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
@@ -143,6 +145,7 @@ private fun formFor(listing: Listing, today: LocalDate) =
         storedPhotos = listing.imagePaths,
         maxRentalDays = (listing as? ItemListing)?.maxRentalDays,
         availableDates = upcomingDays(listing.availableDates, today),
+        today = today,
     )
 
 /**
@@ -166,7 +169,7 @@ class ListingFormViewModel(
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
-  private val _uiState = MutableStateFlow(savedStateHandle.restoreForm(listingId))
+  private val _uiState = MutableStateFlow(savedStateHandle.restoreForm(listingId, today()))
   val uiState: StateFlow<ListingFormUiState> = _uiState.asStateFlow()
 
   /**
@@ -360,7 +363,9 @@ class ListingFormViewModel(
         // A fresh form, so coming back to it cannot create the same listing twice. An edit form
         // shows the listing as saved, its new photos now stored ones.
         updateState {
-          val form = if (state.isEditing) formFor(savedListing, today()) else ListingFormUiState()
+          val form =
+              if (state.isEditing) formFor(savedListing, today())
+              else ListingFormUiState(today = today())
           form.copy(savedListing = savedListing)
         }
       } catch (exception: Exception) {
@@ -444,7 +449,11 @@ class ListingFormViewModel(
       set(AVAILABLE_DATES, state.availableDates.map { it.toEpochDay() }.toLongArray())
     }
 
-    fun SavedStateHandle.restoreForm(listingId: String?) =
+    /**
+     * The form as it was saved. Its available days before [today] are left out: a form restored on
+     * a later day could otherwise save a day that is already over.
+     */
+    fun SavedStateHandle.restoreForm(listingId: String?, today: LocalDate) =
         ListingFormUiState(
             listingId = listingId,
             type = get<String>(TYPE)?.let(ListingType::valueOf) ?: ListingType.ITEM,
@@ -459,7 +468,11 @@ class ListingFormViewModel(
             photos = get<List<Uri>>(PHOTOS).orEmpty(),
             maxRentalDays = get(MAX_RENTAL_DAYS),
             availableDates =
-                get<LongArray>(AVAILABLE_DATES)?.map(LocalDate::ofEpochDay)?.toSet().orEmpty(),
+                upcomingDays(
+                    get<LongArray>(AVAILABLE_DATES)?.map(LocalDate::ofEpochDay)?.toSet().orEmpty(),
+                    today,
+                ),
+            today = today,
         )
   }
 }

@@ -65,7 +65,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -88,8 +87,10 @@ class CreateListingScreenTest {
       repository: RecordingListingRepository = RecordingListingRepository(),
       registry: FakePickerRegistry = FakePickerRegistry(),
       onListingCreated: (Listing) -> Unit = {},
+      today: () -> LocalDate = LocalDate::now,
   ): ListingFormViewModel {
-    val viewModel = ListingFormViewModel(null, repository, createStorage(), SavedStateHandle())
+    val viewModel =
+        ListingFormViewModel(null, repository, createStorage(), SavedStateHandle(), today)
     setContentWithRegistry(registry) {
       CreateListingScreen(listingViewModel = viewModel, onListingCreated = onListingCreated)
     }
@@ -1114,17 +1115,15 @@ class CreateListingScreenTest {
 
   @Test
   fun tappingAvailability_opensTheCalendar_andAChosenDayReachesTheForm() {
-    val viewModel = setContent()
     // Today can always be chosen, and is in the month the calendar opens on.
-    val today = LocalDate.now()
+    val today = LocalDate.of(2026, 11, 10)
+    val viewModel = setContent(today = { today })
 
     availabilityField().performScrollTo().performClick()
     node(AvailabilityCalendarSheetTags.TITLE)
         .assertTextEquals(context.getString(R.string.listing_form_availability_item_title))
     node(AvailabilityCalendarTags.day(today)).performClick()
 
-    // At midnight exactly, the calendar may already be on the next day: nothing to check then.
-    assumeTrue(LocalDate.now() == today)
     assertEquals(setOf(today), viewModel.uiState.value.availableDates)
   }
 
@@ -1135,7 +1134,20 @@ class CreateListingScreenTest {
     }
 
     availabilityField()
-        .assertContentDescriptionEquals(context.getString(R.string.listing_form_availability_label))
+        .assertContentDescriptionEquals("Availability: Choose the days it is available")
+  }
+
+  @Test
+  fun availability_tellsTalkBackTheChosenDays() {
+    val days = setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 14))
+    composeTestRule.setContent {
+      CreateListingContent(
+          uiState = ListingFormUiState(availableDates = days),
+          actions = ListingFormActions(),
+      )
+    }
+
+    availabilityField().assertContentDescriptionEquals("Availability: 13–14 Nov")
   }
 
   @Test

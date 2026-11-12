@@ -358,6 +358,7 @@ internal fun ListingDetailsFields(
   AvailabilityField(
       type = uiState.type,
       availableDates = uiState.availableDates,
+      today = uiState.today,
       onChange = actions.onAvailableDatesChange,
       // Not while saving: an edit form then shows the listing as saved, and would lose the change.
       enabled = uiState.canEdit && !uiState.isSaving,
@@ -372,31 +373,37 @@ internal fun ListingDetailsFields(
 private fun AvailabilityField(
     type: ListingType,
     availableDates: Set<LocalDate>,
+    today: LocalDate,
     onChange: (Set<LocalDate>) -> Unit,
     enabled: Boolean,
 ) {
   var isChoosing by rememberSaveable { mutableStateOf(false) }
   val shape = RoundedCornerShape(14.dp)
   val label = stringResource(R.string.listing_form_availability_label)
+  val days =
+      formatRuns(groupIntoRuns(availableDates)).ifEmpty {
+        stringResource(R.string.listing_form_availability_placeholder)
+      }
+  val description = stringResource(R.string.listing_form_availability_description, label, days)
   FormField(label = label) {
     Row(
         modifier =
             Modifier.fillMaxWidth()
+                // Faded while it cannot be opened, as the type selector is.
+                .alpha(if (enabled) 1f else 0.45f)
                 .background(AuthColors.Background, shape)
                 .border(1.dp, AuthColors.Outline, shape)
                 .clickable(enabled = enabled, role = Role.Button) { isChoosing = true }
                 // TalkBack reads "Availability" before the days: the label above is not part of
-                // the button.
-                .semantics { contentDescription = label }
+                // the button. The days are in the description too, since a description is read
+                // instead of the text inside the button.
+                .semantics { contentDescription = description }
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .testTag(CreateListingScreenTags.AVAILABILITY_FIELD),
         verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-          text =
-              formatRuns(groupIntoRuns(availableDates)).ifEmpty {
-                stringResource(R.string.listing_form_availability_placeholder)
-              },
+          text = days,
           color =
               if (availableDates.isEmpty()) AuthColors.TextSecondary else AuthColors.TextPrimary,
           fontSize = 13.sp,
@@ -421,6 +428,7 @@ private fun AvailabilityField(
                 else R.string.listing_form_availability_service_title
             ),
         selection = availableDates,
+        today = today,
         onSelectionChange = onChange,
         onDismiss = { isChoosing = false },
     )

@@ -1097,9 +1097,25 @@ class ListingFormViewModelTest {
     viewModel.updateAvailableDates(chosenDays)
 
     val restored =
-        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle))
+        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle)) {
+          today
+        }
 
     assertEquals(chosenDays, restored.uiState.value.availableDates)
+  }
+
+  @Test
+  fun availableDates_restoredOnALaterDay_leaveOutTheDaysNowPast() = runTest {
+    viewModel.updateAvailableDates(chosenDays)
+    val laterDay = LocalDate.of(2026, 11, 20)
+
+    val restored =
+        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle)) {
+          laterDay
+        }
+
+    assertEquals(setOf(LocalDate.of(2026, 11, 28)), restored.uiState.value.availableDates)
+    assertEquals(laterDay, restored.uiState.value.today)
   }
 
   @Test
