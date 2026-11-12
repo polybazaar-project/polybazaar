@@ -49,7 +49,7 @@ private const val AVATAR_DECODE_SIZE_PX = 288
  * (the encoded bytes of the photo stored in Firebase), and the default photo otherwise.
  *
  * @param size the photo's diameter: 72dp on the profile screens, smaller next to a name elsewhere.
- * @param showBadge whether to draw the check badge, which is placed for the 72dp size.
+ * @param showBadge whether to draw the check badge on the bottom right of the photo.
  * @param ioDispatcher runs the decoding, off the main thread.
  */
 @Composable
@@ -83,13 +83,15 @@ internal fun ProfileAvatar(
   }
 }
 
-/** The accent check badge on the bottom right of the 72dp avatar. */
+/** The accent check badge on the bottom right of the avatar, whatever its size. */
 @Composable
 private fun BoxScope.VerifiedBadge() {
   Box(
       modifier =
-          Modifier.align(Alignment.TopStart)
-              .offset(x = 50.dp, y = 49.dp)
+          // From the bottom-right corner, so it stays on the avatar at any size. 2dp right and 1dp
+          // down: where the profile Figma frames put it on the 72dp photo.
+          Modifier.align(Alignment.BottomEnd)
+              .offset(x = 2.dp, y = 1.dp)
               .size(24.dp)
               .background(AuthColors.Accent, CircleShape)
               .border(2.dp, Color.White, CircleShape),
