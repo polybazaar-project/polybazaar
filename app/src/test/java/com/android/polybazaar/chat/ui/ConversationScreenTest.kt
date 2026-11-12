@@ -204,6 +204,25 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun loadFailedWithoutMessages_sendsWhenTheViewModelAllowsIt() {
+    var sends = 0
+    setContent(
+        loaded.copy(
+            messages = emptyList(),
+            loadError = AppError.NETWORK,
+            draft = "Hi",
+            canSend = true,
+        ),
+        onSend = { sends++ },
+    )
+
+    node(ConversationScreenTags.ERROR_MESSAGE).assertIsDisplayed()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled()
+    node(ConversationScreenTags.SEND_BUTTON).performClick()
+    assertEquals(1, sends)
+  }
+
+  @Test
   fun reloadFailed_keepsTheMessages_withTheErrorAndRetryAboveThem() {
     var retries = 0
     setContent(loaded.copy(loadError = AppError.NETWORK), onRetry = { retries++ })
