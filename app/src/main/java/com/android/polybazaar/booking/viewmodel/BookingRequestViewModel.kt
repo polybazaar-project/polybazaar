@@ -46,6 +46,9 @@ internal fun singlePeriod(previous: Set<LocalDate>, selection: Set<LocalDate>): 
  * @property renterUid uid of the signed-in user when they may request [listing]
  *   ([ListingRules.canContactLender]): null for the owner, an unverified or unknown user, and a
  *   paused listing.
+ * @property isViewerUnknown true when [listing] is loaded but the signed-in user could not be read,
+ *   for example without a connection. The request is then disabled without the user being refused:
+ *   loading again reads them again.
  * @property selectableDays the days the lender offers that are not in the past.
  * @property selection the days the renter chose: one period, all among [selectableDays].
  * @property today the day earlier days cannot be requested from, for the calendar to use as well.
@@ -55,6 +58,7 @@ internal fun singlePeriod(previous: Set<LocalDate>, selection: Set<LocalDate>): 
 data class BookingRequestUiState(
     val listing: Listing? = null,
     val renterUid: String? = null,
+    val isViewerUnknown: Boolean = false,
     val selectableDays: Set<LocalDate> = emptySet(),
     val selection: Set<LocalDate> = emptySet(),
     val today: LocalDate = LocalDate.now(),
@@ -175,6 +179,7 @@ class BookingRequestViewModel(
       it.copy(
           listing = listing,
           renterUid = viewer?.takeIf { user -> ListingRules.canContactLender(user, listing) }?.uid,
+          isViewerUnknown = viewer == null,
           selectableDays = selectableDays,
           // A reload may find days the lender has taken back since, even in the middle of the
           // period.

@@ -202,6 +202,7 @@
     <string name="booking_request_damage">Damage compensation: %1$s if the item is damaged.</string>
     <string name="booking_request_payment">Payment is arranged between you and the lender.</string>
     <string name="booking_request_not_allowed">You cannot request this listing.</string>
+    <string name="booking_request_account_unknown">We could not check your account.</string>
     <string name="booking_request_submit">Request booking</string>
     <string name="booking_request_sent_title">Request sent</string>
     <string name="booking_request_sent_message">You asked for %1$s. The lender still has to accept it.</string>

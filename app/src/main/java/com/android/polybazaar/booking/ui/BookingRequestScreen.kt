@@ -73,6 +73,8 @@ object BookingRequestScreenTags {
   const val DAMAGE = "booking_request_damage"
   const val PAYMENT = "booking_request_payment"
   const val NOT_ALLOWED = "booking_request_not_allowed"
+  const val ACCOUNT_UNKNOWN = "booking_request_account_unknown"
+  const val ACCOUNT_RETRY_BUTTON = "booking_request_account_retry_button"
   const val SUBMIT_ERROR = "booking_request_submit_error"
   const val SUBMIT_BUTTON = "booking_request_submit_button"
   const val SENT_MESSAGE = "booking_request_sent_message"
@@ -149,7 +151,8 @@ fun BookingRequestContent(
     val listing = uiState.listing
     val error = uiState.error
     when {
-      // A listing already shown stays shown even if a reload failed.
+      // A listing already shown stays shown if reading it again fails (Retry after the account
+      // could not be checked).
       listing != null && submitState.isQueued -> RequestSent(uiState, actions.onDone)
       listing != null -> RequestForm(listing, uiState, submitState, actions)
       error != null -> LoadError(text = error.message(), onRetry = actions.onRetry)
@@ -179,7 +182,16 @@ private fun RequestForm(
         enabled = !submitState.isSubmitting,
     )
     Summary(listing, uiState)
-    if (!uiState.canRequest) {
+    if (uiState.isViewerUnknown) {
+      // Not a refusal: the account could not be read, so the renter can try again from here.
+      MessageWithRetry(
+          text = stringResource(R.string.booking_request_account_unknown),
+          messageTag = BookingRequestScreenTags.ACCOUNT_UNKNOWN,
+          retryTag = BookingRequestScreenTags.ACCOUNT_RETRY_BUTTON,
+          onRetry = actions.onRetry,
+          enabled = !uiState.isLoading,
+      )
+    } else if (!uiState.canRequest) {
       Message(
           text = stringResource(R.string.booking_request_not_allowed),
           tag = BookingRequestScreenTags.NOT_ALLOWED,
@@ -415,20 +427,33 @@ private fun LoadingIndicator() {
 /** Why the listing could not be loaded, with Retry. */
 @Composable
 private fun LoadError(text: String, onRetry: () -> Unit) {
-  Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = PageMargin, vertical = 8.dp),
-      verticalAlignment = Alignment.CenterVertically,
-  ) {
+  MessageWithRetry(
+      text = text,
+      messageTag = BookingRequestScreenTags.ERROR_MESSAGE,
+      retryTag = BookingRequestScreenTags.RETRY_BUTTON,
+      onRetry = onRetry,
+      modifier = Modifier.padding(horizontal = PageMargin, vertical = 8.dp),
+  )
+}
+
+/** An error [text] with a "Retry" button next to it. */
+@Composable
+private fun MessageWithRetry(
+    text: String,
+    messageTag: String,
+    retryTag: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+  Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
     Text(
         text = text,
         color = AuthColors.Danger,
         fontSize = 14.sp,
-        modifier = Modifier.weight(1f).testTag(BookingRequestScreenTags.ERROR_MESSAGE),
+        modifier = Modifier.weight(1f).testTag(messageTag),
     )
-    TextButton(
-        onClick = onRetry,
-        modifier = Modifier.testTag(BookingRequestScreenTags.RETRY_BUTTON),
-    ) {
+    TextButton(onClick = onRetry, enabled = enabled, modifier = Modifier.testTag(retryTag)) {
       Text(
           text = stringResource(R.string.booking_request_retry),
           color = AuthColors.Accent,

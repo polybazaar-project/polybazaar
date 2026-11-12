@@ -18,7 +18,7 @@ import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
-import com.android.polybazaar.booking.model.BookingRepository
+import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.viewmodel.BookingRequestUiState
 import com.android.polybazaar.booking.viewmodel.BookingRequestViewModel
 import com.android.polybazaar.booking.viewmodel.BookingUiState
@@ -30,7 +30,6 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ServiceListing
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -206,6 +205,7 @@ class BookingRequestScreenTest {
     setContent(drillState(selection = days(13..14)).copy(renterUid = null))
 
     node(BookingRequestScreenTags.NOT_ALLOWED).assertIsDisplayed()
+    node(BookingRequestScreenTags.ACCOUNT_UNKNOWN).assertDoesNotExist()
     node(BookingRequestScreenTags.SUBMIT_BUTTON).assertIsNotEnabled()
   }
 
@@ -214,6 +214,31 @@ class BookingRequestScreenTest {
     setContent(drillState())
 
     node(BookingRequestScreenTags.NOT_ALLOWED).assertDoesNotExist()
+    node(BookingRequestScreenTags.ACCOUNT_UNKNOWN).assertDoesNotExist()
+  }
+
+  @Test
+  fun whenTheAccountCouldNotBeChecked_theRenterIsNotRefused_andCanRetry() {
+    var retries = 0
+    setContent(
+        drillState(selection = days(13..14)).copy(renterUid = null, isViewerUnknown = true),
+        actions = BookingRequestActions(onRetry = { retries++ }),
+    )
+
+    node(BookingRequestScreenTags.ACCOUNT_UNKNOWN)
+        .assertTextEquals(context.getString(R.string.booking_request_account_unknown))
+    node(BookingRequestScreenTags.NOT_ALLOWED).assertDoesNotExist()
+    node(BookingRequestScreenTags.SUBMIT_BUTTON).assertIsNotEnabled()
+    node(BookingRequestScreenTags.ACCOUNT_RETRY_BUTTON).performScrollTo().performClick()
+
+    assertEquals(1, retries)
+  }
+
+  @Test
+  fun whileTheAccountIsCheckedAgain_retryIsDisabled() {
+    setContent(drillState().copy(renterUid = null, isViewerUnknown = true, isLoading = true))
+
+    node(BookingRequestScreenTags.ACCOUNT_RETRY_BUTTON).assertIsNotEnabled()
   }
 
   @Test
@@ -272,28 +297,21 @@ class BookingRequestScreenTest {
 
   @Test
   fun tappingTheDates_opensTheCalendar_whereOnlyOfferedDaysCanBeChosen() {
-    // Today can always be chosen when offered, and is in the month the calendar opens on.
-    val today = LocalDate.now()
-    val tomorrow = today.plusDays(1)
     var selection: Set<LocalDate>? = null
     setContent(
-        drillState().copy(selectableDays = setOf(today)),
+        drillState().copy(today = day(11)),
         actions = BookingRequestActions(onSelectionChange = { selection = it }),
     )
 
     node(BookingRequestScreenTags.DATES_FIELD).performClick()
     node(AvailabilityCalendarSheetTags.TITLE)
         .assertTextEquals(context.getString(R.string.booking_request_dates_sheet_title))
-    // Tomorrow is not offered; it is only in the month shown when it is in today's month.
-    if (tomorrow.month == today.month) {
-      node(AvailabilityCalendarTags.day(tomorrow)).performClick()
-      assertEquals(null, selection)
-    }
-    node(AvailabilityCalendarTags.day(today)).performClick()
+    // The 17th is not offered.
+    node(AvailabilityCalendarTags.day(day(17))).performClick()
+    assertEquals(null, selection)
+    node(AvailabilityCalendarTags.day(day(13))).performClick()
 
-    // At midnight exactly, the calendar may already be on the next day: nothing to check then.
-    assumeTrue(LocalDate.now() == today)
-    assertEquals(setOf(today), selection)
+    assertEquals(setOf(day(13)), selection)
   }
 
   @Test
@@ -301,7 +319,7 @@ class BookingRequestScreenTest {
     val renter =
         User(uid = "renter", email = "renter@epfl.ch", username = "Rita", isEmailVerified = true)
     val auth: AuthRepository = mock { onBlocking { getCurrentUser() } doReturn renter }
-    val bookings = RecordingBookingRepository()
+    val bookings = FakeBookingRepository()
     val viewModel =
         BookingRequestViewModel(
             listingId = "drill",
@@ -321,29 +339,18 @@ class BookingRequestScreenTest {
     composeTestRule.waitForIdle()
 
     assertEquals(
-        listOf(
-            Booking(
-                listingId = "drill",
-                renterUid = "renter",
-                lenderUid = "lender",
-                startDate = day(13),
-                endDate = day(15),
-            )
+        Booking(
+            listingId = "drill",
+            renterUid = "renter",
+            lenderUid = "lender",
+            startDate = day(13),
+            endDate = day(15),
         ),
-        bookings.requested,
+        bookings.requestedBooking,
     )
+    assertEquals(1, bookings.requestCount)
     node(BookingRequestScreenTags.SENT_MESSAGE).assertIsDisplayed()
     node(BookingRequestScreenTags.DONE_BUTTON).performClick()
     assertEquals(1, backs)
-  }
-
-  private class RecordingBookingRepository : BookingRepository {
-    val requested = mutableListOf<Booking>()
-
-    override suspend fun requestBooking(booking: Booking, onWriteFailure: (Exception) -> Unit) {
-      requested += booking
-    }
-
-    override suspend fun getBookingsForListing(listingId: String): List<Booking> = emptyList()
   }
 }
