@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.ui
 
 import android.content.Context
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
@@ -262,6 +263,16 @@ class InboxScreenTest {
 
     rowOf(unread).assert(hasContentDescription(unreadLabel))
     rowOf(read).assert(hasContentDescription(unreadLabel).not())
+  }
+
+  @Test
+  fun unreadRow_isReadAsUnreadBeforeTheRestOfTheRow() {
+    val unread = conversation("unread").copy(lastMessageText = "Hi")
+    setContent(loaded(row(unread, isUnread = true)))
+
+    val descriptions =
+        rowOf(unread).fetchSemanticsNode().config[SemanticsProperties.ContentDescription]
+    assertEquals(context.getString(R.string.inbox_unread), descriptions.first())
   }
 
   @Test

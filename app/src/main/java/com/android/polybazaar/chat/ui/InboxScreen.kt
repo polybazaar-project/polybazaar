@@ -324,8 +324,8 @@ private fun MessagesHeading() {
 /**
  * One conversation: the listing photo, the other person, the listing title, the last message and
  * the listing badge, and the time since the last message. An unread row has a bolder title, preview
- * and time and a dot under the time; TalkBack reads "Unread". Without [onClick], the row is not
- * clickable but TalkBack still reads it as one item.
+ * and time and a dot under the time; TalkBack reads "Unread" first, before the rest of the row.
+ * Without [onClick], the row is not clickable but TalkBack still reads it as one item.
  */
 @Composable
 private fun ConversationRow(
@@ -335,6 +335,7 @@ private fun ConversationRow(
     onClick: (() -> Unit)?,
 ) {
   val shape = RoundedCornerShape(20.dp)
+  val unread = stringResource(R.string.inbox_unread)
   Row(
       modifier =
           Modifier.padding(start = PageMargin, end = PageMargin, bottom = 10.dp)
@@ -352,6 +353,8 @@ private fun ConversationRow(
                           onClick = onClick,
                       )
               )
+              // Set on the row itself, TalkBack reads it before the texts of the row.
+              .semantics { if (row.isUnread) contentDescription = unread }
               .padding(12.dp)
               .testTag(InboxScreenTags.row(row.conversation.id)),
       horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -425,18 +428,17 @@ private fun LastMessagePreview(
 }
 
 /**
- * The accent dot of an unread row, which TalkBack reads as "Unread" so the state is not shown by
- * colour only. A read row keeps the same empty space, so both rows have the same height.
+ * The accent dot of an unread row. TalkBack does not read it: the row itself says "Unread", so the
+ * state is not shown by colour only. A read row keeps the same empty space, so both rows have the
+ * same height.
  */
 @Composable
 private fun UnreadDot(isUnread: Boolean) {
   if (isUnread) {
-    val unread = stringResource(R.string.inbox_unread)
     Box(
         modifier =
             Modifier.size(7.dp)
                 .background(AuthColors.Accent, CircleShape)
-                .semantics { contentDescription = unread }
                 .testTag(InboxScreenTags.UNREAD_DOT)
     )
   } else {
