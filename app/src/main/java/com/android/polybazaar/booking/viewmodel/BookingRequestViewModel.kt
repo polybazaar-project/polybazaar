@@ -141,14 +141,11 @@ class BookingRequestViewModel(
     _uiState.update { it.copy(isLoading = true, error = null) }
     viewModelScope.launch {
       try {
-        listingRepository
-            .getListing(listingId)
-            .onSuccess { listing -> showListing(listing) }
-            .onFailure { exception ->
-              // Cancellation means the screen was closed: it is not an error to show.
-              if (exception is CancellationException) throw exception
-              _uiState.update { it.copy(error = exception.toAppError()) }
-            }
+        showListing(listingRepository.getListing(listingId).getOrThrow())
+      } catch (exception: Exception) {
+        // Cancellation means the screen was closed: it is not an error to show.
+        if (exception is CancellationException) throw exception
+        _uiState.update { it.copy(error = exception.toAppError()) }
       } finally {
         // Also on cancellation, otherwise the guard above would block every later load.
         _uiState.update { it.copy(isLoading = false) }
