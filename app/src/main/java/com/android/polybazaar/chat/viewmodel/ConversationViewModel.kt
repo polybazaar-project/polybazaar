@@ -105,12 +105,23 @@ class ConversationViewModel(
   private var otherUserUid: String? = null
   private var sendInFlight = false
   private var lastMarkedReadAt: Instant? = null
+  private var isVisible = false
 
   init {
     loadListing()
     observeConversation()
     observeMessages()
     observeOtherUser()
+  }
+
+  /**
+   * Tells whether the screen is started, so the user can see the conversation. Messages are only
+   * marked read while it is: one that arrives while the app is in the background stays unread, and
+   * is marked read when the screen is started again.
+   */
+  fun setVisible(visible: Boolean) {
+    isVisible = visible
+    if (visible) markReadIfUnread(_uiState.value.conversation)
   }
 
   fun onDraftChange(text: String) {
@@ -274,12 +285,13 @@ class ConversationViewModel(
   }
 
   /**
-   * Marks the open conversation read whenever its latest message is unread for me, also for
-   * messages that arrive while it is open. Only once per lastMessageAt: the conversation can be
-   * emitted again before the server confirms the write, and that must not write again.
+   * Marks the open conversation read whenever its latest message is unread for me while the screen
+   * is visible, also for messages that arrive while it is open. Only once per lastMessageAt: the
+   * conversation can be emitted again before the server confirms the write, and that must not write
+   * again.
    */
   private fun markReadIfUnread(conversation: Conversation?) {
-    if (conversation == null || !conversation.isUnreadFor(myUid)) return
+    if (!isVisible || conversation == null || !conversation.isUnreadFor(myUid)) return
     val lastMessageAt = conversation.lastMessageAt
     if (lastMessageAt == lastMarkedReadAt) return
     lastMarkedReadAt = lastMessageAt
