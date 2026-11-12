@@ -165,6 +165,7 @@ class BookingRequestViewModelTest {
     assertEquals(drill, state.listing)
     assertNull(state.error)
     assertFalse(state.canRequest)
+    assertTrue(state.isViewerUnknown)
   }
 
   @Test
@@ -179,6 +180,7 @@ class BookingRequestViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertTrue(viewModel.uiState.value.canRequest)
+    assertFalse(viewModel.uiState.value.isViewerUnknown)
   }
 
   @Test
@@ -332,6 +334,8 @@ class BookingRequestViewModelTest {
 
     assertEquals(16.0, viewModel.uiState.value.total!!, 0.0)
     assertNull(viewModel.uiState.value.booking)
+    // Known and refused, which is not the same as an account that could not be read.
+    assertFalse(viewModel.uiState.value.isViewerUnknown)
   }
 
   @Test

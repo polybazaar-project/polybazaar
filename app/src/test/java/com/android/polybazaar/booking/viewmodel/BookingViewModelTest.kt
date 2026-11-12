@@ -1,8 +1,9 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar.booking.viewmodel
 
 import com.android.polybazaar.booking.model.Booking
-import com.android.polybazaar.booking.model.BookingRepository
+import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import java.time.LocalDate
@@ -10,8 +11,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -160,26 +159,4 @@ class BookingViewModelTest {
     assertEquals(null, viewModel.uiState.value.error)
     assertTrue(repository.requestJob?.isCancelled == true)
   }
-}
-
-private class FakeBookingRepository : BookingRepository {
-  var requestedBooking: Booking? = null
-  var requestCount = 0
-  var pendingRequest: CompletableDeferred<Unit>? = null
-  var failure: Exception? = null
-  var immediateWriteFailure: Exception? = null
-  var writeFailure: ((Exception) -> Unit)? = null
-  var requestJob: Job? = null
-
-  override suspend fun requestBooking(booking: Booking, onWriteFailure: (Exception) -> Unit) {
-    requestJob = currentCoroutineContext()[Job]
-    requestedBooking = booking
-    requestCount++
-    writeFailure = onWriteFailure
-    pendingRequest?.await()
-    immediateWriteFailure?.let(onWriteFailure)
-    failure?.let { throw it }
-  }
-
-  override suspend fun getBookingsForListing(listingId: String): List<Booking> = emptyList()
 }
