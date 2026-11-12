@@ -378,8 +378,9 @@ fun AppNavHost(
         ) { entry ->
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
-          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
-          val renterUid = entry.arguments?.getString(Routes.RENTER_UID) ?: return@composable
+          // The route requires both, so they are always there.
+          val listingId = entry.arguments!!.getString(Routes.LISTING_ID)!!
+          val renterUid = entry.arguments!!.getString(Routes.RENTER_UID)!!
           // Scoped to this entry: each conversation opened gets its own ViewModel.
           val conversationViewModel: ConversationViewModel =
               viewModel(
