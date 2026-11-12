@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.ui
 
 import android.content.res.Configuration
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -70,14 +71,18 @@ class InboxTimeTest {
     )
   }
 
-  /** The labels of [times], rendered in [locale]. */
-  private fun labels(locale: Locale, vararg times: InboxTime): List<String> {
+  /** The labels of [times], rendered in [locale] with [text]. */
+  private fun labels(
+      locale: Locale,
+      vararg times: InboxTime,
+      text: @Composable InboxTime.() -> String = { label() },
+  ): List<String> {
     val labels = mutableListOf<String>()
     composeTestRule.setContent {
       val configuration = Configuration(LocalConfiguration.current).apply { setLocale(locale) }
       CompositionLocalProvider(LocalConfiguration provides configuration) {
         labels.clear()
-        times.forEach { labels += it.label() }
+        times.forEach { labels += it.text() }
       }
     }
     composeTestRule.waitForIdle()
@@ -102,5 +107,34 @@ class InboxTimeTest {
   @Test
   fun dateLabel_followsTheConfigurationLocale() {
     assertEquals(listOf("4 nov."), labels(Locale.FRANCE, InboxTime.Date(LocalDate.of(2026, 11, 4))))
+  }
+
+  @Test
+  fun spokenLabel_spellsOutTheUnitWithItsPlural() {
+    assertEquals(
+        listOf(
+            "now",
+            "1 minute ago",
+            "5 minutes ago",
+            "1 hour ago",
+            "3 hours ago",
+            "1 day ago",
+            "2 days ago",
+            "4 Nov",
+        ),
+        labels(
+            Locale.UK,
+            InboxTime.Now,
+            InboxTime.Minutes(1),
+            InboxTime.Minutes(5),
+            InboxTime.Hours(1),
+            InboxTime.Hours(3),
+            InboxTime.Days(1),
+            InboxTime.Days(2),
+            InboxTime.Date(LocalDate.of(2026, 11, 4)),
+        ) {
+          spokenLabel()
+        },
+    )
   }
 }

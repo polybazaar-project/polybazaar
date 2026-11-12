@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -159,6 +160,15 @@ class InboxScreenTest {
         .assert(hasText(context.getString(R.string.inbox_username, alice.username)))
         .assert(hasText("Current drill"))
         .assert(hasText(context.getString(R.string.inbox_time_minutes, 5L)))
+  }
+
+  @Test
+  fun rowTime_isSpokenInFullWords() {
+    // TalkBack would read "5m" as five meters.
+    val drill = conversation("drill", minutesAgo = 5)
+    setContent(loaded(row(drill)))
+
+    rowOf(drill).assert(hasContentDescription("5 minutes ago"))
   }
 
   @Test

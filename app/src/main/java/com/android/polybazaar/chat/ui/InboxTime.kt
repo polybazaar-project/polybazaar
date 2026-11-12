@@ -3,6 +3,7 @@ package com.android.polybazaar.chat.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.android.polybazaar.R
 import java.time.Duration
@@ -60,4 +61,21 @@ internal fun InboxTime.label(): String =
       is InboxTime.Date ->
           // From the configuration, so the date follows a change of locale.
           date.format(DateTimeFormatter.ofPattern("d MMM", LocalConfiguration.current.locales[0]))
+    }
+
+/**
+ * What TalkBack reads for this time: "5 minutes ago" rather than "5m", which it may read as meters.
+ * "now" and the date read well already, so they keep their [label].
+ */
+@Composable
+internal fun InboxTime.spokenLabel(): String =
+    when (this) {
+      is InboxTime.Minutes ->
+          pluralStringResource(R.plurals.inbox_time_minutes_spoken, count.toInt(), count)
+      is InboxTime.Hours ->
+          pluralStringResource(R.plurals.inbox_time_hours_spoken, count.toInt(), count)
+      is InboxTime.Days ->
+          pluralStringResource(R.plurals.inbox_time_days_spoken, count.toInt(), count)
+      InboxTime.Now,
+      is InboxTime.Date -> label()
     }

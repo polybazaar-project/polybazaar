@@ -105,6 +105,18 @@
     <string name="inbox_time_minutes">%1$dm</string>
     <string name="inbox_time_hours">%1$dh</string>
     <string name="inbox_time_days">%1$dd</string>
+    <plurals name="inbox_time_minutes_spoken">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="inbox_time_hours_spoken">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="inbox_time_days_spoken">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
     <string name="inbox_retry">Retry</string>
     <string name="inbox_empty_title">No conversations yet</string>
     <string name="inbox_empty_message">Found something you like?\nOpen a listing and message its owner.\nYour conversations will appear here.</string>
