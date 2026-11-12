@@ -3,14 +3,22 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.ui.navigation
 
+import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
@@ -22,6 +30,7 @@ import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
+import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -36,10 +45,10 @@ import org.junit.runner.RunWith
 
 /**
  * End-to-end tests of what a user can do in the app today: create an account, verify the email,
- * edit the profile, publish a listing, sign out and sign back in. The real navigation graph,
- * screens and [AuthViewModel] run together; only the data layer is replaced, by [InMemoryBackend]
- * and [FakeListingRepository], so state written by one screen is read back by the others as it
- * would be from Firebase.
+ * edit the profile, publish a listing, find another user's listing on Browse by search and
+ * category, sign out and sign back in. The real navigation graph, screens and [AuthViewModel] run
+ * together; only the data layer is replaced, by [InMemoryBackend] and [FakeListingRepository], so
+ * state written by one screen is read back by the others as it would be from Firebase.
  */
 @RunWith(AndroidJUnit4::class)
 class EndToEndFlowTest {
@@ -92,6 +101,46 @@ class EndToEndFlowTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.EMAIL_FIELD).performTextInput(email)
     composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput(password)
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
+  }
+
+  private fun publishDrillSet() {
+    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextInput(DRILL)
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.DESCRIPTION_FIELD)
+        .performTextInput("Comes with bits")
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.PRICE_FIELD).performTextInput("8")
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.CATEGORY_FIELD).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.categoryOption(ListingCategory.ITEM_TOOLS))
+        .performClick()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
+        .performScrollTo()
+        .performClick()
+  }
+
+  private fun signOutFromSettings() {
+    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  /** A category chip on Browse; cards show their category name too, so match inside the row. */
+  private fun chip(name: String): SemanticsNodeInteraction =
+      composeTestRule.onNode(
+          hasText(name) and hasAnyAncestor(hasTestTag(BrowseScreenTags.CATEGORY_SELECTOR))
+      )
+
+  /** Asserts that Browse shows a card for exactly [shown] among the two test listings. */
+  private fun assertBrowseShows(vararg shown: String) {
+    composeTestRule.onAllNodesWithTag(BrowseScreenTags.LISTING_CARD).assertCountEquals(shown.size)
+    listOf(DRILL, TEXTBOOK).forEach { title ->
+      if (title in shown) composeTestRule.onNodeWithText(title).assertExists()
+      else composeTestRule.onNodeWithText(title).assertDoesNotExist()
+    }
   }
 
   private fun openProfileFromBrowse() {
@@ -176,27 +225,12 @@ class EndToEndFlowTest {
     launchApp()
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
 
-    composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).performClick()
-    composeTestRule
-        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
-        .performTextInput("Bosch drill set")
-    composeTestRule
-        .onNodeWithTag(CreateListingScreenTags.DESCRIPTION_FIELD)
-        .performTextInput("Comes with bits")
-    composeTestRule.onNodeWithTag(CreateListingScreenTags.PRICE_FIELD).performTextInput("8")
-    composeTestRule.onNodeWithTag(CreateListingScreenTags.CATEGORY_FIELD).performClick()
-    composeTestRule
-        .onNodeWithTag(CreateListingScreenTags.categoryOption(ListingCategory.ITEM_TOOLS))
-        .performClick()
-    composeTestRule
-        .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
-        .performScrollTo()
-        .performClick()
+    publishDrillSet()
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     // Saved as Ada's, so it is hidden on purpose and not because publishing failed.
     assertEquals(user.uid, listingRepository.allListings.single().ownerUid)
-    composeTestRule.onNodeWithText("Bosch drill set").assertDoesNotExist()
+    composeTestRule.onNodeWithText(DRILL).assertDoesNotExist()
   }
 
   @Test
@@ -211,11 +245,7 @@ class EndToEndFlowTest {
         .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
         .performTextInput("Ada's draft")
 
-    composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).performClick()
-    composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
-    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
-    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
-    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    signOutFromSettings()
 
     signIn("grace@epfl.ch", "secret456")
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
@@ -251,5 +281,56 @@ class EndToEndFlowTest {
     assertNotEquals(adaProfileEntryId, navController.currentBackStackEntry?.id)
     composeTestRule.onNodeWithTag(ProfileScreenTags.NAME).assertTextEquals("grace")
     composeTestRule.onNodeWithText("Ada's bio").assertDoesNotExist()
+  }
+
+  @Test
+  fun listingPublishedByOneUser_isFoundByAnotherOnBrowseBySearchAndCategory() {
+    val ada = backend.register(email = "ada@epfl.ch", password = "secret123", username = "ada")
+    backend.register(email = "grace@epfl.ch", password = "secret456", username = "grace")
+    backend.setSignedIn(ada.uid)
+    // A third user's Books listing, so Browse has a second card and a second category chip.
+    listingRepository.allListings =
+        listOf(
+            ItemListing(
+                category = ListingCategory.ITEM_BOOKS,
+                price = 3.0,
+                title = TEXTBOOK,
+                description = "Barely used",
+                listingId = "seed-textbook",
+                ownerUid = "uid-linus",
+            )
+        )
+    launchApp()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+
+    publishDrillSet()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertBrowseShows(TEXTBOOK)
+
+    signOutFromSettings()
+    signIn("grace@epfl.ch", "secret456")
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertBrowseShows(DRILL, TEXTBOOK)
+
+    val search = composeTestRule.onNodeWithTag(BrowseScreenTags.SEARCH_FIELD)
+    search.performTextInput("DRILL")
+    assertBrowseShows(DRILL)
+    search.performTextReplacement("kayak")
+    assertBrowseShows()
+    search.performTextClearance()
+    assertBrowseShows(DRILL, TEXTBOOK)
+
+    chip("Books").performClick()
+    assertBrowseShows(TEXTBOOK)
+    chip("Tools").performClick()
+    assertBrowseShows(DRILL)
+    chip("Tools").performClick()
+    assertBrowseShows(DRILL, TEXTBOOK)
+  }
+
+  private companion object {
+    const val DRILL = "Bosch drill set"
+    const val TEXTBOOK = "Calculus textbook"
   }
 }
