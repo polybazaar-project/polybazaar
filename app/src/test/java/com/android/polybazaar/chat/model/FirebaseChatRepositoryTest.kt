@@ -10,6 +10,7 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.EventListener
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -26,12 +27,14 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.anyVararg
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.inOrder
@@ -236,6 +239,19 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendMessageFromLenderStoresLenderAsLastSenderAndMarksItReadForLenderOnly() = runTest {
+    signInAs("lender")
+
+    repository.sendMessage(conversation, "  Yes, it is  ")
+
+    val fields = argumentCaptor<Map<String, Any>>()
+    verify(batch).set(eq(conversationRef), fields.capture(), eq(SetOptions.merge()))
+    assertEquals("Yes, it is", fields.firstValue["lastMessageText"])
+    assertEquals("lender", fields.firstValue["lastMessageSenderUid"])
+    assertEquals(mapOf("lender" to FieldValue.serverTimestamp()), fields.firstValue["lastReadAt"])
+  }
+
+  @Test
   fun sendMessageReturnsWhileServerConfirmationIsPending() = runTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(batch.commit()).thenReturn(pendingWrite.task)
@@ -339,6 +355,67 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun markReadSetsOnlyMyReadTimeToServerTime() {
+    whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
+        .thenReturn(Tasks.forResult(null))
+
+    repository.markRead("listing_renter")
+
+    verify(conversationRef)
+        .update(FieldPath.of("lastReadAt", "renter"), FieldValue.serverTimestamp())
+  }
+
+  @Test
+  fun markReadByLenderSetsLenderReadTime() {
+    signInAs("lender")
+    whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
+        .thenReturn(Tasks.forResult(null))
+
+    repository.markRead("listing_renter")
+
+    verify(conversationRef)
+        .update(FieldPath.of("lastReadAt", "lender"), FieldValue.serverTimestamp())
+  }
+
+  @Test
+  fun markReadReturnsWhileServerConfirmationIsPending() {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
+        .thenReturn(pendingWrite.task)
+    var reportedFailure: Exception? = null
+    val repository = FirebaseChatRepository(firestore, auth) { reportedFailure = it }
+
+    repository.markRead("listing_renter")
+
+    assertFalse(pendingWrite.task.isComplete)
+    assertNull(reportedFailure)
+  }
+
+  @Test
+  fun markReadLogsLaterWriteFailures() {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
+        .thenReturn(pendingWrite.task)
+    var reportedFailure: Exception? = null
+    val repository = FirebaseChatRepository(firestore, auth) { reportedFailure = it }
+
+    repository.markRead("listing_renter")
+    val failure = IllegalStateException("Write rejected")
+    pendingWrite.setException(failure)
+
+    assertSame(failure, reportedFailure)
+  }
+
+  @Test
+  fun markReadWhenSignedOutWritesNothing() {
+    whenever(auth.currentUser).thenReturn(null)
+
+    repository.markRead("listing_renter")
+
+    verify(conversations, never()).document(any())
+  }
+
+  @Test
   fun observeConversationMapsStoredFieldsAndRemovesListener() = runTest {
     val listener = captureConversationListener()
     val stored = mock<DocumentSnapshot>()
@@ -355,6 +432,73 @@ class FirebaseChatRepositoryTest {
         observed.await(),
     )
     verify(registration).remove()
+  }
+
+  @Test
+  fun observeConversationMapsPreviewAndParticipantsReadTimes() = runTest {
+    val listener = captureConversationListener()
+    val stored = mock<DocumentSnapshot>()
+    whenever(stored.exists()).thenReturn(true)
+    stubConversation(stored)
+    whenever(timestampOf(stored, "lastMessageAt")).thenReturn(Timestamp(1_700_000_060, 0))
+    whenever(stored.getString("lastMessageText")).thenReturn("Still available?")
+    whenever(stored.getString("lastMessageSenderUid")).thenReturn("lender")
+    whenever(timestampOf(stored, "lastReadAt.renter")).thenReturn(Timestamp(1_700_000_000, 0))
+    whenever(timestampOf(stored, "lastReadAt.lender")).thenReturn(Timestamp(1_700_000_060, 0))
+
+    val observed = async { repository.observeConversation("listing_renter").first() }
+    runCurrent()
+    listener().onEvent(stored, null)
+
+    assertEquals(
+        conversation.copy(
+            lastMessageAt = Instant.ofEpochSecond(1_700_000_060),
+            lastMessageText = "Still available?",
+            lastMessageSenderUid = "lender",
+            lastReadAt =
+                mapOf(
+                    "renter" to Instant.ofEpochSecond(1_700_000_000),
+                    "lender" to Instant.ofEpochSecond(1_700_000_060),
+                ),
+        ),
+        observed.await(),
+    )
+  }
+
+  @Test
+  fun observeConversationMapsOnlyTheReadTimesThatExist() = runTest {
+    val listener = captureConversationListener()
+    val stored = mock<DocumentSnapshot>()
+    whenever(stored.exists()).thenReturn(true)
+    stubConversation(stored)
+    whenever(timestampOf(stored, "lastReadAt.lender")).thenReturn(Timestamp(1_700_000_000, 0))
+
+    val observed = async { repository.observeConversation("listing_renter").first() }
+    runCurrent()
+    listener().onEvent(stored, null)
+
+    assertEquals(
+        mapOf("lender" to Instant.ofEpochSecond(1_700_000_000)),
+        observed.await()?.lastReadAt,
+    )
+  }
+
+  @Test
+  fun observeConversationMapsConversationStoredBeforePreviewsToDefaults() = runTest {
+    val listener = captureConversationListener()
+    val stored = mock<DocumentSnapshot>()
+    whenever(stored.exists()).thenReturn(true)
+    stubConversation(stored)
+    whenever(timestampOf(stored, "lastMessageAt")).thenReturn(Timestamp(1_700_000_000, 0))
+
+    val observed = async { repository.observeConversation("listing_renter").first() }
+    runCurrent()
+    listener().onEvent(stored, null)
+
+    val mapped = observed.await()
+    assertNull(mapped?.lastMessageText)
+    assertNull(mapped?.lastMessageSenderUid)
+    assertEquals(emptyMap<String, Instant>(), mapped?.lastReadAt)
   }
 
   @Test
