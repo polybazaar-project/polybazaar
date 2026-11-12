@@ -49,6 +49,8 @@ import kotlinx.coroutines.launch
  *   shown without it.
  * @property ownerActionError why the owner's last pause, resume or delete failed, or null. Cleared
  *   when the owner tries again.
+ * @property isDeleted true once the owner deleted the listing, until the screen has left (see
+ *   [ListingDetailViewModel.onDeletedHandled]).
  */
 data class ListingDetailUiState(
     val listing: Listing? = null,
@@ -62,6 +64,7 @@ data class ListingDetailUiState(
     val error: AppError? = null,
     val lenderError: AppError? = null,
     val ownerActionError: AppError? = null,
+    val isDeleted: Boolean = false,
 )
 
 /**
@@ -137,6 +140,29 @@ class ListingDetailViewModel(
         // Shown from the answer rather than read again: Firestore saved exactly this change.
         onSaved = { it.copy(listing = it.listing?.withPaused(paused)) },
     )
+  }
+
+  /**
+   * Deletes the listing and its photos, for its owner, under the same conditions as [setPaused].
+   * The screen asks for confirmation first. On success [ListingDetailUiState.isDeleted] tells the
+   * screen to leave; on failure the listing stays shown and [ListingDetailUiState.ownerActionError]
+   * says why.
+   */
+  fun deleteListing() {
+    val listingId = ownerActionTarget() ?: return
+    runOwnerAction(
+        save = { listingRepository.deleteListing(listingId) },
+        onSaved = { it.copy(isDeleted = true) },
+    )
+  }
+
+  /**
+   * Called by the screen once it has left after a delete, so going back to it (it stays in the back
+   * stack until popped) does not leave a second time. Same pattern as the listing form's
+   * `savedListing`.
+   */
+  fun onDeletedHandled() {
+    _uiState.update { it.copy(isDeleted = false) }
   }
 
   /** The id of the listing an owner action may change now, or null when none may start. */

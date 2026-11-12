@@ -234,6 +234,71 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun owner_deletesTheListing_andTheScreenIsToldToLeave() {
+    val viewModel = ownerViewModel()
+
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertEquals(listOf(listing.listingId!!), listings.deletedListingIds)
+    assertTrue(state.isDeleted)
+    assertFalse(state.isUpdating)
+    assertNull(state.ownerActionError)
+  }
+
+  @Test
+  fun failedDelete_keepsTheListingShown_andSaysWhy() {
+    val viewModel = ownerViewModel()
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertFalse(state.isDeleted)
+    assertEquals(listing, state.listing)
+    assertEquals(AppError.NETWORK, state.ownerActionError)
+  }
+
+  @Test
+  fun someoneElse_cannotDeleteTheListing() {
+    val viewModel = loadedViewModel()
+
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isDeleted)
+  }
+
+  @Test
+  fun delete_whileAPauseIsSaved_isIgnored() {
+    val viewModel = ownerViewModel()
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isDeleted)
+  }
+
+  @Test
+  fun onDeletedHandled_resetsTheSignal() {
+    val viewModel = ownerViewModel()
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.onDeletedHandled()
+
+    assertFalse(viewModel.uiState.value.isDeleted)
+  }
+
+  @Test
   fun cancelledPause_isNotShownAsAnError_andAllowsTheNextAction() {
     val viewModel = ownerViewModel()
     listings.failure = CancellationException("Screen closed")
