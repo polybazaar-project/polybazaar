@@ -13,7 +13,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
@@ -1248,11 +1248,11 @@ class AppNavHostTest {
 
     openInbox()
 
-    // Not a button until #274 adds the conversation screen.
+    // A button: tapping it opens the conversation.
     composeTestRule
         .onNodeWithTag(InboxScreenTags.row(drill.id))
         .assertIsDisplayed()
-        .assertHasNoClickAction()
+        .assertHasClickAction()
   }
 
   @Test

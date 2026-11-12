@@ -419,8 +419,12 @@ fun AppNavHost(
           InboxScreen(
               viewModel = inboxViewModel,
               myUid = uid,
-              // Null until #274 adds the conversation route, so no row is a dead button.
-              onConversationClick = null,
+              // The conversation's own renter, so this works for the renter and the lender alike.
+              onConversationClick = {
+                navController.navigate(Routes.conversation(it.listingId, it.renterUid)) {
+                  launchSingleTop = true
+                }
+              },
               onBrowse = { navController.navigateToTab(Routes.BROWSE) },
           )
         }
