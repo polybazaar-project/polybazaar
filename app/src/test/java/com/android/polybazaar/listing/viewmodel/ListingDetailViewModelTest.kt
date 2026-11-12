@@ -126,6 +126,255 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun owner_isTheOwner() {
+    auth.currentUser = lender.copy(isEmailVerified = true)
+
+    assertTrue(loadedViewModel().uiState.value.isOwner)
+  }
+
+  @Test
+  fun someoneElse_isNotTheOwner() {
+    assertFalse(loadedViewModel().uiState.value.isOwner)
+  }
+
+  @Test
+  fun unknownViewer_isNotTheOwner() {
+    auth.currentUser = null
+
+    assertFalse(loadedViewModel().uiState.value.isOwner)
+  }
+
+  /** The listing's detail as its owner sees it, loaded. */
+  private fun ownerViewModel(): ListingDetailViewModel {
+    auth.currentUser = lender.copy(isEmailVerified = true)
+    return loadedViewModel()
+  }
+
+  @Test
+  fun owner_pausesTheListing() {
+    val viewModel = ownerViewModel()
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertEquals(listOf(listing.listingId!! to true), listings.pauseCalls)
+    assertEquals(true, state.listing?.isPaused)
+    assertFalse(state.isUpdating)
+    assertNull(state.ownerActionError)
+  }
+
+  @Test
+  fun owner_resumesAPausedListing() {
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    val viewModel = ownerViewModel()
+
+    viewModel.setPaused(false)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(listing.listingId!! to false), listings.pauseCalls)
+    assertEquals(false, viewModel.uiState.value.listing?.isPaused)
+  }
+
+  @Test
+  fun pause_isUpdatingWhileSaved_andASecondTapIsIgnored() {
+    val viewModel = ownerViewModel()
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.setPaused(true)
+    viewModel.setPaused(false)
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.isUpdating)
+
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertFalse(viewModel.uiState.value.isUpdating)
+    assertEquals(listOf(listing.listingId!! to true), listings.pauseCalls)
+  }
+
+  @Test
+  fun failedPause_keepsTheListingActive_andSaysWhy() {
+    val viewModel = ownerViewModel()
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertEquals(false, state.listing?.isPaused)
+    assertEquals(AppError.NETWORK, state.ownerActionError)
+    assertFalse(state.isUpdating)
+  }
+
+  @Test
+  fun pause_afterAFailure_clearsTheError() {
+    val viewModel = ownerViewModel()
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    listings.failure = null
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.ownerActionError)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
+  }
+
+  @Test
+  fun someoneElse_cannotPauseTheListing() {
+    val viewModel = loadedViewModel()
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertFalse(viewModel.uiState.value.isUpdating)
+  }
+
+  @Test
+  fun owner_deletesTheListing_andTheScreenIsToldToLeave() {
+    val viewModel = ownerViewModel()
+
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertEquals(listOf(listing.listingId!!), listings.deletedListingIds)
+    assertTrue(state.isDeleted)
+    assertFalse(state.isUpdating)
+    assertNull(state.ownerActionError)
+  }
+
+  @Test
+  fun failedDelete_keepsTheListingShown_andSaysWhy() {
+    val viewModel = ownerViewModel()
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertFalse(state.isDeleted)
+    assertEquals(listing, state.listing)
+    assertEquals(AppError.NETWORK, state.ownerActionError)
+  }
+
+  @Test
+  fun someoneElse_cannotDeleteTheListing() {
+    val viewModel = loadedViewModel()
+
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isDeleted)
+  }
+
+  @Test
+  fun delete_whileAPauseIsSaved_isIgnored() {
+    val viewModel = ownerViewModel()
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isDeleted)
+  }
+
+  @Test
+  fun ownerActions_whileAReloadIsRunning_areIgnored() {
+    val viewModel = ownerViewModel()
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.loadListing()
+    testDispatcher.scheduler.runCurrent()
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isUpdating)
+  }
+
+  @Test
+  fun reload_whileAPauseIsSaved_isIgnored_soThePauseStaysShown() {
+    val viewModel = ownerViewModel()
+    val readsBefore = listings.getListingCalls
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.setPaused(true)
+    viewModel.loadListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(readsBefore, listings.getListingCalls)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun onDeletedHandled_resetsTheSignal() {
+    val viewModel = ownerViewModel()
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.onDeletedHandled()
+
+    assertFalse(viewModel.uiState.value.isDeleted)
+  }
+
+  @Test
+  fun afterADelete_ownerActionsAndReloadsAreIgnored_evenOnceHandled() {
+    val viewModel = ownerViewModel()
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.onDeletedHandled()
+    val readsBefore = listings.getListingCalls
+
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertEquals(listOf(listing.listingId!!), listings.deletedListingIds)
+    assertEquals(readsBefore, listings.getListingCalls)
+    assertNull(state.error)
+    assertNull(state.ownerActionError)
+  }
+
+  @Test
+  fun cancelledPause_isNotShownAsAnError_andAllowsTheNextAction() {
+    val viewModel = ownerViewModel()
+    listings.failure = CancellationException("Screen closed")
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.ownerActionError)
+    assertFalse(viewModel.uiState.value.isUpdating)
+
+    // isUpdating was cleared in the finally, so the next tap goes through.
+    listings.failure = null
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(listing.listingId!! to true), listings.pauseCalls)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
+  }
+
+  @Test
   fun unknownViewer_cannotContactTheLender_butTheListingIsShownWithoutError() {
     auth.currentUser = null
 

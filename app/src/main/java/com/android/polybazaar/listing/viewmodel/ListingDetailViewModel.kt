@@ -11,6 +11,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules
+import com.android.polybazaar.listing.model.withPaused
 import com.android.polybazaar.profile.model.ProfileRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -38,10 +39,18 @@ import kotlinx.coroutines.launch
  *   screen shows its "to be confirmed" text for them.
  * @property canContactLender whether "Message" and "Request booking" are enabled, from
  *   [ListingRules.canContactLender]. False until both the listing and the viewer are known.
+ * @property isOwner whether the viewer owns the listing, so the screen shows the owner's actions
+ *   (edit, pause or resume, delete) instead of the renter's. False until both are known.
  * @property isLoading true while the listing is being loaded.
+ * @property isUpdating true while the owner's pause, resume or delete is being saved. The owner's
+ *   actions are disabled meanwhile.
  * @property error why the listing could not be loaded, or null.
  * @property lenderError why the lender's profile could not be loaded, or null. The listing is still
  *   shown without it.
+ * @property ownerActionError why the owner's last pause, resume or delete failed, or null. Cleared
+ *   when the owner tries again.
+ * @property isDeleted true once the owner deleted the listing, until the screen has left (see
+ *   [ListingDetailViewModel.onDeletedHandled]).
  */
 data class ListingDetailUiState(
     val listing: Listing? = null,
@@ -49,9 +58,13 @@ data class ListingDetailUiState(
     val lenderPhoto: ByteArray? = null,
     val pendingDetails: ListingPendingDetails = ListingPendingDetails(),
     val canContactLender: Boolean = false,
+    val isOwner: Boolean = false,
     val isLoading: Boolean = false,
+    val isUpdating: Boolean = false,
     val error: AppError? = null,
     val lenderError: AppError? = null,
+    val ownerActionError: AppError? = null,
+    val isDeleted: Boolean = false,
 )
 
 /**
@@ -60,6 +73,13 @@ data class ListingDetailUiState(
  */
 internal fun contactAllowed(viewer: User?, listing: Listing): Boolean =
     viewer != null && ListingRules.canContactLender(viewer, listing)
+
+/**
+ * Whether [viewer] owns [listing]. An unknown viewer, for example offline before the first read,
+ * gets false: they see the renter's view with its actions disabled until the viewer is known.
+ */
+internal fun ownedBy(viewer: User?, listing: Listing): Boolean =
+    viewer != null && listing.ownerUid == viewer.uid
 
 /** Loads one listing, the viewer and the lender's profile for the listing detail screen. */
 class ListingDetailViewModel(
@@ -77,18 +97,29 @@ class ListingDetailViewModel(
   /** The viewer once read, kept for the rest of the screen's life (see [showListing]). */
   private var knownViewer: User? = null
 
+  /**
+   * Set once the listing is deleted and never reset, unlike [ListingDetailUiState.isDeleted] which
+   * [onDeletedHandled] clears. While the screen is still shown after a delete, it keeps the listing
+   * and isOwner, so without this its actions and Retry would reach a listing that is gone.
+   */
+  private var deleted = false
+
   init {
     loadListing()
   }
 
   /**
    * Loads the listing and, until it is known, the viewer, then starts observing the lender, for
-   * example again after a failure (Retry). Ignored while a load is already running. On failure the
-   * listing already shown is kept, so a reload while offline does not empty the screen.
+   * example again after a failure (Retry). Ignored while a load or an owner action is running, and
+   * once the listing is deleted. On failure the listing already shown is kept, so a reload while
+   * offline does not empty the screen.
    */
   fun loadListing() {
+    val state = _uiState.value
     // Two loads at once could finish in any order, and the older answer would overwrite the newer.
-    if (_uiState.value.isLoading) return
+    // A read started during a pause could likewise answer after it and put the old state back.
+    // After a delete, the read could only answer NOT_FOUND.
+    if (deleted || state.isLoading || state.isUpdating) return
     _uiState.update { it.copy(isLoading = true, error = null) }
     viewModelScope.launch {
       try {
@@ -107,6 +138,83 @@ class ListingDetailViewModel(
     }
   }
 
+  /**
+   * Pauses the listing when [paused] is true, hiding it from Browse and the owner's profile, or
+   * resumes it. Only for its owner, once the listing is loaded, and not while the listing is being
+   * read again or another owner action is being saved. On failure the listing keeps its state and
+   * [ListingDetailUiState.ownerActionError] says why.
+   */
+  fun setPaused(paused: Boolean) {
+    val listingId = ownerActionTarget() ?: return
+    runOwnerAction(
+        save = { listingRepository.setPaused(listingId, paused) },
+        // Shown from the answer rather than read again: Firestore saved exactly this change.
+        onSaved = { _uiState.update { it.copy(listing = it.listing?.withPaused(paused)) } },
+    )
+  }
+
+  /**
+   * Deletes the listing and its photos, for its owner, under the same conditions as [setPaused].
+   * The screen asks for confirmation first. On success [ListingDetailUiState.isDeleted] tells the
+   * screen to leave; on failure the listing stays shown and [ListingDetailUiState.ownerActionError]
+   * says why.
+   */
+  fun deleteListing() {
+    val listingId = ownerActionTarget() ?: return
+    runOwnerAction(
+        save = { listingRepository.deleteListing(listingId) },
+        onSaved = {
+          deleted = true
+          _uiState.update { it.copy(isDeleted = true) }
+        },
+    )
+  }
+
+  /**
+   * Called by the screen once it has left after a delete, so going back to it (it stays in the back
+   * stack until popped) does not leave a second time. Same pattern as the listing form's
+   * `savedListing`. The owner's actions stay refused (see [deleted]).
+   */
+  fun onDeletedHandled() {
+    _uiState.update { it.copy(isDeleted = false) }
+  }
+
+  /** The id of the listing an owner action may change now, or null when none may start. */
+  private fun ownerActionTarget(): String? {
+    val state = _uiState.value
+    // isOwner is false until the viewer is known. The security rules refuse anyone else anyway,
+    // but this keeps a stray call from reaching Firestore. While a reload runs, its answer could
+    // come after the write and show the listing as it was before it (see loadListing).
+    if (deleted || !state.isOwner || state.isUpdating || state.isLoading) return null
+    return state.listing?.listingId
+  }
+
+  /**
+   * Runs one of the owner's writes with [save], then calls [onSaved] to show it, or shows why it
+   * failed. Offline the write only answers once it reaches the server (Firestore keeps it and sends
+   * it on reconnection), so [ListingDetailUiState.isUpdating] stays true until then.
+   */
+  private fun runOwnerAction(
+      save: suspend () -> Result<Unit>,
+      onSaved: () -> Unit,
+  ) {
+    // Set before launching, so a second tap in the same frame is already refused.
+    _uiState.update { it.copy(isUpdating = true, ownerActionError = null) }
+    viewModelScope.launch {
+      try {
+        save()
+            .onSuccess { onSaved() }
+            .onFailure { exception ->
+              if (exception is CancellationException) throw exception
+              _uiState.update { it.copy(ownerActionError = exception.toAppError()) }
+            }
+      } finally {
+        // Also on cancellation, as in loadListing.
+        _uiState.update { it.copy(isUpdating = false) }
+      }
+    }
+  }
+
   private suspend fun showListing(listing: Listing) {
     // Read once and kept: an offline reload would otherwise lose a viewer it already knew and
     // disable the actions, and every getCurrentUser() also writes the viewer's profile document.
@@ -114,7 +222,11 @@ class ListingDetailViewModel(
     val viewer = knownViewer ?: currentViewer()
     knownViewer = viewer
     _uiState.update {
-      it.copy(listing = listing, canContactLender = contactAllowed(viewer, listing))
+      it.copy(
+          listing = listing,
+          canContactLender = contactAllowed(viewer, listing),
+          isOwner = ownedBy(viewer, listing),
+      )
     }
     listing.ownerUid?.let { observeLender(it) }
   }

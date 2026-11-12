@@ -70,6 +70,13 @@ sealed class Listing(
   ): Listing
 }
 
+/** This listing with its pause state set to [isPaused], everything else unchanged. */
+fun Listing.withPaused(isPaused: Boolean): Listing =
+    when (this) {
+      is ServiceListing -> copy(isPaused = isPaused)
+      is ItemListing -> copy(isPaused = isPaused)
+    }
+
 data class ServiceListing(
     override val category: ListingCategory,
     override val price: Double,

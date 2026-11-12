@@ -45,6 +45,30 @@ class ListingTest {
   }
 
   @Test
+  fun withPaused_changesOnlyThePauseState_forBothTypes() {
+    val service =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            listingId = "tutoring",
+        )
+    val item =
+        ItemListing(
+            category = ListingCategory.ITEM_TOOLS,
+            price = 8.0,
+            title = "Drill",
+            description = "With bits",
+            listingId = "drill",
+        )
+
+    assertEquals(service.copy(isPaused = true), service.withPaused(true))
+    assertEquals(item.copy(isPaused = true), item.withPaused(true))
+    assertEquals(service, service.withPaused(true).withPaused(false))
+  }
+
+  @Test
   fun serviceListingRejectsItemCategory() {
     assertThrows(IllegalArgumentException::class.java) {
       ServiceListing(
