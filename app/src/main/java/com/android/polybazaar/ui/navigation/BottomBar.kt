@@ -42,6 +42,7 @@ object BottomBarTags {
   const val BAR = "bottom_bar"
   const val BROWSE_TAB = "bottom_bar_browse_tab"
   const val CREATE_LISTING_TAB = "bottom_bar_create_listing_tab"
+  const val CONVERSATIONS_TAB = "bottom_bar_conversations_tab"
   const val PROFILE_TAB = "bottom_bar_profile_tab"
 }
 
@@ -65,6 +66,12 @@ private val tabs =
             R.string.nav_create_listing,
             R.drawable.ic_nav_create_listing,
             BottomBarTags.CREATE_LISTING_TAB,
+        ),
+        BottomBarTab(
+            Routes.INBOX,
+            R.string.nav_conversations,
+            R.drawable.ic_nav_conversations,
+            BottomBarTags.CONVERSATIONS_TAB,
         ),
         BottomBarTab(
             Routes.PROFILE,

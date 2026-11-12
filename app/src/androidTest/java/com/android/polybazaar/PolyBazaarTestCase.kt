@@ -1,10 +1,12 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar
 
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.testing.InMemoryBackend
@@ -51,6 +53,7 @@ abstract class PolyBazaarTestCase :
                   ApplicationProvider.getApplicationContext(),
                   FilePhotoStorage.EDIT_FORM,
               ),
+          chatRepository = FakeChatRepository(),
           navController = rememberNavController(),
       )
     }

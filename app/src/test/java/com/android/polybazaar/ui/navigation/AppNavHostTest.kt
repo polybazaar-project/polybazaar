@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
@@ -57,6 +58,9 @@ import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
+import com.android.polybazaar.chat.model.Conversation
+import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.ui.InboxScreenTags
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -110,6 +114,7 @@ class AppNavHostTest {
 
   // Listings published in these tests belong to the signed-in user, as with the real repository.
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
+  private val chatRepository = FakeChatRepository()
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -140,6 +145,7 @@ class AppNavHostTest {
             listingRepository = listingRepository,
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
+            chatRepository = chatRepository,
             navController = navController,
         )
       }
@@ -178,6 +184,7 @@ class AppNavHostTest {
             listingRepository = listingRepository,
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
+            chatRepository = chatRepository,
             navController = navController,
         )
       }
@@ -217,6 +224,13 @@ class AppNavHostTest {
         .onNodeWithTag(CreateListingScreenTags.CREATE_BUTTON)
         .performScrollTo()
         .performClick()
+  }
+
+  /** Opens the Conversations tab, which shows the empty inbox unless a test gave conversations. */
+  private fun openInbox() {
+    composeTestRule.onNodeWithTag(BottomBarTags.CONVERSATIONS_TAB).performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(Routes.INBOX, navController.currentBackStackEntry?.destination?.route)
   }
 
   private fun openBrowse() {
@@ -470,6 +484,7 @@ class AppNavHostTest {
           listingRepository = listingRepository,
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
+          chatRepository = chatRepository,
           navController = navController,
       )
     }
@@ -825,6 +840,7 @@ class AppNavHostTest {
           listingRepository = listingRepository,
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
+          chatRepository = chatRepository,
           navController = navController,
       )
     }
@@ -899,6 +915,7 @@ class AppNavHostTest {
           listingRepository = listingRepository,
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
+          chatRepository = chatRepository,
           navController = navController,
       )
     }
@@ -970,6 +987,9 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
 
     openCreateListing()
+    composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
+
+    openInbox()
     composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
 
     openProfile()
@@ -1053,6 +1073,10 @@ class AppNavHostTest {
         .onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB)
         .assertIsNotSelected()
         .assert(isTab)
+    composeTestRule
+        .onNodeWithTag(BottomBarTags.CONVERSATIONS_TAB)
+        .assertIsNotSelected()
+        .assert(isTab)
     composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).assertIsNotSelected().assert(isTab)
 
     openCreateListing()
@@ -1060,10 +1084,83 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsNotSelected()
     composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).assertIsSelected()
 
-    openProfile()
+    openInbox()
 
     composeTestRule.onNodeWithTag(BottomBarTags.CREATE_LISTING_TAB).assertIsNotSelected()
+    composeTestRule.onNodeWithTag(BottomBarTags.CONVERSATIONS_TAB).assertIsSelected()
+
+    openProfile()
+
+    composeTestRule.onNodeWithTag(BottomBarTags.CONVERSATIONS_TAB).assertIsNotSelected()
     composeTestRule.onNodeWithTag(BottomBarTags.PROFILE_TAB).assertIsSelected()
+  }
+
+  @Test
+  fun conversationsTab_showsTheSignedInUsersConversations() {
+    val drill =
+        Conversation(
+            listingId = "drill",
+            listingTitle = "Bosch drill",
+            renterUid = user.uid,
+            lenderUid = "lender",
+        )
+    chatRepository.myConversations.value = Result.success(listOf(drill))
+    setContent(FakeAuthRepository(currentUser = user))
+
+    openInbox()
+
+    // Not a button until #274 adds the conversation screen.
+    composeTestRule
+        .onNodeWithTag(InboxScreenTags.row(drill.id))
+        .assertIsDisplayed()
+        .assertHasNoClickAction()
+  }
+
+  @Test
+  fun backToTheConversationsTab_keepsTheInboxWithoutLoadingItAgain() {
+    val drill =
+        Conversation(
+            listingId = "drill",
+            listingTitle = "Bosch drill",
+            renterUid = user.uid,
+            lenderUid = "lender",
+        )
+    chatRepository.myConversations.value = Result.success(listOf(drill))
+    setContent(FakeAuthRepository(currentUser = user))
+    openInbox()
+
+    openBrowse()
+    openInbox()
+
+    composeTestRule.onNodeWithTag(InboxScreenTags.row(drill.id)).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(InboxScreenTags.LOADING_INDICATOR).assertDoesNotExist()
+    // A new load would read the drill listing again.
+    assertEquals(1, listingRepository.getListingCalls)
+  }
+
+  @Test
+  fun emptyInbox_browseListingsOpensTheBrowseTab() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openInbox()
+
+    composeTestRule.onNodeWithTag(InboxScreenTags.BROWSE_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BottomBarTags.BROWSE_TAB).assertIsSelected()
+    assertEquals(Routes.BROWSE, navController.currentBackStackEntry?.destination?.route)
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun signOutOnTheInbox_returnsToSignIn() {
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    openInbox()
+
+    viewModel.signOut()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(navController.previousBackStackEntry)
   }
 
   @Test
