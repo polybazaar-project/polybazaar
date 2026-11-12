@@ -15,6 +15,10 @@ import kotlinx.coroutines.CompletableDeferred
  * [deleteListing] removes it from both, and [setPaused] changes its pause state in both. Every call
  * except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these
  * calls waiting until the test completes it, to look at one in progress.
+ *
+ * [loadListingImage] answers from [images], or empty bytes for a path it does not have, fails with
+ * [imageFailure] when it is set, waits for [imageGate] when it is set, and records each path in
+ * [loadedImagePaths].
  */
 class FakeListingRepository(
     var allListings: List<Listing> = emptyList(),
@@ -40,6 +44,14 @@ class FakeListingRepository(
 
   /** The calls to [setPaused], as (listingId, paused), in order. */
   val pauseCalls = mutableListOf<Pair<String, Boolean>>()
+
+  /** The photos [loadListingImage] answers with, by Storage path. */
+  val images = mutableMapOf<String, ByteArray>()
+  var imageFailure: Exception? = null
+  var imageGate: CompletableDeferred<Unit>? = null
+
+  /** The paths passed to [loadListingImage], in order. */
+  val loadedImagePaths = mutableListOf<String>()
 
   override suspend fun createListing(listing: Listing): Listing {
     gate?.await()
@@ -111,7 +123,12 @@ class FakeListingRepository(
         myListings = myListings.map { if (it.listingId == listingId) it.withPaused(paused) else it }
       }
 
-  override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
+  override suspend fun loadListingImage(imagePath: String): ByteArray {
+    loadedImagePaths += imagePath
+    imageGate?.await()
+    imageFailure?.let { throw it }
+    return images[imagePath] ?: ByteArray(0)
+  }
 
   /** Waits for [gate] if set, then fails with [failure] or answers with [value]. */
   private suspend fun <T> answer(value: T): Result<T> {
