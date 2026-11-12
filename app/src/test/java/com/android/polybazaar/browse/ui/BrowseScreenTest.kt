@@ -185,7 +185,7 @@ class BrowseScreenTest {
   // Real text measurement, so a squeezed chip would wrap its label onto several lines.
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   @Test
-  fun categorySelector_withAllCategories_showsEveryChipOnOneLineAtTheSameHeight() {
+  fun categorySelector_withAllCategories_allChipsHaveTheSameHeight() {
     composeTestRule.setContent {
       Box(Modifier.width(NARROW_WIDTH)) {
         CategorySelector(
@@ -234,11 +234,20 @@ class BrowseScreenTest {
         }
     val viewModel = BrowseViewModel(FakeListingRepository(listings), currentUid)
     composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
+    composeTestRule.waitForIdle()
+    // Read from the ViewModel, not recomputed here, so this still taps the chip the screen shows
+    // last if the ViewModel orders categories differently.
+    val lastCategory = viewModel.uiState.value.categories.last()
+    val inLastCategory = listings.first { it.category.displayName == lastCategory }
+    val inAnotherCategory = listings.first { it.category.displayName != lastCategory }
 
-    categoryChip(allCategories.last()).performScrollTo().performClick()
+    val lastChip = categoryChip(lastCategory)
+    lastChip.assertIsNotDisplayed()
 
-    composeTestRule.onNodeWithText("service_tutoring listing").assertIsDisplayed()
-    composeTestRule.onNodeWithText("item_tools listing").assertDoesNotExist()
+    lastChip.performScrollTo().performClick()
+
+    composeTestRule.onNodeWithText(inLastCategory.title).assertIsDisplayed()
+    composeTestRule.onNodeWithText(inAnotherCategory.title).assertDoesNotExist()
   }
 
   @Test
