@@ -321,11 +321,11 @@ class EndToEndFlowTest {
     search.performTextClearance()
     assertBrowseShows(DRILL, TEXTBOOK)
 
-    chip("Books").performClick()
+    chip(ListingCategory.ITEM_BOOKS.displayName).performClick()
     assertBrowseShows(TEXTBOOK)
-    chip("Tools").performClick()
+    chip(ListingCategory.ITEM_TOOLS.displayName).performClick()
     assertBrowseShows(DRILL)
-    chip("Tools").performClick()
+    chip(ListingCategory.ITEM_TOOLS.displayName).performClick()
     assertBrowseShows(DRILL, TEXTBOOK)
   }
 
