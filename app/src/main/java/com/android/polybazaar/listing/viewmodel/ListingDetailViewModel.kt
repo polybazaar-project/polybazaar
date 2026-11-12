@@ -11,6 +11,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules
+import com.android.polybazaar.listing.model.withPaused
 import com.android.polybazaar.profile.model.ProfileRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -41,9 +42,13 @@ import kotlinx.coroutines.launch
  * @property isOwner whether the viewer owns the listing, so the screen shows the owner's actions
  *   (edit, pause or resume, delete) instead of the renter's. False until both are known.
  * @property isLoading true while the listing is being loaded.
+ * @property isUpdating true while the owner's pause, resume or delete is being saved. The owner's
+ *   actions are disabled meanwhile.
  * @property error why the listing could not be loaded, or null.
  * @property lenderError why the lender's profile could not be loaded, or null. The listing is still
  *   shown without it.
+ * @property ownerActionError why the owner's last pause, resume or delete failed, or null. Cleared
+ *   when the owner tries again.
  */
 data class ListingDetailUiState(
     val listing: Listing? = null,
@@ -53,8 +58,10 @@ data class ListingDetailUiState(
     val canContactLender: Boolean = false,
     val isOwner: Boolean = false,
     val isLoading: Boolean = false,
+    val isUpdating: Boolean = false,
     val error: AppError? = null,
     val lenderError: AppError? = null,
+    val ownerActionError: AppError? = null,
 )
 
 /**
@@ -113,6 +120,56 @@ class ListingDetailViewModel(
       } finally {
         // Also on cancellation, otherwise the guard above would block every later load.
         _uiState.update { it.copy(isLoading = false) }
+      }
+    }
+  }
+
+  /**
+   * Pauses the listing when [paused] is true, hiding it from Browse and the owner's profile, or
+   * resumes it. Only for its owner, once the listing is loaded, and not while another owner action
+   * is being saved. On failure the listing keeps its state and
+   * [ListingDetailUiState.ownerActionError] says why.
+   */
+  fun setPaused(paused: Boolean) {
+    val listingId = ownerActionTarget() ?: return
+    runOwnerAction(
+        save = { listingRepository.setPaused(listingId, paused) },
+        // Shown from the answer rather than read again: Firestore saved exactly this change.
+        onSaved = { it.copy(listing = it.listing?.withPaused(paused)) },
+    )
+  }
+
+  /** The id of the listing an owner action may change now, or null when none may start. */
+  private fun ownerActionTarget(): String? {
+    val state = _uiState.value
+    // isOwner is false until the viewer is known. The security rules refuse anyone else anyway,
+    // but this keeps a stray call from reaching Firestore.
+    if (!state.isOwner || state.isUpdating) return null
+    return state.listing?.listingId
+  }
+
+  /**
+   * Runs one of the owner's writes with [save], then applies [onSaved] to the state, or shows why
+   * it failed. Offline the write only answers once it reaches the server (Firestore keeps it and
+   * sends it on reconnection), so [ListingDetailUiState.isUpdating] stays true until then.
+   */
+  private fun runOwnerAction(
+      save: suspend () -> Result<Unit>,
+      onSaved: (ListingDetailUiState) -> ListingDetailUiState,
+  ) {
+    // Set before launching, so a second tap in the same frame is already refused.
+    _uiState.update { it.copy(isUpdating = true, ownerActionError = null) }
+    viewModelScope.launch {
+      try {
+        save()
+            .onSuccess { _uiState.update(onSaved) }
+            .onFailure { exception ->
+              if (exception is CancellationException) throw exception
+              _uiState.update { it.copy(ownerActionError = exception.toAppError()) }
+            }
+      } finally {
+        // Also on cancellation, as in loadListing.
+        _uiState.update { it.copy(isUpdating = false) }
       }
     }
   }

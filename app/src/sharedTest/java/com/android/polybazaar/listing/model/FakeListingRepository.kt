@@ -105,17 +105,13 @@ class FakeListingRepository(
   override suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit> =
       answer(Unit).onSuccess {
         pauseCalls += listingId to paused
-        allListings = allListings.map { if (it.listingId == listingId) it.paused(paused) else it }
-        myListings = myListings.map { if (it.listingId == listingId) it.paused(paused) else it }
+        allListings = allListings.map {
+          if (it.listingId == listingId) it.withPaused(paused) else it
+        }
+        myListings = myListings.map { if (it.listingId == listingId) it.withPaused(paused) else it }
       }
 
   override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
-
-  private fun Listing.paused(paused: Boolean): Listing =
-      when (this) {
-        is ServiceListing -> copy(isPaused = paused)
-        is ItemListing -> copy(isPaused = paused)
-      }
 
   /** Waits for [gate] if set, then fails with [failure] or answers with [value]. */
   private suspend fun <T> answer(value: T): Result<T> {

@@ -144,6 +144,107 @@ class ListingDetailViewModelTest {
     assertFalse(loadedViewModel().uiState.value.isOwner)
   }
 
+  /** The listing's detail as its owner sees it, loaded. */
+  private fun ownerViewModel(): ListingDetailViewModel {
+    auth.currentUser = lender.copy(isEmailVerified = true)
+    return loadedViewModel()
+  }
+
+  @Test
+  fun owner_pausesTheListing() {
+    val viewModel = ownerViewModel()
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertEquals(listOf(listing.listingId!! to true), listings.pauseCalls)
+    assertEquals(true, state.listing?.isPaused)
+    assertFalse(state.isUpdating)
+    assertNull(state.ownerActionError)
+  }
+
+  @Test
+  fun owner_resumesAPausedListing() {
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    val viewModel = ownerViewModel()
+
+    viewModel.setPaused(false)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(listing.listingId!! to false), listings.pauseCalls)
+    assertEquals(false, viewModel.uiState.value.listing?.isPaused)
+  }
+
+  @Test
+  fun pause_isUpdatingWhileSaved_andASecondTapIsIgnored() {
+    val viewModel = ownerViewModel()
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.setPaused(true)
+    viewModel.setPaused(false)
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.isUpdating)
+
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertFalse(viewModel.uiState.value.isUpdating)
+    assertEquals(listOf(listing.listingId!! to true), listings.pauseCalls)
+  }
+
+  @Test
+  fun failedPause_keepsTheListingActive_andSaysWhy() {
+    val viewModel = ownerViewModel()
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertEquals(false, state.listing?.isPaused)
+    assertEquals(AppError.NETWORK, state.ownerActionError)
+    assertFalse(state.isUpdating)
+  }
+
+  @Test
+  fun pause_afterAFailure_clearsTheError() {
+    val viewModel = ownerViewModel()
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    listings.failure = null
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.ownerActionError)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
+  }
+
+  @Test
+  fun someoneElse_cannotPauseTheListing() {
+    val viewModel = loadedViewModel()
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertFalse(viewModel.uiState.value.isUpdating)
+  }
+
+  @Test
+  fun cancelledPause_isNotShownAsAnError_andAllowsTheNextAction() {
+    val viewModel = ownerViewModel()
+    listings.failure = CancellationException("Screen closed")
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.ownerActionError)
+    assertFalse(viewModel.uiState.value.isUpdating)
+  }
+
   @Test
   fun unknownViewer_cannotContactTheLender_butTheListingIsShownWithoutError() {
     auth.currentUser = null
