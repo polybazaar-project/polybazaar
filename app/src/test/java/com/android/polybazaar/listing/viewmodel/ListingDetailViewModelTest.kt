@@ -364,6 +364,14 @@ class ListingDetailViewModelTest {
 
     assertNull(viewModel.uiState.value.ownerActionError)
     assertFalse(viewModel.uiState.value.isUpdating)
+
+    // isUpdating was cleared in the finally, so the next tap goes through.
+    listings.failure = null
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(listing.listingId!! to true), listings.pauseCalls)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
   }
 
   @Test
