@@ -5,6 +5,7 @@ package com.android.polybazaar.browse.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,23 +63,27 @@ object BrowseScreenTags {
 /** Space kept above and below the search field, part of the gaps around it when not pinned. */
 private val SEARCH_PINNED_MARGIN = 8.dp
 
+/** @param onOpenListing called with a listing's id when the user taps its card. */
 @Composable
-fun BrowseScreen(viewModel: BrowseViewModel) {
+fun BrowseScreen(viewModel: BrowseViewModel, onOpenListing: (String) -> Unit = {}) {
   val uiState by viewModel.uiState.collectAsState()
   BrowseContent(
       uiState = uiState,
       onQueryChange = viewModel::updateQuery,
       onCategorySelected = viewModel::selectCategory,
       onRetry = viewModel::loadListings,
+      onOpenListing = onOpenListing,
   )
 }
 
+/** @param onOpenListing called with a listing's id when the user taps its card. */
 @Composable
 fun BrowseContent(
     uiState: BrowseUiState,
     onQueryChange: (String) -> Unit,
     onCategorySelected: (String) -> Unit,
     onRetry: () -> Unit,
+    onOpenListing: (String) -> Unit = {},
 ) {
   // Only the search field stays pinned: the full heading would leave the listings no room on a
   // short window, such as a phone in landscape.
@@ -140,7 +147,7 @@ fun BrowseContent(
           modifier =
               Modifier.padding(start = 24.dp, end = 24.dp, top = if (index == 0) 0.dp else 14.dp)
       ) {
-        ListingCard(listing)
+        ListingCard(listing = listing, onClick = { onOpenListing(listing.id) })
       }
     }
   }
@@ -242,7 +249,10 @@ internal fun CategorySelector(
 ) {
   Row(
       modifier =
+          // Scrolls so every chip stays reachable; the padding sits inside the scroll so chips
+          // align with the search field at rest but scroll to the screen edge.
           Modifier.fillMaxWidth()
+              .horizontalScroll(rememberScrollState())
               .padding(
                   start = 24.dp,
                   end = 24.dp,
@@ -259,6 +269,8 @@ internal fun CategorySelector(
           color = if (isSelected) AuthColors.Accent else AuthColors.TextSecondary,
           fontSize = 16.sp,
           fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+          maxLines = 1,
+          softWrap = false,
           modifier =
               Modifier.clip(RoundedCornerShape(24.dp))
                   .background(
@@ -276,13 +288,27 @@ internal fun CategorySelector(
   }
 }
 
+/**
+ * A listing's card in Browse.
+ *
+ * @param onClick called when the user taps the card, or null for a card that cannot be tapped.
+ */
 @Composable
-internal fun ListingCard(listing: BrowseListing) {
+internal fun ListingCard(listing: BrowseListing, onClick: (() -> Unit)? = null) {
   val shape = RoundedCornerShape(28.dp)
+  val openLabel = stringResource(R.string.open_listing)
+  // Clipped first, so the ripple follows the card's rounded corners.
+  val clickModifier =
+      if (onClick == null) Modifier
+      else
+          Modifier.clip(shape)
+              // Role.Button and the label let TalkBack announce the card as "Open listing".
+              .clickable(role = Role.Button, onClickLabel = openLabel, onClick = onClick)
   Row(
       modifier =
           Modifier.fillMaxWidth()
               .height(118.dp)
+              .then(clickModifier)
               .background(AuthColors.CardBackground, shape)
               .border(1.dp, AuthColors.Outline, shape)
               .padding(14.dp)

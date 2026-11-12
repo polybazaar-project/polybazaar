@@ -86,6 +86,17 @@ class InboxViewModel(
   val uiState: StateFlow<InboxUiState> = _uiState.asStateFlow()
 
   private var loadJob: Job? = null
+  private var loadedUid: String? = null
+
+  /**
+   * Loads the conversations of [myUid] when the screen appears, unless a load for [myUid] is still
+   * running without error. Coming back to the tab then keeps the rows and photos instead of loading
+   * them again. After an error, or for another user, it loads again like [loadInbox].
+   */
+  fun openInbox(myUid: String) {
+    val running = loadJob?.isActive == true && myUid == loadedUid && _uiState.value.error == null
+    if (!running) loadInbox(myUid)
+  }
 
   /**
    * Loads the conversations of [myUid], the signed-in user, and keeps them updated. Calling it
@@ -96,6 +107,7 @@ class InboxViewModel(
    */
   fun loadInbox(myUid: String) {
     loadJob?.cancel()
+    loadedUid = myUid
     _uiState.value = InboxUiState()
     loadJob = viewModelScope.launch { collectConversations(myUid) }
   }

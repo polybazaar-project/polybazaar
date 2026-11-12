@@ -2,7 +2,6 @@
 package com.android.polybazaar.profile.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,11 +23,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -269,23 +265,15 @@ private fun ListingsTitle() {
   )
 }
 
-/** Browse's listing card, made tappable to open the listing. */
+/** Browse's listing card, which opens the listing when tapped. */
 @Composable
 private fun LenderListingCard(listing: BrowseListing, onClick: () -> Unit) {
   Box(
       modifier =
           Modifier.padding(start = PageMargin, end = PageMargin, bottom = ListingSpacing)
-              // 28dp: ListingCard's corner radius, so the ripple follows the card's shape.
-              .clip(RoundedCornerShape(28.dp))
-              // Role.Button and the label let TalkBack announce the card as "Open listing".
-              .clickable(
-                  role = Role.Button,
-                  onClickLabel = stringResource(R.string.lender_profile_open_listing),
-                  onClick = onClick,
-              )
               .testTag(LenderProfileScreenTags.listing(listing.id))
   ) {
-    ListingCard(listing)
+    ListingCard(listing = listing, onClick = onClick)
   }
 }
 

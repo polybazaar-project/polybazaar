@@ -7,7 +7,11 @@
     <!-- Bottom navigation -->
     <string name="nav_browse">Browse</string>
     <string name="nav_create_listing">Create listing</string>
+    <string name="nav_conversations">Conversations</string>
     <string name="nav_profile">Profile</string>
+
+    <!-- Listing cards, in Browse, the Toolbox and the lender profile -->
+    <string name="open_listing">Open listing</string>
 
     <!-- Browse screen -->
     <string name="browse_header_title">Polybazaar</string>
@@ -26,7 +30,6 @@
     <string name="lender_profile_listings_title">Their listings</string>
     <string name="lender_profile_no_listings">This lender has no listings yet.</string>
     <string name="lender_profile_not_found">This profile no longer exists.</string>
-    <string name="lender_profile_open_listing">Open listing</string>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
@@ -106,6 +109,36 @@
 
     <!-- Verify email screen -->
     <string name="verify_email_not_verified_yet">Your email isn’t verified yet. Open the link we sent you, then try again.</string>
+
+    <!-- Inbox screen -->
+    <string name="inbox_eyebrow">POLYBAZAAR</string>
+    <string name="inbox_title">Conversations</string>
+    <string name="inbox_messages_heading">Messages</string>
+    <string name="inbox_username">@%1$s</string>
+    <string name="inbox_listing_paused">Listing paused</string>
+    <string name="inbox_listing_deleted">Listing deleted</string>
+    <string name="inbox_open_conversation">Open conversation</string>
+    <string name="inbox_footer">Good finds. Great neighbours.</string>
+    <string name="inbox_time_now">now</string>
+    <string name="inbox_time_minutes">%1$dm</string>
+    <string name="inbox_time_hours">%1$dh</string>
+    <string name="inbox_time_days">%1$dd</string>
+    <plurals name="inbox_time_minutes_spoken">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="inbox_time_hours_spoken">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="inbox_time_days_spoken">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <string name="inbox_retry">Retry</string>
+    <string name="inbox_empty_title">No conversations yet</string>
+    <string name="inbox_empty_message">Found something you like?\nOpen a listing and message its owner.\nYour conversations will appear here.</string>
+    <string name="inbox_browse_listings">Browse listings</string>
 
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>

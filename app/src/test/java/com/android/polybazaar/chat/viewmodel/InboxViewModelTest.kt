@@ -624,4 +624,62 @@ class InboxViewModelTest {
     assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
     assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
   }
+
+  @Test
+  fun openInbox_firstTime_loadsTheInbox() {
+    given(drillWithAlice)
+
+    viewModel.openInbox(me.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(loaded(row(drillWithAlice, alice)), viewModel.uiState.value)
+  }
+
+  @Test
+  fun openInboxAgain_whileItLoads_keepsTheRowsAndPhotos() {
+    // Coming back to the Conversations tab: the screen opens the inbox again.
+    givePhotos()
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.openInbox(me.uid)
+
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertFalse(viewModel.uiState.value.isLoading)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(1, chat.myConversations.subscriptionCount.value)
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+  }
+
+  @Test
+  fun openInboxAgain_afterAFailure_loadsAgainEvenWhileAPhotoDownloads() {
+    // The waiting download keeps the failed load running, so only the error tells it apart.
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+    loadInbox()
+    fail(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    profiles.photoGate = null
+    given(drillWithAlice)
+    viewModel.openInbox(me.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun openInbox_asAnotherUser_loadsTheirInbox() {
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.openInbox(alice.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, chat.myConversations.subscriptionCount.value)
+    assertEquals(loaded(row(drillWithAlice, me)), viewModel.uiState.value)
+  }
 }
