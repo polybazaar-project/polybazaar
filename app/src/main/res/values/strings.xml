@@ -62,13 +62,12 @@
     <string name="conversation_retry">Retry</string>
     <string name="conversation_empty_title">Say hello to %1$s</string>
     <string name="conversation_empty_title_unknown">Say hello</string>
-    <string name="conversation_empty_body">No messages yet. Ask about the %1$s, its availability or a good time to meet.</string>
+    <string name="conversation_empty_body">No messages yet. Ask about “%1$s”, its availability or a good time to meet.</string>
     <string name="conversation_empty_body_no_title">No messages yet.</string>
     <string name="conversation_my_message_footer">You · %1$s</string>
     <string name="conversation_their_message_footer">%1$s · %2$s</string>
     <string name="conversation_placeholder">Write a message…</string>
     <string name="conversation_placeholder_closed">Conversation closed</string>
-    <string name="conversation_placeholder_unavailable">Messages unavailable</string>
     <string name="conversation_send">Send</string>
 
     <!-- Edit profile screen -->

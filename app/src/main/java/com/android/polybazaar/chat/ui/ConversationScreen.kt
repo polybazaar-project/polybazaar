@@ -143,9 +143,9 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  * One conversation about a listing: a header with the listing and the other participant, a notice
  * while the listing is paused or deleted, the messages, and the composer at the bottom.
  *
- * The composer is open whenever the conversation is shown, empty or not, also while a retry reloads
- * the part that failed, and closes for good when the listing is deleted. Send is enabled when it is
- * open and [ConversationUiState.canSend] is true.
+ * The composer stays open in every body, so the user can write while the conversation loads, and
+ * closes for good when the listing is deleted. Send is enabled when it is open and
+ * [ConversationUiState.canSend] is true.
  *
  * @param onDraftChange called with the new text when the user edits the draft.
  * @param onSend called when the user taps Send.
@@ -166,14 +166,11 @@ fun ConversationContent(
 ) {
   val body = conversationBody(uiState)
   val deleted = uiState.listingStatus == ConversationListingStatus.DELETED
-  val composerOpen =
-      (body == ConversationBody.EMPTY || body == ConversationBody.MESSAGES) && !deleted
+  // Open while loading and after a load error too, so the user can write while waiting;
+  // canSend decides when Send works.
+  val composerOpen = !deleted
   val placeholder =
-      when {
-        deleted -> R.string.conversation_placeholder_closed
-        body == ConversationBody.ERROR -> R.string.conversation_placeholder_unavailable
-        else -> R.string.conversation_placeholder
-      }
+      if (deleted) R.string.conversation_placeholder_closed else R.string.conversation_placeholder
   Column(
       modifier =
           Modifier.fillMaxSize()

@@ -176,11 +176,11 @@ class ConversationScreenTest {
   }
 
   @Test
-  fun loading_showsTheIndicator_andKeepsTheComposerClosed() {
+  fun loading_showsTheIndicator_andLetsTheUserTypeButNotSend() {
     setContent(ConversationUiState(myUid = "renter"))
 
     node(ConversationScreenTags.LOADING_INDICATOR).assertIsDisplayed()
-    node(ConversationScreenTags.MESSAGE_FIELD).assertIsNotEnabled()
+    node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
     node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
     node(ConversationScreenTags.EMPTY_STATE).assertDoesNotExist()
   }
@@ -199,8 +199,8 @@ class ConversationScreenTest {
     node(ConversationScreenTags.LOADING_INDICATOR).assertDoesNotExist()
     node(ConversationScreenTags.RETRY_BUTTON).performClick()
     assertEquals(1, retries)
-    node(ConversationScreenTags.MESSAGE_FIELD).assertIsNotEnabled()
-    text(string(R.string.conversation_placeholder_unavailable)).assertIsDisplayed()
+    node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
   }
 
   @Test
@@ -225,7 +225,8 @@ class ConversationScreenTest {
     setContent(loaded.copy(messages = emptyList(), conversation = null))
 
     text(string(R.string.conversation_empty_title, "james")).assertIsDisplayed()
-    text(string(R.string.conversation_empty_body, "Bosch drill set")).assertIsDisplayed()
+    text("No messages yet. Ask about “Bosch drill set”, its availability or a good time to meet.")
+        .assertIsDisplayed()
     node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
   }
 
@@ -519,7 +520,8 @@ class ConversationScreenTest {
     // invites a message.
     node(ConversationScreenTags.LOADING_INDICATOR).assertIsDisplayed()
     node(ConversationScreenTags.EMPTY_STATE).assertDoesNotExist()
-    node(ConversationScreenTags.MESSAGE_FIELD).assertIsNotEnabled()
+    node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
     node(ConversationScreenTags.ERROR_MESSAGE).assertDoesNotExist()
 
     reload.complete(Unit)
