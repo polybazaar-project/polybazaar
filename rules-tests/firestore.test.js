@@ -391,6 +391,39 @@ describe("listings", () => {
       await assertSucceeds(setDoc(doc(db, "bookings/today"), booking({ startDate: today, endDate: today })));
     });
 
+    test("a booking whose first and last days are offered is allowed", async () => {
+      await seed("listings/l1", offering(days(21000, 21002)));
+      const db = verified(BOB);
+      await assertSucceeds(setDoc(doc(db, "bookings/b1"), booking({ startDate: 21000, endDate: 21002 })));
+      await assertSucceeds(setDoc(doc(db, "bookings/one-day"), booking({ startDate: 21001, endDate: 21001 })));
+    });
+
+    test("a booking whose first day is not offered is refused", async () => {
+      await seed("listings/l1", offering(days(21001, 21002)));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: 21000, endDate: 21002 })));
+    });
+
+    test("a booking whose last day is not offered is refused", async () => {
+      await seed("listings/l1", offering(days(21000, 21001)));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: 21000, endDate: 21002 })));
+    });
+
+    test("a listing without available days cannot be booked", async () => {
+      await seed("listings/l1", itemListing());
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
+    });
+
+    test("a listing with an empty list of available days cannot be booked", async () => {
+      await seed("listings/l1", offering([]));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
+    });
+
+    test("only the first and last days are checked, so a gap in between is allowed", async () => {
+      // Known limit: rules cannot loop over the range. The renter's screen only offers available days.
+      await seed("listings/l1", offering([21000, 21002]));
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: 21000, endDate: 21002 })));
+    });
+
     test("verified lenders and renters can read their own bookings", async () => {
       await seed("bookings/b1", booking());
       const bookingsForLender = (db, lender) =>
