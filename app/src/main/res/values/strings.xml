@@ -56,6 +56,14 @@
     <string name="listing_detail_edit">Edit listing</string>
     <string name="listing_detail_owner_reassurance">Students can find and book this listing.</string>
     <string name="listing_detail_owner_paused_reassurance">Only you can see this listing.</string>
+    <string name="listing_detail_owner_menu">Listing options</string>
+    <string name="listing_detail_pause">Pause listing</string>
+    <string name="listing_detail_resume">Resume listing</string>
+    <string name="listing_detail_delete">Delete listing</string>
+    <string name="listing_detail_delete_title">Delete this listing?</string>
+    <string name="listing_detail_delete_text">It will be removed for everyone, with its photos. This can\'t be undone.</string>
+    <string name="listing_detail_delete_confirm">Delete</string>
+    <string name="listing_detail_delete_cancel">Cancel</string>
 
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>

@@ -82,9 +82,17 @@ class ListingDetailScreenTest {
       uiState: ListingDetailUiState,
       actions: ListingDetailActions = ListingDetailActions(),
       onRetry: () -> Unit = {},
+      onSetPaused: (Boolean) -> Unit = {},
+      onDelete: () -> Unit = {},
   ) {
     composeTestRule.setContent {
-      ListingDetailContent(uiState = uiState, actions = actions, onRetry = onRetry)
+      ListingDetailContent(
+          uiState = uiState,
+          actions = actions,
+          onRetry = onRetry,
+          onSetPaused = onSetPaused,
+          onDelete = onDelete,
+      )
     }
   }
 
@@ -394,18 +402,98 @@ class ListingDetailScreenTest {
   }
 
   @Test
-  fun renter_seesNoEdit() {
+  fun renter_seesNoOwnerMenuOrEdit() {
     setContent(ListingDetailUiState(listing = drill, lender = lender, canContactLender = true))
 
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).assertDoesNotExist()
     node(ListingDetailScreenTags.EDIT_BUTTON).assertDoesNotExist()
     node(ListingDetailScreenTags.BOOKING_NOTE)
         .assertTextEquals(context.getString(R.string.listing_detail_reassurance))
   }
 
   @Test
-  fun ownerAction_beingSaved_disablesEdit() {
+  fun ownerMenu_pausesAnActiveListing() {
+    val pauses = mutableListOf<Boolean>()
+    setContent(ownerState(), onSetPaused = { pauses += it })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.RESUME_ITEM).assertDoesNotExist()
+    node(ListingDetailScreenTags.PAUSE_ITEM).performClick()
+
+    assertEquals(listOf(true), pauses)
+    // The menu closes once a choice is made.
+    node(ListingDetailScreenTags.PAUSE_ITEM).assertDoesNotExist()
+  }
+
+  @Test
+  fun ownerMenu_resumesAPausedListing() {
+    val pauses = mutableListOf<Boolean>()
+    setContent(ownerState(drill.copy(isPaused = true)), onSetPaused = { pauses += it })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.PAUSE_ITEM).assertDoesNotExist()
+    node(ListingDetailScreenTags.RESUME_ITEM).performClick()
+
+    assertEquals(listOf(false), pauses)
+  }
+
+  @Test
+  fun delete_asksFirst_andCancelKeepsTheListing() {
+    var deletes = 0
+    setContent(ownerState(), onDelete = { deletes++ })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    node(ListingDetailScreenTags.DELETE_DIALOG).assertIsDisplayed()
+    node(ListingDetailScreenTags.DELETE_CANCEL).performClick()
+
+    node(ListingDetailScreenTags.DELETE_DIALOG).assertDoesNotExist()
+    assertEquals(0, deletes)
+  }
+
+  @Test
+  fun delete_confirmed_deletesTheListing() {
+    var deletes = 0
+    setContent(ownerState(), onDelete = { deletes++ })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    node(ListingDetailScreenTags.DELETE_CONFIRM).performClick()
+
+    node(ListingDetailScreenTags.DELETE_DIALOG).assertDoesNotExist()
+    assertEquals(1, deletes)
+  }
+
+  @Test
+  fun ownerAction_beingSaved_disablesEditAndTheMenu() {
     setContent(ownerState().copy(isUpdating = true))
 
     node(ListingDetailScreenTags.EDIT_BUTTON).assertIsNotEnabled()
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun screen_afterTheOwnerDeletes_leavesOnce() {
+    val listings = FakeListingRepository(allListings = listOf(drill))
+    val profiles = mock<ProfileRepository> { on { observeProfile(any()) } doReturn flowOf(lender) }
+    val auth = mock<AuthRepository> { onBlocking { getCurrentUser() } doReturn lender }
+    val viewModel = ListingDetailViewModel("drill", listings, profiles, auth)
+    var leaves = 0
+
+    composeTestRule.setContent {
+      ListingDetailScreen(
+          viewModel = viewModel,
+          actions = ListingDetailActions(onDeleted = { leaves++ }),
+      )
+    }
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    node(ListingDetailScreenTags.DELETE_CONFIRM).performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(listOf("drill"), listings.deletedListingIds)
+    assertEquals(1, leaves)
+    // Handled, so coming back to the screen would not leave again.
+    assertEquals(false, viewModel.uiState.value.isDeleted)
   }
 }
