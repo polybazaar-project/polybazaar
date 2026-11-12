@@ -17,6 +17,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
@@ -30,6 +31,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -55,11 +57,15 @@ import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
+import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
@@ -109,6 +115,8 @@ class AppNavHostTest {
           ApplicationProvider.getApplicationContext(),
           FilePhotoStorage.CREATE_FORM,
       )
+  private val editPhotoStorage =
+      FilePhotoStorage(ApplicationProvider.getApplicationContext(), FilePhotoStorage.EDIT_FORM)
   private lateinit var navController: NavHostController
 
   /** Shows the app, under [lifecycleOwner] when given so a test can pause and resume it. */
@@ -131,6 +139,7 @@ class AppNavHostTest {
             profileRepository = profileRepository,
             listingRepository = listingRepository,
             photoStorage = photoStorage,
+            editPhotoStorage = editPhotoStorage,
             navController = navController,
         )
       }
@@ -168,6 +177,7 @@ class AppNavHostTest {
             profileRepository = profileRepository,
             listingRepository = listingRepository,
             photoStorage = photoStorage,
+            editPhotoStorage = editPhotoStorage,
             navController = navController,
         )
       }
@@ -422,7 +432,7 @@ class AppNavHostTest {
     val repository =
         FakeAuthRepository(
             currentUser = null,
-            signInResult = Result.failure(IllegalArgumentException("Wrong password")),
+            signInResult = Result.failure(AppException(AppError.INVALID_CREDENTIALS)),
         )
     setContent(repository)
 
@@ -430,7 +440,9 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("wrong")
     composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
 
-    composeTestRule.onNodeWithTag(SignInScreenTags.ERROR_MESSAGE).assertTextEquals("Wrong password")
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
   }
 
@@ -457,6 +469,7 @@ class AppNavHostTest {
           profileRepository = profileRepository,
           listingRepository = listingRepository,
           photoStorage = photoStorage,
+          editPhotoStorage = editPhotoStorage,
           navController = navController,
       )
     }
@@ -468,6 +481,65 @@ class AppNavHostTest {
 
     assertEquals(Routes.BROWSE, navController.currentBackStackEntry?.destination?.route)
     assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun editListingRoute_loadsTheListing_andSavingReturnsToTheScreenBefore() {
+    listingRepository.myListings =
+        listOf(
+            ItemListing(
+                listingId = "drill",
+                ownerUid = user.uid,
+                category = ListingCategory.ITEM_TOOLS,
+                price = 12.0,
+                title = "Bosch drill",
+                description = "Cordless",
+            )
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule.runOnUiThread { navController.navigate(Routes.editListing("drill")) }
+    composeTestRule.onNodeWithTag(EditListingScreenTags.SCREEN).assertIsDisplayed()
+    assertBottomBarHidden()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .assertTextContains("Bosch drill")
+
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextClearance()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .performTextInput("Bosch drill set")
+    composeTestRule
+        .onNodeWithTag(EditListingScreenTags.SAVE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals("Bosch drill set", listingRepository.updatedListings.single().title)
+  }
+
+  @Test
+  fun editListingRoute_backReturnsWithoutSaving() {
+    listingRepository.myListings =
+        listOf(
+            ServiceListing(
+                listingId = "tutoring",
+                ownerUid = user.uid,
+                category = ListingCategory.SERVICE_TUTORING,
+                price = 25.0,
+                title = "Math tutoring",
+                description = "One hour",
+            )
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule.runOnUiThread { navController.navigate(Routes.editListing("tutoring")) }
+    composeTestRule.onNodeWithTag(EditListingScreenTags.BACK_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertTrue(listingRepository.updatedListings.isEmpty())
   }
 
   @Test
@@ -615,14 +687,15 @@ class AppNavHostTest {
   @Test
   fun failedSignOut_showsErrorAndStaysOnSettings() {
     setContent(
-        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+        FakeAuthRepository(currentUser = user, signOutError = UnknownHostException("No network"))
     )
     openSettings()
 
     composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
     composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
 
-    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertIsDisplayed()
+    composeTestRule.onNodeWithText("No network").assertDoesNotExist()
     composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
   }
 
@@ -632,48 +705,69 @@ class AppNavHostTest {
         setContent(
             FakeAuthRepository(
                 currentUser = user,
-                signOutError = IllegalStateException("No network"),
+                signOutError = UnknownHostException("No network"),
             )
         )
     openSettings()
     composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
     composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
-    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertIsDisplayed()
     composeTestRule.waitForIdle()
 
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
   fun failedSignOut_errorDoesNotReturnOnNextVisit() {
     setContent(
-        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+        FakeAuthRepository(currentUser = user, signOutError = UnknownHostException("No network"))
     )
     openSettings()
     confirmSignOut()
-    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
-    waitForSnackbarToDisappear("No network")
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertIsDisplayed()
+    waitForSnackbarToDisappear(NETWORK_MESSAGE)
 
     composeTestRule.onNodeWithTag(SettingsScreenTags.BACK_BUTTON).performClick()
     composeTestRule.onNodeWithTag(ProfileScreenTags.SETTINGS_BUTTON).performClick()
 
     composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithText("No network").assertDoesNotExist()
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun failedSignOut_snackbarIsShownOnlyOnce() {
+    setContent(
+        FakeAuthRepository(currentUser = user, signOutError = UnknownHostException("No network"))
+    )
+    openSettings()
+    confirmSignOut()
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertIsDisplayed()
+
+    // The virtual clock, not waitUntil, so the test does not depend on how fast the machine is.
+    // A short snackbar lasts 4 s; a second copy would appear once the first is dismissed.
+    composeTestRule.mainClock.advanceTimeBy(5_000)
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertDoesNotExist()
+    composeTestRule.mainClock.advanceTimeBy(5_000)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertDoesNotExist()
   }
 
   @Test
   fun failedSignOut_repeatedFailureShowsErrorAgain() {
     setContent(
-        FakeAuthRepository(currentUser = user, signOutError = IllegalStateException("No network"))
+        FakeAuthRepository(currentUser = user, signOutError = UnknownHostException("No network"))
     )
     openSettings()
     confirmSignOut()
-    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
-    waitForSnackbarToDisappear("No network")
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertIsDisplayed()
+    waitForSnackbarToDisappear(NETWORK_MESSAGE)
 
     confirmSignOut()
 
-    composeTestRule.onNodeWithText("No network").assertIsDisplayed()
+    composeTestRule.onNodeWithText(NETWORK_MESSAGE).assertIsDisplayed()
   }
 
   private fun confirmSignOut() {
@@ -730,6 +824,7 @@ class AppNavHostTest {
           profileRepository = profileRepository,
           listingRepository = listingRepository,
           photoStorage = photoStorage,
+          editPhotoStorage = editPhotoStorage,
           navController = navController,
       )
     }
@@ -803,6 +898,7 @@ class AppNavHostTest {
           profileRepository = profileRepository,
           listingRepository = listingRepository,
           photoStorage = photoStorage,
+          editPhotoStorage = editPhotoStorage,
           navController = navController,
       )
     }
@@ -1275,3 +1371,5 @@ class AppNavHostTest {
     }
   }
 }
+
+private const val NETWORK_MESSAGE = "No connection. Check your internet and try again."

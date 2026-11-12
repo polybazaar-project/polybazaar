@@ -55,11 +55,25 @@
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
 
+    <!-- Edit listing screen -->
+    <string name="edit_listing_eyebrow">EDIT</string>
+    <string name="edit_listing_title">My listing</string>
+    <string name="edit_listing_type_label">What you offer</string>
+    <string name="edit_listing_type_locked">A listing’s type can’t be changed. Create a new listing to offer something else.</string>
+    <string name="edit_listing_price_hint">A new price only applies to new bookings.</string>
+    <string name="edit_listing_cancel">Cancel</string>
+    <string name="edit_listing_save">Save changes</string>
+    <string name="edit_listing_saving">Saving…</string>
+    <string name="edit_listing_retry">Retry</string>
+
     <!-- Toolbox -->
-    <string name="toolbox_title">My toolbox</string>
+    <string name="toolbox_title">My Toolbox</string>
     <string name="toolbox_empty">You have no listings yet.</string>
-    <string name="toolbox_type_item">Item</string>
-    <string name="toolbox_type_service">Service</string>
+    <string name="toolbox_filter_all">All</string>
+    <string name="toolbox_filter_items">Items</string>
+    <string name="toolbox_filter_services">Services</string>
+    <string name="toolbox_empty_items">You have no item listings.</string>
+    <string name="toolbox_empty_services">You have no service listings.</string>
 
     <!-- Forgot password screen -->
     <string name="forgot_password_title">Forgot password</string>
@@ -72,6 +86,9 @@
     <string name="forgot_password_resend_button">Resend link</string>
     <string name="forgot_password_back_to_sign_in">Back to sign in</string>
     <string name="forgot_password_sent_message">If an account exists for %1$s, a reset link is on its way. Check your inbox and your spam folder.</string>
+
+    <!-- Verify email screen -->
+    <string name="verify_email_not_verified_yet">Your email isn’t verified yet. Open the link we sent you, then try again.</string>
 
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.auth.viewmodel.AuthUiState
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.error.ui.message
 
 object SignInScreenTags {
   const val SCREEN = "sign_in_screen"
@@ -125,7 +126,7 @@ fun SignInContent(
               tag = SignInScreenTags.FORGOT_PASSWORD_LINK,
           )
         }
-        uiState.errorMessage?.let {
+        uiState.error?.message()?.let {
           Text(
               text = it,
               color = AuthColors.Danger,

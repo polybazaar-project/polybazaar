@@ -28,12 +28,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.android.polybazaar.R
 import com.android.polybazaar.auth.viewmodel.VerifyEmailUiState
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
+import com.android.polybazaar.error.ui.message
 
 object VerifyEmailScreenTags {
   const val SCREEN = "verify_email_screen"
@@ -130,7 +133,12 @@ fun VerifyEmailContent(
             color = AuthColors.TextSecondary,
             fontSize = 14.sp,
         )
-        uiState.errorMessage?.let {
+        val message =
+            uiState.error?.message()
+                ?: if (uiState.isNotVerifiedYet)
+                    stringResource(R.string.verify_email_not_verified_yet)
+                else null
+        message?.let {
           Text(
               text = it,
               color = AuthColors.Danger,

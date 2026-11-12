@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -17,6 +18,7 @@ import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
@@ -128,17 +130,25 @@ class CreateAccountIntegrationTest {
   }
 
   @Test
-  fun firebaseRejection_showsItsMessageAndDoesNotSignIn() {
+  fun firebaseRejection_showsMappedMessageAndDoesNotSignIn() {
     whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(
-            Tasks.forException(Exception("The email address is already in use by another account."))
+            Tasks.forException(
+                FirebaseAuthUserCollisionException(
+                    "ERROR_EMAIL_ALREADY_IN_USE",
+                    "The email address is already in use by another account.",
+                )
+            )
         )
 
     fillAndSubmit("ada_lovelace", "ada@epfl.ch", "secret123")
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("The email address is already in use by another account.")
+        .assertTextEquals("An account already exists with this email.")
+    composeTestRule
+        .onNodeWithText("The email address is already in use by another account.")
+        .assertDoesNotExist()
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
     verify(mockBatch, never()).commit()
     assertEquals(0, signedInCount)
@@ -152,7 +162,7 @@ class CreateAccountIntegrationTest {
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Username is already taken")
+        .assertTextEquals("This username is already taken.")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
     verify(mockAuth, never()).createUserWithEmailAndPassword(any(), any())
     verify(mockBatch, never()).commit()
@@ -171,14 +181,14 @@ class CreateAccountIntegrationTest {
     verify(mockUser).delete()
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Failed to register username. Account creation rolled back.")
+        .assertTextEquals("Something went wrong. Please try again.")
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON).assertIsEnabled()
     assertNull(viewModel.uiState.value.user)
     assertEquals(0, signedInCount)
   }
 
   @Test
-  fun firebaseReturningNoUser_showsAccountCreationFailedMessage() {
+  fun firebaseReturningNoUser_showsUnknownErrorMessage() {
     whenever(mockAuthResult.user).thenReturn(null)
     whenever(mockAuth.createUserWithEmailAndPassword("ada@epfl.ch", "secret123"))
         .thenReturn(Tasks.forResult(mockAuthResult))
@@ -187,7 +197,7 @@ class CreateAccountIntegrationTest {
 
     composeTestRule
         .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
-        .assertTextEquals("Failed to create user account")
+        .assertTextEquals("Something went wrong. Please try again.")
     assertEquals(0, signedInCount)
   }
 

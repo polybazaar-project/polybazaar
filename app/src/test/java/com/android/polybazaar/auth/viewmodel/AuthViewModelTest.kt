@@ -5,6 +5,7 @@ import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +58,7 @@ class AuthViewModelTest {
     assertEquals("user@example.com" to "password", repository.signInCredentials)
     assertEquals(user, viewModel.uiState.value.user)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -73,20 +74,20 @@ class AuthViewModelTest {
     testDispatcher.scheduler.runCurrent()
 
     assertTrue(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
     signInGate.complete(repository.signInResult)
     testDispatcher.scheduler.advanceUntilIdle()
   }
 
   @Test
-  fun signIn_usesFallbackMessageWhenRepositoryFailureHasNoMessage() = runTest {
+  fun signIn_unrecognisedFailure_exposesUnknownError() = runTest {
     repository.signInResult = Result.failure(IllegalStateException())
 
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Authentication failed", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.error)
   }
 
   @Test
@@ -100,19 +101,93 @@ class AuthViewModelTest {
     assertEquals(Triple("user@example.com", "password", "User"), repository.signUpDetails)
     assertEquals(user, viewModel.uiState.value.user)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
   fun signUp_exposesRepositoryFailure() = runTest {
-    repository.signUpResult = Result.failure(IllegalArgumentException("Email already exists"))
+    repository.signUpResult = Result.failure(AppException(AppError.USERNAME_TAKEN))
 
     viewModel.signUp("user@example.com", "password", "User")
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertNull(viewModel.uiState.value.user)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Email already exists", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.USERNAME_TAKEN, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun signIn_offline_exposesNetworkError() = runTest {
+    repository.signInResult = Result.failure(UnknownHostException("raw offline text"))
+
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.user)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun signIn_rejectedCredentials_exposesInvalidCredentialsError() = runTest {
+    repository.signInResult = Result.failure(AppException(AppError.INVALID_CREDENTIALS))
+
+    viewModel.signIn("user@example.com", "wrong")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.INVALID_CREDENTIALS, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun signUp_clearsPreviousErrorWhileRequestIsPending() = runTest {
+    repository.signUpResult = Result.failure(AppException(AppError.USERNAME_TAKEN))
+    viewModel.signUp("user@example.com", "password", "User")
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(AppError.USERNAME_TAKEN, viewModel.uiState.value.error)
+    val signUpGate = CompletableDeferred<Result<User>>()
+    repository.signUpGate = signUpGate
+
+    viewModel.signUp("user@example.com", "password", "Other")
+    testDispatcher.scheduler.runCurrent()
+
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.error)
+    signUpGate.complete(Result.success(User("user-1", "user@example.com", "Other")))
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun signOut_clearsPreviousErrorWhileRequestIsPending() = runTest {
+    repository.signInResult = Result.success(User("user-1", "user@example.com", "User"))
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.signOutException = UnknownHostException("offline")
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    repository.signOutException = null
+    val signOutGate = CompletableDeferred<Unit>()
+    repository.signOutGate = signOutGate
+
+    viewModel.signOut()
+    testDispatcher.scheduler.runCurrent()
+
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.error)
+    signOutGate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertNull(viewModel.uiState.value.user)
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun signOut_offline_exposesNetworkError() = runTest {
+    repository.signOutException = UnknownHostException("raw offline text")
+
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
   }
 
   @Test
@@ -131,7 +206,7 @@ class AuthViewModelTest {
   }
 
   @Test
-  fun signOut_preservesUserAndExposesFallbackMessageWhenItFails() = runTest {
+  fun signOut_preservesUserAndExposesErrorWhenItFails() = runTest {
     val user = User(uid = "user-1", email = "user@example.com", username = "User")
     repository.signInResult = Result.success(user)
     viewModel.signIn("user@example.com", "password")
@@ -143,7 +218,7 @@ class AuthViewModelTest {
 
     assertEquals(user, viewModel.uiState.value.user)
     assertFalse(viewModel.uiState.value.isLoading)
-    assertEquals("Unable to sign out", viewModel.uiState.value.errorMessage)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.error)
   }
 
   @Test
@@ -158,7 +233,7 @@ class AuthViewModelTest {
 
     viewModel.clearError()
 
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
     assertEquals(user, viewModel.uiState.value.user)
   }
 
@@ -173,7 +248,7 @@ class AuthViewModelTest {
     assertEquals(user, viewModel.uiState.value.user)
     assertFalse(viewModel.uiState.value.isLoading)
     assertTrue(viewModel.uiState.value.sessionChecked)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
   }
 
   @Test
@@ -184,7 +259,7 @@ class AuthViewModelTest {
     assertNull(viewModel.uiState.value.user)
     assertFalse(viewModel.uiState.value.isLoading)
     assertTrue(viewModel.uiState.value.sessionChecked)
-    assertNull(viewModel.uiState.value.errorMessage)
+    assertNull(viewModel.uiState.value.error)
     // Being signed out is the normal case, not worth a log.
     assertTrue(loggedErrors.isEmpty())
   }
@@ -326,7 +401,9 @@ class AuthViewModelTest {
     var signInCredentials: Pair<String, String>? = null
     var signInGate: CompletableDeferred<Result<User>>? = null
     var signUpDetails: Triple<String, String, String>? = null
+    var signUpGate: CompletableDeferred<Result<User>>? = null
     var signOutException: Exception? = null
+    var signOutGate: CompletableDeferred<Unit>? = null
     var didSignOut = false
     var currentUser: User? = null
     var getCurrentUserCalls = 0
@@ -340,10 +417,11 @@ class AuthViewModelTest {
 
     override suspend fun signUp(email: String, password: String, username: String): Result<User> {
       signUpDetails = Triple(email, password, username)
-      return signUpResult
+      return signUpGate?.await() ?: signUpResult
     }
 
     override suspend fun signOut() {
+      signOutGate?.await()
       didSignOut = true
       signOutException?.let { throw it }
     }
