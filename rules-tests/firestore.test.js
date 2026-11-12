@@ -751,6 +751,10 @@ function newConversation(overrides = {}) {
     participants: [BOB, ALICE],
     lastMessageAt: serverTimestamp(),
     lastMessageId: "m1",
+    // What Bob's newMessage writes: its text, its sender, and only the sender's read time.
+    lastMessageText: "Is it available on Saturday?",
+    lastMessageSenderUid: BOB,
+    lastReadAt: { [BOB]: serverTimestamp() },
     ...overrides,
   };
 }
@@ -766,24 +770,39 @@ function newMessage(senderUid, overrides = {}) {
 
 /**
  * Commits what sending a message writes: a merge on the conversation, which creates it or only
- * updates it and names the new message, and that message, in one batch.
+ * updates it and names the new message, copies its text and sender and marks it read for the
+ * sender, and that message, in one batch.
  */
 function sendMessage(db, senderUid, { id = CONVERSATION_ID, conversation = {}, message = {} } = {}) {
   const messageRef = doc(collection(db, `conversations/${id}/messages`));
+  const sent = newMessage(senderUid, message);
   const batch = writeBatch(db);
   batch.set(
     doc(db, `conversations/${id}`),
-    newConversation({ lastMessageId: messageRef.id, ...conversation }),
+    newConversation({
+      lastMessageId: messageRef.id,
+      lastMessageText: sent.text,
+      lastMessageSenderUid: senderUid,
+      lastReadAt: { [senderUid]: serverTimestamp() },
+      ...conversation,
+    }),
     { merge: true },
   );
-  batch.set(messageRef, newMessage(senderUid, message));
+  batch.set(messageRef, sent);
   return batch.commit();
 }
 
 /** Seeds Alice's listing and a conversation Bob started earlier, with its message m1. */
 async function seedConversation(listing = itemListing()) {
   if (listing) await seed("listings/l1", listing);
-  await seed(CONVERSATION, newConversation({ lastMessageAt: new Date(0) }));
+  await seed(
+    CONVERSATION,
+    newConversation({
+      lastMessageAt: new Date(0),
+      lastMessageText: "Hi",
+      lastReadAt: { [BOB]: new Date(0) },
+    }),
+  );
   await seed(`${CONVERSATION}/messages/m1`, { senderUid: BOB, text: "Hi", sentAt: new Date(0) });
 }
 
