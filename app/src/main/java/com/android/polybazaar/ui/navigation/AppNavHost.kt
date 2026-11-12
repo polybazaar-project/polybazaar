@@ -57,7 +57,9 @@ import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.chat.model.ChatRepository
+import com.android.polybazaar.chat.ui.ConversationScreen
 import com.android.polybazaar.chat.ui.InboxScreen
+import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
@@ -357,6 +359,40 @@ fun AppNavHost(
               onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
           )
         }
+        composable(
+            route = Routes.CONVERSATION,
+            arguments =
+                listOf(
+                    navArgument(Routes.LISTING_ID) { type = NavType.StringType },
+                    navArgument(Routes.RENTER_UID) { type = NavType.StringType },
+                ),
+        ) { entry ->
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val uid = uiState.user?.uid ?: return@composable
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          val renterUid = entry.arguments?.getString(Routes.RENTER_UID) ?: return@composable
+          // Scoped to this entry: each conversation opened gets its own ViewModel.
+          val conversationViewModel: ConversationViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          ConversationViewModel(
+                              listingId = listingId,
+                              renterUid = renterUid,
+                              myUid = uid,
+                              chatRepository = chatRepository,
+                              profileRepository = profileRepository,
+                              listingRepository = listingRepository,
+                          )
+                        }
+                      }
+              )
+          ConversationScreen(
+              viewModel = conversationViewModel,
+              onBack = { navController.popBackStack() },
+          )
+        }
         composable(Routes.INBOX) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
@@ -499,6 +535,7 @@ private val signedInRoutes =
         Routes.LISTING_DETAIL,
         Routes.LENDER_PROFILE,
         Routes.INBOX,
+        Routes.CONVERSATION,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,
