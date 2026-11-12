@@ -288,6 +288,41 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun ownerActions_whileAReloadIsRunning_areIgnored() {
+    val viewModel = ownerViewModel()
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.loadListing()
+    testDispatcher.scheduler.runCurrent()
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isUpdating)
+  }
+
+  @Test
+  fun reload_whileAPauseIsSaved_isIgnored_soThePauseStaysShown() {
+    val viewModel = ownerViewModel()
+    val readsBefore = listings.getListingCalls
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    viewModel.setPaused(true)
+    viewModel.loadListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(readsBefore, listings.getListingCalls)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
   fun onDeletedHandled_resetsTheSignal() {
     val viewModel = ownerViewModel()
     viewModel.deleteListing()

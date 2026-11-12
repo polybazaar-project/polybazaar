@@ -103,12 +103,14 @@ class ListingDetailViewModel(
 
   /**
    * Loads the listing and, until it is known, the viewer, then starts observing the lender, for
-   * example again after a failure (Retry). Ignored while a load is already running. On failure the
-   * listing already shown is kept, so a reload while offline does not empty the screen.
+   * example again after a failure (Retry). Ignored while a load or an owner action is running. On
+   * failure the listing already shown is kept, so a reload while offline does not empty the screen.
    */
   fun loadListing() {
+    val state = _uiState.value
     // Two loads at once could finish in any order, and the older answer would overwrite the newer.
-    if (_uiState.value.isLoading) return
+    // A read started during a pause could likewise answer after it and put the old state back.
+    if (state.isLoading || state.isUpdating) return
     _uiState.update { it.copy(isLoading = true, error = null) }
     viewModelScope.launch {
       try {
@@ -129,8 +131,8 @@ class ListingDetailViewModel(
 
   /**
    * Pauses the listing when [paused] is true, hiding it from Browse and the owner's profile, or
-   * resumes it. Only for its owner, once the listing is loaded, and not while another owner action
-   * is being saved. On failure the listing keeps its state and
+   * resumes it. Only for its owner, once the listing is loaded, and not while the listing is being
+   * read again or another owner action is being saved. On failure the listing keeps its state and
    * [ListingDetailUiState.ownerActionError] says why.
    */
   fun setPaused(paused: Boolean) {
@@ -169,8 +171,9 @@ class ListingDetailViewModel(
   private fun ownerActionTarget(): String? {
     val state = _uiState.value
     // isOwner is false until the viewer is known. The security rules refuse anyone else anyway,
-    // but this keeps a stray call from reaching Firestore.
-    if (!state.isOwner || state.isUpdating) return null
+    // but this keeps a stray call from reaching Firestore. While a reload runs, its answer could
+    // come after the write and show the listing as it was before it (see loadListing).
+    if (!state.isOwner || state.isUpdating || state.isLoading) return null
     return state.listing?.listingId
   }
 
