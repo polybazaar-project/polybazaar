@@ -156,7 +156,9 @@ fun InboxScreen(
  * "Conversations — Empty list", with a spinner while loading and the error with Retry.
  *
  * @param state what [InboxViewModel] loaded.
- * @param now the time the rows' "5m"-style labels count from.
+ * @param now the time the rows' "5m"-style labels count from. It is read again only when the screen
+ *   recomposes, such as on a new message or on coming back to the tab, so a label does not tick
+ *   while the screen stays unchanged. That is on purpose: an inbox is glanced at, not watched.
  */
 @Composable
 fun InboxContent(state: InboxUiState, actions: InboxActions, now: Instant = Instant.now()) {
