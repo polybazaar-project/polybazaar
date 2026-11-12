@@ -2,7 +2,13 @@
 // Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.browse.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
@@ -13,8 +19,10 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
@@ -25,6 +33,8 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingType
+import com.android.polybazaar.listing.model.ServiceListing
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
@@ -33,6 +43,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 class BrowseScreenTest {
@@ -148,6 +159,95 @@ class BrowseScreenTest {
       )
     }
     composeTestRule.onNodeWithText("Tools").assertIsDisplayed()
+  }
+
+  @Test
+  fun categorySelector_withAllCategories_scrollsTheLastChipIntoViewAndSelectsIt() {
+    var selected: String? = null
+    composeTestRule.setContent {
+      Box(Modifier.width(NARROW_WIDTH)) {
+        CategorySelector(
+            categories = allCategories,
+            selectedCategory = null,
+            onCategorySelected = { selected = it },
+        )
+      }
+    }
+
+    val lastChip = categoryChip(allCategories.last())
+    lastChip.assertIsNotDisplayed()
+
+    lastChip.performScrollTo().assertIsDisplayed().performClick()
+
+    assertEquals(allCategories.last(), selected)
+  }
+
+  // Real text measurement, so a squeezed chip would wrap its label onto several lines.
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Test
+  fun categorySelector_withAllCategories_allChipsHaveTheSameHeight() {
+    composeTestRule.setContent {
+      Box(Modifier.width(NARROW_WIDTH)) {
+        CategorySelector(
+            categories = allCategories,
+            selectedCategory = allCategories.last(),
+            onCategorySelected = {},
+        )
+      }
+    }
+
+    val heights = allCategories.map { categoryChip(it).fetchSemanticsNode().size.height }
+    assertTrue("chip heights differ: $heights", heights.all { it == heights.first() })
+  }
+
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Test
+  fun categorySelector_heightDoesNotGrowWithMoreCategories() {
+    val categories = mutableStateOf(sampleCategories)
+    composeTestRule.setContent {
+      Box(Modifier.width(NARROW_WIDTH)) {
+        CategorySelector(
+            categories = categories.value,
+            selectedCategory = null,
+            onCategorySelected = {},
+        )
+      }
+    }
+    val selector = composeTestRule.onNodeWithTag(BrowseScreenTags.CATEGORY_SELECTOR)
+    val fewCategoriesHeight = selector.fetchSemanticsNode().size.height
+
+    categories.value = allCategories
+    composeTestRule.waitForIdle()
+
+    assertEquals(fewCategoriesHeight, selector.fetchSemanticsNode().size.height)
+  }
+
+  @Test
+  fun browseScreen_withListingsInEveryCategory_canFilterByTheLastCategory() {
+    val listings =
+        ListingCategory.entries.map {
+          if (it.type == ListingType.ITEM) {
+            ItemListing(it, 5.0, "${it.id} listing", "", listingId = it.id)
+          } else {
+            ServiceListing(it, 5.0, "${it.id} listing", "", listingId = it.id)
+          }
+        }
+    val viewModel = BrowseViewModel(FakeListingRepository(listings), currentUid)
+    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
+    composeTestRule.waitForIdle()
+    // Read from the ViewModel, not recomputed here, so this still taps the chip the screen shows
+    // last if the ViewModel orders categories differently.
+    val lastCategory = viewModel.uiState.value.categories.last()
+    val inLastCategory = listings.first { it.category.displayName == lastCategory }
+    val inAnotherCategory = listings.first { it.category.displayName != lastCategory }
+
+    val lastChip = categoryChip(lastCategory)
+    lastChip.assertIsNotDisplayed()
+
+    lastChip.performScrollTo().performClick()
+
+    composeTestRule.onNodeWithText(inLastCategory.title).assertIsDisplayed()
+    composeTestRule.onNodeWithText(inAnotherCategory.title).assertDoesNotExist()
   }
 
   @Test
@@ -347,14 +447,20 @@ class BrowseScreenTest {
   private fun string(id: Int): String =
       ApplicationProvider.getApplicationContext<android.content.Context>().getString(id)
 
-  // Cards show the category too, so the click targets the chip in the category selector.
+  private val allCategories = ListingCategory.entries.map { it.displayName }.distinct().sorted()
+
+  // Cards show the category too, so this targets the chip in the category selector.
+  private fun categoryChip(category: String): SemanticsNodeInteraction =
+      composeTestRule.onNode(
+          hasText(category) and hasAnyAncestor(hasTestTag(BrowseScreenTags.CATEGORY_SELECTOR))
+      )
+
   private fun clickCategory(category: String) {
-    composeTestRule
-        .onNode(
-            hasText(category) and hasAnyAncestor(hasTestTag(BrowseScreenTags.CATEGORY_SELECTOR))
-        )
-        .performClick()
+    categoryChip(category).performClick()
   }
 }
 
 private const val LAST_LISTING = "Listing 11"
+
+// Narrower than all category chips together, so the chip row overflows.
+private val NARROW_WIDTH = 360.dp
