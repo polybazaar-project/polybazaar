@@ -4,6 +4,7 @@ package com.android.polybazaar.chat.ui
 import android.content.Context
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
@@ -210,6 +211,14 @@ class InboxScreenTest {
     node(InboxScreenTags.row(tent.id)).performClick()
 
     assertEquals(listOf(tent), clicked)
+  }
+
+  @Test
+  fun rowsWithoutOnConversationClick_areNotClickable() {
+    val drill = conversation("drill")
+    setContent(loaded(row(drill)))
+
+    rowOf(drill).assertHasNoClickAction().assert(hasText("Current drill"))
   }
 
   @Test

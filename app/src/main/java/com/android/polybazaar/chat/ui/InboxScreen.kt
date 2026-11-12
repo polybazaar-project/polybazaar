@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,8 +80,10 @@ object InboxScreenTags {
 
 /** What the user can do on the inbox screen. */
 data class InboxActions(
-    /** Called with the conversation of the row the user tapped. */
-    val onConversationClick: (Conversation) -> Unit = {},
+    /**
+     * Called with the conversation of the row the user tapped; null leaves the rows unclickable.
+     */
+    val onConversationClick: ((Conversation) -> Unit)? = null,
     /** Called when the user taps Retry after an error. */
     val onRetry: () -> Unit = {},
     /** Called when the user taps "Browse listings" on the empty inbox. */
@@ -123,14 +126,15 @@ private val DeletedBadgeText = Color(0xFF67564D)
  * The inbox screen: loads the conversations of [myUid], the signed-in user, into [viewModel] and
  * shows them. Retry loads them again.
  *
- * @param onConversationClick called with the conversation of the row the user tapped.
+ * @param onConversationClick called with the conversation of the row the user tapped; null while
+ *   there is no conversation screen to open, so the rows are not announced as buttons.
  * @param onBrowse called when the user taps "Browse listings" on the empty inbox.
  */
 @Composable
 fun InboxScreen(
     viewModel: InboxViewModel,
     myUid: String,
-    onConversationClick: (Conversation) -> Unit,
+    onConversationClick: ((Conversation) -> Unit)?,
     onBrowse: () -> Unit,
 ) {
   // Runs each time the tab is opened; openInbox keeps a load still running for the same user.
@@ -197,7 +201,7 @@ private fun ConversationList(
           row = row,
           photos = state.photos,
           now = now,
-          onClick = { actions.onConversationClick(row.conversation) },
+          onClick = actions.onConversationClick?.let { onClick -> { onClick(row.conversation) } },
       )
     }
     item { Footer() }
@@ -310,14 +314,15 @@ private fun MessagesHeading() {
 
 /**
  * One conversation: the listing photo, the other person, the listing title with its badge, and the
- * time since the last message.
+ * time since the last message. Without [onClick], the row is not clickable but TalkBack still reads
+ * it as one item.
  */
 @Composable
 private fun ConversationRow(
     row: InboxConversation,
     photos: Map<String, ByteArray>,
     now: Instant,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
 ) {
   val shape = RoundedCornerShape(20.dp)
   Row(
@@ -327,11 +332,15 @@ private fun ConversationRow(
               .clip(shape)
               .background(AuthColors.CardBackground)
               .border(1.dp, AuthColors.Outline, shape)
-              // Role.Button and the label let TalkBack announce the row as "Open conversation".
-              .clickable(
-                  role = Role.Button,
-                  onClickLabel = stringResource(R.string.inbox_open_conversation),
-                  onClick = onClick,
+              .then(
+                  if (onClick == null) Modifier.semantics(mergeDescendants = true) {}
+                  // Role.Button and the label let TalkBack announce the row as "Open conversation".
+                  else
+                      Modifier.clickable(
+                          role = Role.Button,
+                          onClickLabel = stringResource(R.string.inbox_open_conversation),
+                          onClick = onClick,
+                      )
               )
               .padding(12.dp)
               .testTag(InboxScreenTags.row(row.conversation.id)),

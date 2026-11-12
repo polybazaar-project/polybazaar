@@ -315,8 +315,8 @@ fun AppNavHost(
           InboxScreen(
               viewModel = inboxViewModel,
               myUid = uid,
-              // Opening a conversation needs its route, which #274 adds and connects here.
-              onConversationClick = {},
+              // Null until #274 adds the conversation route, so no row is a dead button.
+              onConversationClick = null,
               onBrowse = { navController.navigateToTab(Routes.BROWSE) },
           )
         }
