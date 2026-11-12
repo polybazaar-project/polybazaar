@@ -587,5 +587,8 @@ private fun TypeOption(
 @Preview(showBackground = true, widthDp = 412, heightDp = 924)
 @Composable
 private fun CreateListingContentPreview() {
-  CreateListingContent(uiState = ListingFormUiState(), actions = ListingFormActions())
+  CreateListingContent(
+      uiState = ListingFormUiState(today = LocalDate.now()),
+      actions = ListingFormActions(),
+  )
 }

@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
  *   has no input for it yet.
  * @property availableDates the days the owner offers the listing on, chosen in the calendar.
  * @property today the day earlier days cannot be offered from, for the calendar to use as well.
+ *   Always given, so that building a state never reads the clock.
  * @property isLoading true while the edited listing is being loaded into the form.
  * @property loadError why the edited listing could not be loaded, or null. The form cannot be saved
  *   until a Retry succeeds.
@@ -55,6 +56,7 @@ import kotlinx.coroutines.launch
  * @property saveError why the last save failed, or null.
  */
 data class ListingFormUiState(
+    val today: LocalDate,
     val listingId: String? = null,
     val type: ListingType = ListingType.ITEM,
     val title: String = "",
@@ -68,7 +70,6 @@ data class ListingFormUiState(
     val photos: List<Uri> = emptyList(),
     val maxRentalDays: Int? = null,
     val availableDates: Set<LocalDate> = emptySet(),
-    val today: LocalDate = LocalDate.now(),
     val isLoading: Boolean = false,
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
@@ -342,8 +343,11 @@ class ListingFormViewModel(
 
   /** Creates the listing, or saves the changes to the edited one. */
   fun save() {
+    if (!_uiState.value.canSave) return
+    // The form may have been open since an earlier day: the days now past are not saved.
+    val now = today()
+    updateState { it.copy(availableDates = upcomingDays(it.availableDates, now), today = now) }
     val state = _uiState.value
-    if (!state.canSave) return
     val listing = state.listing ?: return
 
     // Submitting ends a photo still being taken: it is not part of this listing, and a retake must

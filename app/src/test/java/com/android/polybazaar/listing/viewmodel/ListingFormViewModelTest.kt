@@ -65,7 +65,7 @@ class ListingFormViewModelTest {
     repository = FakeListingRepository()
     photoStorage = FakePhotoStorage()
     savedStateHandle = SavedStateHandle()
-    viewModel = ListingFormViewModel(null, repository, photoStorage, savedStateHandle)
+    viewModel = ListingFormViewModel(null, repository, photoStorage, savedStateHandle) { today }
   }
 
   @After
@@ -102,7 +102,7 @@ class ListingFormViewModelTest {
   @Test
   fun initialState_isAnEmptyItemForm() {
     // A fresh ViewModel must not be creating, hold a listing or show an error.
-    assertEquals(ListingFormUiState(), viewModel.uiState.value)
+    assertEquals(ListingFormUiState(today = today), viewModel.uiState.value)
     assertNull(viewModel.uiState.value.listing)
     assertFalse(viewModel.uiState.value.canSave)
   }
@@ -340,7 +340,7 @@ class ListingFormViewModelTest {
 
     assertEquals(uris(2), photoStorage.deleted)
     // Coming back to the form must not offer to create the same listing again.
-    assertEquals(ListingFormUiState(savedListing = listing), viewModel.uiState.value)
+    assertEquals(ListingFormUiState(today = today, savedListing = listing), viewModel.uiState.value)
     assertFalse(viewModel.uiState.value.canSave)
   }
 
@@ -1102,6 +1102,21 @@ class ListingFormViewModelTest {
         }
 
     assertEquals(chosenDays, restored.uiState.value.availableDates)
+  }
+
+  @Test
+  fun save_afterTheDayChanged_leavesOutTheDaysNowPast() = runTest {
+    var now = today
+    val form = ListingFormViewModel(null, repository, photoStorage, SavedStateHandle()) { now }
+    viewModel = form
+    fillForm()
+    form.updateAvailableDates(chosenDays)
+
+    now = LocalDate.of(2026, 11, 20)
+    form.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(LocalDate.of(2026, 11, 28)), repository.createdListing?.availableDates)
   }
 
   @Test

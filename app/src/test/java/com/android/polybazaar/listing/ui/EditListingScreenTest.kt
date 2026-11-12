@@ -370,6 +370,7 @@ class EditListingScreenTest {
       EditListingContent(
           uiState =
               ListingFormUiState(
+                  today = LocalDate.of(2026, 11, 10),
                   listingId = "drill",
                   storedPhotos = listOf("listings/drill/0.jpg", "listings/drill/1.jpg"),
               ),

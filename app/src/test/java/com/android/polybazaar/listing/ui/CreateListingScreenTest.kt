@@ -1087,12 +1087,17 @@ class CreateListingScreenTest {
 
   // Availability
 
+  private val TODAY = LocalDate.of(2026, 11, 10)
+
   private fun availabilityField() = node(CreateListingScreenTags.AVAILABILITY_FIELD)
 
   @Test
   fun availability_asksForDays_untilSomeAreChosen() {
     composeTestRule.setContent {
-      CreateListingContent(uiState = ListingFormUiState(), actions = ListingFormActions())
+      CreateListingContent(
+          uiState = ListingFormUiState(today = TODAY),
+          actions = ListingFormActions(),
+      )
     }
 
     availabilityField()
@@ -1105,7 +1110,7 @@ class CreateListingScreenTest {
         setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 14), LocalDate.of(2026, 11, 28))
     composeTestRule.setContent {
       CreateListingContent(
-          uiState = ListingFormUiState(availableDates = days),
+          uiState = ListingFormUiState(today = TODAY, availableDates = days),
           actions = ListingFormActions(),
       )
     }
@@ -1130,7 +1135,10 @@ class CreateListingScreenTest {
   @Test
   fun availability_isNamedForTalkBack() {
     composeTestRule.setContent {
-      CreateListingContent(uiState = ListingFormUiState(), actions = ListingFormActions())
+      CreateListingContent(
+          uiState = ListingFormUiState(today = TODAY),
+          actions = ListingFormActions(),
+      )
     }
 
     availabilityField()
@@ -1142,7 +1150,7 @@ class CreateListingScreenTest {
     val days = setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 14))
     composeTestRule.setContent {
       CreateListingContent(
-          uiState = ListingFormUiState(availableDates = days),
+          uiState = ListingFormUiState(today = TODAY, availableDates = days),
           actions = ListingFormActions(),
       )
     }
@@ -1154,7 +1162,7 @@ class CreateListingScreenTest {
   fun availability_cannotBeOpenedWhileSaving() {
     composeTestRule.setContent {
       CreateListingContent(
-          uiState = ListingFormUiState(isSaving = true),
+          uiState = ListingFormUiState(today = TODAY, isSaving = true),
           actions = ListingFormActions(),
       )
     }
