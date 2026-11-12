@@ -168,6 +168,20 @@ class BookingRequestViewModelTest {
   }
 
   @Test
+  fun aReload_afterTheUserCouldNotBeRead_allowsTheRequest() {
+    val auth: AuthRepository = mock {
+      onBlocking { getCurrentUser() } doThrow IllegalStateException("No user") doReturn renter
+    }
+    val viewModel = loadedViewModel(auth = auth)
+    assertFalse(viewModel.uiState.value.canRequest)
+
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(viewModel.uiState.value.canRequest)
+  }
+
+  @Test
   fun updateSelection_keepsOnlyTheDaysTheLenderOffers() {
     val viewModel = loadedViewModel()
 

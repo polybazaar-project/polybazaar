@@ -83,7 +83,8 @@ data class BookingRequestUiState(
 
   /**
    * The price of [period]: the listing's price for each of its days. Null without a period that can
-   * be requested, so that no total is shown for one that [isTooLong].
+   * be requested, so that no total is shown for one that [isTooLong]. It does not depend on
+   * [canRequest]: a user who may not request the listing still sees what the days would cost.
    */
   val total: Double?
     get() = listing?.takeIf { period != null && !isTooLong }?.let { it.price * dayCount }
