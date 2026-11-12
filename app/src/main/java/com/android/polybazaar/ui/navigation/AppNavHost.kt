@@ -337,6 +337,15 @@ fun AppNavHost(
                   ListingDetailActions(
                       onBack = { navController.popBackStack() },
                       onOpenLender = { navController.navigate(Routes.lenderProfile(it)) },
+                      // The viewer messages the owner as the renter. Single top, so a double tap
+                      // does not stack two conversation screens.
+                      onMessageLender = {
+                        uiState.user?.uid?.let { uid ->
+                          navController.navigate(Routes.conversation(listingId, uid)) {
+                            launchSingleTop = true
+                          }
+                        }
+                      },
                   ),
           )
         }
