@@ -51,6 +51,8 @@
     <string name="listing_detail_message_lender">Message lender</string>
     <string name="listing_detail_deposit">%1$s deposit</string>
     <string name="listing_detail_choose_dates">Choose dates</string>
+    <string name="listing_detail_photo">Photo %1$d of %2$d</string>
+    <string name="listing_detail_photo_counter">%1$d / %2$d</string>
     <string name="listing_detail_reassurance">See your full total before you request to book.</string>
     <string name="listing_detail_owner_name">%1$s (you)  ·  Verified</string>
     <string name="listing_detail_edit">Edit listing</string>
