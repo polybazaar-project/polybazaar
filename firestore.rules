@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Copilot Claude Sonnet 5.5
@@ -148,10 +148,20 @@ service cloud.firestore {
         return parts.size() == 2 && parts[1] == request.auth.uid;
       }
 
+      // The inbox preview copies the new message, sent by me, and the send marks it read for me only.
+      // Call after isNewMessage, which checks lastMessageId is a string; its getAfter is read once.
+      function validLastMessage(data, readAtBefore) {
+        return data.lastMessageText == getAfter(/databases/$(database)/documents/conversations/$(conversationId)/messages/$(data.lastMessageId)).data.text
+            && data.lastMessageSenderUid == request.auth.uid
+            && data.lastReadAt is map
+            && data.lastReadAt.diff(readAtBefore).affectedKeys().hasOnly([request.auth.uid])
+            && data.lastReadAt[request.auth.uid] == request.time;
+      }
+
       function validNewConversation(data) {
         let listing = listingData(data.listingId);
-        return data.keys().hasAll(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId'])
-            && data.keys().hasOnly(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId'])
+        return data.keys().hasAll(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId', 'lastMessageText', 'lastMessageSenderUid', 'lastReadAt'])
+            && data.keys().hasOnly(['listingId', 'listingTitle', 'renterUid', 'lenderUid', 'participants', 'lastMessageAt', 'lastMessageId', 'lastMessageText', 'lastMessageSenderUid', 'lastReadAt'])
             && data.listingId is string
             && conversationId == data.listingId + '_' + request.auth.uid
             && isRenterInId()
@@ -163,7 +173,30 @@ service cloud.firestore {
             && listing.paused == false
             && data.listingTitle == listing.title
             && data.lastMessageAt == request.time
-            && isNewMessage(data.lastMessageId);
+            && isNewMessage(data.lastMessageId)
+            && validLastMessage(data, {});
+      }
+
+      // A send merges the whole conversation again, so only what a send refreshes may change.
+      // A paused listing still accepts messages; a deleted one does not. Checking the owner, not
+      // only existence, refuses a listing someone else re-created under the deleted one's id.
+      function isSend() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'listingTitle', 'lastMessageId', 'lastMessageText', 'lastMessageSenderUid', 'lastReadAt'])
+            && request.resource.data.lastMessageAt == request.time
+            // Also forces lastMessageId to change: the previous message's sentAt is in the past.
+            && isNewMessage(request.resource.data.lastMessageId)
+            && validLastMessage(request.resource.data, resource.data.get('lastReadAt', {}))
+            && listingData(resource.data.listingId).ownerUid == resource.data.lenderUid
+            && (request.resource.data.listingTitle == resource.data.listingTitle
+                || request.resource.data.listingTitle == listingData(resource.data.listingId).title);
+      }
+
+      // Mark read: only my own read time moves, to now; no message needed, so any listing state.
+      function isMarkRead() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastReadAt'])
+            && request.resource.data.lastReadAt is map
+            && request.resource.data.lastReadAt.diff(resource.data.get('lastReadAt', {})).affectedKeys().hasOnly([request.auth.uid])
+            && request.resource.data.lastReadAt[request.auth.uid] == request.time;
       }
 
       allow get: if isVerified()
@@ -172,18 +205,9 @@ service cloud.firestore {
 
       allow create: if isVerified() && validNewConversation(request.resource.data);
 
-      // Each send merges the whole conversation again, so only what a send refreshes may change.
-      // A paused listing still accepts messages; a deleted one does not. Checking the owner, not
-      // only existence, refuses a listing someone else re-created under the deleted one's id.
       allow update: if isVerified()
           && request.auth.uid in resource.data.participants
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'listingTitle', 'lastMessageId'])
-          && request.resource.data.lastMessageAt == request.time
-          // Also forces lastMessageId to change: the previous message's sentAt is in the past.
-          && isNewMessage(request.resource.data.lastMessageId)
-          && listingData(resource.data.listingId).ownerUid == resource.data.lenderUid
-          && (request.resource.data.listingTitle == resource.data.listingTitle
-              || request.resource.data.listingTitle == listingData(resource.data.listingId).title);
+          && (isSend() || isMarkRead());
 
       allow delete: if false;
 
@@ -249,7 +273,7 @@ service cloud.firestore {
 
       function validListing(data) {
         return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused'])
-            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused', 'refundValue', 'maxRentalDays'])
+            && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused', 'refundValue', 'maxRentalDays', 'availableDates'])
             && data.ownerUid == request.auth.uid
             // Required, because Browse queries paused == false and a listing without it would never
             // show. Only the owner can change it, through the update rule below.
@@ -268,7 +292,14 @@ service cloud.firestore {
             // ListingRules.MAX_RENTAL_DAYS in the app (a semester, exams included).
             && (!('maxRentalDays' in data)
                 || (data.type == 'ITEM' && data.maxRentalDays is int
-                    && data.maxRentalDays >= 1 && data.maxRentalDays <= 180));
+                    && data.maxRentalDays >= 1 && data.maxRentalDays <= 180))
+            // Optional days the owner offers the listing on, as LocalDate epoch days. At most a
+            // year of them, each once: same as ListingRules.MAX_AVAILABLE_DAYS in the app. Rules
+            // cannot loop, so the entries themselves are checked by the app when it reads them.
+            && (!('availableDates' in data)
+                || (data.availableDates is list
+                    && data.availableDates.size() <= 366
+                    && data.availableDates.toSet().size() == data.availableDates.size()));
       }
 
       allow read: if isVerified();

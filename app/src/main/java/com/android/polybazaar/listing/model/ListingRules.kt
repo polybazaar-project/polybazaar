@@ -1,10 +1,11 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
 import com.android.polybazaar.auth.model.User
 import java.math.BigDecimal
+import java.time.LocalDate
 
 /** Constraints a listing must respect, shared by every screen that creates or edits one. */
 object ListingRules {
@@ -29,6 +30,12 @@ object ListingRules {
    */
   const val MAX_RENTAL_DAYS = 180
 
+  /**
+   * Maximum number of available days a listing can store: a year of them, leap day included. Change
+   * it here and in `firestore.rules` together.
+   */
+  const val MAX_AVAILABLE_DAYS = 366
+
   fun categoriesFor(type: ListingType): List<ListingCategory> =
       ListingCategory.entries.filter { it.type == type }
 
@@ -37,6 +44,8 @@ object ListingRules {
   const val PHOTOS_LIMIT_MESSAGE = "A listing can have at most $MAX_PHOTOS photos"
   const val RENTAL_DAYS_RANGE_MESSAGE =
       "Enter a rental duration between 1 and $MAX_RENTAL_DAYS days"
+  const val AVAILABLE_DAYS_LIMIT_MESSAGE =
+      "A listing can have at most $MAX_AVAILABLE_DAYS available days"
 
   /** Whether [amount] is above zero and at most [max]. */
   fun isValidAmount(amount: Double, max: Double = MAX_PRICE): Boolean = amount > 0 && amount <= max
@@ -62,6 +71,9 @@ object ListingRules {
       // Null means no limit, so only a set duration is checked.
       listing is ItemListing && listing.maxRentalDays?.let { it !in 1..MAX_RENTAL_DAYS } == true ->
           RENTAL_DAYS_RANGE_MESSAGE
+      // The calendar never offers more than a year of days. Checked all the same, like the rental
+      // duration, so the repository refuses what the security rules would, before uploading photos.
+      listing.availableDates.size > MAX_AVAILABLE_DAYS -> AVAILABLE_DAYS_LIMIT_MESSAGE
       else -> null
     }
   }
@@ -112,6 +124,7 @@ object ListingRules {
    * @param listingId when editing, the listing being edited.
    * @param maxRentalDays kept from the edited item, since the form has no input for it. Ignored for
    *   services.
+   * @param availableDates the days the owner offers the listing on.
    */
   fun buildListing(
       type: ListingType,
@@ -124,6 +137,7 @@ object ListingRules {
       imagePaths: List<String> = emptyList(),
       listingId: String? = null,
       maxRentalDays: Int? = null,
+      availableDates: Set<LocalDate> = emptySet(),
   ): Listing? {
     val parsedPrice = parsePrice(price) ?: return null
     if (title.isBlank() || description.isBlank() || category?.type != type) return null
@@ -142,6 +156,7 @@ object ListingRules {
               images = photos,
               imagePaths = imagePaths,
               listingId = listingId,
+              availableDates = availableDates,
           )
       ListingType.SERVICE ->
           ServiceListing(
@@ -152,6 +167,7 @@ object ListingRules {
               images = photos,
               imagePaths = imagePaths,
               listingId = listingId,
+              availableDates = availableDates,
           )
     }
   }

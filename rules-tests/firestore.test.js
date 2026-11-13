@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Copilot Claude Sonnet 5.5
@@ -15,6 +15,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  FieldPath,
   getDoc,
   getDocs,
   limit,
@@ -492,6 +493,32 @@ describe("listings", () => {
     await assertFails(updateDoc(doc(db, "listings/s1"), { maxRentalDays: 7 }));
   });
 
+  test("a listing can store up to 366 available days", async () => {
+    const db = verified(ALICE);
+    const year = Array.from({ length: 366 }, (_, day) => 20770 + day);
+    await assertSucceeds(setDoc(doc(db, "listings/l1"), itemListing({ availableDates: [20770, 20771] })));
+    await assertSucceeds(setDoc(doc(db, "listings/l2"), itemListing({ availableDates: year })));
+    await assertSucceeds(setDoc(doc(db, "listings/l3"), itemListing({ availableDates: [] })));
+    await assertSucceeds(setDoc(doc(db, "listings/s1"), serviceListing({ availableDates: [20770] })));
+  });
+
+  test("available days are a list of at most 366 different days", async () => {
+    const db = verified(ALICE);
+    const tooMany = Array.from({ length: 367 }, (_, day) => 20770 + day);
+    await assertFails(setDoc(doc(db, "listings/l1"), itemListing({ availableDates: tooMany })));
+    await assertFails(setDoc(doc(db, "listings/l2"), itemListing({ availableDates: [20770, 20770] })));
+    await assertFails(setDoc(doc(db, "listings/l3"), itemListing({ availableDates: "tomorrow" })));
+    await assertFails(setDoc(doc(db, "listings/l4"), itemListing({ availableDates: 20770 })));
+  });
+
+  test("an edit keeps the available days checks, and can remove them", async () => {
+    await seed("listings/l1", itemListing({ availableDates: [20770] }));
+    const listing = doc(verified(ALICE), "listings/l1");
+    await assertSucceeds(updateDoc(listing, { availableDates: [20771, 20772] }));
+    await assertFails(updateDoc(listing, { availableDates: [20771, 20771] }));
+    await assertSucceeds(updateDoc(listing, { availableDates: deleteField() }));
+  });
+
   test("a listing is an ITEM or a SERVICE", async () => {
     await assertFails(setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ type: "CAR" })));
   });
@@ -725,6 +752,10 @@ function newConversation(overrides = {}) {
     participants: [BOB, ALICE],
     lastMessageAt: serverTimestamp(),
     lastMessageId: "m1",
+    // What Bob's newMessage writes: its text, its sender, and only the sender's read time.
+    lastMessageText: "Is it available on Saturday?",
+    lastMessageSenderUid: BOB,
+    lastReadAt: { [BOB]: serverTimestamp() },
     ...overrides,
   };
 }
@@ -740,25 +771,46 @@ function newMessage(senderUid, overrides = {}) {
 
 /**
  * Commits what sending a message writes: a merge on the conversation, which creates it or only
- * updates it and names the new message, and that message, in one batch.
+ * updates it and names the new message, copies its text and sender and marks it read for the
+ * sender, and that message, in one batch.
  */
 function sendMessage(db, senderUid, { id = CONVERSATION_ID, conversation = {}, message = {} } = {}) {
   const messageRef = doc(collection(db, `conversations/${id}/messages`));
+  const sent = newMessage(senderUid, message);
   const batch = writeBatch(db);
   batch.set(
     doc(db, `conversations/${id}`),
-    newConversation({ lastMessageId: messageRef.id, ...conversation }),
+    newConversation({
+      lastMessageId: messageRef.id,
+      lastMessageText: sent.text,
+      lastMessageSenderUid: senderUid,
+      lastReadAt: { [senderUid]: serverTimestamp() },
+      ...conversation,
+    }),
     { merge: true },
   );
-  batch.set(messageRef, newMessage(senderUid, message));
+  batch.set(messageRef, sent);
   return batch.commit();
 }
 
 /** Seeds Alice's listing and a conversation Bob started earlier, with its message m1. */
 async function seedConversation(listing = itemListing()) {
   if (listing) await seed("listings/l1", listing);
-  await seed(CONVERSATION, newConversation({ lastMessageAt: new Date(0) }));
+  await seed(
+    CONVERSATION,
+    newConversation({
+      lastMessageAt: new Date(0),
+      lastMessageText: "Hi",
+      lastReadAt: { [BOB]: new Date(0) },
+    }),
+  );
   await seed(`${CONVERSATION}/messages/m1`, { senderUid: BOB, text: "Hi", sentAt: new Date(0) });
+}
+
+/** Commits what opening a conversation writes: only the reader's own read time, at server time. */
+function markRead(db, uid, { at = serverTimestamp(), extra = {} } = {}) {
+  const others = Object.entries(extra).flat();
+  return updateDoc(doc(db, CONVERSATION), new FieldPath("lastReadAt", uid), at, ...others);
 }
 
 describe("conversations", () => {
@@ -1034,6 +1086,126 @@ describe("conversations", () => {
     await seedConversation();
     await assertFails(deleteDoc(doc(verified(BOB), CONVERSATION)));
     await assertFails(deleteDoc(doc(verified(ALICE), CONVERSATION)));
+  });
+
+  test("a first message stores its text and sender and marks it read for the sender", async () => {
+    await seed("listings/l1", itemListing());
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: { text: "Still free?" } }));
+    const stored = (await getDoc(doc(verified(BOB), CONVERSATION))).data();
+    assert.equal(stored.lastMessageText, "Still free?");
+    assert.equal(stored.lastMessageSenderUid, BOB);
+    assert.deepEqual(Object.keys(stored.lastReadAt), [BOB]);
+  });
+
+  test("a reply stores its text and sender and keeps the other participant's read time", async () => {
+    await seedConversation();
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE, { message: { text: "Yes, it is" } }));
+    const stored = (await getDoc(doc(verified(ALICE), CONVERSATION))).data();
+    assert.equal(stored.lastMessageText, "Yes, it is");
+    assert.equal(stored.lastMessageSenderUid, ALICE);
+    assert.deepEqual(Object.keys(stored.lastReadAt).sort(), [ALICE, BOB].sort());
+    assert.equal(stored.lastReadAt[BOB].toMillis(), 0);
+  });
+
+  test("a reply in a conversation stored before previews adds the fields", async () => {
+    await seed("listings/l1", itemListing());
+    const { lastMessageText, lastMessageSenderUid, lastReadAt, ...old } = newConversation({
+      lastMessageAt: new Date(0),
+    });
+    await seed(CONVERSATION, old);
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE));
+  });
+
+  test("a message must store its own text as the preview", async () => {
+    const wrongText = { conversation: { lastMessageText: "Something else" } };
+    await seed("listings/l1", itemListing());
+    await assertFails(sendMessage(verified(BOB), BOB, wrongText));
+    await seedConversation();
+    await assertFails(sendMessage(verified(ALICE), ALICE, wrongText));
+  });
+
+  test("a message must store its sender as the last sender", async () => {
+    await seed("listings/l1", itemListing());
+    await assertFails(
+      sendMessage(verified(BOB), BOB, { conversation: { lastMessageSenderUid: ALICE } }),
+    );
+    await seedConversation();
+    await assertFails(
+      sendMessage(verified(ALICE), ALICE, { conversation: { lastMessageSenderUid: BOB } }),
+    );
+  });
+
+  test("a message cannot set the other participant's read time", async () => {
+    const both = { lastReadAt: { [BOB]: serverTimestamp(), [ALICE]: serverTimestamp() } };
+    await seed("listings/l1", itemListing());
+    await assertFails(sendMessage(verified(BOB), BOB, { conversation: both }));
+    const otherOnly = { lastReadAt: { [ALICE]: serverTimestamp() } };
+    await assertFails(sendMessage(verified(BOB), BOB, { conversation: otherOnly }));
+    await seedConversation();
+    await assertFails(sendMessage(verified(ALICE), ALICE, { conversation: both }));
+  });
+
+  test("a message marks it read for the sender at the server time", async () => {
+    const clientTime = { conversation: { lastReadAt: { [BOB]: new Date() } } };
+    await seed("listings/l1", itemListing());
+    await assertFails(sendMessage(verified(BOB), BOB, clientTime));
+    await seedConversation();
+    await assertFails(sendMessage(verified(BOB), BOB, clientTime));
+  });
+
+  test("the renter and the lender can mark a conversation read", async () => {
+    await seedConversation();
+    await assertSucceeds(markRead(verified(BOB), BOB));
+    await assertSucceeds(markRead(verified(ALICE), ALICE));
+    const stored = (await getDoc(doc(verified(BOB), CONVERSATION))).data();
+    assert.deepEqual(Object.keys(stored.lastReadAt).sort(), [ALICE, BOB].sort());
+  });
+
+  test("a conversation stored before read times can be marked read", async () => {
+    await seed("listings/l1", itemListing());
+    const { lastMessageText, lastMessageSenderUid, lastReadAt, ...old } = newConversation({
+      lastMessageAt: new Date(0),
+    });
+    await seed(CONVERSATION, old);
+    await assertSucceeds(markRead(verified(ALICE), ALICE));
+    const stored = (await getDoc(doc(verified(ALICE), CONVERSATION))).data();
+    assert.deepEqual(Object.keys(stored.lastReadAt), [ALICE]);
+  });
+
+  test("a conversation can be marked read on a paused or deleted listing", async () => {
+    await seedConversation(itemListing({ paused: true }));
+    await assertSucceeds(markRead(verified(ALICE), ALICE));
+    await env.clearFirestore();
+    await seedConversation(null);
+    await assertSucceeds(markRead(verified(BOB), BOB));
+  });
+
+  test("only a verified participant can mark a conversation read", async () => {
+    await seedConversation();
+    await assertFails(markRead(verified(EVE), EVE));
+    await assertFails(markRead(unverified(BOB), BOB));
+    await assertFails(markRead(unverified(ALICE), ALICE));
+  });
+
+  test("a participant cannot mark a conversation read for the other one", async () => {
+    await seedConversation();
+    await assertFails(markRead(verified(BOB), ALICE));
+    await assertFails(markRead(verified(ALICE), BOB));
+  });
+
+  test("a conversation is marked read at the server time", async () => {
+    await seedConversation();
+    await assertFails(markRead(verified(ALICE), ALICE, { at: new Date() }));
+    await assertFails(markRead(verified(ALICE), ALICE, { at: new Date(0) }));
+  });
+
+  test("marking a conversation read changes nothing else", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    await assertFails(markRead(db, BOB, { extra: { lastMessageText: "Edited" } }));
+    await assertFails(markRead(db, BOB, { extra: { lastMessageSenderUid: ALICE } }));
+    await assertFails(markRead(db, BOB, { extra: { lastMessageAt: serverTimestamp() } }));
+    await assertFails(markRead(db, BOB, { extra: { listingTitle: "Free drill" } }));
   });
 });
 
