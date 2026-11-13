@@ -5,6 +5,9 @@ import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
@@ -13,12 +16,15 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -39,6 +45,7 @@ import com.android.polybazaar.profile.ui.redPhoto
 import com.android.polybazaar.profile.ui.waitForAvatar
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -537,5 +544,88 @@ class ListingDetailScreenTest {
     assertEquals(1, leaves)
     // Handled, so coming back to the screen would not leave again.
     assertEquals(false, viewModel.uiState.value.isDeleted)
+  }
+
+  /** The drill with two photos, at [firstPhoto] and [secondPhoto]. */
+  private val firstPhoto = "listings/lender-1/drill/images/0"
+  private val secondPhoto = "listings/lender-1/drill/images/1"
+  private val drillWithPhotos = drill.copy(imagePaths = listOf(firstPhoto, secondPhoto))
+
+  @Test
+  fun listingWithoutPhotos_showsOnlyThePlaceholder() {
+    setContent(ListingDetailUiState(listing = drill))
+
+    node(ListingDetailScreenTags.PHOTOS).assertDoesNotExist()
+    node(ListingDetailScreenTags.PHOTO_COUNTER).assertDoesNotExist()
+  }
+
+  @Test
+  fun onePhoto_hasNoCounter() {
+    setContent(ListingDetailUiState(listing = drill.copy(imagePaths = listOf(firstPhoto))))
+
+    node(ListingDetailScreenTags.PHOTOS).assertIsDisplayed()
+    node(ListingDetailScreenTags.PHOTO_COUNTER).assertDoesNotExist()
+  }
+
+  @Test
+  fun severalPhotos_countFromOne_andSwipingMovesTheCounter() {
+    setContent(ListingDetailUiState(listing = drillWithPhotos))
+
+    node(ListingDetailScreenTags.PHOTO_COUNTER)
+        .assertTextEquals(context.getString(R.string.listing_detail_photo_counter, 1, 2))
+    node(ListingDetailScreenTags.PHOTOS).performTouchInput { swipeLeft() }
+
+    node(ListingDetailScreenTags.PHOTO_COUNTER)
+        .assertTextEquals(context.getString(R.string.listing_detail_photo_counter, 2, 2))
+  }
+
+  @Test
+  fun photoNotDownloaded_keepsThePlaceholderOnItsPage() {
+    setContent(ListingDetailUiState(listing = drillWithPhotos))
+
+    node(ListingDetailScreenTags.PHOTOS).assertIsDisplayed()
+    node(ListingDetailScreenTags.PHOTO).assertDoesNotExist()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing.
+  fun downloadedPhoto_isDrawnAcrossTheArea_andDescribedForTalkBack() {
+    setContent(
+        ListingDetailUiState(
+            listing = drillWithPhotos,
+            listingPhotos = mapOf(firstPhoto to redPhoto()),
+        )
+    )
+
+    // Decoded on Dispatchers.Default, which the test clock does not wait for.
+    composeTestRule.waitUntil(5_000) {
+      val image = node(ListingDetailScreenTags.PHOTOS).captureToImage()
+      image.toPixelMap()[image.width / 4, image.height / 2] == Color.Red
+    }
+    node(ListingDetailScreenTags.PHOTO)
+        .assertContentDescriptionEquals(context.getString(R.string.listing_detail_photo, 1, 2))
+  }
+
+  @Test
+  fun buttonsOverThePhotos_stayTappable() {
+    var backs = 0
+    setContent(
+        ownerState(drillWithPhotos).copy(listingPhotos = mapOf(firstPhoto to redPhoto())),
+        ListingDetailActions(onBack = { backs++ }),
+    )
+
+    node(ListingDetailScreenTags.BACK_BUTTON).performClick()
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+
+    assertEquals(1, backs)
+    node(ListingDetailScreenTags.PAUSE_ITEM).assertIsDisplayed()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding, so the sizes are the photo's.
+  fun decodePhotoPreview_forTheDetail_keepsMoreDetailThanAThumbnail() = runTest {
+    val photo = decodePhotoPreview(redPhoto(sizePx = 2400), maxSize = LISTING_PHOTO_MAX_SIZE)
+
+    assertEquals(LISTING_PHOTO_MAX_SIZE, photo!!.width)
   }
 }
