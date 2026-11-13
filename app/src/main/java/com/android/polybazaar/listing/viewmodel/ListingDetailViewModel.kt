@@ -99,7 +99,7 @@ class ListingDetailViewModel(
 
   private var lenderObservation: Job? = null
 
-  /** The listing photos being downloaded, so that each is downloaded once at a time. */
+  /** The listing photos being downloaded, so that no photo is downloaded twice at once. */
   private val photosDownloading = mutableSetOf<String>()
 
   /** The viewer once read, kept for the rest of the screen's life (see [showListing]). */
