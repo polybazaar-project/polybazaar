@@ -37,7 +37,8 @@ import kotlinx.coroutines.launch
  *   photo).
  * @property listingPhotos the listing's photos downloaded so far, by Storage path (one of
  *   [Listing.imagePaths]). A photo still downloading, or whose download failed (offline, for
- *   example), is missing, and the screen shows the placeholder in its place.
+ *   example), is missing, and the screen shows the placeholder in its place. A reload keeps the
+ *   photos shown until their new download arrives.
  * @property pendingDetails the design fields no listing stores yet. Always empty for now, so the
  *   screen shows its "to be confirmed" text for them.
  * @property canContactLender whether "Message" and "Request booking" are enabled, from
@@ -243,12 +244,13 @@ class ListingDetailViewModel(
 
   /**
    * Downloads the listing photo at [path] into [ListingDetailUiState.listingPhotos], in its own
-   * coroutine so the rest of the screen never waits for it. A photo already downloaded or
-   * downloading is skipped, so a reload only downloads the ones still missing: Storage has no
-   * offline cache, so Retry after a failure is when they are tried again.
+   * coroutine so the rest of the screen never waits for it. Every load downloads it again, even if
+   * it is already shown: an edit can put a new photo at the same path (updateListing reuses free
+   * slots), and the old one stays shown until the new one arrives. A photo still downloading is
+   * skipped. Storage has no offline cache, so a failed photo is tried again on the next reload.
    */
   private fun downloadPhoto(path: String) {
-    if (path in _uiState.value.listingPhotos || !photosDownloading.add(path)) return
+    if (!photosDownloading.add(path)) return
     viewModelScope.launch {
       try {
         val photo = listingRepository.loadListingImage(path)

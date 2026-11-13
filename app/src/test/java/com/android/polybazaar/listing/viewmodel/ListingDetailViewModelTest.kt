@@ -676,7 +676,7 @@ class ListingDetailViewModelTest {
   }
 
   @Test
-  fun reload_retriesOnlyTheMissingPhotos() {
+  fun reload_afterAFailure_downloadsTheMissingPhotos() {
     listings.allListings = listOf(withPhotos)
     listings.imageFailure = UnknownHostException("firebasestorage.googleapis.com")
     val viewModel = loadedViewModel()
@@ -684,12 +684,35 @@ class ListingDetailViewModelTest {
     listings.imageFailure = null
     viewModel.loadListing()
     testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(photoA, photoB), viewModel.uiState.value.listingPhotos.keys)
+  }
+
+  @Test
+  fun reload_showsAPhotoReplacedAtTheSamePath() {
+    // An edit that replaces a photo can store the new one at the same path (a reused slot).
+    listings.allListings = listOf(withPhotos)
+    listings.images[photoA] = byteArrayOf(1)
+    val viewModel = loadedViewModel()
+
+    listings.images[photoA] = byteArrayOf(9)
     viewModel.loadListing()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    // Failed twice at first, downloaded on the first reload, then not again.
-    assertEquals(listOf(photoA, photoB, photoA, photoB), listings.loadedImagePaths)
-    assertEquals(setOf(photoA, photoB), viewModel.uiState.value.listingPhotos.keys)
+    assertTrue(viewModel.uiState.value.listingPhotos.getValue(photoA).contentEquals(byteArrayOf(9)))
+  }
+
+  @Test
+  fun reload_keepsThePhotoShownUntilItsNewDownloadArrives() {
+    listings.allListings = listOf(withPhotos)
+    listings.images[photoA] = byteArrayOf(1)
+    val viewModel = loadedViewModel()
+
+    listings.imageGate = CompletableDeferred()
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(viewModel.uiState.value.listingPhotos.getValue(photoA).contentEquals(byteArrayOf(1)))
   }
 
   @Test
