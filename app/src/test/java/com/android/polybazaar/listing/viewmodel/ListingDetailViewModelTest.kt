@@ -627,6 +627,137 @@ class ListingDetailViewModelTest {
     assertEquals(2, profiles.observedUids.size)
   }
 
+  /** The listing with two photos, stored at [photoA] and [photoB]. */
+  private val photoA = "listings/lender/drill/images/0"
+  private val photoB = "listings/lender/drill/images/1"
+  private val withPhotos = listing.copy(imagePaths = listOf(photoA, photoB))
+
+  @Test
+  fun listingWithPhotos_downloadsEachOnce() {
+    listings.allListings = listOf(withPhotos)
+    listings.images[photoA] = byteArrayOf(1)
+    listings.images[photoB] = byteArrayOf(2)
+
+    val photos = loadedViewModel().uiState.value.listingPhotos
+
+    assertEquals(setOf(photoA, photoB), photos.keys)
+    assertTrue(photos.getValue(photoA).contentEquals(byteArrayOf(1)))
+    assertEquals(listOf(photoA, photoB), listings.loadedImagePaths)
+  }
+
+  @Test
+  fun listingWithoutPhotos_downloadsNothing() {
+    assertTrue(loadedViewModel().uiState.value.listingPhotos.isEmpty())
+    assertTrue(listings.loadedImagePaths.isEmpty())
+  }
+
+  @Test
+  fun photosStillDownloading_doNotHoldBackTheListing() {
+    listings.allListings = listOf(withPhotos)
+    listings.imageGate = CompletableDeferred()
+
+    val state = loadedViewModel().uiState.value
+
+    assertEquals(withPhotos, state.listing)
+    assertFalse(state.isLoading)
+    assertTrue(state.listingPhotos.isEmpty())
+  }
+
+  @Test
+  fun failedPhoto_staysMissing_withoutError() {
+    listings.allListings = listOf(withPhotos)
+    listings.imageFailure = UnknownHostException("firebasestorage.googleapis.com")
+
+    val state = loadedViewModel().uiState.value
+
+    assertTrue(state.listingPhotos.isEmpty())
+    assertNull(state.error)
+    assertEquals(withPhotos, state.listing)
+  }
+
+  @Test
+  fun reload_afterAFailure_downloadsTheMissingPhotos() {
+    listings.allListings = listOf(withPhotos)
+    listings.imageFailure = UnknownHostException("firebasestorage.googleapis.com")
+    val viewModel = loadedViewModel()
+
+    listings.imageFailure = null
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(photoA, photoB), viewModel.uiState.value.listingPhotos.keys)
+  }
+
+  @Test
+  fun reload_showsAPhotoReplacedAtTheSamePath() {
+    // An edit that replaces a photo can store the new one at the same path (a reused slot).
+    listings.allListings = listOf(withPhotos)
+    listings.images[photoA] = byteArrayOf(1)
+    val viewModel = loadedViewModel()
+
+    listings.images[photoA] = byteArrayOf(9)
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(viewModel.uiState.value.listingPhotos.getValue(photoA).contentEquals(byteArrayOf(9)))
+  }
+
+  @Test
+  fun reload_keepsThePhotoShownUntilItsNewDownloadArrives() {
+    listings.allListings = listOf(withPhotos)
+    listings.images[photoA] = byteArrayOf(1)
+    val viewModel = loadedViewModel()
+
+    listings.imageGate = CompletableDeferred()
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(viewModel.uiState.value.listingPhotos.getValue(photoA).contentEquals(byteArrayOf(1)))
+  }
+
+  @Test
+  fun reload_whileAPhotoDownloads_doesNotDownloadItTwice() {
+    listings.allListings = listOf(withPhotos)
+    val gate = CompletableDeferred<Unit>()
+    listings.imageGate = gate
+    val viewModel = loadedViewModel()
+
+    // The reload reads the listing while both photos are still downloading.
+    viewModel.loadListing()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(photoA, photoB), listings.loadedImagePaths)
+  }
+
+  @Test
+  fun reload_withoutAPhoto_dropsIt() {
+    listings.allListings = listOf(withPhotos)
+    val viewModel = loadedViewModel()
+
+    listings.allListings = listOf(withPhotos.copy(imagePaths = listOf(photoB)))
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(photoB), viewModel.uiState.value.listingPhotos.keys)
+  }
+
+  @Test
+  fun photoArrivingAfterItWasRemoved_isNotShown() {
+    listings.allListings = listOf(withPhotos)
+    val gate = CompletableDeferred<Unit>()
+    listings.imageGate = gate
+    val viewModel = loadedViewModel()
+
+    listings.allListings = listOf(withPhotos.copy(imagePaths = listOf(photoB)))
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(photoB), viewModel.uiState.value.listingPhotos.keys)
+  }
+
   /**
    * A [ProfileRepository] whose [observeProfile] emits from one [MutableStateFlow] per uid, or
    * fails with [failure] when it is set. [loadProfilePhoto] answers from [photos], or fails with
