@@ -49,6 +49,9 @@ enum class ListingStatus {
  * @property listingStatus whether the listing is active, paused, deleted or could not be read.
  * @property listingPhotoPath Storage path of the listing's first photo, null when it has none or
  *   could not be read. The other person's photo path is [User.photoPath] of [otherUser].
+ * @property isUnread whether the last message is one the signed-in user has not read yet.
+ * @property isLastMessageMine whether the signed-in user sent the last message, so its preview
+ *   starts with "You: ".
  */
 data class InboxConversation(
     val conversation: Conversation,
@@ -56,6 +59,8 @@ data class InboxConversation(
     val listingTitle: String,
     val listingStatus: ListingStatus,
     val listingPhotoPath: String?,
+    val isUnread: Boolean = false,
+    val isLastMessageMine: Boolean = false,
 )
 
 /** State of the inbox screen. */
@@ -210,6 +215,8 @@ class InboxViewModel(
           listingTitle = listing.listing?.title ?: conversation.listingTitle,
           listingStatus = listing.status,
           listingPhotoPath = listing.listing?.imagePaths?.firstOrNull(),
+          isUnread = conversation.isUnreadFor(myUid),
+          isLastMessageMine = conversation.lastMessageSenderUid == myUid,
       )
     }
   }

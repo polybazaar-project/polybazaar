@@ -84,6 +84,13 @@ class ConversationViewModelTest {
   /** Creates the ViewModel and lets its loads finish. */
   private fun loadedViewModel(myUid: String = renter.uid) = viewModel(myUid).also { advance() }
 
+  /** Creates the ViewModel, shows its screen and lets its loads finish. */
+  private fun visibleViewModel(myUid: String = renter.uid) =
+      viewModel(myUid).also {
+        it.setVisible(true)
+        advance()
+      }
+
   /** Makes the conversation exist with [messages], without letting the ViewModel run yet. */
   private fun givenConversation(
       conversation: Conversation = this.conversation,
@@ -601,5 +608,128 @@ class ConversationViewModelTest {
     assertEquals(conversation, state.conversation)
     assertEquals(2, chat.observeConversationCalls)
     assertEquals(1, chat.observeMessagesCalls)
+  }
+
+  /** The conversation after Lena replied, which Remi has not read yet. */
+  private val unreadReply =
+      conversation.copy(
+          lastMessageAt = hi.sentAt,
+          lastMessageText = hi.text,
+          lastMessageSenderUid = lender.uid,
+      )
+
+  @Test
+  fun unreadConversation_isMarkedReadOnceWhenOpened() {
+    chat = FakeChatRepository(myUid = renter.uid)
+    givenConversation(unreadReply)
+
+    visibleViewModel()
+
+    assertEquals(listOf(unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun lender_opensAConversationWithAnUnreadMessage_marksItRead() {
+    chat = FakeChatRepository(myUid = lender.uid)
+    givenConversation(
+        conversation.copy(lastMessageText = hello.text, lastMessageSenderUid = renter.uid)
+    )
+
+    visibleViewModel(myUid = lender.uid)
+
+    assertEquals(listOf(conversation.id), chat.markedRead)
+  }
+
+  @Test
+  fun alreadyReadConversation_isNotMarkedRead() {
+    givenConversation(unreadReply.copy(lastReadAt = mapOf(renter.uid to hi.sentAt)))
+
+    visibleViewModel()
+
+    assertEquals(emptyList<String>(), chat.markedRead)
+  }
+
+  @Test
+  fun myOwnLastMessage_isNotMarkedRead() {
+    givenConversation(
+        conversation.copy(lastMessageText = hello.text, lastMessageSenderUid = renter.uid)
+    )
+
+    visibleViewModel()
+
+    assertEquals(emptyList<String>(), chat.markedRead)
+  }
+
+  @Test
+  fun newMessageFromTheOtherPersonWhileOpen_isMarkedReadAgain() {
+    chat = FakeChatRepository(myUid = renter.uid)
+    givenConversation(unreadReply)
+    visibleViewModel()
+
+    val read = chat.myConversations.value.getOrThrow().single()
+    val later = Instant.ofEpochSecond(300)
+    chat.myConversations.value =
+        Result.success(listOf(read.copy(lastMessageAt = later, lastMessageText = "Tomorrow?")))
+    advance()
+
+    assertEquals(listOf(unreadReply.id, unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun sameUnreadMessageEmittedAgain_isNotMarkedReadTwice() {
+    // Without myUid, the fake keeps the conversation unread, like a write still pending.
+    givenConversation(unreadReply)
+    visibleViewModel()
+
+    chat.myConversations.value = Result.success(listOf(unreadReply.copy(listingTitle = "Drill")))
+    advance()
+
+    assertEquals(listOf(unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun noConversationYet_isNotMarkedRead() {
+    visibleViewModel()
+
+    assertEquals(emptyList<String>(), chat.markedRead)
+  }
+
+  @Test
+  fun unreadConversation_isNotMarkedReadWhileTheScreenIsNotVisible() {
+    givenConversation(unreadReply)
+
+    loadedViewModel()
+
+    assertEquals(emptyList<String>(), chat.markedRead)
+  }
+
+  @Test
+  fun messageArrivedInTheBackground_isMarkedReadWhenTheScreenIsVisibleAgain() {
+    chat = FakeChatRepository(myUid = renter.uid)
+    givenConversation(unreadReply)
+    val viewModel = visibleViewModel()
+    viewModel.setVisible(false)
+
+    val read = chat.myConversations.value.getOrThrow().single()
+    chat.myConversations.value =
+        Result.success(listOf(read.copy(lastMessageAt = Instant.ofEpochSecond(300))))
+    advance()
+    assertEquals(listOf(unreadReply.id), chat.markedRead)
+
+    viewModel.setVisible(true)
+
+    assertEquals(listOf(unreadReply.id, unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun visibleAgainWithTheSameUnreadMessage_isNotMarkedReadTwice() {
+    // Without myUid, the fake keeps the conversation unread, like a write still pending.
+    givenConversation(unreadReply)
+    val viewModel = visibleViewModel()
+
+    viewModel.setVisible(false)
+    viewModel.setVisible(true)
+
+    assertEquals(listOf(unreadReply.id), chat.markedRead)
   }
 }

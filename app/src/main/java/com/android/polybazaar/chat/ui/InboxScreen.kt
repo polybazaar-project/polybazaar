@@ -75,8 +75,14 @@ object InboxScreenTags {
   const val EMPTY_STATE = "inbox_empty_state"
   const val BROWSE_BUTTON = "inbox_browse_button"
 
+  /** The dot next to the time of each unread row. */
+  const val UNREAD_DOT = "inbox_unread_dot"
+
   /** Tag of the row showing the conversation with [conversationId]. */
   fun row(conversationId: String) = "inbox_row_$conversationId"
+
+  /** Tag of the last message preview in the row of the conversation with [conversationId]. */
+  fun preview(conversationId: String) = "inbox_preview_$conversationId"
 }
 
 /** What the user can do on the inbox screen. */
@@ -316,9 +322,10 @@ private fun MessagesHeading() {
 }
 
 /**
- * One conversation: the listing photo, the other person, the listing title with its badge, and the
- * time since the last message. Without [onClick], the row is not clickable but TalkBack still reads
- * it as one item.
+ * One conversation: the listing photo, the other person, the listing title, the last message and
+ * the listing badge, and the time since the last message. An unread row has a bolder title, preview
+ * and time and a dot under the time; TalkBack reads "Unread" first, before the rest of the row.
+ * Without [onClick], the row is not clickable but TalkBack still reads it as one item.
  */
 @Composable
 private fun ConversationRow(
@@ -328,6 +335,7 @@ private fun ConversationRow(
     onClick: (() -> Unit)?,
 ) {
   val shape = RoundedCornerShape(20.dp)
+  val unread = stringResource(R.string.inbox_unread)
   Row(
       modifier =
           Modifier.padding(start = PageMargin, end = PageMargin, bottom = 10.dp)
@@ -345,6 +353,8 @@ private fun ConversationRow(
                           onClick = onClick,
                       )
               )
+              // Set on the row itself, TalkBack reads it before the texts of the row.
+              .semantics { if (row.isUnread) contentDescription = unread }
               .padding(12.dp)
               .testTag(InboxScreenTags.row(row.conversation.id)),
       horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -364,21 +374,75 @@ private fun ConversationRow(
           color = AuthColors.TextPrimary,
           fontSize = 14.sp,
           lineHeight = 19.sp,
-          fontWeight = FontWeight.SemiBold,
+          fontWeight = if (row.isUnread) FontWeight.Bold else FontWeight.SemiBold,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
       )
+      row.conversation.lastMessageText?.let { text ->
+        LastMessagePreview(
+            text = text,
+            isMine = row.isLastMessageMine,
+            isUnread = row.isUnread,
+            conversationId = row.conversation.id,
+        )
+      }
       ListingBadge(row.listingStatus)
     }
     inboxTime(row.conversation.lastMessageAt, now)?.let { time ->
-      val spoken = time.spokenLabel()
-      Text(
-          text = time.label(),
-          color = AuthColors.TextSecondary,
-          fontSize = 11.sp,
-          modifier = Modifier.semantics { contentDescription = spoken },
-      )
+      Column(
+          horizontalAlignment = Alignment.End,
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        val spoken = time.spokenLabel()
+        Text(
+            text = time.label(),
+            color = if (row.isUnread) AuthColors.Accent else AuthColors.TextSecondary,
+            fontSize = 11.sp,
+            fontWeight = if (row.isUnread) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.semantics { contentDescription = spoken },
+        )
+        UnreadDot(isUnread = row.isUnread)
+      }
     }
+  }
+}
+
+/** The last message, prefixed "You: " when [isMine]; darker and semibold when [isUnread]. */
+@Composable
+private fun LastMessagePreview(
+    text: String,
+    isMine: Boolean,
+    isUnread: Boolean,
+    conversationId: String,
+) {
+  Text(
+      text = if (isMine) stringResource(R.string.inbox_last_message_mine, text) else text,
+      color = if (isUnread) AuthColors.TextPrimary else AuthColors.TextSecondary,
+      fontSize = 13.sp,
+      lineHeight = 18.sp,
+      fontWeight = if (isUnread) FontWeight.SemiBold else FontWeight.Normal,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.testTag(InboxScreenTags.preview(conversationId)),
+  )
+}
+
+/**
+ * The accent dot of an unread row. TalkBack does not read it: the row itself says "Unread", so the
+ * state is not shown by colour only. A read row keeps the same empty space, so both rows have the
+ * same height.
+ */
+@Composable
+private fun UnreadDot(isUnread: Boolean) {
+  if (isUnread) {
+    Box(
+        modifier =
+            Modifier.size(7.dp)
+                .background(AuthColors.Accent, CircleShape)
+                .testTag(InboxScreenTags.UNREAD_DOT)
+    )
+  } else {
+    Box(modifier = Modifier.size(7.dp))
   }
 }
 
@@ -508,13 +572,24 @@ private fun rememberPhoto(photo: ByteArray?): ImageBitmap? {
   return decoded
 }
 
-/** A row in each listing status, for the IDE preview. Internal so a test can render it too. */
+/**
+ * A row in each listing status, for the IDE preview: an unread one, read ones with and without
+ * "You: ", and one without a preview. Internal so a test can render it too.
+ */
 @Preview(showBackground = true, widthDp = 412, heightDp = 844)
 @Composable
 internal fun InboxContentPreview() {
   val now = Instant.parse("2026-11-11T12:00:00Z")
   val james = User(uid = "james", email = "", username = "jamesrichard")
-  fun row(listingId: String, title: String, status: ListingStatus, minutesAgo: Long) =
+  fun row(
+      listingId: String,
+      title: String,
+      status: ListingStatus,
+      minutesAgo: Long,
+      lastMessage: String? = null,
+      isMine: Boolean = false,
+      isUnread: Boolean = false,
+  ) =
       InboxConversation(
           conversation =
               Conversation(
@@ -523,20 +598,44 @@ internal fun InboxContentPreview() {
                   renterUid = "me",
                   lenderUid = james.uid,
                   lastMessageAt = now.minus(Duration.ofMinutes(minutesAgo)),
+                  lastMessageText = lastMessage,
+                  lastMessageSenderUid = lastMessage?.let { if (isMine) "me" else james.uid },
               ),
           otherUser = james,
           listingTitle = title,
           listingStatus = status,
           listingPhotoPath = null,
+          isUnread = isUnread,
+          isLastMessageMine = isMine,
       )
   InboxContent(
       state =
           InboxUiState(
               conversations =
                   listOf(
-                      row("projector", "Mini projector", ListingStatus.ACTIVE, 5),
-                      row("tent", "Weekend camping tent", ListingStatus.PAUSED, 17),
-                      row("drill", "Bosch drill set", ListingStatus.UNKNOWN, 23),
+                      row(
+                          "projector",
+                          "Mini projector",
+                          ListingStatus.ACTIVE,
+                          5,
+                          lastMessage = "Sure, I can bring it to Rolex at 6pm.",
+                          isUnread = true,
+                      ),
+                      row(
+                          "tent",
+                          "Weekend camping tent",
+                          ListingStatus.PAUSED,
+                          17,
+                          lastMessage = "Thanks, see you on Saturday!",
+                          isMine = true,
+                      ),
+                      row(
+                          "drill",
+                          "Bosch drill set",
+                          ListingStatus.UNKNOWN,
+                          23,
+                          lastMessage = "Does it come with the bits?",
+                      ),
                       row("sewing", "Sewing machine", ListingStatus.DELETED, 60 * 24),
                   ),
               isLoading = false,

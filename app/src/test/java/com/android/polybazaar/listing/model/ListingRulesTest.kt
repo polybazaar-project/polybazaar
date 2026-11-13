@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.model
 
@@ -11,6 +11,7 @@ import com.android.polybazaar.listing.model.ListingRules.formatAmountInput
 import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
 import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -368,5 +369,46 @@ class ListingRulesTest {
       assertTrue(isValidPriceInput(formatAmountInput(it)))
     }
     assertTrue(isValidRefundInput(formatAmountInput(100_000.0)))
+  }
+
+  @Test
+  fun errorFor_availableDaysLimit() {
+    fun days(count: Int) = (0 until count).map { LocalDate.of(2026, 11, 10).plusDays(it.toLong()) }
+
+    assertNull(ListingRules.errorFor(item().copy(availableDates = days(366).toSet())))
+    assertNull(ListingRules.errorFor(service().copy(availableDates = days(1).toSet())))
+    assertEquals(
+        "A listing can have at most 366 available days",
+        ListingRules.errorFor(item().copy(availableDates = days(367).toSet())),
+    )
+  }
+
+  @Test
+  fun buildListing_putsTheAvailableDaysOnBothTypes() {
+    val days = setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 28))
+
+    val item =
+        ListingRules.buildListing(
+            ListingType.ITEM,
+            "Drill",
+            "Works well",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            availableDates = days,
+        )
+    val service =
+        ListingRules.buildListing(
+            ListingType.SERVICE,
+            "Tutoring",
+            "One hour",
+            "25",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+            availableDates = days,
+        )
+
+    assertEquals(days, item?.availableDates)
+    assertEquals(days, service?.availableDates)
   }
 }

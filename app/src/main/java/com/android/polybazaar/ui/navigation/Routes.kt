@@ -22,6 +22,8 @@ object Routes {
   const val EDIT_PROFILE = "edit_profile"
   const val SETTINGS = "settings"
   const val INBOX = "inbox"
+  const val RENTER_UID = "renterUid"
+  const val CONVERSATION = "conversation/{$LISTING_ID}/{$RENTER_UID}"
 
   /** The route of the "Edit listing" screen for the listing [listingId]. */
   fun editListing(listingId: String) = "edit_listing/${Uri.encode(listingId)}"
@@ -31,4 +33,11 @@ object Routes {
 
   /** The route of the profile of the lender with uid [lenderUid]. */
   fun lenderProfile(lenderUid: String) = "lender_profile/${Uri.encode(lenderUid)}"
+
+  /**
+   * The route of the conversation about the listing [listingId] between the renter [renterUid] and
+   * the listing's owner.
+   */
+  fun conversation(listingId: String, renterUid: String) =
+      "conversation/${Uri.encode(listingId)}/${Uri.encode(renterUid)}"
 }

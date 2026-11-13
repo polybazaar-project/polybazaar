@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.listing.ui
 
@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -42,6 +43,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
+import com.android.polybazaar.booking.ui.AvailabilityCalendarSheetTags
+import com.android.polybazaar.booking.ui.AvailabilityCalendarTags
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
@@ -49,9 +52,11 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import java.io.File
 import java.net.UnknownHostException
+import java.time.LocalDate
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -82,8 +87,10 @@ class CreateListingScreenTest {
       repository: RecordingListingRepository = RecordingListingRepository(),
       registry: FakePickerRegistry = FakePickerRegistry(),
       onListingCreated: (Listing) -> Unit = {},
+      today: () -> LocalDate = LocalDate::now,
   ): ListingFormViewModel {
-    val viewModel = ListingFormViewModel(null, repository, createStorage(), SavedStateHandle())
+    val viewModel =
+        ListingFormViewModel(null, repository, createStorage(), SavedStateHandle(), today)
     setContentWithRegistry(registry) {
       CreateListingScreen(listingViewModel = viewModel, onListingCreated = onListingCreated)
     }
@@ -1076,5 +1083,103 @@ class CreateListingScreenTest {
         error("Not used here")
 
     override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
+  }
+
+  // Availability
+
+  private val TODAY = LocalDate.of(2026, 11, 10)
+
+  private fun availabilityField() = node(CreateListingScreenTags.AVAILABILITY_FIELD)
+
+  @Test
+  fun availability_asksForDays_untilSomeAreChosen() {
+    composeTestRule.setContent {
+      CreateListingContent(
+          uiState = ListingFormUiState(today = TODAY),
+          actions = ListingFormActions(),
+      )
+    }
+
+    availabilityField()
+        .assertTextContains(context.getString(R.string.listing_form_availability_placeholder))
+  }
+
+  @Test
+  fun availability_showsTheChosenDays() {
+    val days =
+        setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 14), LocalDate.of(2026, 11, 28))
+    composeTestRule.setContent {
+      CreateListingContent(
+          uiState = ListingFormUiState(today = TODAY, availableDates = days),
+          actions = ListingFormActions(),
+      )
+    }
+
+    availabilityField().assertTextContains("13–14, 28 Nov")
+  }
+
+  @Test
+  fun tappingAvailability_opensTheCalendar_andAChosenDayReachesTheForm() {
+    // Today can always be chosen, and is in the month the calendar opens on.
+    val today = LocalDate.of(2026, 11, 10)
+    val viewModel = setContent(today = { today })
+
+    availabilityField().performScrollTo().performClick()
+    node(AvailabilityCalendarSheetTags.TITLE)
+        .assertTextEquals(context.getString(R.string.listing_form_availability_item_title))
+    node(AvailabilityCalendarTags.day(today)).performClick()
+
+    assertEquals(setOf(today), viewModel.uiState.value.availableDates)
+  }
+
+  @Test
+  fun availability_isNamedForTalkBack() {
+    composeTestRule.setContent {
+      CreateListingContent(
+          uiState = ListingFormUiState(today = TODAY),
+          actions = ListingFormActions(),
+      )
+    }
+
+    availabilityField()
+        .assertContentDescriptionEquals("Availability: Choose the days it is available")
+  }
+
+  @Test
+  fun availability_tellsTalkBackTheChosenDays() {
+    val days = setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 14))
+    composeTestRule.setContent {
+      CreateListingContent(
+          uiState = ListingFormUiState(today = TODAY, availableDates = days),
+          actions = ListingFormActions(),
+      )
+    }
+
+    availabilityField().assertContentDescriptionEquals("Availability: 13–14 Nov")
+  }
+
+  @Test
+  fun availability_cannotBeOpenedWhileSaving() {
+    composeTestRule.setContent {
+      CreateListingContent(
+          uiState = ListingFormUiState(today = TODAY, isSaving = true),
+          actions = ListingFormActions(),
+      )
+    }
+
+    availabilityField().assertIsNotEnabled().performClick()
+
+    node(AvailabilityCalendarSheetTags.TITLE).assertDoesNotExist()
+  }
+
+  @Test
+  fun aService_isAskedWhenItCanBeOffered() {
+    setContent()
+
+    node(CreateListingScreenTags.TYPE_SERVICE).performClick()
+    availabilityField().performScrollTo().performClick()
+
+    node(AvailabilityCalendarSheetTags.TITLE)
+        .assertTextEquals(context.getString(R.string.listing_form_availability_service_title))
   }
 }

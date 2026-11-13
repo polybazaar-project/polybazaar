@@ -4,6 +4,7 @@ package com.android.polybazaar.chat.model
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -20,7 +21,7 @@ class FirebaseChatRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val logWriteFailure: (Exception) -> Unit = {
-      Log.e("ChatRepository", "Message send failed", it)
+      Log.e("ChatRepository", "Chat write failed", it)
     },
 ) : ChatRepository {
 
@@ -41,6 +42,7 @@ class FirebaseChatRepository(
     }
     val conversationRef = conversationDocument(conversation.id)
     val messageRef = conversationRef.collection(MESSAGES).document()
+    val trimmed = text.trim()
     val conversationFields =
         mutableMapOf<String, Any>(
             "listingId" to conversation.listingId,
@@ -49,6 +51,11 @@ class FirebaseChatRepository(
             "participants" to conversation.participants,
             "lastMessageAt" to FieldValue.serverTimestamp(),
             "lastMessageId" to messageRef.id,
+            "lastMessageText" to trimmed,
+            "lastMessageSenderUid" to senderUid,
+            // The merge sets only my key, so the other participant's read time is kept, and my own
+            // message never shows as unread to me.
+            "lastReadAt" to mapOf(senderUid to FieldValue.serverTimestamp()),
         )
     // A reply leaves the title as stored, so an outdated title on this device cannot get the
     // reply rejected.
@@ -66,7 +73,7 @@ class FirebaseChatRepository(
             messageRef,
             mapOf(
                 "senderUid" to senderUid,
-                "text" to text.trim(),
+                "text" to trimmed,
                 "sentAt" to FieldValue.serverTimestamp(),
             ),
         )
@@ -75,6 +82,16 @@ class FirebaseChatRepository(
           logWriteFailure(it)
           onWriteFailure(it)
         }
+  }
+
+  override fun markRead(conversationId: String) {
+    val uid = auth.currentUser?.uid ?: return
+    // Not awaited, like sendMessage: the write is queued offline and the listener sees it at once.
+    // Until the server confirms it, the read time is this device's clock, so with a clock behind
+    // the server's lastMessageAt the conversation still shows unread until then.
+    conversationDocument(conversationId)
+        .update(FieldPath.of("lastReadAt", uid), FieldValue.serverTimestamp())
+        .addOnFailureListener(Executor { it.run() }) { logWriteFailure(it) }
   }
 
   override fun observeConversation(id: String): Flow<Conversation?> = callbackFlow {
@@ -170,12 +187,23 @@ class FirebaseChatRepository(
     fun string(field: String): String =
         getString(field) ?: throw IllegalStateException("Conversation $id is missing $field")
 
+    val listingId = string("listingId")
+    val listingTitle = string("listingTitle")
+    val renterUid = string("renterUid")
+    val lenderUid = string("lenderUid")
+    // Conversations created before previews existed have none of the last three fields.
     return Conversation(
-        listingId = string("listingId"),
-        listingTitle = string("listingTitle"),
-        renterUid = string("renterUid"),
-        lenderUid = string("lenderUid"),
+        listingId = listingId,
+        listingTitle = listingTitle,
+        renterUid = renterUid,
+        lenderUid = lenderUid,
         lastMessageAt = instant("lastMessageAt"),
+        lastMessageText = getString("lastMessageText"),
+        lastMessageSenderUid = getString("lastMessageSenderUid"),
+        lastReadAt =
+            listOf(renterUid, lenderUid)
+                .mapNotNull { uid -> instant("lastReadAt.$uid")?.let { uid to it } }
+                .toMap(),
     )
   }
 
