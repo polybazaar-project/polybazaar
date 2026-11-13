@@ -49,6 +49,9 @@ enum class ListingStatus {
  * @property listingStatus whether the listing is active, paused, deleted or could not be read.
  * @property listingPhotoPath Storage path of the listing's first photo, null when it has none or
  *   could not be read. The other person's photo path is [User.photoPath] of [otherUser].
+ * @property isUnread whether the last message is one the signed-in user has not read yet.
+ * @property isLastMessageMine whether the signed-in user sent the last message, so its preview
+ *   starts with "You: ".
  */
 data class InboxConversation(
     val conversation: Conversation,
@@ -56,6 +59,8 @@ data class InboxConversation(
     val listingTitle: String,
     val listingStatus: ListingStatus,
     val listingPhotoPath: String?,
+    val isUnread: Boolean = false,
+    val isLastMessageMine: Boolean = false,
 )
 
 /** State of the inbox screen. */
@@ -86,6 +91,17 @@ class InboxViewModel(
   val uiState: StateFlow<InboxUiState> = _uiState.asStateFlow()
 
   private var loadJob: Job? = null
+  private var loadedUid: String? = null
+
+  /**
+   * Loads the conversations of [myUid] when the screen appears, unless a load for [myUid] is still
+   * running without error. Coming back to the tab then keeps the rows and photos instead of loading
+   * them again. After an error, or for another user, it loads again like [loadInbox].
+   */
+  fun openInbox(myUid: String) {
+    val running = loadJob?.isActive == true && myUid == loadedUid && _uiState.value.error == null
+    if (!running) loadInbox(myUid)
+  }
 
   /**
    * Loads the conversations of [myUid], the signed-in user, and keeps them updated. Calling it
@@ -96,6 +112,7 @@ class InboxViewModel(
    */
   fun loadInbox(myUid: String) {
     loadJob?.cancel()
+    loadedUid = myUid
     _uiState.value = InboxUiState()
     loadJob = viewModelScope.launch { collectConversations(myUid) }
   }
@@ -198,6 +215,8 @@ class InboxViewModel(
           listingTitle = listing.listing?.title ?: conversation.listingTitle,
           listingStatus = listing.status,
           listingPhotoPath = listing.listing?.imagePaths?.firstOrNull(),
+          isUnread = conversation.isUnreadFor(myUid),
+          isLastMessageMine = conversation.lastMessageSenderUid == myUid,
       )
     }
   }

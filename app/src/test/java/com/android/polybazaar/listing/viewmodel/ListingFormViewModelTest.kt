@@ -1,5 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
-// Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 package com.android.polybazaar.listing.viewmodel
 
 import android.net.Uri
@@ -22,6 +22,7 @@ import com.android.polybazaar.listing.model.TakenPhoto
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.io.IOException
 import java.net.UnknownHostException
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +65,7 @@ class ListingFormViewModelTest {
     repository = FakeListingRepository()
     photoStorage = FakePhotoStorage()
     savedStateHandle = SavedStateHandle()
-    viewModel = ListingFormViewModel(null, repository, photoStorage, savedStateHandle)
+    viewModel = ListingFormViewModel(null, repository, photoStorage, savedStateHandle) { today }
   }
 
   @After
@@ -101,7 +102,7 @@ class ListingFormViewModelTest {
   @Test
   fun initialState_isAnEmptyItemForm() {
     // A fresh ViewModel must not be creating, hold a listing or show an error.
-    assertEquals(ListingFormUiState(), viewModel.uiState.value)
+    assertEquals(ListingFormUiState(today = today), viewModel.uiState.value)
     assertNull(viewModel.uiState.value.listing)
     assertFalse(viewModel.uiState.value.canSave)
   }
@@ -339,7 +340,7 @@ class ListingFormViewModelTest {
 
     assertEquals(uris(2), photoStorage.deleted)
     // Coming back to the form must not offer to create the same listing again.
-    assertEquals(ListingFormUiState(savedListing = listing), viewModel.uiState.value)
+    assertEquals(ListingFormUiState(today = today, savedListing = listing), viewModel.uiState.value)
     assertFalse(viewModel.uiState.value.canSave)
   }
 
@@ -1066,5 +1067,91 @@ class ListingFormViewModelTest {
     override fun deleteAllExcept(keep: List<Uri>) {
       keptOnCleanup += keep
     }
+  }
+
+  // Available days
+
+  private val today = LocalDate.of(2026, 11, 10)
+  private val chosenDays = setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 28))
+
+  @Test
+  fun updateAvailableDates_putsThemInTheListing() = runTest {
+    fillForm()
+
+    viewModel.updateAvailableDates(chosenDays)
+
+    assertEquals(chosenDays, viewModel.uiState.value.availableDates)
+    assertEquals(chosenDays, viewModel.uiState.value.listing?.availableDates)
+  }
+
+  @Test
+  fun aListingWithoutAvailableDays_canStillBeSaved() = runTest {
+    fillForm()
+
+    assertTrue(viewModel.uiState.value.canSave)
+    assertEquals(emptySet<LocalDate>(), viewModel.uiState.value.listing?.availableDates)
+  }
+
+  @Test
+  fun availableDates_surviveTheAppBeingKilled() = runTest {
+    viewModel.updateAvailableDates(chosenDays)
+
+    val restored =
+        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle)) {
+          today
+        }
+
+    assertEquals(chosenDays, restored.uiState.value.availableDates)
+  }
+
+  @Test
+  fun save_afterTheDayChanged_leavesOutTheDaysNowPast() = runTest {
+    var now = today
+    val form = ListingFormViewModel(null, repository, photoStorage, SavedStateHandle()) { now }
+    viewModel = form
+    fillForm()
+    form.updateAvailableDates(chosenDays)
+
+    now = LocalDate.of(2026, 11, 20)
+    form.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(LocalDate.of(2026, 11, 28)), repository.createdListing?.availableDates)
+  }
+
+  @Test
+  fun availableDates_restoredOnALaterDay_leaveOutTheDaysNowPast() = runTest {
+    viewModel.updateAvailableDates(chosenDays)
+    val laterDay = LocalDate.of(2026, 11, 20)
+
+    val restored =
+        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle)) {
+          laterDay
+        }
+
+    assertEquals(setOf(LocalDate.of(2026, 11, 28)), restored.uiState.value.availableDates)
+    assertEquals(laterDay, restored.uiState.value.today)
+  }
+
+  @Test
+  fun edit_showsTheStoredAvailableDays_withoutThePastOnes() = runTest {
+    repository.storedListing =
+        storedItem.copy(availableDates = chosenDays + LocalDate.of(2026, 11, 9) + today)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(chosenDays + today, editViewModel.uiState.value.availableDates)
+  }
+
+  @Test
+  fun edit_savesTheChangedAvailableDays() = runTest {
+    val editViewModel = editForm()
+
+    editViewModel.updateAvailableDates(chosenDays)
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(chosenDays, repository.updatedListings.single().availableDates)
   }
 }

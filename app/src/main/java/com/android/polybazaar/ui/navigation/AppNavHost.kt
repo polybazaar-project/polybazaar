@@ -56,18 +56,28 @@ import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.chat.model.ChatRepository
+import com.android.polybazaar.chat.ui.ConversationScreen
+import com.android.polybazaar.chat.ui.InboxScreen
+import com.android.polybazaar.chat.viewmodel.ConversationViewModel
+import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
 import com.android.polybazaar.listing.ui.EditListingScreen
+import com.android.polybazaar.listing.ui.ListingDetailActions
+import com.android.polybazaar.listing.ui.ListingDetailScreen
+import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
+import com.android.polybazaar.profile.ui.LenderProfileScreen
 import com.android.polybazaar.profile.ui.ProfileContent
 import com.android.polybazaar.profile.viewmodel.EditProfileViewModel
+import com.android.polybazaar.profile.viewmodel.LenderProfileViewModel
 import com.android.polybazaar.profile.viewmodel.ProfileViewModel
 import com.android.polybazaar.settings.ui.SettingsContent
 import com.android.polybazaar.toolbox.ui.ToolboxCard
@@ -83,8 +93,8 @@ object AppNavHostTags {
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
  * checked, then routes a signed-in user to Browse, or to the verify email screen while their email
- * is not verified, and everyone else to sign-in. Browse, Create listing and Profile share a bottom
- * bar.
+ * is not verified, and everyone else to sign-in. Browse, Create listing, Conversations and Profile
+ * share a bottom bar.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
@@ -92,6 +102,7 @@ object AppNavHostTags {
  * @param authRepository used by the screens that need their own ViewModel, such as forgot password.
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
+ * @param chatRepository gives the Conversations screen the signed-in user's conversations.
  * @param photoStorage keeps the photos of the listing being created.
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
@@ -104,6 +115,7 @@ fun AppNavHost(
     listingRepository: ListingRepository,
     photoStorage: PhotoStorage,
     editPhotoStorage: PhotoStorage,
+    chatRepository: ChatRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -244,7 +256,10 @@ fun AppNavHost(
                   factory =
                       viewModelFactory { initializer { BrowseViewModel(listingRepository, uid) } },
               )
-          BrowseScreen(viewModel = browseViewModel)
+          BrowseScreen(
+              viewModel = browseViewModel,
+              onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+          )
         }
         composable(Routes.CREATE_LISTING) {
           val listingViewModel: ListingFormViewModel =
@@ -293,6 +308,134 @@ fun AppNavHost(
               onListingSaved = { navController.popBackStack() },
           )
         }
+        composable(
+            route = Routes.LISTING_DETAIL,
+            arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
+        ) { entry ->
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          // Scoped to this entry: each listing opened gets its own ViewModel.
+          val detailViewModel: ListingDetailViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          ListingDetailViewModel(
+                              listingId = listingId,
+                              listingRepository = listingRepository,
+                              profileRepository = profileRepository,
+                              authRepository = authRepository,
+                          )
+                        }
+                      }
+              )
+          // The listing is read once, so coming back to it, for example after editing it, loads
+          // it again. On opening, the ViewModel ignores this call while its first load runs.
+          LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { detailViewModel.loadListing() }
+          ListingDetailScreen(
+              viewModel = detailViewModel,
+              actions =
+                  ListingDetailActions(
+                      onBack = { navController.popBackStack() },
+                      onOpenLender = { navController.navigate(Routes.lenderProfile(it)) },
+                      // The owner's actions (#258). Coming back from Edit reloads the listing
+                      // through the ON_RESUME above; after a delete, back to where the owner came
+                      // from (Toolbox, Browse or a profile), which reloads its own list.
+                      onEdit = {
+                        navController.navigate(Routes.editListing(it)) { launchSingleTop = true }
+                      },
+                      onDeleted = { navController.popBackStack() },
+                      // The viewer messages the owner as the renter. Single top, so a double tap
+                      // does not stack two conversation screens.
+                      onMessageLender = {
+                        uiState.user?.uid?.let { uid ->
+                          navController.navigate(Routes.conversation(listingId, uid)) {
+                            launchSingleTop = true
+                          }
+                        }
+                      },
+                  ),
+          )
+        }
+        composable(
+            route = Routes.LENDER_PROFILE,
+            arguments = listOf(navArgument(Routes.LENDER_UID) { type = NavType.StringType }),
+        ) { entry ->
+          val lenderUid = entry.arguments?.getString(Routes.LENDER_UID) ?: return@composable
+          val lenderViewModel: LenderProfileViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer { LenderProfileViewModel(profileRepository, listingRepository) }
+                      }
+              )
+          LenderProfileScreen(
+              viewModel = lenderViewModel,
+              lenderUid = lenderUid,
+              onBack = { navController.popBackStack() },
+              onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+          )
+        }
+        composable(
+            route = Routes.CONVERSATION,
+            arguments =
+                listOf(
+                    navArgument(Routes.LISTING_ID) { type = NavType.StringType },
+                    navArgument(Routes.RENTER_UID) { type = NavType.StringType },
+                ),
+        ) { entry ->
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val uid = uiState.user?.uid ?: return@composable
+          // The route requires both, so they are always there.
+          val listingId = entry.arguments!!.getString(Routes.LISTING_ID)!!
+          val renterUid = entry.arguments!!.getString(Routes.RENTER_UID)!!
+          // Scoped to this entry: each conversation opened gets its own ViewModel.
+          val conversationViewModel: ConversationViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          ConversationViewModel(
+                              listingId = listingId,
+                              renterUid = renterUid,
+                              myUid = uid,
+                              chatRepository = chatRepository,
+                              profileRepository = profileRepository,
+                              listingRepository = listingRepository,
+                          )
+                        }
+                      }
+              )
+          ConversationScreen(
+              viewModel = conversationViewModel,
+              onBack = { navController.popBackStack() },
+          )
+        }
+        composable(Routes.INBOX) {
+          // Renders nothing for the frame between sign-out and the redirect to sign-in.
+          val uid = uiState.user?.uid ?: return@composable
+          // Keyed by uid: the conversations belong to the signed-in user.
+          val inboxViewModel: InboxViewModel =
+              viewModel(
+                  key = "inbox_$uid",
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          InboxViewModel(chatRepository, profileRepository, listingRepository)
+                        }
+                      },
+              )
+          InboxScreen(
+              viewModel = inboxViewModel,
+              myUid = uid,
+              // The conversation's own renter, so this works for the renter and the lender alike.
+              onConversationClick = {
+                navController.navigate(Routes.conversation(it.listingId, it.renterUid)) {
+                  launchSingleTop = true
+                }
+              },
+              onBrowse = { navController.navigateToTab(Routes.BROWSE) },
+          )
+        }
         composable(Routes.PROFILE) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
@@ -322,7 +465,12 @@ fun AppNavHost(
               onOpenSettings = {
                 navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
               },
-              toolbox = { ToolboxCard(viewModel = toolboxViewModel) },
+              toolbox = {
+                ToolboxCard(
+                    viewModel = toolboxViewModel,
+                    onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+                )
+              },
           )
         }
         composable(Routes.EDIT_PROFILE) {
@@ -405,6 +553,10 @@ private val signedInRoutes =
         Routes.BROWSE,
         Routes.CREATE_LISTING,
         Routes.EDIT_LISTING,
+        Routes.LISTING_DETAIL,
+        Routes.LENDER_PROFILE,
+        Routes.INBOX,
+        Routes.CONVERSATION,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,

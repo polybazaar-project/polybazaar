@@ -24,8 +24,15 @@ import kotlinx.coroutines.flow.map
  * which a test invokes to simulate a later server rejection. It then waits for [gate] if set, to
  * look at a send in progress, and throws [sendFailure] if set, like a send refused before queuing;
  * such a call is still recorded.
+ *
+ * [markRead] records every id in [markedRead]. When [myUid] is set and the conversation is in
+ * [myConversations] with a last message, it also sets [myUid]'s lastReadAt to that message's time
+ * and emits the updated list, like a local write the listener sees at once.
  */
-class FakeChatRepository(conversations: List<Conversation> = emptyList()) : ChatRepository {
+class FakeChatRepository(
+    conversations: List<Conversation> = emptyList(),
+    private val myUid: String? = null,
+) : ChatRepository {
   val myConversations = MutableStateFlow(Result.success(conversations))
 
   /** The messages of each conversation, by conversation id. */
@@ -39,6 +46,9 @@ class FakeChatRepository(conversations: List<Conversation> = emptyList()) : Chat
 
   /** The `onWriteFailure` callbacks passed to [sendMessage], in order. */
   val writeFailureCallbacks = mutableListOf<(Exception) -> Unit>()
+
+  /** The ids passed to [markRead], in order. */
+  val markedRead = mutableListOf<String>()
 
   var sendFailure: Exception? = null
   var gate: CompletableDeferred<Unit>? = null
@@ -60,6 +70,20 @@ class FakeChatRepository(conversations: List<Conversation> = emptyList()) : Chat
     writeFailureCallbacks += onWriteFailure
     gate?.await()
     sendFailure?.let { throw it }
+  }
+
+  override fun markRead(conversationId: String) {
+    markedRead += conversationId
+    val uid = myUid ?: return
+    val conversations = myConversations.value.getOrNull() ?: return
+    myConversations.value =
+        Result.success(
+            conversations.map { conversation ->
+              val readAt = conversation.lastMessageAt
+              if (conversation.id != conversationId || readAt == null) conversation
+              else conversation.copy(lastReadAt = conversation.lastReadAt + (uid to readAt))
+            }
+        )
   }
 
   override fun observeConversation(id: String): Flow<Conversation?> {

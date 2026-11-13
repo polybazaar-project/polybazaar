@@ -23,6 +23,16 @@ interface ChatRepository {
   )
 
   /**
+   * Marks the conversation with this ID as read by the signed-in user: sets only their lastReadAt
+   * to the server time. Like [sendMessage], the write is queued without waiting for the server, so
+   * it works offline. It never throws: a failure is only logged, and when signed out nothing is
+   * written. Until the server confirms the write, the read time is estimated from the device's
+   * clock, so on a device whose clock is behind, the conversation can still read as unread until
+   * then.
+   */
+  fun markRead(conversationId: String)
+
+  /**
    * Emits the conversation with this ID. For the renter it emits null while the conversation does
    * not exist yet; for the lender the flow fails with PERMISSION_DENIED until the first message
    * exists.

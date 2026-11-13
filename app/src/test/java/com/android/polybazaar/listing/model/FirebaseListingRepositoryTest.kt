@@ -1,5 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
-// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot Claude Sonnet 5.5
 package com.android.polybazaar.listing.model
 
@@ -22,6 +22,7 @@ import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -393,6 +394,73 @@ class FirebaseListingRepositoryTest {
     assertEquals(14, stored.firstValue["maxRentalDays"])
     // No limit: the key is left out, like on a listing written before the field existed.
     assertFalse(stored.secondValue.containsKey("maxRentalDays"))
+  }
+
+  @Test
+  fun createListing_storesTheAvailableDaysInOrder_onlyWhenThereAreSome() = runTest {
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val drill = ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Drill", "With bits")
+    val days = setOf(LocalDate.of(2026, 11, 14), LocalDate.of(2026, 11, 13))
+
+    repository.createListing(drill.copy(availableDates = days))
+    repository.createListing(drill)
+
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(newDocument, times(2)).set(stored.capture())
+    assertEquals(
+        listOf(LocalDate.of(2026, 11, 13).toEpochDay(), LocalDate.of(2026, 11, 14).toEpochDay()),
+        stored.firstValue["availableDates"],
+    )
+    // No day: the key is left out, like on a listing written before the field existed.
+    assertFalse(stored.secondValue.containsKey("availableDates"))
+  }
+
+  @Test
+  fun updateListing_removingEveryAvailableDay_deletesThemFromTheDocument() = runTest {
+    givenStoredListing(itemFields + ("availableDates" to listOf(20770L)))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val withoutDays =
+        ItemListing(
+            ListingCategory.ITEM_TOOLS,
+            8.0,
+            "Bosch drill set",
+            "With bits",
+            refundValue = 120.0,
+            listingId = listingId,
+        )
+
+    repository.updateListing(withoutDays)
+    repository.updateListing(withoutDays.copy(availableDates = setOf(LocalDate.ofEpochDay(20771))))
+
+    val written = argumentCaptor<Map<String, Any>>()
+    verify(document, times(2)).update(written.capture())
+    assertEquals(FieldValue.delete(), written.firstValue["availableDates"])
+    assertEquals(listOf(20771L), written.secondValue["availableDates"])
+  }
+
+  @Test
+  fun getAllListings_readsTheAvailableDays_andLeavesOutWhatIsNotADay() = runTest {
+    givenAllListings(
+        // Firestore returns whole numbers as Long.
+        listingDocument("days", itemFields + ("availableDates" to listOf(20770L, 20771))),
+        // Written before the field existed.
+        listingDocument("absent", itemFields),
+        // The rules cannot check each entry, so the app skips what is not a whole number.
+        listingDocument("mixed", itemFields + ("availableDates" to listOf(20770L, "x", 1.5))),
+        listingDocument("not-a-list", itemFields + ("availableDates" to "tomorrow")),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(
+        listOf(
+            "days" to setOf(LocalDate.ofEpochDay(20770), LocalDate.ofEpochDay(20771)),
+            "absent" to emptySet(),
+            "mixed" to setOf(LocalDate.ofEpochDay(20770)),
+            "not-a-list" to emptySet(),
+        ),
+        result.map { it.listingId to it.availableDates },
+    )
   }
 
   @Test
@@ -913,6 +981,8 @@ class FirebaseListingRepositoryTest {
                     "title" to "Math tutoring",
                     "description" to "Two-hour session",
                     "imagePaths" to listOf(path(0), path(1)),
+                    // No day is offered, so any stored before are removed.
+                    "availableDates" to FieldValue.delete(),
                 )
             )
         )

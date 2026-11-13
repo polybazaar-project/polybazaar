@@ -7,13 +7,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
-import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -34,6 +34,7 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.testing.hasClickLabel
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import java.net.UnknownHostException
@@ -161,15 +162,16 @@ class ToolboxCardTest {
 
     val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
     rows.assertCountEquals(2)
+    // Each row is one button, so its texts are merged into it.
     val perDay = string(R.string.browse_price_per_day)
-    rows[0].assert(hasAnyDescendant(hasText("Bosch drill set")))
-    rows[0].assert(hasAnyDescendant(hasText("Tools · ")))
-    rows[0].assert(hasAnyDescendant(hasText("CHF 8")))
-    rows[0].assert(hasAnyDescendant(hasText(perDay)))
-    rows[1].assert(hasAnyDescendant(hasText("Math tutoring")))
-    rows[1].assert(hasAnyDescendant(hasText("Tutoring · ")))
-    rows[1].assert(hasAnyDescendant(hasText("CHF 25.50")))
-    rows[1].assert(hasAnyDescendant(hasText(perDay)))
+    rows[0].assert(hasText("Bosch drill set"))
+    rows[0].assert(hasText("Tools · "))
+    rows[0].assert(hasText("CHF 8"))
+    rows[0].assert(hasText(perDay))
+    rows[1].assert(hasText("Math tutoring"))
+    rows[1].assert(hasText("Tutoring · "))
+    rows[1].assert(hasText("CHF 25.50"))
+    rows[1].assert(hasText(perDay))
     // The listing type is no longer written out on the rows.
     composeTestRule.onNodeWithText("Item").assertDoesNotExist()
     composeTestRule.onNodeWithText("Service").assertDoesNotExist()
@@ -391,13 +393,40 @@ class ToolboxCardTest {
     composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
   }
 
+  @Test
+  fun tappingAListingRow_opensThatListing() {
+    val opened = mutableListOf<String>()
+    setContent(uiState = ToolboxUiState(listings = myListings), onOpenListing = { opened += it })
+
+    composeTestRule
+        .onNode(hasTestTag(ToolboxCardTags.LISTING_ROW) and hasText("Math tutoring"))
+        .assert(hasClickLabel(string(R.string.open_listing)))
+        .performClick()
+
+    assertEquals(listOf("math"), opened)
+  }
+
+  @Test
+  fun listingWithoutId_cannotBeTapped() {
+    val unsaved = ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Unsaved drill", "")
+    setContent(uiState = ToolboxUiState(listings = listOf(unsaved)))
+
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertHasNoClickAction()
+  }
+
   private fun setContent(
       uiState: ToolboxUiState,
       onRetry: () -> Unit = {},
       onTypeSelected: (ListingType?) -> Unit = {},
+      onOpenListing: (String) -> Unit = {},
   ) {
     composeTestRule.setContent {
-      ToolboxContent(uiState = uiState, onRetry = onRetry, onTypeSelected = onTypeSelected)
+      ToolboxContent(
+          uiState = uiState,
+          onRetry = onRetry,
+          onTypeSelected = onTypeSelected,
+          onOpenListing = onOpenListing,
+      )
     }
   }
 

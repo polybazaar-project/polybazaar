@@ -23,6 +23,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -111,7 +112,7 @@ class InboxViewModelTest {
 
   /**
    * The row for [conversation] with [otherUser], its listing active under its stored title and
-   * without photos.
+   * without photos, unread for me as [Conversation.isUnreadFor] says.
    */
   private fun row(conversation: Conversation, otherUser: User?) =
       InboxConversation(
@@ -120,6 +121,7 @@ class InboxViewModelTest {
           conversation.listingTitle,
           ListingStatus.ACTIVE,
           listingPhotoPath = null,
+          isUnread = conversation.isUnreadFor(me.uid),
       )
 
   /** The state once [rows] are shown, with [error] if loading then failed. */
@@ -623,5 +625,112 @@ class InboxViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
     assertEquals(mapOf(alicePhoto to 2), profiles.photoLoads)
     assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun openInbox_firstTime_loadsTheInbox() {
+    given(drillWithAlice)
+
+    viewModel.openInbox(me.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(loaded(row(drillWithAlice, alice)), viewModel.uiState.value)
+  }
+
+  @Test
+  fun openInboxAgain_whileItLoads_keepsTheRowsAndPhotos() {
+    // Coming back to the Conversations tab: the screen opens the inbox again.
+    givePhotos()
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.openInbox(me.uid)
+
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertFalse(viewModel.uiState.value.isLoading)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(1, chat.myConversations.subscriptionCount.value)
+    assertEquals(mapOf(alicePhoto to 1), profiles.photoLoads)
+  }
+
+  @Test
+  fun openInboxAgain_afterAFailure_loadsAgainEvenWhileAPhotoDownloads() {
+    // The waiting download keeps the failed load running, so only the error tells it apart.
+    givePhotos()
+    profiles.photoGate = CompletableDeferred()
+    given(drillWithAlice)
+    loadInbox()
+    fail(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    profiles.photoGate = null
+    given(drillWithAlice)
+    viewModel.openInbox(me.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listOf(drillWithAlice), shownConversations())
+    assertEquals(setOf(drillPhoto, alicePhoto), photoPaths())
+  }
+
+  @Test
+  fun openInbox_asAnotherUser_loadsTheirInbox() {
+    given(drillWithAlice)
+    loadInbox()
+
+    viewModel.openInbox(alice.uid)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, chat.myConversations.subscriptionCount.value)
+    assertEquals(loaded(row(drillWithAlice, me)), viewModel.uiState.value)
+  }
+
+  /** The only row shown once [conversation] is loaded in my inbox. */
+  private fun loadedRow(conversation: Conversation): InboxConversation {
+    given(conversation)
+    loadInbox()
+    return viewModel.uiState.value.conversations.single()
+  }
+
+  @Test
+  fun lastMessageFromTheOtherPersonINeverRead_isUnreadAndNotMine() {
+    val row =
+        loadedRow(drillWithAlice.copy(lastMessageText = "Hi", lastMessageSenderUid = alice.uid))
+
+    assertTrue(row.isUnread)
+    assertFalse(row.isLastMessageMine)
+  }
+
+  @Test
+  fun lastMessageIReadAlready_isNotUnread() {
+    val read =
+        drillWithAlice.copy(
+            lastMessageText = "Hi",
+            lastMessageSenderUid = alice.uid,
+            lastReadAt = mapOf(me.uid to Instant.ofEpochSecond(200)),
+        )
+
+    assertFalse(loadedRow(read).isUnread)
+  }
+
+  @Test
+  fun myOwnLastMessage_isMineAndNotUnread() {
+    val row = loadedRow(drillWithAlice.copy(lastMessageText = "Hi", lastMessageSenderUid = me.uid))
+
+    assertTrue(row.isLastMessageMine)
+    assertFalse(row.isUnread)
+  }
+
+  @Test
+  fun asTheLender_theRentersUnreadMessage_isUnreadAndNotMine() {
+    val row = loadedRow(bikeWithBob.copy(lastMessageText = "Hi", lastMessageSenderUid = bob.uid))
+
+    assertTrue(row.isUnread)
+    assertFalse(row.isLastMessageMine)
+  }
+
+  @Test
+  fun conversationStoredBeforePreviews_isNotMine() {
+    assertFalse(loadedRow(drillWithAlice).isLastMessageMine)
   }
 }

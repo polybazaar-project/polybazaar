@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.chat.model.FirebaseChatRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
 import com.android.polybazaar.photo.JpegPhotoCompressor
@@ -54,6 +55,7 @@ class MainActivity : ComponentActivity() {
                   remember { FilePhotoStorage(applicationContext, FilePhotoStorage.CREATE_FORM) },
               editPhotoStorage =
                   remember { FilePhotoStorage(applicationContext, FilePhotoStorage.EDIT_FORM) },
+              chatRepository = remember { FirebaseChatRepository() },
           )
         }
       }

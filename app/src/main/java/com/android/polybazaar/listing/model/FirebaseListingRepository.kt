@@ -1,5 +1,5 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
-// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.2)
 // Co-authored-by: Copilot Claude Sonnet 5.5
 package com.android.polybazaar.listing.model
 
@@ -13,6 +13,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageReference
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.tasks.await
@@ -239,6 +240,11 @@ class FirebaseListingRepository(
         put("title", title.trim())
         put("description", description.trim())
         put("imagePaths", imagePaths)
+        // As days since 1970, like a booking's dates, and in order. Left out when there is none,
+        // so the document looks like one written before the field existed.
+        if (availableDates.isNotEmpty()) {
+          put(AVAILABLE_DATES, availableDates.map { it.toEpochDay() }.sorted())
+        }
         if (this@toFirestoreData is ItemListing) {
           put("refundValue", refundValue)
           // Left out when there is no limit, so the document looks like one written before the
@@ -248,9 +254,9 @@ class FirebaseListingRepository(
       }
 
   /**
-   * The fields an edit writes with update(). "paused" is left out, so only setPaused changes it,
-   * and a rental limit the owner removed is deleted, since update() keeps the fields it is not
-   * given.
+   * The fields an edit writes with update(). "paused" is left out, so only setPaused changes it. A
+   * rental limit or available days the owner removed are deleted, since update() keeps the fields
+   * it is not given.
    */
   private fun Listing.toFirestoreEdit(
       ownerUid: String,
@@ -260,10 +266,27 @@ class FirebaseListingRepository(
     if (this@toFirestoreEdit is ItemListing && maxRentalDays == null) {
       put("maxRentalDays", FieldValue.delete())
     }
+    if (availableDates.isEmpty()) put(AVAILABLE_DATES, FieldValue.delete())
   }
 
   private fun DocumentSnapshot.imagePaths(): List<String> =
       (get("imagePaths") as? List<*>).orEmpty().filterIsInstance<String>()
+
+  /**
+   * The stored available days. Absent on a listing written before the field existed, which reads as
+   * no day.
+   *
+   * An entry that is not a day is left out, where a malformed `maxRentalDays` hides the whole
+   * listing. The difference is deliberate: the rules check `maxRentalDays`, so a wrong one means a
+   * broken document, but they cannot check each entry of a list, so a wrong one is expected and
+   * must not hide the listing from everyone.
+   */
+  private fun DocumentSnapshot.availableDates(): Set<LocalDate> =
+      (get(AVAILABLE_DATES) as? List<*>)
+          .orEmpty()
+          .filter { it is Long || it is Int }
+          .mapNotNull { runCatching { LocalDate.ofEpochDay((it as Number).toLong()) }.getOrNull() }
+          .toSet()
 
   /**
    * Rebuilds a listing from its Firestore document, the reverse of [toFirestoreData].
@@ -292,6 +315,7 @@ class FirebaseListingRepository(
     )
         return null
     val imagePaths = imagePaths()
+    val availableDates = availableDates()
 
     return when (get("type")) {
       ListingType.SERVICE.name ->
@@ -304,6 +328,7 @@ class FirebaseListingRepository(
               listingId = id,
               ownerUid = ownerUid,
               isPaused = paused,
+              availableDates = availableDates,
           )
       ListingType.ITEM.name -> {
         val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
@@ -327,6 +352,7 @@ class FirebaseListingRepository(
             listingId = id,
             ownerUid = ownerUid,
             isPaused = paused,
+            availableDates = availableDates,
         )
       }
       else -> null
@@ -336,6 +362,7 @@ class FirebaseListingRepository(
   private companion object {
     const val LISTINGS_COLLECTION = "listings"
     const val PAUSED = "paused"
+    const val AVAILABLE_DATES = "availableDates"
 
     fun notFound(listingId: String) =
         FirebaseFirestoreException(

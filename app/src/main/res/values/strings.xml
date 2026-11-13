@@ -7,7 +7,11 @@
     <!-- Bottom navigation -->
     <string name="nav_browse">Browse</string>
     <string name="nav_create_listing">Create listing</string>
+    <string name="nav_conversations">Conversations</string>
     <string name="nav_profile">Profile</string>
+
+    <!-- Listing cards, in Browse, the Toolbox and the lender profile -->
+    <string name="open_listing">Open listing</string>
 
     <!-- Browse screen -->
     <string name="browse_header_title">Polybazaar</string>
@@ -26,7 +30,6 @@
     <string name="lender_profile_listings_title">Their listings</string>
     <string name="lender_profile_no_listings">This lender has no listings yet.</string>
     <string name="lender_profile_not_found">This profile no longer exists.</string>
-    <string name="lender_profile_open_listing">Open listing</string>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
@@ -71,6 +74,23 @@
     <string name="listing_detail_owner_paused_text">Hidden from Browse and your profile. Resume it to take bookings again.</string>
     <string name="listing_detail_renter_paused_text">The lender isn\'t taking bookings right now.</string>
 
+    <!-- Conversation screen -->
+    <string name="conversation_other_username">@%1$s</string>
+    <string name="conversation_paused_title">This listing is paused</string>
+    <string name="conversation_deleted_title">This listing has been deleted</string>
+    <string name="conversation_deleted_body">You can read past messages, but neither of you can send new ones.</string>
+    <string name="conversation_load_error_title">Couldn’t load this conversation</string>
+    <string name="conversation_retry">Retry</string>
+    <string name="conversation_empty_title">Say hello to %1$s</string>
+    <string name="conversation_empty_title_unknown">Say hello</string>
+    <string name="conversation_empty_body">No messages yet. Ask about “%1$s”, its availability or a good time to meet.</string>
+    <string name="conversation_empty_body_no_title">No messages yet.</string>
+    <string name="conversation_my_message_footer">You · %1$s</string>
+    <string name="conversation_their_message_footer">%1$s · %2$s</string>
+    <string name="conversation_placeholder">Write a message…</string>
+    <string name="conversation_placeholder_closed">Conversation closed</string>
+    <string name="conversation_send">Send</string>
+
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
 
@@ -109,6 +129,38 @@
     <!-- Verify email screen -->
     <string name="verify_email_not_verified_yet">Your email isn’t verified yet. Open the link we sent you, then try again.</string>
 
+    <!-- Inbox screen -->
+    <string name="inbox_eyebrow">POLYBAZAAR</string>
+    <string name="inbox_title">Conversations</string>
+    <string name="inbox_messages_heading">Messages</string>
+    <string name="inbox_username">@%1$s</string>
+    <string name="inbox_listing_paused">Listing paused</string>
+    <string name="inbox_listing_deleted">Listing deleted</string>
+    <string name="inbox_open_conversation">Open conversation</string>
+    <string name="inbox_footer">Good finds. Great neighbours.</string>
+    <string name="inbox_time_now">now</string>
+    <string name="inbox_time_minutes">%1$dm</string>
+    <string name="inbox_time_hours">%1$dh</string>
+    <string name="inbox_time_days">%1$dd</string>
+    <plurals name="inbox_time_minutes_spoken">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="inbox_time_hours_spoken">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="inbox_time_days_spoken">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <string name="inbox_retry">Retry</string>
+    <string name="inbox_empty_title">No conversations yet</string>
+    <string name="inbox_empty_message">Found something you like?\nOpen a listing and message its owner.\nYour conversations will appear here.</string>
+    <string name="inbox_browse_listings">Browse listings</string>
+    <string name="inbox_last_message_mine">You: %1$s</string>
+    <string name="inbox_unread">Unread</string>
+
     <!-- Reset password screen -->
     <string name="reset_password_title">Reset password</string>
     <string name="reset_password_heading">Create a new password</string>
@@ -128,6 +180,14 @@
     <string name="reset_password_error_too_long">This password is too long. Choose a shorter one.</string>
     <string name="reset_password_error_mismatch">The two passwords don’t match.</string>
 
+    <!-- Listing form -->
+    <string name="listing_form_availability_label">Availability</string>
+    <string name="listing_form_availability_placeholder">Choose the days it is available</string>
+    <!-- What TalkBack reads for the field: its label, then the days chosen or the placeholder. -->
+    <string name="listing_form_availability_description">%1$s: %2$s</string>
+    <string name="listing_form_availability_item_title">When can you lend it?</string>
+    <string name="listing_form_availability_service_title">When can you offer it?</string>
+
     <!-- Availability calendar -->
     <string name="calendar_previous_month">Previous month</string>
     <string name="calendar_next_month">Next month</string>
@@ -143,4 +203,29 @@
     <string name="calendar_sheet_range_pending">Range from %1$s: tap its last day</string>
     <string name="calendar_sheet_hint">Tap a day to select it. Hold a day, then tap another, to select every day in between.</string>
     <string name="calendar_sheet_done">Done</string>
+
+    <!-- Booking request -->
+    <string name="booking_request_title">Request to book</string>
+    <string name="booking_request_dates_label">Dates</string>
+    <string name="booking_request_dates_placeholder">Choose your dates</string>
+    <string name="booking_request_dates_sheet_title">When do you need it?</string>
+    <string name="booking_request_no_days">The lender has not offered any days yet.</string>
+    <plurals name="booking_request_too_long">
+        <item quantity="one">This item can be kept for at most %1$d day.</item>
+        <item quantity="other">This item can be kept for at most %1$d days.</item>
+    </plurals>
+    <plurals name="booking_request_price_line">
+        <item quantity="one">%1$s / day × %2$d day</item>
+        <item quantity="other">%1$s / day × %2$d days</item>
+    </plurals>
+    <string name="booking_request_total_label">Total</string>
+    <string name="booking_request_damage">Damage compensation: %1$s if the item is damaged.</string>
+    <string name="booking_request_payment">Payment is arranged between you and the lender.</string>
+    <string name="booking_request_not_allowed">You cannot request this listing.</string>
+    <string name="booking_request_account_unknown">We could not check your account.</string>
+    <string name="booking_request_submit">Request booking</string>
+    <string name="booking_request_sent_title">Request sent</string>
+    <string name="booking_request_sent_message">You asked for %1$s. The lender still has to accept it.</string>
+    <string name="booking_request_done">Done</string>
+    <string name="booking_request_retry">Retry</string>
 </resources>

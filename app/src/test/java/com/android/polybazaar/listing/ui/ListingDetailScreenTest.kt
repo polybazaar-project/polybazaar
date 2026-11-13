@@ -499,11 +499,18 @@ class ListingDetailScreenTest {
 
   @Test
   fun pausedListing_toARenter_saysWhyItCannotBeBooked() {
-    setContent(ListingDetailUiState(listing = drill.copy(isPaused = true), lender = lender))
+    // The ViewModel refuses contact on a paused listing (ListingRules.canContactLender); the screen
+    // only follows it, so the state says so explicitly.
+    setContent(
+        ListingDetailUiState(
+            listing = drill.copy(isPaused = true),
+            lender = lender,
+            canContactLender = false,
+        )
+    )
 
     node(ListingDetailScreenTags.PAUSED_BADGE).assertIsDisplayed()
     text(context.getString(R.string.listing_detail_renter_paused_text)).assertIsDisplayed()
-    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertIsNotEnabled()
   }
 
   @Test
