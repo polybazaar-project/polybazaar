@@ -337,6 +337,13 @@ fun AppNavHost(
                   ListingDetailActions(
                       onBack = { navController.popBackStack() },
                       onOpenLender = { navController.navigate(Routes.lenderProfile(it)) },
+                      // The owner's actions (#258). Coming back from Edit reloads the listing
+                      // through the ON_RESUME above; after a delete, back to where the owner came
+                      // from (Toolbox, Browse or a profile), which reloads its own list.
+                      onEdit = {
+                        navController.navigate(Routes.editListing(it)) { launchSingleTop = true }
+                      },
+                      onDeleted = { navController.popBackStack() },
                       // The viewer messages the owner as the renter. Single top, so a double tap
                       // does not stack two conversation screens.
                       onMessageLender = {
