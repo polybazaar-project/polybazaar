@@ -55,6 +55,22 @@
     <string name="listing_detail_deposit">%1$s deposit</string>
     <string name="listing_detail_choose_dates">Choose dates</string>
     <string name="listing_detail_reassurance">See your full total before you request to book.</string>
+    <string name="listing_detail_owner_name">%1$s (you)  ·  Verified</string>
+    <string name="listing_detail_edit">Edit listing</string>
+    <string name="listing_detail_owner_reassurance">Students can find and book this listing.</string>
+    <string name="listing_detail_owner_paused_reassurance">Only you can see this listing.</string>
+    <string name="listing_detail_owner_menu">Listing options</string>
+    <string name="listing_detail_pause">Pause listing</string>
+    <string name="listing_detail_resume">Resume listing</string>
+    <string name="listing_detail_delete">Delete listing</string>
+    <string name="listing_detail_delete_title">Delete this listing?</string>
+    <string name="listing_detail_delete_text">It will be removed for everyone, with its photos. This can\'t be undone.</string>
+    <string name="listing_detail_delete_confirm">Delete</string>
+    <string name="listing_detail_delete_cancel">Cancel</string>
+    <string name="listing_detail_paused">Paused</string>
+    <string name="listing_detail_paused_title">Listing paused</string>
+    <string name="listing_detail_owner_paused_text">Hidden from Browse and your profile. Resume it to take bookings again.</string>
+    <string name="listing_detail_renter_paused_text">The lender isn\'t taking bookings right now.</string>
 
     <!-- Conversation screen -->
     <string name="conversation_other_username">@%1$s</string>

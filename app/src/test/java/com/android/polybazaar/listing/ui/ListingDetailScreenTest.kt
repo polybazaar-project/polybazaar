@@ -82,11 +82,23 @@ class ListingDetailScreenTest {
       uiState: ListingDetailUiState,
       actions: ListingDetailActions = ListingDetailActions(),
       onRetry: () -> Unit = {},
+      onSetPaused: (Boolean) -> Unit = {},
+      onDelete: () -> Unit = {},
   ) {
     composeTestRule.setContent {
-      ListingDetailContent(uiState = uiState, actions = actions, onRetry = onRetry)
+      ListingDetailContent(
+          uiState = uiState,
+          actions = actions,
+          onRetry = onRetry,
+          onSetPaused = onSetPaused,
+          onDelete = onDelete,
+      )
     }
   }
+
+  /** The drill as its owner, the lender, sees it. */
+  private fun ownerState(listing: ItemListing = drill) =
+      ListingDetailUiState(listing = listing, lender = lender, isOwner = true)
 
   /** The returns line of an item whose return terms are not stored yet. */
   private fun returnsPending() =
@@ -367,10 +379,163 @@ class ListingDetailScreenTest {
     node(ListingDetailScreenTags.RETRY_BUTTON).performClick()
 
     node(ListingDetailScreenTags.TITLE).assertTextEquals("Bosch drill set")
+    // The viewer is the owner here, so they get the owner's view.
     node(ListingDetailScreenTags.LENDER_NAME)
-        .assertTextEquals(context.getString(R.string.listing_detail_lender_name, "james"))
-    // The viewer is the owner here, so both actions stay disabled.
-    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertIsNotEnabled()
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_name, "james"))
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertIsEnabled()
     assertEquals(2, listings.getListingCalls)
+  }
+
+  @Test
+  fun owner_seesEditListing_insteadOfTheRenterActions() {
+    val edited = mutableListOf<String>()
+    setContent(ownerState(), ListingDetailActions(onEdit = { edited += it }))
+
+    node(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.MESSAGE_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.LENDER_NAME)
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_name, "james"))
+    node(ListingDetailScreenTags.BOOKING_NOTE)
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_reassurance))
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertWidthIsEqualTo(166.dp).performClick()
+    assertEquals(listOf("drill"), edited)
+  }
+
+  @Test
+  fun renter_seesNoOwnerMenuOrEdit() {
+    setContent(ListingDetailUiState(listing = drill, lender = lender, canContactLender = true))
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.BOOKING_NOTE)
+        .assertTextEquals(context.getString(R.string.listing_detail_reassurance))
+  }
+
+  @Test
+  fun ownerMenu_pausesAnActiveListing() {
+    val pauses = mutableListOf<Boolean>()
+    setContent(ownerState(), onSetPaused = { pauses += it })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.RESUME_ITEM).assertDoesNotExist()
+    node(ListingDetailScreenTags.PAUSE_ITEM).performClick()
+
+    assertEquals(listOf(true), pauses)
+    // The menu closes once a choice is made.
+    node(ListingDetailScreenTags.PAUSE_ITEM).assertDoesNotExist()
+  }
+
+  @Test
+  fun ownerMenu_resumesAPausedListing() {
+    val pauses = mutableListOf<Boolean>()
+    setContent(ownerState(drill.copy(isPaused = true)), onSetPaused = { pauses += it })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.PAUSE_ITEM).assertDoesNotExist()
+    node(ListingDetailScreenTags.RESUME_ITEM).performClick()
+
+    assertEquals(listOf(false), pauses)
+  }
+
+  @Test
+  fun delete_asksFirst_andCancelKeepsTheListing() {
+    var deletes = 0
+    setContent(ownerState(), onDelete = { deletes++ })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    node(ListingDetailScreenTags.DELETE_DIALOG).assertIsDisplayed()
+    node(ListingDetailScreenTags.DELETE_CANCEL).performClick()
+
+    node(ListingDetailScreenTags.DELETE_DIALOG).assertDoesNotExist()
+    assertEquals(0, deletes)
+  }
+
+  @Test
+  fun delete_confirmed_deletesTheListing() {
+    var deletes = 0
+    setContent(ownerState(), onDelete = { deletes++ })
+
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    node(ListingDetailScreenTags.DELETE_CONFIRM).performClick()
+
+    node(ListingDetailScreenTags.DELETE_DIALOG).assertDoesNotExist()
+    assertEquals(1, deletes)
+  }
+
+  @Test
+  fun ownerAction_beingSaved_disablesEditAndTheMenu() {
+    setContent(ownerState().copy(isUpdating = true))
+
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertIsNotEnabled()
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun ownerActionFailed_saysWhyUnderTheButton() {
+    setContent(ownerState().copy(ownerActionError = AppError.NETWORK))
+
+    node(ListingDetailScreenTags.OWNER_ACTION_ERROR)
+        .assertTextEquals(context.getString(R.string.error_network))
+  }
+
+  @Test
+  fun pausedListing_toItsOwner_saysHowToResumeIt() {
+    setContent(ownerState(drill.copy(isPaused = true)))
+
+    node(ListingDetailScreenTags.PAUSED_BADGE).assertIsDisplayed()
+    text(context.getString(R.string.listing_detail_owner_paused_text)).assertIsDisplayed()
+    node(ListingDetailScreenTags.BOOKING_NOTE)
+        .assertTextEquals(context.getString(R.string.listing_detail_owner_paused_reassurance))
+  }
+
+  @Test
+  fun pausedListing_toARenter_saysWhyItCannotBeBooked() {
+    // The ViewModel refuses contact on a paused listing (ListingRules.canContactLender); the screen
+    // only follows it, so the state says so explicitly.
+    setContent(
+        ListingDetailUiState(
+            listing = drill.copy(isPaused = true),
+            lender = lender,
+            canContactLender = false,
+        )
+    )
+
+    node(ListingDetailScreenTags.PAUSED_BADGE).assertIsDisplayed()
+    text(context.getString(R.string.listing_detail_renter_paused_text)).assertIsDisplayed()
+  }
+
+  @Test
+  fun activeListing_hasNoPausedBadgeOrNotice() {
+    setContent(ownerState())
+
+    node(ListingDetailScreenTags.PAUSED_BADGE).assertDoesNotExist()
+    node(ListingDetailScreenTags.PAUSED_NOTICE).assertDoesNotExist()
+  }
+
+  @Test
+  fun screen_afterTheOwnerDeletes_leavesOnce() {
+    val listings = FakeListingRepository(allListings = listOf(drill))
+    val profiles = mock<ProfileRepository> { on { observeProfile(any()) } doReturn flowOf(lender) }
+    val auth = mock<AuthRepository> { onBlocking { getCurrentUser() } doReturn lender }
+    val viewModel = ListingDetailViewModel("drill", listings, profiles, auth)
+    var leaves = 0
+
+    composeTestRule.setContent {
+      ListingDetailScreen(
+          viewModel = viewModel,
+          actions = ListingDetailActions(onDeleted = { leaves++ }),
+      )
+    }
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    node(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    node(ListingDetailScreenTags.DELETE_CONFIRM).performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(listOf("drill"), listings.deletedListingIds)
+    assertEquals(1, leaves)
+    // Handled, so coming back to the screen would not leave again.
+    assertEquals(false, viewModel.uiState.value.isDeleted)
   }
 }

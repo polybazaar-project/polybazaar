@@ -640,8 +640,8 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
     assertOnListingDetail("Bosch drill set")
 
-    // The owner's Edit button comes with #258; the route is what it will open.
-    composeTestRule.runOnUiThread { navController.navigate(Routes.editListing("drill")) }
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.EDIT_BUTTON).performClick()
+    assertCurrentRoute(Routes.EDIT_LISTING, Routes.LISTING_ID, "drill")
     composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextClearance()
     composeTestRule
         .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
@@ -652,6 +652,23 @@ class AppNavHostTest {
         .performClick()
 
     assertOnListingDetail("Makita drill")
+  }
+
+  @Test
+  fun listingDetail_ownerDeletesTheListing_andReturnsToAToolboxWithoutIt() {
+    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.DELETE_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(listOf("drill"), listingRepository.deletedListingIds)
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).assertDoesNotExist()
   }
 
   @Test

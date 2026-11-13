@@ -1,11 +1,14 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.ui
 
+import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -29,8 +32,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -82,17 +89,34 @@ object ListingDetailScreenTags {
   const val PRICE = "listing_detail_price"
   const val DEPOSIT = "listing_detail_deposit"
   const val CHOOSE_DATES_BUTTON = "listing_detail_choose_dates_button"
+  const val BOOKING_NOTE = "listing_detail_booking_note"
+  const val EDIT_BUTTON = "listing_detail_edit_button"
+  const val OWNER_MENU_BUTTON = "listing_detail_owner_menu_button"
+  const val PAUSE_ITEM = "listing_detail_pause_item"
+  const val RESUME_ITEM = "listing_detail_resume_item"
+  const val DELETE_ITEM = "listing_detail_delete_item"
+  const val DELETE_DIALOG = "listing_detail_delete_dialog"
+  const val DELETE_CONFIRM = "listing_detail_delete_confirm"
+  const val DELETE_CANCEL = "listing_detail_delete_cancel"
+  const val PAUSED_BADGE = "listing_detail_paused_badge"
+  const val PAUSED_NOTICE = "listing_detail_paused_notice"
+  const val OWNER_ACTION_ERROR = "listing_detail_owner_action_error"
 }
 
 /**
- * Where the listing detail leads; every action does nothing by default. Retry is not here: it stays
- * inside the screen, so [ListingDetailScreen] wires it to the ViewModel.
+ * Where the listing detail leads; every action does nothing by default. Retry, pause and delete are
+ * not here: they stay inside the screen, so [ListingDetailScreen] wires them to the ViewModel.
+ *
+ * @property onEdit opens the "Edit listing" screen for the listing with this id (owner only).
+ * @property onDeleted leaves the screen once the owner deleted the listing.
  */
 class ListingDetailActions(
     val onBack: () -> Unit = {},
     val onOpenLender: (String) -> Unit = {},
     val onMessageLender: () -> Unit = {},
     val onChooseDates: () -> Unit = {},
+    val onEdit: (String) -> Unit = {},
+    val onDeleted: () -> Unit = {},
 )
 
 /** What the screen shows, decided by [listingDetailBody]. */
@@ -122,12 +146,27 @@ private val PhotoPlaceholder = Color(0xFFF6ECE5)
 
 /**
  * Listing detail screen: shows what [viewModel] loaded. [ListingDetailViewModel] loads the listing
- * itself when it is created, so the screen only adds Retry.
+ * itself when it is created, so the screen only adds Retry and the owner's pause and delete, and
+ * leaves through [ListingDetailActions.onDeleted] once the listing is deleted.
  */
 @Composable
 fun ListingDetailScreen(viewModel: ListingDetailViewModel, actions: ListingDetailActions) {
   val uiState by viewModel.uiState.collectAsState()
-  ListingDetailContent(uiState = uiState, actions = actions, onRetry = viewModel::loadListing)
+  // Keyed on the flag, so it runs once per delete; onDeletedHandled() resets it, so coming back to
+  // this screen (if it is still in the back stack) does not leave again.
+  LaunchedEffect(uiState.isDeleted) {
+    if (uiState.isDeleted) {
+      actions.onDeleted()
+      viewModel.onDeletedHandled()
+    }
+  }
+  ListingDetailContent(
+      uiState = uiState,
+      actions = actions,
+      onRetry = viewModel::loadListing,
+      onSetPaused = viewModel::setPaused,
+      onDelete = viewModel::deleteListing,
+  )
 }
 
 /**
@@ -135,15 +174,20 @@ fun ListingDetailScreen(viewModel: ListingDetailViewModel, actions: ListingDetai
  * description, terms, lender, and the price with "Choose dates" pinned at the bottom.
  *
  * "Message lender" and "Choose dates" are enabled only when [ListingDetailUiState.canContactLender]
- * is true, so the owner and unknown viewers see them disabled.
+ * is true, so unknown viewers see them disabled. The owner sees "Edit listing" and a ⋮ menu to
+ * pause, resume or delete the listing instead (Figma "Rental listing detail — Owner …").
  *
  * @param onRetry called when the user taps Retry after the listing failed to load.
+ * @param onSetPaused called when the owner pauses (true) or resumes (false) the listing.
+ * @param onDelete called once the owner confirmed the delete.
  */
 @Composable
 fun ListingDetailContent(
     uiState: ListingDetailUiState,
     actions: ListingDetailActions,
     onRetry: () -> Unit = {},
+    onSetPaused: (Boolean) -> Unit = {},
+    onDelete: () -> Unit = {},
 ) {
   Column(
       modifier =
@@ -164,10 +208,15 @@ fun ListingDetailContent(
       }
       ListingDetailBody.DETAIL ->
           // Only DETAIL has a listing; the check gives the smart cast.
-          if (listing != null) ListingDetail(listing, uiState, actions, onRetry)
+          if (listing != null) {
+            ListingDetail(listing, uiState, actions, onRetry, OwnerCalls(onSetPaused, onDelete))
+          }
     }
   }
 }
+
+/** The owner's pause and delete, wired to the ViewModel by [ListingDetailScreen]. */
+private class OwnerCalls(val onSetPaused: (Boolean) -> Unit, val onDelete: () -> Unit)
 
 /** The scrolling details, with the booking bar kept at the bottom as in the Figma. */
 @Composable
@@ -176,26 +225,54 @@ private fun ColumnScope.ListingDetail(
     uiState: ListingDetailUiState,
     actions: ListingDetailActions,
     onRetry: () -> Unit,
+    ownerCalls: OwnerCalls,
 ) {
+  // Saveable, so the confirmation is still open after a rotation.
+  var confirmingDelete by rememberSaveable { mutableStateOf(false) }
   // weight(1f): the details take the height the booking bar leaves, and scroll inside it.
   Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-    PhotoArea(onBack = actions.onBack)
+    PhotoArea(onBack = actions.onBack) {
+      if (uiState.isOwner) {
+        OwnerMenu(
+            isPaused = listing.isPaused,
+            enabled = !uiState.isUpdating,
+            onSetPaused = ownerCalls.onSetPaused,
+            onDeleteRequest = { confirmingDelete = true },
+            // 19dp in and 11dp down, where the Figma puts the ⋮ button.
+            modifier = Modifier.align(Alignment.TopEnd).padding(end = 19.dp, top = 11.dp),
+        )
+      }
+    }
     Column(
         modifier = Modifier.padding(horizontal = PageMargin, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       Overview(listing, uiState.pendingDetails)
+      if (listing.isPaused) PausedNotice(text = pausedNoticeText(uiState.isOwner))
       DescriptionSection(listing, uiState.pendingDetails)
       TermsSection(listing, uiState.pendingDetails)
       LenderSection(listing, uiState, actions, onRetry)
     }
   }
-  BookingBar(
-      listing = listing,
-      enabled = uiState.canContactLender,
-      onChooseDates = actions.onChooseDates,
-  )
+  BookingBar(listing = listing, uiState = uiState, actions = actions)
+  if (confirmingDelete) {
+    DeleteListingDialog(
+        onConfirm = {
+          confirmingDelete = false
+          ownerCalls.onDelete()
+        },
+        onDismiss = { confirmingDelete = false },
+    )
+  }
 }
+
+/** The paused notice's text: how to resume it for the owner, why it can't be booked for others. */
+@Composable
+private fun pausedNoticeText(isOwner: Boolean): String =
+    stringResource(
+        if (isOwner) R.string.listing_detail_owner_paused_text
+        else R.string.listing_detail_renter_paused_text
+    )
 
 /** The back button, where the Figma "Listing navigation" row puts it (20dp in, 6dp down). */
 @Composable
@@ -212,7 +289,7 @@ private fun BackButton(onBack: () -> Unit) {
  * the ViewModel does not download the photos yet (follow-up).
  */
 @Composable
-private fun PhotoArea(onBack: () -> Unit) {
+private fun PhotoArea(onBack: () -> Unit, ownerMenu: @Composable BoxScope.() -> Unit) {
   Box(modifier = Modifier.fillMaxWidth().height(190.dp).background(PhotoPlaceholder)) {
     // Decorative: the area holds no information until the photos are loaded.
     Icon(
@@ -222,10 +299,14 @@ private fun PhotoArea(onBack: () -> Unit) {
         modifier = Modifier.align(Alignment.Center).size(32.dp),
     )
     BackButton(onBack = onBack)
+    ownerMenu()
   }
 }
 
-/** Category, condition badge, title and location. The badge and location show once known. */
+/**
+ * Category, the "Paused" and condition badges, title and location. The condition badge and location
+ * show once known.
+ */
 @Composable
 private fun Overview(listing: Listing, pending: ListingPendingDetails) {
   Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -242,7 +323,10 @@ private fun Overview(listing: Listing, pending: ListingPendingDetails) {
           letterSpacing = 0.6.sp,
           modifier = Modifier.testTag(ListingDetailScreenTags.CATEGORY),
       )
-      pending.condition?.let { ConditionBadge(it) }
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (listing.isPaused) PausedBadge()
+        pending.condition?.let { ConditionBadge(it) }
+      }
     }
     Text(
         text = listing.title,
@@ -343,7 +427,8 @@ private fun ItemTerms(item: ItemListing) {
 }
 
 /**
- * The lender's name and bio, and "Message lender".
+ * The lender's name and bio, and "Message lender". The owner sees "(you)" after their name and no
+ * "Message lender": they would be messaging themselves.
  *
  * @param onRetry reloads the listing, which also restarts a lender observation that failed.
  */
@@ -363,6 +448,7 @@ private fun LenderSection(
       lender != null && ownerUid != null ->
           LenderSummary(
               lender = lender,
+              isOwner = uiState.isOwner,
               photo = uiState.lenderPhoto,
               onClick = { actions.onOpenLender(ownerUid) },
           )
@@ -378,7 +464,9 @@ private fun LenderSection(
           }
     }
     // Null and no error: still loading, or the owner has no profile. Nothing to show in both cases.
-    MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
+    if (!uiState.isOwner) {
+      MessageLenderButton(enabled = uiState.canContactLender, onClick = actions.onMessageLender)
+    }
   }
 }
 
@@ -386,10 +474,11 @@ private fun LenderSection(
  * The lender's photo, then their name with the "Verified" mark and their bio. The whole row opens
  * the lender's profile, so the touch target is at least 48dp without adding space between lines.
  *
+ * @param isOwner whether the viewer is this lender, who sees "(you)" after their name.
  * @param photo the encoded profile photo, or null for the default one.
  */
 @Composable
-private fun LenderSummary(lender: User, photo: ByteArray?, onClick: () -> Unit) {
+private fun LenderSummary(lender: User, isOwner: Boolean, photo: ByteArray?, onClick: () -> Unit) {
   Row(
       modifier =
           Modifier.fillMaxWidth()
@@ -409,7 +498,12 @@ private fun LenderSummary(lender: User, photo: ByteArray?, onClick: () -> Unit) 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
       // Every listing owner had a verified EPFL email when creating it (see Listing.ownerUid).
       Text(
-          text = stringResource(R.string.listing_detail_lender_name, lender.username),
+          text =
+              stringResource(
+                  if (isOwner) R.string.listing_detail_owner_name
+                  else R.string.listing_detail_lender_name,
+                  lender.username,
+              ),
           color = AuthColors.TextPrimary,
           fontSize = 14.sp,
           lineHeight = 19.sp,
@@ -454,9 +548,16 @@ private fun MessageLenderButton(enabled: Boolean, onClick: () -> Unit) {
   }
 }
 
-/** Price per day, the deposit for items, and "Choose dates", kept under the scrolling details. */
+/**
+ * Price per day, the deposit for items, and the main action, kept under the scrolling details:
+ * "Choose dates" for a renter, "Edit listing" for the owner, with why a pause or delete failed.
+ */
 @Composable
-private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> Unit) {
+private fun BookingBar(
+    listing: Listing,
+    uiState: ListingDetailUiState,
+    actions: ListingDetailActions,
+) {
   HorizontalDivider(color = AuthColors.Outline)
   Column(
       modifier =
@@ -472,26 +573,71 @@ private fun BookingBar(listing: Listing, enabled: Boolean, onChooseDates: () -> 
     ) {
       // weight(1f): the price gives way on a narrow screen, so the button keeps its 166dp.
       PriceBlock(listing = listing, modifier = Modifier.weight(1f))
-      // 166dp x 48dp: the Figma "Choose dates button".
-      AuthPrimaryButton(
-          text = stringResource(R.string.listing_detail_choose_dates),
-          onClick = onChooseDates,
-          enabled = enabled,
-          trailingIcon = R.drawable.ic_arrow_right,
-          modifier =
-              Modifier.width(166.dp)
-                  .height(48.dp)
-                  .testTag(ListingDetailScreenTags.CHOOSE_DATES_BUTTON),
+      if (uiState.isOwner) {
+        // Saved listings always have an id; Edit stays disabled otherwise.
+        val listingId = listing.listingId
+        BarButton(
+            text = stringResource(R.string.listing_detail_edit),
+            icon = R.drawable.ic_pencil,
+            enabled = !uiState.isUpdating && listingId != null,
+            tag = ListingDetailScreenTags.EDIT_BUTTON,
+            onClick = { listingId?.let(actions.onEdit) },
+        )
+      } else {
+        BarButton(
+            text = stringResource(R.string.listing_detail_choose_dates),
+            icon = R.drawable.ic_arrow_right,
+            enabled = uiState.canContactLender,
+            tag = ListingDetailScreenTags.CHOOSE_DATES_BUTTON,
+            onClick = actions.onChooseDates,
+        )
+      }
+    }
+    uiState.ownerActionError?.let {
+      SecondaryText(
+          text = it.message(),
+          color = AuthColors.Danger,
+          modifier = Modifier.testTag(ListingDetailScreenTags.OWNER_ACTION_ERROR),
       )
     }
     Text(
-        text = stringResource(R.string.listing_detail_reassurance),
+        text = stringResource(bookingNote(uiState.isOwner, listing.isPaused)),
         color = AuthColors.TextSecondary,
         fontSize = 11.sp,
         textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag(ListingDetailScreenTags.BOOKING_NOTE),
     )
   }
+}
+
+/**
+ * The line under the booking bar's button: who can see the listing for its owner, the price
+ * reassurance for a renter.
+ */
+@StringRes
+internal fun bookingNote(isOwner: Boolean, isPaused: Boolean): Int =
+    when {
+      !isOwner -> R.string.listing_detail_reassurance
+      isPaused -> R.string.listing_detail_owner_paused_reassurance
+      else -> R.string.listing_detail_owner_reassurance
+    }
+
+/** The 166dp x 48dp accent button of the booking bar (the Figma "Choose dates button"). */
+@Composable
+private fun BarButton(
+    text: String,
+    @DrawableRes icon: Int,
+    enabled: Boolean,
+    tag: String,
+    onClick: () -> Unit,
+) {
+  AuthPrimaryButton(
+      text = text,
+      onClick = onClick,
+      enabled = enabled,
+      trailingIcon = icon,
+      modifier = Modifier.width(166.dp).height(48.dp).testTag(tag),
+  )
 }
 
 @Composable
