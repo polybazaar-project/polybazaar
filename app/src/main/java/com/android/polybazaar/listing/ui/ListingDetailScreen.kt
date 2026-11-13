@@ -574,7 +574,7 @@ private fun BookingBar(
       // weight(1f): the price gives way on a narrow screen, so the button keeps its 166dp.
       PriceBlock(listing = listing, modifier = Modifier.weight(1f))
       if (uiState.isOwner) {
-        // Saved listings always have an id; the check only gives the smart cast.
+        // Saved listings always have an id; Edit stays disabled otherwise.
         val listingId = listing.listingId
         BarButton(
             text = stringResource(R.string.listing_detail_edit),
