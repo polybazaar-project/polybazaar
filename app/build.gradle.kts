@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+import com.android.build.api.variant.HasUnitTest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -6,6 +7,7 @@ plugins {
   alias(libs.plugins.kotlinCompose)
   alias(libs.plugins.ktfmt)
   alias(libs.plugins.sonar)
+  alias(libs.plugins.secrets)
   id("jacoco")
   id("com.google.gms.google-services")
 }
@@ -107,8 +109,27 @@ tasks.named("ktfmtCheck") { dependsOn(ktfmtCheckSharedTest) }
 
 tasks.named("ktfmtFormat") { dependsOn(ktfmtFormatSharedTest) }
 
+// The Secrets plugin sets MAPS_API_KEY on app variants only; unit-test manifests need it too.
+androidComponents {
+  onVariants { variant ->
+    val unitTest = (variant as HasUnitTest).unitTest
+    unitTest
+        ?.manifestPlaceholders
+        ?.put(
+            "MAPS_API_KEY",
+            variant.manifestPlaceholders.getting("MAPS_API_KEY"),
+        )
+  }
+}
+
 // With AGP 9+ the JVM target is set outside the Android block.
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+
+// Reads MAPS_API_KEY from local.properties, or from the committed defaults file when it is absent.
+secrets {
+  propertiesFileName = "local.properties"
+  defaultPropertiesFileName = "secrets.defaults.properties"
+}
 
 sonar {
   properties {
@@ -193,6 +214,11 @@ dependencies {
 
   // ----------       Coroutines      ------------
   implementation(libs.kotlinx.coroutines.play.services)
+
+  // ----------       Google Maps     ------------
+  implementation(libs.maps.compose)
+  implementation(libs.play.services.maps)
+  implementation(libs.play.services.location)
 }
 
 tasks.withType<Test> {
