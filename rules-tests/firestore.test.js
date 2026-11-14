@@ -326,18 +326,23 @@ describe("listings", () => {
   });
 
   describe("bookings", () => {
+    // First booked day, 30 days from now, so these tests never book a day in the past.
+    const day0 = Math.floor(Date.now() / 86_400_000) + 30;
     const booking = (overrides = {}) => ({
       listingId: "l1",
       renterUid: BOB,
       lenderUid: ALICE,
-      startDate: 21000,
-      endDate: 21002,
+      startDate: day0,
+      endDate: day0 + 2,
       status: "REQUESTED",
       ...overrides,
     });
+    // Inclusive range of epoch days, stored like a listing's availableDates.
+    const days = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    const offering = (availableDates, overrides = {}) => itemListing({ availableDates, ...overrides });
 
     test("a verified renter can request a booking for an existing listing", async () => {
-      await seed("listings/l1", itemListing());
+      await seed("listings/l1", offering(days(day0, day0 + 2)));
       await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
       await assertFails(setDoc(doc(unverified(BOB), "bookings/b2"), booking()));
       await assertFails(setDoc(doc(outsider(BOB), "bookings/b3"), booking()));
@@ -345,7 +350,7 @@ describe("listings", () => {
     });
 
     test("the renter and lender must match the authenticated user and listing owner", async () => {
-      await seed("listings/l1", itemListing());
+      await seed("listings/l1", offering(days(day0, day0 + 2)));
       const db = verified(BOB);
       await assertFails(setDoc(doc(db, "bookings/b1"), booking({ renterUid: ALICE })));
       await assertFails(setDoc(doc(db, "bookings/b2"), booking({ lenderUid: BOB })));
@@ -353,36 +358,73 @@ describe("listings", () => {
     });
 
     test("a booking cannot be longer than the listing's maximum rental", async () => {
-      await seed("listings/l1", itemListing({ type: "ITEM", maxRentalDays: 3 }));
-      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: 21000, endDate: 21002 })));
-      await assertFails(setDoc(doc(verified(BOB), "bookings/b2"), booking({ startDate: 21000, endDate: 21003 })));
+      await seed("listings/l1", offering(days(day0, day0 + 3), { type: "ITEM", maxRentalDays: 3 }));
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b2"), booking({ startDate: day0, endDate: day0 + 3 })));
     });
 
     test("a paused listing cannot be booked", async () => {
-      await seed("listings/l1", itemListing({ paused: true }));
+      await seed("listings/l1", offering(days(day0, day0 + 2), { paused: true }));
       await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
     });
 
     test("an owner cannot book their own listing", async () => {
-      await seed("listings/l1", itemListing());
+      await seed("listings/l1", offering(days(day0, day0 + 2)));
       await assertFails(
         setDoc(doc(verified(ALICE), "bookings/b1"), booking({ renterUid: ALICE, lenderUid: ALICE })),
       );
     });
 
     test("bookings have valid dates, requested status and no extra fields", async () => {
-      await seed("listings/l1", itemListing());
-      const db = verified(BOB);
       const today = Math.floor(Date.now() / 86_400_000);
-      await assertSucceeds(setDoc(doc(db, "bookings/same-day"), booking({ endDate: 21000 })));
-      await assertFails(setDoc(doc(db, "bookings/b1"), booking({ endDate: 20999 })));
-      await assertFails(setDoc(doc(db, "bookings/b2"), booking({ startDate: "21000" })));
+      // Every day used below is offered, so each refusal comes from the date checks.
+      await seed(
+        "listings/l1",
+        offering([-365243219163, today - 1, today, ...days(day0 - 1, day0 + 2), 365241780472]),
+      );
+      const db = verified(BOB);
+      await assertSucceeds(setDoc(doc(db, "bookings/same-day"), booking({ endDate: day0 })));
+      await assertFails(setDoc(doc(db, "bookings/b1"), booking({ endDate: day0 - 1 })));
+      await assertFails(setDoc(doc(db, "bookings/b2"), booking({ startDate: String(day0) })));
       await assertFails(setDoc(doc(db, "bookings/b3"), booking({ endDate: 365241780472 })));
       await assertFails(setDoc(doc(db, "bookings/b4"), booking({ startDate: -365243219163 })));
       await assertFails(setDoc(doc(db, "bookings/b5"), booking({ status: "CONFIRMED" })));
       await assertFails(setDoc(doc(db, "bookings/b6"), booking({ extra: true })));
       await assertFails(setDoc(doc(db, "bookings/past"), booking({ startDate: today - 1, endDate: today })));
       await assertSucceeds(setDoc(doc(db, "bookings/today"), booking({ startDate: today, endDate: today })));
+    });
+
+    test("a booking whose first and last days are offered is allowed", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 2)));
+      const db = verified(BOB);
+      await assertSucceeds(setDoc(doc(db, "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
+      await assertSucceeds(setDoc(doc(db, "bookings/one-day"), booking({ startDate: day0 + 1, endDate: day0 + 1 })));
+    });
+
+    test("a booking whose first day is not offered is refused", async () => {
+      await seed("listings/l1", offering(days(day0 + 1, day0 + 2)));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
+    });
+
+    test("a booking whose last day is not offered is refused", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 1)));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
+    });
+
+    test("a listing without available days cannot be booked", async () => {
+      await seed("listings/l1", itemListing());
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
+    });
+
+    test("a listing with an empty list of available days cannot be booked", async () => {
+      await seed("listings/l1", offering([]));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
+    });
+
+    test("only the first and last days are checked, so a gap in between is allowed", async () => {
+      // Known limit: rules cannot loop over the range. The renter's screen only offers available days.
+      await seed("listings/l1", offering([day0, day0 + 2]));
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
     });
 
     test("verified lenders and renters can read their own bookings", async () => {
