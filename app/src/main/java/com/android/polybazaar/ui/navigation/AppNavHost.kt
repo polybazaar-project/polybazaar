@@ -187,7 +187,11 @@ fun AppNavHost(
         composable(Routes.SIGN_IN) {
           SignInScreen(
               authViewModel = authViewModel,
+              // Sign-in and Create account share authViewModel, so its error is cleared when moving
+              // between them. Not on screen entry: that also runs on rotation and would hide an
+              // error the user is reading.
               onCreateAccount = {
+                authViewModel.clearError()
                 navController.navigate(Routes.CREATE_ACCOUNT) { launchSingleTop = true }
               },
               onForgotPassword = {
@@ -199,9 +203,15 @@ fun AppNavHost(
           )
         }
         composable(Routes.CREATE_ACCOUNT) {
+          // Clears the shared error on the way back to sign-in, for system back too.
+          val onBack: () -> Unit = {
+            authViewModel.clearError()
+            navController.popBackStack()
+          }
+          BackHandler(onBack = onBack)
           CreateAccountScreen(
               authViewModel = authViewModel,
-              onBack = { navController.popBackStack() },
+              onBack = onBack,
               onSignedIn = {
                 authViewModel.uiState.value.user?.let { navController.navigateFromAuth(it) }
               },
