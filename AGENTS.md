@@ -1,3 +1,4 @@
+<!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
 # AGENTS.md
 
 Durable rules for any AI agent (and any teammate) working in this repository. Read before acting.
@@ -24,6 +25,8 @@ Run from the repo root with the Gradle wrapper, exactly as CI does:
 - `./gradlew jacocoTestReport` produces the coverage report that Sonar reads.
 
 `app/google-services.json` is needed to build locally. Get it from a teammate; it is gitignored and CI generates it from the `GOOGLE_SERVICES` secret.
+
+A Google Maps key goes in `local.properties` as `MAPS_API_KEY=...` (gitignored; get it from a teammate). Without it the app still builds but map tiles stay blank. CI reads it from the `MAPS_API_KEY` secret, which holds the base64 of a `local.properties` file; CI keeps only its `MAPS_API_KEY` line.
 
 ## Definition of done
 
