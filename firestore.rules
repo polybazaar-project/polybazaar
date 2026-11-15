@@ -110,6 +110,10 @@ service cloud.firestore {
             && data.startDate <= data.endDate
             // Both ends are inclusive. A listing without maxRentalDays has no limit.
             && (!('maxRentalDays' in listing) || data.endDate - data.startDate + 1 <= listing.maxRentalDays)
+            // Rules cannot loop over the range: only its first and last days must be on offer.
+            && 'availableDates' in listing
+            && data.startDate in listing.availableDates
+            && data.endDate in listing.availableDates
             && data.status == 'REQUESTED';
       }
 
