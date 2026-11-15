@@ -35,6 +35,27 @@ service firebase.storage {
       allow delete: if isOwner(uid);
     }
 
+    // A chat photo, at the imagePath its message names: conversations/{conversationId}/{messageId}.jpg.
+    match /conversations/{conversationId}/{fileName} {
+      // A missing conversation has no data, so the lookup errors and the rule fails closed.
+      function participants() {
+        return firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.participants;
+      }
+
+      allow get: if isVerified() && request.auth.uid in participants();
+
+      // "Written only by the sender": the message is written after the upload, so there is no message
+      // to look up yet, and the uploader is taken as the sender. The conversation must exist already,
+      // so a photo cannot open a conversation; the app sends a text first.
+      allow create: if isVerified()
+          && request.auth.uid in participants()
+          && fileName.matches('[^/.]+[.]jpg')
+          && isImageUpload();
+
+      // A sent photo cannot be swapped; a retry reuses the file already uploaded.
+      allow update, delete: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }
