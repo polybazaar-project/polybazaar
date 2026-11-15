@@ -102,6 +102,12 @@ class ListingDetailViewModel(
   /** The listing photos being downloaded, so that no photo is downloaded twice at once. */
   private val photosDownloading = mutableSetOf<String>()
 
+  /**
+   * The photos of the listing last shown, so that a download finishing after a reload removed its
+   * photo is dropped.
+   */
+  private var currentImagePaths: List<String> = emptyList()
+
   /** The viewer once read, kept for the rest of the screen's life (see [showListing]). */
   private var knownViewer: User? = null
 
@@ -229,6 +235,7 @@ class ListingDetailViewModel(
     // Read again only while unknown, so a reload after a failed read can still enable them.
     val viewer = knownViewer ?: currentViewer()
     knownViewer = viewer
+    currentImagePaths = listing.imagePaths
     _uiState.update {
       it.copy(
           listing = listing,
@@ -254,13 +261,9 @@ class ListingDetailViewModel(
     viewModelScope.launch {
       try {
         val photo = listingRepository.loadListingImage(path)
-        _uiState.update {
-          // Unless a reload meanwhile showed the listing without it.
-          if (path in it.listing?.imagePaths.orEmpty()) {
-            it.copy(listingPhotos = it.listingPhotos + (path to photo))
-          } else {
-            it
-          }
+        // Unless a reload meanwhile showed the listing without it.
+        if (path in currentImagePaths) {
+          _uiState.update { it.copy(listingPhotos = it.listingPhotos + (path to photo)) }
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
