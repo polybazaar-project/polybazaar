@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +39,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -55,6 +58,7 @@ import com.android.polybazaar.auth.ui.AuthBackButton
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.chat.model.ChatMessage
+import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
@@ -82,6 +86,7 @@ object ConversationScreenTags {
   const val MESSAGE_FIELD = "conversation_message_field"
   const val SEND_BUTTON = "conversation_send_button"
   const val SEND_ERROR = "conversation_send_error"
+  const val LENGTH_COUNTER = "conversation_length_counter"
 
   /** Tag of the bubble of the signed-in user's message with [id]. */
   fun myMessage(id: String) = "conversation_my_message_$id"
@@ -518,7 +523,8 @@ private fun MessageBubble(
 }
 
 /**
- * The message field and Send, with why the last send failed under them.
+ * The message field and Send, with why the last send failed under them and, once the draft is too
+ * long, a counter that explains why Send is disabled. The text is kept as typed.
  *
  * @param open whether the user can type; Send also needs [canSend].
  */
@@ -532,6 +538,16 @@ private fun Composer(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
 ) {
+  val length = ChatRules.countedLength(draft)
+  val tooLong = open && length > ChatRules.MAX_MESSAGE_LENGTH
+  val lengthError =
+      if (tooLong)
+          stringResource(
+              R.string.conversation_length_counter_description,
+              length,
+              ChatRules.MAX_MESSAGE_LENGTH,
+          )
+      else null
   HorizontalDivider(color = AuthColors.Outline)
   Column(
       modifier =
@@ -549,6 +565,7 @@ private fun Composer(
           onValueChange = onDraftChange,
           enabled = open,
           placeholder = placeholder,
+          errorMessage = lengthError,
           modifier = Modifier.weight(1f),
       )
       AuthPrimaryButton(
@@ -558,28 +575,60 @@ private fun Composer(
           modifier = Modifier.height(48.dp).testTag(ConversationScreenTags.SEND_BUTTON),
       )
     }
-    sendError?.let {
-      Text(
-          text = it.message(),
-          color = AuthColors.Danger,
-          fontSize = 12.sp,
-          modifier =
-              Modifier
-                  // Announced when it appears: TalkBack's focus stays on Send.
-                  .semantics { liveRegion = LiveRegionMode.Polite }
-                  .testTag(ConversationScreenTags.SEND_ERROR),
-      )
+    if (sendError != null || tooLong) {
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        if (sendError != null) {
+          Text(
+              text = sendError.message(),
+              color = AuthColors.Danger,
+              fontSize = 12.sp,
+              modifier =
+                  Modifier.weight(1f)
+                      // Announced when it appears: TalkBack's focus stays on Send.
+                      .semantics { liveRegion = LiveRegionMode.Polite }
+                      .testTag(ConversationScreenTags.SEND_ERROR),
+          )
+        } else {
+          Spacer(Modifier.weight(1f))
+        }
+        if (lengthError != null) {
+          Text(
+              text =
+                  stringResource(
+                      R.string.conversation_length_counter,
+                      length,
+                      ChatRules.MAX_MESSAGE_LENGTH,
+                  ),
+              color = AuthColors.Danger,
+              fontSize = 12.sp,
+              modifier =
+                  Modifier
+                      // Read as a sentence by TalkBack; the field carries the same text as its
+                      // error, so it is announced where focus is.
+                      .semantics { contentDescription = lengthError }
+                      .testTag(ConversationScreenTags.LENGTH_COUNTER),
+          )
+        }
+      }
     }
   }
 }
 
-/** A field styled like LabeledField's, that grows up to five lines as the message gets longer. */
+/**
+ * A field styled like LabeledField's, that grows up to five lines as the message gets longer.
+ *
+ * @param errorMessage why the message cannot be sent as typed, for TalkBack to read on the field.
+ */
 @Composable
 private fun MessageField(
     value: String,
     onValueChange: (String) -> Unit,
     enabled: Boolean,
     placeholder: String,
+    errorMessage: String?,
     modifier: Modifier = Modifier,
 ) {
   val textStyle = TextStyle(fontSize = 14.sp, lineHeight = 19.sp)
@@ -592,7 +641,12 @@ private fun MessageField(
       textStyle = textStyle.copy(color = AuthColors.TextPrimary),
       cursorBrush = SolidColor(AuthColors.Accent),
       keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-      modifier = modifier.testTag(ConversationScreenTags.MESSAGE_FIELD),
+      modifier =
+          modifier
+              .then(
+                  if (errorMessage != null) Modifier.semantics { error(errorMessage) } else Modifier
+              )
+              .testTag(ConversationScreenTags.MESSAGE_FIELD),
       decorationBox = { innerTextField ->
         Box(
             modifier =

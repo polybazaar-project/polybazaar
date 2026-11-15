@@ -10,6 +10,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -26,6 +27,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -37,6 +39,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.ChatMessage
+import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
@@ -124,6 +127,11 @@ class ConversationScreenTest {
 
   private fun hasDraft(text: String) =
       SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(text))
+
+  private fun hasError(description: String) =
+      SemanticsMatcher.expectValue(SemanticsProperties.Error, description)
+
+  private fun hasNoError() = SemanticsMatcher.keyNotDefined(SemanticsProperties.Error)
 
   /**
    * Asserts [node] lies entirely inside the message list, from its unclipped bounds:
@@ -495,6 +503,114 @@ class ConversationScreenTest {
     node(ConversationScreenTags.MESSAGE_FIELD).performTextInput("Hi")
 
     assertEquals(listOf("dismiss", "draft:Hi"), calls)
+  }
+
+  @Test
+  fun draftOverTheLimit_showsTheCounter_andKeepsTheText() {
+    val long = "a".repeat(1012)
+    val description =
+        string(R.string.conversation_length_counter_description, 1012, ChatRules.MAX_MESSAGE_LENGTH)
+    setContent(loaded.copy(draft = long, canSend = false))
+
+    node(ConversationScreenTags.LENGTH_COUNTER)
+        .assertIsDisplayed()
+        .assertTextEquals("1012/1000")
+        .assertContentDescriptionEquals(description)
+    node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft(long)).assert(hasError(description))
+    // Alone, it still sits at the end, under Send.
+    val counter = node(ConversationScreenTags.LENGTH_COUNTER).getBoundsInRoot()
+    val send = node(ConversationScreenTags.SEND_BUTTON).getBoundsInRoot()
+    assertEquals(send.right.value, counter.right.value, 0.5f)
+  }
+
+  @Test
+  fun leadingWhitespacePastTheLimit_countsTheTrimmedText() {
+    setContent(
+        loaded.copy(draft = "\n\n" + "a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1), canSend = false)
+    )
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertTextEquals("1001/1000")
+  }
+
+  @Test
+  fun draftAtTheLimit_showsNoCounter() {
+    setContent(loaded.copy(draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH), canSend = true))
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+    node(ConversationScreenTags.MESSAGE_FIELD).assert(hasNoError())
+  }
+
+  @Test
+  fun trailingSpacesPastTheLimit_showNoCounter() {
+    setContent(
+        loaded.copy(draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH) + "   ", canSend = true)
+    )
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+  }
+
+  @Test
+  fun counterAndSendError_showTogether() {
+    setContent(
+        loaded.copy(
+            draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1),
+            canSend = false,
+            sendError = AppError.NETWORK,
+        )
+    )
+
+    node(ConversationScreenTags.SEND_ERROR)
+        .assertIsDisplayed()
+        .assertTextEquals(string(R.string.error_network))
+    node(ConversationScreenTags.LENGTH_COUNTER).assertIsDisplayed()
+    val error = node(ConversationScreenTags.SEND_ERROR).getBoundsInRoot()
+    val counter = node(ConversationScreenTags.LENGTH_COUNTER).getBoundsInRoot()
+    assertTrue(error.right <= counter.left)
+  }
+
+  @Test
+  fun deletedListing_showsNoCounter() {
+    setContent(
+        loaded.copy(
+            listingStatus = ConversationListingStatus.DELETED,
+            draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1),
+        )
+    )
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+  }
+
+  @Test
+  fun screen_typingPastTheLimitShowsTheCounter_andDeletingBackReenablesSend() {
+    val chat = FakeChatRepository()
+    showScreen(chat)
+    text(string(R.string.conversation_empty_title, "james")).assertIsDisplayed()
+
+    node(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextInput("a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1))
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertIsDisplayed()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
+
+    node(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextReplacement("a".repeat(ChatRules.MAX_MESSAGE_LENGTH))
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+    node(ConversationScreenTags.MESSAGE_FIELD).assert(hasNoError())
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled()
+  }
+
+  @Test
+  fun screen_trailingSpacesPastTheLimit_keepSendEnabled() {
+    val chat = FakeChatRepository()
+    showScreen(chat)
+    text(string(R.string.conversation_empty_title, "james")).assertIsDisplayed()
+
+    node(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextInput("a".repeat(ChatRules.MAX_MESSAGE_LENGTH) + "   ")
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled()
   }
 
   @Test

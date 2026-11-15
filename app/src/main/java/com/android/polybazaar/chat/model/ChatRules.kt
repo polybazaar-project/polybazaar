@@ -5,5 +5,8 @@ package com.android.polybazaar.chat.model
 object ChatRules {
   const val MAX_MESSAGE_LENGTH = 1000
 
-  fun isSendable(text: String): Boolean = text.trim().length in 1..MAX_MESSAGE_LENGTH
+  /** The length [MAX_MESSAGE_LENGTH] applies to: the trimmed text, as sent. */
+  fun countedLength(text: String): Int = text.trim().length
+
+  fun isSendable(text: String): Boolean = countedLength(text) in 1..MAX_MESSAGE_LENGTH
 }
