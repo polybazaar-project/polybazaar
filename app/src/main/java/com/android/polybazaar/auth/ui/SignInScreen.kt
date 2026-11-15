@@ -47,7 +47,8 @@ object SignInScreenTags {
 /**
  * Sign-in screen.
  *
- * @param onCreateAccount called when the user taps "Create account".
+ * @param onCreateAccount called when the user taps "Create account". Disabled while a sign-in is
+ *   running, so its result cannot land on the create account screen.
  * @param onForgotPassword called when the user taps "Forgot password?".
  * @param onSignedIn called once the user is signed in.
  */
@@ -151,6 +152,7 @@ fun SignInContent(
               text = "Create account",
               onClick = onCreateAccount,
               tag = SignInScreenTags.CREATE_ACCOUNT_LINK,
+              enabled = !uiState.isLoading,
           )
         }
       }

@@ -60,7 +60,8 @@ object CreateAccountScreenTags {
 /**
  * Sign-up screen.
  *
- * @param onBack called when the user taps the back arrow or Cancel.
+ * @param onBack called when the user taps the back arrow or Cancel. Both are disabled while a
+ *   sign-up is running, so its result cannot land on the sign-in screen.
  * @param onSignedIn called once the account is created and the user is signed in.
  */
 @Composable
@@ -128,7 +129,7 @@ fun CreateAccountContent(
         modifier =
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
     ) {
-      Header(onBack = onBack)
+      Header(onBack = onBack, enabled = !uiState.isLoading)
       AuthCard {
         Text(
             text = "Registration details",
@@ -203,6 +204,7 @@ fun CreateAccountContent(
           AuthSecondaryButton(
               text = "Cancel",
               onClick = onBack,
+              enabled = !uiState.isLoading,
               modifier =
                   Modifier.weight(1f).fillMaxSize().testTag(CreateAccountScreenTags.CANCEL_BUTTON),
           )
@@ -238,7 +240,7 @@ private fun FieldError(text: String, tag: String) {
 }
 
 @Composable
-private fun Header(onBack: () -> Unit) {
+private fun Header(onBack: () -> Unit, enabled: Boolean) {
   Row(
       modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 18.dp),
       horizontalArrangement = Arrangement.spacedBy(15.dp),
@@ -247,6 +249,7 @@ private fun Header(onBack: () -> Unit) {
     AuthBackButton(
         onClick = onBack,
         modifier = Modifier.testTag(CreateAccountScreenTags.BACK_BUTTON),
+        enabled = enabled,
     )
     AuthTitleGroup(title = "Create account")
   }

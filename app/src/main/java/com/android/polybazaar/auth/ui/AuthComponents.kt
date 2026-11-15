@@ -110,12 +110,21 @@ internal fun AuthPrimaryButton(
   }
 }
 
-/** Accent text link with a 48dp touch target, announced as a button by TalkBack. */
+/**
+ * Accent text link with a 48dp touch target, announced as a button by TalkBack. Faded when
+ * disabled.
+ */
 @Composable
-internal fun AuthLinkButton(text: String, onClick: () -> Unit, tag: String) {
+internal fun AuthLinkButton(
+    text: String,
+    onClick: () -> Unit,
+    tag: String,
+    enabled: Boolean = true,
+) {
   TextButton(
       onClick = onClick,
-      modifier = Modifier.testTag(tag),
+      enabled = enabled,
+      modifier = Modifier.testTag(tag).alpha(if (enabled) 1f else DISABLED_ALPHA),
       contentPadding = PaddingValues(horizontal = 4.dp),
   ) {
     Text(text = text, color = AuthColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -187,7 +196,7 @@ internal fun AuthBackButton(
   )
 }
 
-/** How faded a disabled outlined button is. */
+/** How faded a disabled button is. */
 private const val DISABLED_ALPHA = 0.45f
 
 /** A screen title with its eyebrow ("ACCOUNT" by default) above it. */

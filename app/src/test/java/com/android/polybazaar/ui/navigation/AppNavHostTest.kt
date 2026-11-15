@@ -15,6 +15,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -169,11 +170,13 @@ class AppNavHostTest {
 
   /**
    * Rebuilds the UI from its saved state with a new [AuthViewModel] and new ViewModel stores, as
-   * after process death.
+   * after process death. With [keptAuthViewModel], that one is kept instead, as the activity-scoped
+   * one is on rotation.
    */
   private fun restoreSavedState(
       before: FakeAuthRepository,
       after: FakeAuthRepository = before,
+      keptAuthViewModel: AuthViewModel? = null,
       actions: () -> Unit,
   ) {
     val tester = StateRestorationTester(composeTestRule)
@@ -181,7 +184,7 @@ class AppNavHostTest {
     var storeOwner = newViewModelStoreOwner()
     tester.setContent {
       CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
-        val viewModel = remember { AuthViewModel(repository) }
+        val viewModel = keptAuthViewModel ?: remember { AuthViewModel(repository) }
         navController = rememberNavController()
         AppNavHost(
             authViewModel = viewModel,
@@ -475,6 +478,174 @@ class AppNavHostTest {
 
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.BACK_BUTTON).performClick()
     composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  private val signInFailure = Result.failure<User>(AppException(AppError.INVALID_CREDENTIALS))
+  private val signUpFailure = Result.failure<User>(AppException(AppError.EMAIL_ALREADY_IN_USE))
+
+  private fun failingAuthRepository() =
+      FakeAuthRepository(
+          currentUser = null,
+          signInResult = signInFailure,
+          signUpResult = signUpFailure,
+      )
+
+  private fun submitSignIn() {
+    composeTestRule.onNodeWithTag(SignInScreenTags.EMAIL_FIELD).performTextInput("ada@epfl.ch")
+    composeTestRule.onNodeWithTag(SignInScreenTags.PASSWORD_FIELD).performTextInput("wrong")
+    composeTestRule.onNodeWithTag(SignInScreenTags.SIGN_IN_BUTTON).performClick()
+  }
+
+  private fun failSignIn() {
+    submitSignIn()
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
+  }
+
+  /** Opens Create account and submits a valid form, so the repository is reached. */
+  private fun submitSignUp() {
+    composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).performClick()
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.USERNAME_FIELD)
+        .performTextInput("ada_lovelace")
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.EMAIL_FIELD)
+        .performTextInput("ada@epfl.ch")
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.PASSWORD_FIELD)
+        .performTextInput("secret12")
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.CONFIRM_PASSWORD_FIELD)
+        .performTextInput("secret12")
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.CREATE_BUTTON)
+        .performScrollTo()
+        .performClick()
+  }
+
+  private fun assertSignUpErrorShown() {
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE)
+        .performScrollTo()
+        .assertTextEquals("An account already exists with this email.")
+  }
+
+  private fun failSignUp() {
+    submitSignUp()
+    assertSignUpErrorShown()
+  }
+
+  private fun assertOnSignInWithoutError() {
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(SignInScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun failedSignIn_thenCreateAccountLink_opensCreateAccountWithoutTheError() {
+    val viewModel = setContent(failingAuthRepository())
+    failSignIn()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).performClick()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun failedSignUp_thenBackArrow_returnsToSignInWithoutTheError() {
+    setContent(failingAuthRepository())
+    failSignUp()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.BACK_BUTTON).performClick()
+
+    assertOnSignInWithoutError()
+  }
+
+  @Test
+  fun failedSignUp_thenCancel_returnsToSignInWithoutTheError() {
+    setContent(failingAuthRepository())
+    failSignUp()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CANCEL_BUTTON).performClick()
+
+    assertOnSignInWithoutError()
+  }
+
+  @Test
+  fun failedSignUp_thenSystemBack_returnsToSignInWithoutTheError() {
+    setContent(failingAuthRepository())
+    failSignUp()
+
+    Espresso.pressBack()
+
+    assertOnSignInWithoutError()
+    assertEquals(Routes.SIGN_IN, navController.currentBackStackEntry?.destination?.route)
+    assertNull(navController.previousBackStackEntry)
+  }
+
+  @Test
+  fun pendingSignUp_disablesBackArrowAndCancel() {
+    val gate = CompletableDeferred<Result<User>>()
+    setContent(FakeAuthRepository(currentUser = null, signUpGate = gate))
+    submitSignUp()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.BACK_BUTTON).assertIsNotEnabled()
+    composeTestRule
+        .onNodeWithTag(CreateAccountScreenTags.CANCEL_BUTTON)
+        .performScrollTo()
+        .assertIsNotEnabled()
+
+    gate.complete(signUpFailure)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.BACK_BUTTON).assertIsEnabled()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CANCEL_BUTTON).assertIsEnabled()
+  }
+
+  @Test
+  fun pendingSignUp_systemBackStaysOnCreateAccountAndTheErrorShowsThere() {
+    val gate = CompletableDeferred<Result<User>>()
+    setContent(FakeAuthRepository(currentUser = null, signUpGate = gate))
+    submitSignUp()
+
+    Espresso.pressBack()
+    gate.complete(signUpFailure)
+    composeTestRule.waitForIdle()
+
+    assertEquals(Routes.CREATE_ACCOUNT, navController.currentBackStackEntry?.destination?.route)
+    assertSignUpErrorShown()
+  }
+
+  @Test
+  fun pendingSignIn_disablesCreateAccountLink() {
+    val gate = CompletableDeferred<Result<User>>()
+    setContent(FakeAuthRepository(currentUser = null, signInGate = gate))
+    submitSignIn()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).assertIsNotEnabled()
+
+    gate.complete(signInFailure)
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).assertIsEnabled()
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
+  }
+
+  @Test
+  fun failedSignIn_errorSurvivesRotation() {
+    val repository = failingAuthRepository()
+    restoreSavedState(before = repository, keptAuthViewModel = AuthViewModel(repository)) {
+      failSignIn()
+    }
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(SignInScreenTags.ERROR_MESSAGE)
+        .assertTextEquals("Incorrect email or password.")
   }
 
   @Test
@@ -1752,11 +1923,17 @@ class AppNavHostTest {
       var refreshUserResult: Result<User> = Result.failure(IllegalStateException("Not set")),
       private val signOutError: Exception? = null,
       var currentUserError: Exception? = null,
+      private val signUpResult: Result<User> = Result.failure(IllegalStateException("Not set")),
+      /** When set, sign-in waits for it instead of returning [signInResult]. */
+      private val signInGate: CompletableDeferred<Result<User>>? = null,
+      /** When set, sign-up waits for it instead of returning [signUpResult]. */
+      private val signUpGate: CompletableDeferred<Result<User>>? = null,
   ) : AuthRepository {
-    override suspend fun signIn(email: String, password: String): Result<User> = signInResult
+    override suspend fun signIn(email: String, password: String): Result<User> =
+        signInGate?.await() ?: signInResult
 
     override suspend fun signUp(email: String, password: String, username: String): Result<User> =
-        signInResult
+        signUpGate?.await() ?: signUpResult
 
     override suspend fun signOut() {
       signOutError?.let { throw it }

@@ -1,4 +1,5 @@
 // Portions of this code were generated with the help of Claude Code.
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.ui
 
 import androidx.compose.ui.semantics.Role
@@ -130,13 +131,15 @@ class SignInContentEdgeCasesTest {
   }
 
   @Test
-  fun links_stillWorkWhileLoading() {
+  fun whileLoading_createAccountIsDisabledButForgotPasswordWorks() {
+    // Create account shares the sign-in error, so a pending sign-in's error would land there.
     setContent(uiState = AuthUiState(isLoading = true))
 
+    composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).assertIsNotEnabled()
     composeTestRule.onNodeWithTag(SignInScreenTags.CREATE_ACCOUNT_LINK).performClick()
     composeTestRule.onNodeWithTag(SignInScreenTags.FORGOT_PASSWORD_LINK).performClick()
 
-    assertEquals(1, createAccountCount)
+    assertEquals(0, createAccountCount)
     assertEquals(1, forgotPasswordCount)
   }
 
