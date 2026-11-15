@@ -18,7 +18,9 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -27,6 +29,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
@@ -604,6 +607,89 @@ class ListingDetailScreenTest {
     }
     node(ListingDetailScreenTags.PHOTO)
         .assertContentDescriptionEquals(context.getString(R.string.listing_detail_photo, 1, 2))
+  }
+
+  /** Waits for the photo on the current page to be decoded, so it can be tapped. */
+  private fun waitForPhoto() {
+    // Decoded on Dispatchers.Default, which the test clock does not wait for.
+    composeTestRule.waitUntil(5_000) {
+      composeTestRule
+          .onAllNodesWithTag(ListingDetailScreenTags.PHOTO, useUnmergedTree = true)
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding, so there is a photo to tap.
+  fun tappingAPhoto_opensItFullScreen_andCloseLeaves() {
+    setContent(
+        ListingDetailUiState(
+            listing = drillWithPhotos,
+            listingPhotos = mapOf(firstPhoto to redPhoto()),
+        )
+    )
+    waitForPhoto()
+
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertDoesNotExist()
+    node(ListingDetailScreenTags.PHOTO).performClick()
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertIsDisplayed()
+
+    // Found by its TalkBack label, which the icon inside the button carries.
+    composeTestRule
+        .onNodeWithContentDescription(context.getString(R.string.listing_detail_photo_close))
+        .performClick()
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertDoesNotExist()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding, so there is a photo to tap.
+  fun systemBack_closesTheFullScreenPhotos() {
+    setContent(
+        ListingDetailUiState(
+            listing = drillWithPhotos,
+            listingPhotos = mapOf(firstPhoto to redPhoto()),
+        )
+    )
+    waitForPhoto()
+    node(ListingDetailScreenTags.PHOTO).performClick()
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertIsDisplayed()
+
+    Espresso.pressBack()
+
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertDoesNotExist()
+  }
+
+  @Test
+  fun tappingAPhotoNotDownloaded_opensNothing() {
+    setContent(ListingDetailUiState(listing = drillWithPhotos))
+
+    node(ListingDetailScreenTags.PHOTOS).performClick()
+
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertDoesNotExist()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding, so there is a photo to tap.
+  fun fullScreen_opensOnTheTappedPhoto() {
+    setContent(
+        ListingDetailUiState(
+            listing = drillWithPhotos,
+            listingPhotos = mapOf(firstPhoto to redPhoto(), secondPhoto to redPhoto()),
+        )
+    )
+    node(ListingDetailScreenTags.PHOTOS).performTouchInput { swipeLeft() }
+    waitForPhoto()
+
+    node(ListingDetailScreenTags.PHOTO).performClick()
+
+    // The detail's counter and the full screen one both show the second photo.
+    composeTestRule
+        .onAllNodesWithText(
+            context.getString(R.string.listing_detail_photo_counter, 2, 2),
+            useUnmergedTree = true,
+        )
+        .assertCountEquals(2)
   }
 
   @Test
