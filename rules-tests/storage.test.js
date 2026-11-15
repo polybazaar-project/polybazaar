@@ -6,10 +6,12 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { deleteObject, getBytes, ref, uploadBytes } from "firebase/storage";
+import { doc, setDoc } from "firebase/firestore";
+import { deleteObject, getBytes, listAll, ref, uploadBytes } from "firebase/storage";
 
 const ALICE = "alice-uid";
 const BOB = "bob-uid";
+const EVE = "eve-uid";
 
 const JPEG = { contentType: "image/jpeg" };
 const PHOTO = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
@@ -20,12 +22,14 @@ before(async () => {
   env = await initializeTestEnvironment({
     projectId: "demo-polybazaar",
     storage: { rules: readFileSync(new URL("../storage.rules", import.meta.url), "utf8") },
+    // storage.rules looks up chat participants in Firestore.
+    firestore: { rules: readFileSync(new URL("../firestore.rules", import.meta.url), "utf8") },
   });
 });
 
 after(() => env.cleanup());
 
-beforeEach(() => env.clearStorage());
+beforeEach(() => Promise.all([env.clearStorage(), env.clearFirestore()]));
 
 const signedIn = (uid, email, emailVerified) =>
   env.authenticatedContext(uid, { email, email_verified: emailVerified }).storage();
@@ -151,5 +155,97 @@ describe("other paths", () => {
   test("nothing else can be read or written", async () => {
     await assertFails(uploadBytes(ref(verified(ALICE), `other/${ALICE}/file.jpg`), PHOTO, JPEG));
     await assertFails(getBytes(ref(verified(ALICE), "listings/readme")));
+  });
+});
+
+// Bob rents Alice's listing l1.
+const CONVERSATION_ID = `l1_${BOB}`;
+const CHAT_FOLDER = `conversations/${CONVERSATION_ID}`;
+
+// The Storage emulator still treats a file removed by clearStorage as existing, so a later upload
+// to it is checked against `resource != null`. Each test therefore uses message ids no other test
+// has used.
+let lastMessageNumber = 0;
+/** The path of a new message's photo in Bob's conversation, unused by any other test. */
+const newChatPhoto = () => `${CHAT_FOLDER}/m${++lastMessageNumber}.jpg`;
+
+/** Writes the conversation storage.rules reads, with the rules turned off, to set up a test. */
+async function seedConversation() {
+  await env.withSecurityRulesDisabled((context) =>
+    setDoc(doc(context.firestore(), CHAT_FOLDER), {
+      listingId: "l1",
+      renterUid: BOB,
+      lenderUid: ALICE,
+      participants: [BOB, ALICE],
+    }),
+  );
+}
+
+describe("chat photos", () => {
+  test("both participants can upload a photo", async () => {
+    await seedConversation();
+    await assertSucceeds(uploadBytes(ref(verified(BOB), newChatPhoto()), PHOTO, JPEG));
+    await assertSucceeds(uploadBytes(ref(verified(ALICE), newChatPhoto()), PHOTO, JPEG));
+  });
+
+  test("both participants can see a photo", async () => {
+    await seedConversation();
+    const photo = newChatPhoto();
+    await seed(photo);
+    await assertSucceeds(getBytes(ref(verified(BOB), photo)));
+    await assertSucceeds(getBytes(ref(verified(ALICE), photo)));
+  });
+
+  test("only a verified participant can upload a photo", async () => {
+    await seedConversation();
+    const photo = newChatPhoto();
+    for (const storage of [verified(EVE), unverified(BOB), outsider(BOB), signedOut()]) {
+      await assertFails(uploadBytes(ref(storage, photo), PHOTO, JPEG));
+    }
+  });
+
+  test("only a verified participant can see a photo", async () => {
+    await seedConversation();
+    const photo = newChatPhoto();
+    await seed(photo);
+    for (const storage of [verified(EVE), unverified(BOB), outsider(BOB), signedOut()]) {
+      await assertFails(getBytes(ref(storage, photo)));
+    }
+  });
+
+  test("a photo cannot be uploaded before its conversation exists", async () => {
+    await assertFails(uploadBytes(ref(verified(BOB), newChatPhoto()), PHOTO, JPEG));
+  });
+
+  test("a sent photo cannot be replaced or deleted", async () => {
+    await seedConversation();
+    const photo = newChatPhoto();
+    await seed(photo);
+    await assertFails(uploadBytes(ref(verified(BOB), photo), PHOTO, JPEG));
+    await assertFails(deleteObject(ref(verified(BOB), photo)));
+    await assertFails(deleteObject(ref(verified(ALICE), photo)));
+  });
+
+  test("a chat photo must be an image under 10 MB", async () => {
+    await seedConversation();
+    const storage = verified(BOB);
+    const text = { contentType: "text/plain" };
+    await assertFails(uploadBytes(ref(storage, newChatPhoto()), PHOTO, text));
+    await assertSucceeds(uploadBytes(ref(storage, newChatPhoto()), new Uint8Array(8 * MB), JPEG));
+    await assertFails(uploadBytes(ref(storage, newChatPhoto()), new Uint8Array(10 * MB), JPEG));
+  });
+
+  test("a chat photo is named <messageId>.jpg", async () => {
+    await seedConversation();
+    const storage = verified(BOB);
+    for (const name of ["m0.png", "m0", "m0.jpg.png", "m0.v2.jpg", ".jpg", "m0/0.jpg"]) {
+      await assertFails(uploadBytes(ref(storage, `${CHAT_FOLDER}/${name}`), PHOTO, JPEG));
+    }
+  });
+
+  test("a participant cannot list a conversation's photos", async () => {
+    await seedConversation();
+    await seed(newChatPhoto());
+    await assertFails(listAll(ref(verified(BOB), CHAT_FOLDER)));
   });
 });
