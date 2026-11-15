@@ -24,7 +24,6 @@ kotlinxCoroutinesTest = "1.7.3"
 
 kotlinxCoroutinesPlayServices = "1.7.3"
 mapsCompose = "9.0.1"
-playServicesMaps = "20.1.0"
 playServicesLocation = "21.4.0"
 secrets = "2.0.1"
 
@@ -63,7 +62,6 @@ mockito-inline = { group = "org.mockito", name = "mockito-inline", version.ref =
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "kotlinxCoroutinesPlayServices" }
 maps-compose = { group = "com.google.maps.android", name = "maps-compose", version.ref = "mapsCompose" }
-play-services-maps = { group = "com.google.android.gms", name = "play-services-maps", version.ref = "playServicesMaps" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 
 [plugins]
