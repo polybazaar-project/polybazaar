@@ -3,19 +3,28 @@ package com.android.polybazaar.listing.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,6 +36,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 
@@ -55,11 +66,15 @@ internal fun BoxScope.ListingPhotos(imagePaths: List<String>, photos: Map<String
     return
   }
   val pagerState = rememberPagerState { imagePaths.size }
+  // Decoded once, for both the detail and the full screen viewer.
+  val decoded = rememberListingPhotos(photos)
+  // The page opened full screen, or null while the viewer is closed. Saved, so rotating keeps it.
+  var fullScreenPage by rememberSaveable { mutableStateOf<Int?>(null) }
   HorizontalPager(
       state = pagerState,
       modifier = Modifier.fillMaxSize().testTag(ListingDetailScreenTags.PHOTOS),
   ) { page ->
-    val photo = rememberListingPhoto(photos[imagePaths[page]])
+    val photo = decoded[imagePaths[page]]
     Box(modifier = Modifier.fillMaxSize()) {
       if (photo == null) {
         PhotoPlaceholderIcon()
@@ -68,33 +83,104 @@ internal fun BoxScope.ListingPhotos(imagePaths: List<String>, photos: Map<String
             bitmap = photo,
             contentDescription =
                 stringResource(R.string.listing_detail_photo, page + 1, imagePaths.size),
-            // Crop: the photo fills the 190dp area whatever its shape, as in the Figma.
+            // Crop: the photo fills the 190dp area whatever its shape, as in the Figma. Tapping it
+            // opens the whole photo full screen.
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().testTag(ListingDetailScreenTags.PHOTO),
+            modifier =
+                Modifier.fillMaxSize()
+                    .clickable { fullScreenPage = page }
+                    .testTag(ListingDetailScreenTags.PHOTO),
         )
       }
     }
   }
-  // One photo needs no counter.
-  if (imagePaths.size > 1) {
-    Text(
-        text =
-            stringResource(
-                R.string.listing_detail_photo_counter,
-                pagerState.currentPage + 1,
-                imagePaths.size,
-            ),
-        color = Color.White,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier =
-            Modifier.align(Alignment.BottomEnd)
-                // The page margin from the right, as the rest of the screen.
-                .padding(end = 18.dp, bottom = 12.dp)
-                .background(CounterBackground, CircleShape)
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-                .testTag(ListingDetailScreenTags.PHOTO_COUNTER),
+  PhotoCounter(pagerState, imagePaths.size)
+  fullScreenPage?.let { page ->
+    FullScreenPhotos(
+        imagePaths = imagePaths,
+        photos = decoded,
+        initialPage = page,
+        onClose = { fullScreenPage = null },
     )
+  }
+}
+
+/** The "1 / 3" counter at the bottom right; one photo needs none. */
+@Composable
+private fun BoxScope.PhotoCounter(pagerState: PagerState, count: Int) {
+  if (count <= 1) return
+  Text(
+      text =
+          stringResource(R.string.listing_detail_photo_counter, pagerState.currentPage + 1, count),
+      color = Color.White,
+      fontSize = 11.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier =
+          Modifier.align(Alignment.BottomEnd)
+              // The page margin from the right, as the rest of the screen.
+              .padding(end = 18.dp, bottom = 12.dp)
+              .background(CounterBackground, CircleShape)
+              .padding(horizontal = 10.dp, vertical = 5.dp)
+              .testTag(ListingDetailScreenTags.PHOTO_COUNTER),
+  )
+}
+
+/**
+ * The listing's photos full screen on black, each shown whole (not cropped), swiped one at a time
+ * from [initialPage]. Closed with the close button or the system back.
+ */
+@Composable
+private fun FullScreenPhotos(
+    imagePaths: List<String>,
+    photos: Map<String, ImageBitmap>,
+    initialPage: Int,
+    onClose: () -> Unit,
+) {
+  Dialog(
+      onDismissRequest = onClose,
+      properties = DialogProperties(usePlatformDefaultWidth = false),
+  ) {
+    Box(
+        modifier =
+            Modifier.fillMaxSize()
+                .background(Color.Black)
+                .testTag(ListingDetailScreenTags.FULL_SCREEN_PHOTOS)
+    ) {
+      val pagerState = rememberPagerState(initialPage = initialPage) { imagePaths.size }
+      HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+        val photo = photos[imagePaths[page]]
+        Box(modifier = Modifier.fillMaxSize()) {
+          if (photo == null) {
+            PhotoPlaceholderIcon()
+          } else {
+            Image(
+                bitmap = photo,
+                contentDescription =
+                    stringResource(R.string.listing_detail_photo, page + 1, imagePaths.size),
+                // Fit: the whole photo, letterboxed on black.
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+          }
+        }
+      }
+      IconButton(
+          onClick = onClose,
+          modifier =
+              Modifier.align(Alignment.TopStart)
+                  .statusBarsPadding()
+                  .padding(8.dp)
+                  .background(CounterBackground, CircleShape)
+                  .testTag(ListingDetailScreenTags.FULL_SCREEN_CLOSE),
+      ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_close),
+            contentDescription = stringResource(R.string.listing_detail_photo_close),
+            tint = Color.White,
+        )
+      }
+      PhotoCounter(pagerState, imagePaths.size)
+    }
   }
 }
 
@@ -110,12 +196,27 @@ private fun BoxScope.PhotoPlaceholderIcon() {
   )
 }
 
-/** [bytes] decoded off the main thread, or null until then or when they are not an image. */
+/**
+ * [photos] decoded off the main thread, by path. A photo is decoded once, and again only when its
+ * bytes change; one missing, or that is not an image, is absent.
+ */
 @Composable
-private fun rememberListingPhoto(bytes: ByteArray?): ImageBitmap? {
-  val photo by
-      produceState<ImageBitmap?>(initialValue = null, bytes) {
-        value = bytes?.let { decodePhotoPreview(it, maxSize = LISTING_PHOTO_MAX_SIZE) }
+private fun rememberListingPhotos(photos: Map<String, ByteArray>): Map<String, ImageBitmap> {
+  val decoded = remember { mutableStateMapOf<String, ImageBitmap>() }
+  // The bytes each entry of [decoded] was decoded from, to skip the ones already done.
+  val decodedFrom = remember { mutableMapOf<String, ByteArray>() }
+  LaunchedEffect(photos) {
+    (decodedFrom.keys - photos.keys).forEach { path ->
+      decodedFrom.remove(path)
+      decoded.remove(path)
+    }
+    photos.forEach { (path, bytes) ->
+      if (decodedFrom[path] !== bytes) {
+        val photo = decodePhotoPreview(bytes, maxSize = LISTING_PHOTO_MAX_SIZE)
+        if (photo == null) decoded.remove(path) else decoded[path] = photo
+        decodedFrom[path] = bytes
       }
-  return photo
+    }
+  }
+  return decoded
 }
