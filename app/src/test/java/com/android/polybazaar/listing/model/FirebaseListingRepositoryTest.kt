@@ -578,10 +578,11 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
-  fun getListing_readsTheLocationOfAService() = runTest {
+  fun getListing_readsTheLocationOfAService_withItsNameTrimmed() = runTest {
+    // The rules accept a name with spaces around it, though the app never writes one.
     givenStoredListing(
         storedService() +
-            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL"))
+            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "  EPFL  "))
     )
 
     val loaded = repository.getListing(listingId).getOrThrow()
@@ -620,7 +621,7 @@ class FirebaseListingRepositoryTest {
             "nan-longitude" to null,
             "blank-name" to null,
             "long-name" to null,
-            "on-the-limits" to ListingLocation(-90.0, 180.0, "  ${"a".repeat(80)}  "),
+            "on-the-limits" to ListingLocation(-90.0, 180.0, "a".repeat(80)),
         ),
         result.map { it.listingId to it.location },
     )

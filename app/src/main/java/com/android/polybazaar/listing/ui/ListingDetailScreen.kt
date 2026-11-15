@@ -341,11 +341,14 @@ private fun Overview(listing: Listing, pending: ListingPendingDetails) {
         letterSpacing = (-0.4).sp,
         modifier = Modifier.testTag(ListingDetailScreenTags.TITLE),
     )
-    SecondaryText(
-        text = listing.location?.name ?: stringResource(R.string.listing_detail_location_pending),
-        fontSize = 13.sp,
-        modifier = Modifier.testTag(ListingDetailScreenTags.LOCATION),
-    )
+    // Left out while unknown: the pickup line already says the location is to be confirmed.
+    listing.location?.let {
+      SecondaryText(
+          text = it.name,
+          fontSize = 13.sp,
+          modifier = Modifier.testTag(ListingDetailScreenTags.LOCATION),
+      )
+    }
   }
 }
 

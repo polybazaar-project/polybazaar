@@ -240,15 +240,13 @@ class ListingDetailScreenTest {
     )
 
     node(ListingDetailScreenTags.LOCATION).assertTextEquals("Rolex Learning Center")
-    text(context.getString(R.string.listing_detail_location_pending)).assertDoesNotExist()
   }
 
   @Test
-  fun location_whenNotSet_isToBeConfirmed() {
+  fun location_whenNotSet_isLeftOut() {
     setContent(ListingDetailUiState(listing = tutoring))
 
-    node(ListingDetailScreenTags.LOCATION)
-        .assertTextEquals(context.getString(R.string.listing_detail_location_pending))
+    node(ListingDetailScreenTags.LOCATION).assertDoesNotExist()
   }
 
   @Test

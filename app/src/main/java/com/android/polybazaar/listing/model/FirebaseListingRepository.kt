@@ -307,7 +307,8 @@ class FirebaseListingRepository(
    * days: the listing is still worth showing without it. An out-of-range or otherwise invalid
    * location (as [ListingRules.isValidLocation] checks, the name once trimmed) also reads as null:
    * the edit form has no location input and would keep it, so every save would fail; reading it as
-   * none lets the next edit delete it and keeps the listing editable.
+   * none lets the next edit delete it and keeps the listing editable. The name is trimmed, as the
+   * app writes it, since the rules accept one with spaces around it.
    */
   private fun DocumentSnapshot.location(): ListingLocation? {
     val data = get(LOCATION) as? Map<*, *> ?: return null
@@ -315,7 +316,7 @@ class FirebaseListingRepository(
     val latitude = (data[LATITUDE] as? Number)?.toDouble() ?: return null
     val longitude = (data[LONGITUDE] as? Number)?.toDouble() ?: return null
     val name = data[LOCATION_NAME] as? String ?: return null
-    return ListingLocation(latitude, longitude, name).takeIf(ListingRules::isValidLocation)
+    return ListingLocation(latitude, longitude, name.trim()).takeIf(ListingRules::isValidLocation)
   }
 
   /**
