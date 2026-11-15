@@ -327,6 +327,9 @@ describe("listings", () => {
   describe("bookings", () => {
     // First booked day, 30 days from now, so these tests never book a day in the past.
     const day0 = Math.floor(Date.now() / 86_400_000) + 30;
+    // Epoch-day bounds of java.time.LocalDate, the same as in validBooking.
+    const MIN_EPOCH_DAY = -365243219162;
+    const MAX_EPOCH_DAY = 365241780471;
     const booking = (overrides = {}) => ({
       listingId: "l1",
       renterUid: BOB,
@@ -379,14 +382,14 @@ describe("listings", () => {
       // Every day used below is offered, so each refusal comes from the date checks.
       await seed(
         "listings/l1",
-        offering([-365243219163, today - 1, today, ...days(day0 - 1, day0 + 2), 365241780472]),
+        offering([MIN_EPOCH_DAY - 1, today - 1, today, ...days(day0 - 1, day0 + 2), MAX_EPOCH_DAY + 1]),
       );
       const db = verified(BOB);
       await assertSucceeds(setDoc(doc(db, "bookings/same-day"), booking({ endDate: day0 })));
       await assertFails(setDoc(doc(db, "bookings/b1"), booking({ endDate: day0 - 1 })));
       await assertFails(setDoc(doc(db, "bookings/b2"), booking({ startDate: String(day0) })));
-      await assertFails(setDoc(doc(db, "bookings/b3"), booking({ endDate: 365241780472 })));
-      await assertFails(setDoc(doc(db, "bookings/b4"), booking({ startDate: -365243219163 })));
+      await assertFails(setDoc(doc(db, "bookings/b3"), booking({ endDate: MAX_EPOCH_DAY + 1 })));
+      await assertFails(setDoc(doc(db, "bookings/b4"), booking({ startDate: MIN_EPOCH_DAY - 1 })));
       await assertFails(setDoc(doc(db, "bookings/b5"), booking({ status: "CONFIRMED" })));
       await assertFails(setDoc(doc(db, "bookings/b6"), booking({ extra: true })));
       await assertFails(setDoc(doc(db, "bookings/past"), booking({ startDate: today - 1, endDate: today })));
