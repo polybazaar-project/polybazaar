@@ -716,6 +716,23 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun cancelledPhotoDownload_isNotAnError_andTheNextReloadTriesAgain() {
+    listings.allListings = listOf(withPhotos)
+    listings.imageFailure = CancellationException("Screen closed")
+    val viewModel = loadedViewModel()
+
+    assertNull(viewModel.uiState.value.error)
+    assertTrue(viewModel.uiState.value.listingPhotos.isEmpty())
+
+    // The cancelled downloads are no longer marked as running, so a reload starts them again.
+    listings.imageFailure = null
+    viewModel.loadListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(setOf(photoA, photoB), viewModel.uiState.value.listingPhotos.keys)
+  }
+
+  @Test
   fun reload_whileAPhotoDownloads_doesNotDownloadItTwice() {
     listings.allListings = listOf(withPhotos)
     val gate = CompletableDeferred<Unit>()
