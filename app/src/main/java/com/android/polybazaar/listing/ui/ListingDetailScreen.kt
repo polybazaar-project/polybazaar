@@ -98,6 +98,9 @@ object ListingDetailScreenTags {
   const val DELETE_DIALOG = "listing_detail_delete_dialog"
   const val DELETE_CONFIRM = "listing_detail_delete_confirm"
   const val DELETE_CANCEL = "listing_detail_delete_cancel"
+  const val PHOTOS = "listing_detail_photos"
+  const val PHOTO = "listing_detail_photo"
+  const val PHOTO_COUNTER = "listing_detail_photo_counter"
   const val PAUSED_BADGE = "listing_detail_paused_badge"
   const val PAUSED_NOTICE = "listing_detail_paused_notice"
   const val OWNER_ACTION_ERROR = "listing_detail_owner_action_error"
@@ -231,7 +234,7 @@ private fun ColumnScope.ListingDetail(
   var confirmingDelete by rememberSaveable { mutableStateOf(false) }
   // weight(1f): the details take the height the booking bar leaves, and scroll inside it.
   Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-    PhotoArea(onBack = actions.onBack) {
+    PhotoArea(listing = listing, photos = uiState.listingPhotos, onBack = actions.onBack) {
       if (uiState.isOwner) {
         OwnerMenu(
             isPaused = listing.isPaused,
@@ -285,19 +288,19 @@ private fun BackButton(onBack: () -> Unit) {
 }
 
 /**
- * The 190dp photo area of the Figma, with the back button on it. It shows the placeholder for now:
- * the ViewModel does not download the photos yet (follow-up).
+ * The 190dp photo area of the Figma: the listing's photos (or the placeholder), with the back
+ * button and the owner's menu drawn over them.
  */
 @Composable
-private fun PhotoArea(onBack: () -> Unit, ownerMenu: @Composable BoxScope.() -> Unit) {
+private fun PhotoArea(
+    listing: Listing,
+    photos: Map<String, ByteArray>,
+    onBack: () -> Unit,
+    ownerMenu: @Composable BoxScope.() -> Unit,
+) {
   Box(modifier = Modifier.fillMaxWidth().height(190.dp).background(PhotoPlaceholder)) {
-    // Decorative: the area holds no information until the photos are loaded.
-    Icon(
-        painter = painterResource(R.drawable.ic_image),
-        contentDescription = null,
-        tint = AuthColors.TextSecondary,
-        modifier = Modifier.align(Alignment.Center).size(32.dp),
-    )
+    // First, so the buttons are drawn over the photos and stay tappable.
+    ListingPhotos(imagePaths = listing.imagePaths, photos = photos)
     BackButton(onBack = onBack)
     ownerMenu()
   }

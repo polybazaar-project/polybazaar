@@ -616,7 +616,9 @@ class ListingFormViewModelTest {
   /** An edit form for [storedItem], with the given saved state, after its load has finished. */
   private fun editForm(handle: SavedStateHandle = savedStateHandle): ListingFormViewModel {
     repository.storedListing = storedItem
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, handle)
+    // The same fixed day as the other forms: with the real date, available days chosen in these
+    // tests end up in the past and are dropped.
+    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, handle) { today }
     testDispatcher.scheduler.advanceUntilIdle()
     return editViewModel
   }
