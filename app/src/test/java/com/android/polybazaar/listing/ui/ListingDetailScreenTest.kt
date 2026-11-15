@@ -35,6 +35,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
@@ -211,7 +212,6 @@ class ListingDetailScreenTest {
     val details =
         ListingPendingDetails(
             condition = "Like new",
-            location = "Lausanne",
             specs = listOf("18 V", "2 batteries"),
             includedItems = listOf("Case", "Bits"),
             pickupTerms = "At the Rolex Learning Center.",
@@ -221,7 +221,6 @@ class ListingDetailScreenTest {
     setContent(ListingDetailUiState(listing = drill, pendingDetails = details))
 
     node(ListingDetailScreenTags.CONDITION).assertTextEquals("LIKE NEW")
-    text("Lausanne").assertExists()
     text("18 V  ·  2 batteries").assertExists()
     text(context.getString(R.string.listing_detail_included, "Case, Bits")).assertExists()
     text(context.getString(R.string.listing_detail_pickup, "At the Rolex Learning Center."))
@@ -229,6 +228,27 @@ class ListingDetailScreenTest {
     text(context.getString(R.string.listing_detail_returns, "Within the week.")).assertExists()
     text(context.getString(R.string.listing_detail_cancellation, "Free until the day before."))
         .assertExists()
+  }
+
+  @Test
+  fun location_whenSet_showsItsName() {
+    setContent(
+        ListingDetailUiState(
+            listing =
+                drill.copy(location = ListingLocation(46.5191, 6.5668, "Rolex Learning Center"))
+        )
+    )
+
+    node(ListingDetailScreenTags.LOCATION).assertTextEquals("Rolex Learning Center")
+    text(context.getString(R.string.listing_detail_location_pending)).assertDoesNotExist()
+  }
+
+  @Test
+  fun location_whenNotSet_isToBeConfirmed() {
+    setContent(ListingDetailUiState(listing = tutoring))
+
+    node(ListingDetailScreenTags.LOCATION)
+        .assertTextEquals(context.getString(R.string.listing_detail_location_pending))
   }
 
   @Test

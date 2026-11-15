@@ -38,6 +38,7 @@
     <string name="listing_detail_item_terms_title">RENTAL TERMS</string>
     <string name="listing_detail_service_terms_title">SERVICE TERMS</string>
     <string name="listing_detail_pickup">Pickup: %1$s</string>
+    <string name="listing_detail_location_pending">Location to be confirmed</string>
     <string name="listing_detail_pickup_pending">Location and timing to be confirmed.</string>
     <string name="listing_detail_returns">Returns: %1$s</string>
     <string name="listing_detail_returns_pending">Return window to be agreed.</string>
