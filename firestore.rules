@@ -216,22 +216,34 @@ service cloud.firestore {
       allow delete: if false;
 
       match /messages/{messageId} {
+        // The app trims before sending; surrounding whitespace does not count, but is capped.
+        function validText(text) {
+          return text is string
+              && text.trim().size() >= 1
+              && text.trim().size() <= 1000
+              && text.size() <= 2000;
+        }
+
+        // A photo is stored at the path storage.rules opens for this conversation and message.
+        function validImagePath(path) {
+          return path == 'conversations/' + conversationId + '/' + messageId + '.jpg';
+        }
+
         // getAfter, because the first message creates the conversation in the same batch. Requiring
-        // the conversation to name this message allows one message per batch.
+        // the conversation to name this message allows one message per batch. A message has a text,
+        // a photo, or both (a photo with a caption).
         function validMessage(data) {
           let conversation = getAfter(conversationPath()).data;
           return request.auth.uid in conversation.participants
               && conversation.lastMessageAt == request.time
               && conversation.lastMessageId == messageId
-              && data.keys().hasAll(['senderUid', 'text', 'sentAt'])
-              && data.keys().hasOnly(['senderUid', 'text', 'sentAt'])
+              && data.keys().hasAll(['senderUid', 'sentAt'])
+              && data.keys().hasOnly(['senderUid', 'text', 'sentAt', 'imagePath'])
+              && data.keys().hasAny(['text', 'imagePath'])
               && data.senderUid == request.auth.uid
               && data.sentAt == request.time
-              // The app trims before sending; surrounding whitespace does not count, but is capped.
-              && data.text is string
-              && data.text.trim().size() >= 1
-              && data.text.trim().size() <= 1000
-              && data.text.size() <= 2000
+              && (!('text' in data) || validText(data.text))
+              && (!('imagePath' in data) || validImagePath(data.imagePath))
               && listingData(conversation.listingId).ownerUid == conversation.lenderUid;
         }
 
