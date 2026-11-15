@@ -47,7 +47,9 @@ service firebase.storage {
       // "Written only by the sender": the message is written after the upload, so there is no message
       // to look up yet, and the uploader is taken as the sender. The conversation must exist already,
       // so a photo cannot open a conversation; the app sends a text first.
+      // resource == null: an upload over an existing file is checked as create, not update.
       allow create: if isVerified()
+          && resource == null
           && request.auth.uid in participants()
           && fileName.matches('[^/.]+[.]jpg')
           && isImageUpload();
