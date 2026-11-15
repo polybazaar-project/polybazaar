@@ -245,6 +245,18 @@ class FirebaseListingRepository(
         if (availableDates.isNotEmpty()) {
           put(AVAILABLE_DATES, availableDates.map { it.toEpochDay() }.sorted())
         }
+        // A map rather than a GeoPoint, so the model stays free of Firebase. Left out when there is
+        // none, like the available days.
+        location?.let {
+          put(
+              LOCATION,
+              mapOf(
+                  LATITUDE to it.latitude,
+                  LONGITUDE to it.longitude,
+                  LOCATION_NAME to it.name.trim(),
+              ),
+          )
+        }
         if (this@toFirestoreData is ItemListing) {
           put("refundValue", refundValue)
           // Left out when there is no limit, so the document looks like one written before the
@@ -255,8 +267,8 @@ class FirebaseListingRepository(
 
   /**
    * The fields an edit writes with update(). "paused" is left out, so only setPaused changes it. A
-   * rental limit or available days the owner removed are deleted, since update() keeps the fields
-   * it is not given.
+   * rental limit, available days or location the listing no longer has are deleted, since update()
+   * keeps the fields it is not given.
    */
   private fun Listing.toFirestoreEdit(
       ownerUid: String,
@@ -267,6 +279,7 @@ class FirebaseListingRepository(
       put("maxRentalDays", FieldValue.delete())
     }
     if (availableDates.isEmpty()) put(AVAILABLE_DATES, FieldValue.delete())
+    if (location == null) put(LOCATION, FieldValue.delete())
   }
 
   private fun DocumentSnapshot.imagePaths(): List<String> =
@@ -287,6 +300,24 @@ class FirebaseListingRepository(
           .filter { it is Long || it is Int }
           .mapNotNull { runCatching { LocalDate.ofEpochDay((it as Number).toLong()) }.getOrNull() }
           .toSet()
+
+  /**
+   * The stored location, or null when there is none, as on a listing written before the field
+   * existed. A malformed one also reads as null rather than hiding the listing, like the available
+   * days: the listing is still worth showing without it. An out-of-range or otherwise invalid
+   * location (as [ListingRules.isValidLocation] checks, the name once trimmed) also reads as null:
+   * the edit form has no location input and would keep it, so every save would fail; reading it as
+   * none lets the next edit delete it and keeps the listing editable. The name is trimmed, as the
+   * app writes it, since the rules accept one with spaces around it.
+   */
+  private fun DocumentSnapshot.location(): ListingLocation? {
+    val data = get(LOCATION) as? Map<*, *> ?: return null
+    // Firestore returns a Long for a whole number such as 46, so read any Number.
+    val latitude = (data[LATITUDE] as? Number)?.toDouble() ?: return null
+    val longitude = (data[LONGITUDE] as? Number)?.toDouble() ?: return null
+    val name = data[LOCATION_NAME] as? String ?: return null
+    return ListingLocation(latitude, longitude, name.trim()).takeIf(ListingRules::isValidLocation)
+  }
 
   /**
    * Rebuilds a listing from its Firestore document, the reverse of [toFirestoreData].
@@ -316,6 +347,7 @@ class FirebaseListingRepository(
         return null
     val imagePaths = imagePaths()
     val availableDates = availableDates()
+    val location = location()
 
     return when (get("type")) {
       ListingType.SERVICE.name ->
@@ -329,6 +361,7 @@ class FirebaseListingRepository(
               ownerUid = ownerUid,
               isPaused = paused,
               availableDates = availableDates,
+              location = location,
           )
       ListingType.ITEM.name -> {
         val refundValue = (get("refundValue") as? Number)?.toDouble() ?: return null
@@ -353,6 +386,7 @@ class FirebaseListingRepository(
             ownerUid = ownerUid,
             isPaused = paused,
             availableDates = availableDates,
+            location = location,
         )
       }
       else -> null
@@ -363,6 +397,10 @@ class FirebaseListingRepository(
     const val LISTINGS_COLLECTION = "listings"
     const val PAUSED = "paused"
     const val AVAILABLE_DATES = "availableDates"
+    const val LOCATION = "location"
+    const val LATITUDE = "latitude"
+    const val LONGITUDE = "longitude"
+    const val LOCATION_NAME = "name"
 
     fun notFound(listingId: String) =
         FirebaseFirestoreException(

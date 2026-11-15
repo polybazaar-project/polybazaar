@@ -46,6 +46,8 @@ enum class ListingCategory(
  *   [ListingRepository.setPaused] changes it: creating and editing a listing ignore it.
  * @property availableDates the days the owner offers the listing on. Empty until the owner chooses
  *   some, which is also what older listings without the field read as: no day can be requested.
+ * @property location where the listing is offered. Null until the owner sets one, which is also
+ *   what older listings without the field read as.
  */
 sealed class Listing(
     open val category: ListingCategory,
@@ -58,6 +60,7 @@ sealed class Listing(
     open val ownerUid: String?,
     open val isPaused: Boolean,
     open val availableDates: Set<LocalDate>,
+    open val location: ListingLocation?,
 ) {
   abstract val type: ListingType
 
@@ -92,6 +95,7 @@ data class ServiceListing(
     override val ownerUid: String? = null,
     override val isPaused: Boolean = false,
     override val availableDates: Set<LocalDate> = emptySet(),
+    override val location: ListingLocation? = null,
 ) :
     Listing(
         category,
@@ -104,6 +108,7 @@ data class ServiceListing(
         ownerUid,
         isPaused,
         availableDates,
+        location,
     ) {
   override val type = ListingType.SERVICE
 
@@ -144,6 +149,7 @@ data class ItemListing(
     override val ownerUid: String? = null,
     override val isPaused: Boolean = false,
     override val availableDates: Set<LocalDate> = emptySet(),
+    override val location: ListingLocation? = null,
 ) :
     Listing(
         category,
@@ -156,6 +162,7 @@ data class ItemListing(
         ownerUid,
         isPaused,
         availableDates,
+        location,
     ) {
   override val type = ListingType.ITEM
 

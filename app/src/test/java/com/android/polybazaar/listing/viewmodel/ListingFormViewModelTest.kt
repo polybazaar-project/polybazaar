@@ -11,6 +11,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
@@ -1155,5 +1156,97 @@ class ListingFormViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(chosenDays, repository.updatedListings.single().availableDates)
+  }
+
+  // Location
+
+  private val storedLocation = ListingLocation(46.5191, 6.5668, "Rolex Learning Center")
+
+  @Test
+  fun create_newListingHasNoLocation() = runTest {
+    fillForm()
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.location)
+    assertNull(repository.createdListing?.location)
+  }
+
+  @Test
+  fun edit_loadsTheStoredLocationIntoTheForm() = runTest {
+    repository.storedListing = storedItem.copy(location = storedLocation)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(storedLocation, editViewModel.uiState.value.location)
+    assertEquals(storedLocation, editViewModel.uiState.value.listing?.location)
+  }
+
+  // The form has no input for the location, so saving an edit must send the stored one back.
+  @Test
+  fun edit_saveKeepsTheStoredLocation() = runTest {
+    repository.storedListing = storedItem.copy(location = storedLocation)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.result = storedItem.copy(price = 15.0, location = storedLocation)
+
+    editViewModel.updatePrice("15")
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(storedLocation, repository.updatedListings.single().location)
+  }
+
+  @Test
+  fun edit_ofAListingWithoutLocation_savesNone() = runTest {
+    val editViewModel = editForm()
+    repository.result = storedItem
+
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(repository.updatedListings.single().location)
+  }
+
+  @Test
+  fun location_survivesTheAppBeingKilled() = runTest {
+    repository.storedListing = storedItem.copy(location = storedLocation)
+    ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(storedLocation.latitude, savedStateHandle.get<Double>("locationLatitude"))
+    assertEquals(storedLocation.longitude, savedStateHandle.get<Double>("locationLongitude"))
+    assertEquals(storedLocation.name, savedStateHandle.get<String>("locationName"))
+
+    val restored = editForm(afterAppKilled(savedStateHandle))
+
+    // Restored rather than reloaded, and still sent back on save.
+    assertEquals(1, repository.getListingCalls)
+    assertEquals(storedLocation, restored.uiState.value.location)
+    assertEquals(storedLocation, restored.uiState.value.listing?.location)
+
+    // editForm stored a listing without location, so only the restored one can be sent back.
+    repository.result = storedItem.copy(location = storedLocation)
+    restored.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(storedLocation, repository.updatedListings.single().location)
+  }
+
+  @Test
+  fun location_partlySavedIsRestoredAsNone() {
+    val handles =
+        listOf(
+            SavedStateHandle(mapOf("locationLongitude" to 6.5, "locationName" to "EPFL")),
+            SavedStateHandle(mapOf("locationLatitude" to 46.5, "locationName" to "EPFL")),
+            SavedStateHandle(mapOf("locationLatitude" to 46.5, "locationLongitude" to 6.5)),
+        )
+
+    handles.forEach { handle ->
+      val restored = ListingFormViewModel(null, repository, photoStorage, handle) { today }
+      assertNull(restored.uiState.value.location)
+    }
   }
 }

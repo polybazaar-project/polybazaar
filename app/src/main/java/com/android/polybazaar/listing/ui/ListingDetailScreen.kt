@@ -79,6 +79,7 @@ object ListingDetailScreenTags {
   const val CATEGORY = "listing_detail_category"
   const val CONDITION = "listing_detail_condition"
   const val TITLE = "listing_detail_title"
+  const val LOCATION = "listing_detail_location"
   const val DESCRIPTION = "listing_detail_description"
   const val TERMS = "listing_detail_terms"
   const val LENDER = "listing_detail_lender"
@@ -307,8 +308,8 @@ private fun PhotoArea(
 }
 
 /**
- * Category, the "Paused" and condition badges, title and location. The condition badge and location
- * show once known.
+ * Category, the "Paused" and condition badges, title and location. The condition badge and the
+ * location show once known.
  */
 @Composable
 private fun Overview(listing: Listing, pending: ListingPendingDetails) {
@@ -340,7 +341,14 @@ private fun Overview(listing: Listing, pending: ListingPendingDetails) {
         letterSpacing = (-0.4).sp,
         modifier = Modifier.testTag(ListingDetailScreenTags.TITLE),
     )
-    pending.location?.let { SecondaryText(text = it, fontSize = 13.sp) }
+    // Left out while unknown: the pickup line already says the location is to be confirmed.
+    listing.location?.let {
+      SecondaryText(
+          text = it.name,
+          fontSize = 13.sp,
+          modifier = Modifier.testTag(ListingDetailScreenTags.LOCATION),
+      )
+    }
   }
 }
 

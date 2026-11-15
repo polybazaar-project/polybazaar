@@ -13,6 +13,7 @@ import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
@@ -46,6 +47,8 @@ import kotlinx.coroutines.launch
  * @property photos photos on this device, to upload when the form is saved.
  * @property maxRentalDays kept from the edited listing, so that saving does not erase it. The form
  *   has no input for it yet.
+ * @property location kept from the edited listing, so that saving does not erase it. The form has
+ *   no input for it yet, so a new listing has none.
  * @property availableDates the days the owner offers the listing on, chosen in the calendar.
  * @property today the day earlier days cannot be offered from, for the calendar to use as well.
  *   Always given, so that building a state never reads the clock.
@@ -69,6 +72,7 @@ data class ListingFormUiState(
     val storedPhotos: List<String> = emptyList(),
     val photos: List<Uri> = emptyList(),
     val maxRentalDays: Int? = null,
+    val location: ListingLocation? = null,
     val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = false,
     val loadError: AppError? = null,
@@ -99,6 +103,7 @@ data class ListingFormUiState(
             listingId = listingId,
             maxRentalDays = maxRentalDays,
             availableDates = availableDates,
+            location = location,
         )
 
   /** Photos kept and photos added together, which [MAX_PHOTOS] limits. */
@@ -145,6 +150,7 @@ private fun formFor(listing: Listing, today: LocalDate) =
         category = listing.category,
         storedPhotos = listing.imagePaths,
         maxRentalDays = (listing as? ItemListing)?.maxRentalDays,
+        location = listing.location,
         availableDates = upcomingDays(listing.availableDates, today),
         today = today,
     )
@@ -428,6 +434,9 @@ class ListingFormViewModel(
     const val PHOTOS = "photos"
     const val MAX_RENTAL_DAYS = "maxRentalDays"
     const val AVAILABLE_DATES = "availableDates"
+    const val LOCATION_LATITUDE = "locationLatitude"
+    const val LOCATION_LONGITUDE = "locationLongitude"
+    const val LOCATION_NAME = "locationName"
     const val PENDING_PHOTO = "pendingPhoto"
     const val RETAKE_INDEX = "retakeIndex"
 
@@ -449,8 +458,19 @@ class ListingFormViewModel(
       set(STORED_PHOTOS, ArrayList(state.storedPhotos))
       set(PHOTOS, ArrayList(state.photos))
       set(MAX_RENTAL_DAYS, state.maxRentalDays)
+      set(LOCATION_LATITUDE, state.location?.latitude)
+      set(LOCATION_LONGITUDE, state.location?.longitude)
+      set(LOCATION_NAME, state.location?.name)
       // As days since 1970: a LongArray survives the app being killed, a set of dates might not.
       set(AVAILABLE_DATES, state.availableDates.map { it.toEpochDay() }.toLongArray())
+    }
+
+    /** The saved location, or null when the form had none. */
+    fun SavedStateHandle.restoreLocation(): ListingLocation? {
+      val latitude = get<Double>(LOCATION_LATITUDE) ?: return null
+      val longitude = get<Double>(LOCATION_LONGITUDE) ?: return null
+      val name = get<String>(LOCATION_NAME) ?: return null
+      return ListingLocation(latitude, longitude, name)
     }
 
     /**
@@ -471,6 +491,7 @@ class ListingFormViewModel(
             storedPhotos = get<List<String>>(STORED_PHOTOS).orEmpty(),
             photos = get<List<Uri>>(PHOTOS).orEmpty(),
             maxRentalDays = get(MAX_RENTAL_DAYS),
+            location = restoreLocation(),
             availableDates =
                 upcomingDays(
                     get<LongArray>(AVAILABLE_DATES)?.map(LocalDate::ofEpochDay)?.toSet().orEmpty(),

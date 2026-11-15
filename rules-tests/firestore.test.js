@@ -564,6 +564,67 @@ describe("listings", () => {
     await assertSucceeds(updateDoc(listing, { availableDates: deleteField() }));
   });
 
+  const epfl = { latitude: 46.5191, longitude: 6.5668, name: "Rolex Learning Center" };
+
+  // Every location a listing must not store, on create and on update alike.
+  const invalidLocations = {
+    "latitude above 90": { ...epfl, latitude: 90.0001 },
+    "latitude below -90": { ...epfl, latitude: -90.0001 },
+    "longitude above 180": { ...epfl, longitude: 180.0001 },
+    "longitude below -180": { ...epfl, longitude: -180.0001 },
+    "NaN latitude": { ...epfl, latitude: NaN },
+    "NaN longitude": { ...epfl, longitude: NaN },
+    "text latitude": { ...epfl, latitude: "46.5" },
+    "text longitude": { ...epfl, longitude: "6.5" },
+    "missing latitude": { longitude: 6.5668, name: "EPFL" },
+    "missing longitude": { latitude: 46.5191, name: "EPFL" },
+    "missing name": { latitude: 46.5191, longitude: 6.5668 },
+    "empty name": { ...epfl, name: "" },
+    "blank name": { ...epfl, name: "   " },
+    "name of 81 characters": { ...epfl, name: "a".repeat(81) },
+    "name that is not text": { ...epfl, name: 42 },
+    "extra key": { ...epfl, address: "Route Cantonale" },
+    "text instead of a map": "Rolex Learning Center",
+    "list instead of a map": [46.5191, 6.5668],
+  };
+
+  /** assertFails, naming the [label] case when the write was accepted. */
+  const refused = (label, write) =>
+    assertFails(write).catch((error) => {
+      throw new Error(`${label}: ${error.message}`);
+    });
+
+  test("a listing can have no location or a valid one, up to the bounds", async () => {
+    const db = verified(ALICE);
+    await assertSucceeds(setDoc(doc(db, "listings/none"), itemListing()));
+    await assertSucceeds(setDoc(doc(db, "listings/epfl"), itemListing({ location: epfl })));
+    await assertSucceeds(
+      setDoc(doc(db, "listings/max"), serviceListing({ location: { latitude: 90, longitude: 180, name: "a".repeat(80) } })),
+    );
+    await assertSucceeds(
+      setDoc(doc(db, "listings/min"), itemListing({ location: { latitude: -90, longitude: -180, name: "South" } })),
+    );
+  });
+
+  test("a listing cannot be created with an invalid location", async () => {
+    const db = verified(ALICE);
+    for (const [label, location] of Object.entries(invalidLocations)) {
+      await refused(label, setDoc(doc(db, "listings/l1"), itemListing({ location })));
+      await refused(label, setDoc(doc(db, "listings/s1"), serviceListing({ location })));
+    }
+  });
+
+  test("an edit keeps the location checks, and can add, change or remove it", async () => {
+    await seed("listings/l1", itemListing());
+    const listing = doc(verified(ALICE), "listings/l1");
+    await assertSucceeds(updateDoc(listing, { location: epfl }));
+    await assertSucceeds(updateDoc(listing, { location: { latitude: -90, longitude: 180, name: "Edge" } }));
+    for (const [label, location] of Object.entries(invalidLocations)) {
+      await refused(label, updateDoc(listing, { location }));
+    }
+    await assertSucceeds(updateDoc(listing, { location: deleteField() }));
+  });
+
   test("a listing is an ITEM or a SERVICE", async () => {
     await assertFails(setDoc(doc(verified(ALICE), "listings/l1"), itemListing({ type: "CAR" })));
   });

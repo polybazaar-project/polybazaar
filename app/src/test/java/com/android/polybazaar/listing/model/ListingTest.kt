@@ -165,7 +165,6 @@ class ListingTest {
 
     // Nothing stores these fields yet, so nothing is made up for the screen.
     assertEquals(null, details.condition)
-    assertEquals(null, details.location)
     assertEquals(emptyList<String>(), details.specs)
     assertEquals(emptyList<String>(), details.includedItems)
     assertEquals(null, details.pickupTerms)
