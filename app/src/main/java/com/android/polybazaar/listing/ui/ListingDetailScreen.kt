@@ -308,8 +308,8 @@ private fun PhotoArea(
 }
 
 /**
- * Category, the "Paused" and condition badges, title and location. The condition badge shows once
- * known; a listing without a location says it is to be confirmed.
+ * Category, the "Paused" and condition badges, title and location. The condition badge and the
+ * location show once known.
  */
 @Composable
 private fun Overview(listing: Listing, pending: ListingPendingDetails) {
