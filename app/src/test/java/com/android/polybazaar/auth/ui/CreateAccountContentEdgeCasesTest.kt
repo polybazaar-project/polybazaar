@@ -603,8 +603,17 @@ class CreateAccountContentEdgeCasesTest {
   }
 
   @Test
-  fun cancelButton_staysEnabledWhileLoading() {
+  fun cancelAndBack_areDisabledWhileLoading() {
+    // Leaving mid sign-up would let its error land on the sign-in screen.
     setContent(uiState = AuthUiState(isLoading = true))
+
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.CANCEL_BUTTON).assertIsNotEnabled()
+    composeTestRule.onNodeWithTag(CreateAccountScreenTags.BACK_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun cancelAndBack_areEnabledWhenNotLoading() {
+    setContent()
 
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.CANCEL_BUTTON).assertIsEnabled()
     composeTestRule.onNodeWithTag(CreateAccountScreenTags.BACK_BUTTON).assertIsEnabled()

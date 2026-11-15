@@ -203,10 +203,14 @@ fun AppNavHost(
           )
         }
         composable(Routes.CREATE_ACCOUNT) {
-          // Clears the shared error on the way back to sign-in, for system back too.
+          // Clears the shared error on the way back to sign-in, for system back too. Not while a
+          // sign-up runs: its error would land on sign-in. The screen disables its own buttons
+          // then, and this handler swallows system back.
           val onBack: () -> Unit = {
-            authViewModel.clearError()
-            navController.popBackStack()
+            if (!authViewModel.uiState.value.isLoading) {
+              authViewModel.clearError()
+              navController.popBackStack()
+            }
           }
           BackHandler(onBack = onBack)
           CreateAccountScreen(
