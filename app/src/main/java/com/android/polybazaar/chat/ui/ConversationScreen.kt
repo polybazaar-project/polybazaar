@@ -37,10 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -542,9 +543,9 @@ private fun Composer(
   val tooLong = open && length > ChatRules.MAX_MESSAGE_LENGTH
   val lengthError =
       if (tooLong)
-          stringResource(
-              R.string.conversation_length_counter_description,
-              length,
+          pluralStringResource(
+              R.plurals.conversation_length_too_long,
+              ChatRules.MAX_MESSAGE_LENGTH,
               ChatRules.MAX_MESSAGE_LENGTH,
           )
       else null
@@ -565,7 +566,6 @@ private fun Composer(
           onValueChange = onDraftChange,
           enabled = open,
           placeholder = placeholder,
-          errorMessage = lengthError,
           modifier = Modifier.weight(1f),
       )
       AuthPrimaryButton(
@@ -605,11 +605,14 @@ private fun Composer(
               color = AuthColors.Danger,
               fontSize = 12.sp,
               modifier =
-                  Modifier
-                      // Read as a sentence by TalkBack; the field carries the same text as its
-                      // error, so it is announced where focus is.
-                      .semantics { contentDescription = lengthError }
-                      .testTag(ConversationScreenTags.LENGTH_COUNTER),
+                  Modifier.testTag(ConversationScreenTags.LENGTH_COUNTER)
+                      // Its semantics are only the fixed sentence, not the number: the polite live
+                      // region speaks once when the counter appears and stays quiet as the number
+                      // changes.
+                      .clearAndSetSemantics {
+                        contentDescription = lengthError
+                        liveRegion = LiveRegionMode.Polite
+                      },
           )
         }
       }
@@ -617,18 +620,13 @@ private fun Composer(
   }
 }
 
-/**
- * A field styled like LabeledField's, that grows up to five lines as the message gets longer.
- *
- * @param errorMessage why the message cannot be sent as typed, for TalkBack to read on the field.
- */
+/** A field styled like LabeledField's, that grows up to five lines as the message gets longer. */
 @Composable
 private fun MessageField(
     value: String,
     onValueChange: (String) -> Unit,
     enabled: Boolean,
     placeholder: String,
-    errorMessage: String?,
     modifier: Modifier = Modifier,
 ) {
   val textStyle = TextStyle(fontSize = 14.sp, lineHeight = 19.sp)
@@ -641,12 +639,7 @@ private fun MessageField(
       textStyle = textStyle.copy(color = AuthColors.TextPrimary),
       cursorBrush = SolidColor(AuthColors.Accent),
       keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-      modifier =
-          modifier
-              .then(
-                  if (errorMessage != null) Modifier.semantics { error(errorMessage) } else Modifier
-              )
-              .testTag(ConversationScreenTags.MESSAGE_FIELD),
+      modifier = modifier.testTag(ConversationScreenTags.MESSAGE_FIELD),
       decorationBox = { innerTextField ->
         Box(
             modifier =

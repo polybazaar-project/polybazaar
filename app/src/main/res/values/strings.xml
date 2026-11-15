@@ -91,7 +91,10 @@
     <string name="conversation_placeholder_closed">Conversation closed</string>
     <string name="conversation_send">Send</string>
     <string name="conversation_length_counter">%1$d/%2$d</string>
-    <string name="conversation_length_counter_description">Message too long: %1$d of %2$d characters</string>
+    <plurals name="conversation_length_too_long">
+        <item quantity="one">Message too long: at most %d character</item>
+        <item quantity="other">Message too long: at most %d characters</item>
+    </plurals>
 
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
