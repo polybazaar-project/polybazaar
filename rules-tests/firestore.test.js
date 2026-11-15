@@ -1192,6 +1192,40 @@ describe("conversations", () => {
     await assertFails(sendMessage(verified(ALICE), ALICE, wrongText));
   });
 
+  test("a photo without text stores an empty preview", async () => {
+    await seed("listings/l1", itemListing());
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: photoMessage(BOB) }));
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE, { message: photoMessage(ALICE) }));
+    const stored = (await getDoc(doc(verified(BOB), CONVERSATION))).data();
+    assert.equal(stored.lastMessageText, "");
+    assert.equal(stored.lastMessageSenderUid, ALICE);
+  });
+
+  test("a photo without text cannot store a preview", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    for (const lastMessageText of ["Photo", " ", "Is it available on Saturday?"]) {
+      await assertFails(
+        sendMessage(db, BOB, { message: photoMessage(BOB), conversation: { lastMessageText } }),
+      );
+    }
+  });
+
+  test("a photo with a caption stores the caption as the preview", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const message = photoMessage(BOB, { caption: "The drill bits" });
+    await assertFails(sendMessage(db, BOB, { message, conversation: { lastMessageText: "" } }));
+    await assertSucceeds(sendMessage(db, BOB, { message }));
+    const stored = (await getDoc(doc(db, CONVERSATION))).data();
+    assert.equal(stored.lastMessageText, "The drill bits");
+  });
+
+  test("a text message cannot store the empty preview of a photo", async () => {
+    await seedConversation();
+    await assertFails(sendMessage(verified(BOB), BOB, { conversation: { lastMessageText: "" } }));
+  });
+
   test("a message must store its sender as the last sender", async () => {
     await seed("listings/l1", itemListing());
     await assertFails(
