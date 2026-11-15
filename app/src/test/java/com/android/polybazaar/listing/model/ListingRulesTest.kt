@@ -411,4 +411,80 @@ class ListingRulesTest {
     assertEquals(days, item?.availableDates)
     assertEquals(days, service?.availableDates)
   }
+
+  @Test
+  fun errorFor_acceptsNoLocationAndValidOnesUpToTheBounds() {
+    fun at(latitude: Double, longitude: Double, name: String = "EPFL") =
+        item().copy(location = ListingLocation(latitude, longitude, name))
+
+    assertNull(ListingRules.errorFor(item()))
+    assertNull(ListingRules.errorFor(at(46.52, 6.57)))
+    assertNull(ListingRules.errorFor(at(90.0, 180.0)))
+    assertNull(ListingRules.errorFor(at(-90.0, -180.0)))
+    assertNull(
+        ListingRules.errorFor(
+            service().copy(location = ListingLocation(0.0, 0.0, "  " + "a".repeat(80) + "  "))
+        )
+    )
+  }
+
+  @Test
+  fun errorFor_refusesAnInvalidLocation() {
+    fun errorAt(latitude: Double, longitude: Double, name: String = "EPFL") =
+        ListingRules.errorFor(item().copy(location = ListingLocation(latitude, longitude, name)))
+
+    val message = ListingRules.LOCATION_MESSAGE
+    assertEquals(message, errorAt(90.0001, 6.57))
+    assertEquals(message, errorAt(-90.0001, 6.57))
+    assertEquals(message, errorAt(46.52, 180.0001))
+    assertEquals(message, errorAt(46.52, -180.0001))
+    assertEquals(message, errorAt(Double.NaN, 6.57))
+    assertEquals(message, errorAt(46.52, Double.NaN))
+    assertEquals(message, errorAt(46.52, 6.57, name = ""))
+    assertEquals(message, errorAt(46.52, 6.57, name = "   "))
+    assertEquals(message, errorAt(46.52, 6.57, name = "a".repeat(81)))
+    assertEquals(
+        message,
+        ListingRules.errorFor(service().copy(location = ListingLocation(100.0, 0.0, "EPFL"))),
+    )
+  }
+
+  @Test
+  fun buildListing_putsTheLocationOnBothTypes_andNoneByDefault() {
+    val location = ListingLocation(46.52, 6.57, "EPFL")
+
+    val item =
+        buildListing(
+            ListingType.ITEM,
+            "Drill",
+            "Works well",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+            location = location,
+        )
+    val service =
+        buildListing(
+            ListingType.SERVICE,
+            "Tutoring",
+            "One hour",
+            "25",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+            location = location,
+        )
+    val withoutLocation =
+        buildListing(
+            ListingType.ITEM,
+            "Drill",
+            "Works well",
+            "5",
+            ListingCategory.ITEM_TOOLS,
+            emptyList(),
+        )
+
+    assertEquals(location, item?.location)
+    assertEquals(location, service?.location)
+    assertNull(withoutLocation?.location)
+  }
 }

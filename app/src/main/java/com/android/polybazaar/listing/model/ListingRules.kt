@@ -36,6 +36,11 @@ object ListingRules {
    */
   const val MAX_AVAILABLE_DAYS = 366
 
+  /**
+   * Maximum length of a [ListingLocation.name]. Change it here and in `firestore.rules` together.
+   */
+  const val MAX_LOCATION_NAME_LENGTH = 80
+
   fun categoriesFor(type: ListingType): List<ListingCategory> =
       ListingCategory.entries.filter { it.type == type }
 
@@ -46,6 +51,8 @@ object ListingRules {
       "Enter a rental duration between 1 and $MAX_RENTAL_DAYS days"
   const val AVAILABLE_DAYS_LIMIT_MESSAGE =
       "A listing can have at most $MAX_AVAILABLE_DAYS available days"
+  const val LOCATION_MESSAGE =
+      "A location needs a name of at most $MAX_LOCATION_NAME_LENGTH characters and valid coordinates"
 
   /** Whether [amount] is above zero and at most [max]. */
   fun isValidAmount(amount: Double, max: Double = MAX_PRICE): Boolean = amount > 0 && amount <= max
@@ -74,8 +81,22 @@ object ListingRules {
       // The calendar never offers more than a year of days. Checked all the same, like the rental
       // duration, so the repository refuses what the security rules would, before uploading photos.
       listing.availableDates.size > MAX_AVAILABLE_DAYS -> AVAILABLE_DAYS_LIMIT_MESSAGE
+      // Null means no location yet, so only a set one is checked.
+      listing.location?.let(::isValidLocation) == false -> LOCATION_MESSAGE
       else -> null
     }
+  }
+
+  /**
+   * Whether [location] is on the globe and has a name that is not blank nor too long once trimmed.
+   * Also used when reading a stored location, so a bad one never blocks saving the listing.
+   */
+  internal fun isValidLocation(location: ListingLocation): Boolean {
+    val name = location.name.trim()
+    return location.latitude in -90.0..90.0 &&
+        location.longitude in -180.0..180.0 &&
+        name.isNotEmpty() &&
+        name.length <= MAX_LOCATION_NAME_LENGTH
   }
 
   /**
@@ -125,6 +146,7 @@ object ListingRules {
    * @param maxRentalDays kept from the edited item, since the form has no input for it. Ignored for
    *   services.
    * @param availableDates the days the owner offers the listing on.
+   * @param location kept from the edited listing, since the form has no input for it.
    */
   fun buildListing(
       type: ListingType,
@@ -138,6 +160,7 @@ object ListingRules {
       listingId: String? = null,
       maxRentalDays: Int? = null,
       availableDates: Set<LocalDate> = emptySet(),
+      location: ListingLocation? = null,
   ): Listing? {
     val parsedPrice = parsePrice(price) ?: return null
     if (title.isBlank() || description.isBlank() || category?.type != type) return null
@@ -157,6 +180,7 @@ object ListingRules {
               imagePaths = imagePaths,
               listingId = listingId,
               availableDates = availableDates,
+              location = location,
           )
       ListingType.SERVICE ->
           ServiceListing(
@@ -168,6 +192,7 @@ object ListingRules {
               imagePaths = imagePaths,
               listingId = listingId,
               availableDates = availableDates,
+              location = location,
           )
     }
   }

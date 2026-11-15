@@ -464,6 +464,211 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun createListing_storesTheLocationAsATrimmedMap_onlyWhenThereIsOne() = runTest {
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val drill = ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Drill", "With bits")
+
+    repository.createListing(
+        drill.copy(location = ListingLocation(46.5191, 6.5668, "  Rolex Learning Center "))
+    )
+    repository.createListing(drill)
+
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(newDocument, times(2)).set(stored.capture())
+    assertEquals(
+        mapOf("latitude" to 46.5191, "longitude" to 6.5668, "name" to "Rolex Learning Center"),
+        stored.firstValue["location"],
+    )
+    // No location: the key is left out, like on a listing written before the field existed.
+    assertFalse(stored.secondValue.containsKey("location"))
+  }
+
+  @Test
+  fun createListing_thenGetListing_roundTripsTheLocation() = runTest {
+    whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val location = ListingLocation(-33.8568, 151.2153, "Opera House")
+    val service =
+        ServiceListing(
+            ListingCategory.SERVICE_TUTORING,
+            25.0,
+            "Math tutoring",
+            "One-hour session",
+            location = location,
+        )
+
+    repository.createListing(service)
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(newDocument).set(stored.capture())
+    givenStoredListing(stored.firstValue)
+
+    val loaded = repository.getListing(listingId).getOrThrow()
+
+    assertEquals(location, loaded.location)
+    assertEquals(service.copy(listingId = listingId, ownerUid = uid), loaded)
+  }
+
+  @Test
+  fun createListing_withAnInvalidLocation_failsWithoutTouchingFirebase() = runTest {
+    val drill =
+        ItemListing(
+            ListingCategory.ITEM_TOOLS,
+            8.0,
+            "Drill",
+            "With bits",
+            location = ListingLocation(91.0, 6.5, "EPFL"),
+        )
+
+    val failure = runCatching { repository.createListing(drill) }.exceptionOrNull()
+
+    assertTrue(failure is IllegalArgumentException)
+    assertEquals(ListingRules.LOCATION_MESSAGE, failure?.message)
+    verifyNoInteractions(firestore)
+  }
+
+  @Test
+  fun getAllListings_readsTheLocation_andReadsAMalformedOneAsNone() = runTest {
+    fun located(location: Any) = itemFields + ("location" to location)
+    givenAllListings(
+        listingDocument(
+            "doubles",
+            located(mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL")),
+        ),
+        // Firestore returns a whole number as a Long.
+        listingDocument(
+            "whole",
+            located(mapOf("latitude" to 46L, "longitude" to -6L, "name" to "Somewhere")),
+        ),
+        // Written before the field existed.
+        listingDocument("absent", itemFields),
+        listingDocument("not-a-map", located("EPFL")),
+        listingDocument(
+            "text-latitude",
+            located(mapOf("latitude" to "46", "longitude" to 6.57, "name" to "EPFL")),
+        ),
+        listingDocument(
+            "no-longitude",
+            located(mapOf("latitude" to 46.52, "name" to "EPFL")),
+        ),
+        listingDocument(
+            "no-name",
+            located(mapOf("latitude" to 46.52, "longitude" to 6.57)),
+        ),
+        listingDocument(
+            "number-name",
+            located(mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to 42)),
+        ),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    // Every listing still loads: a malformed location only hides the location.
+    assertEquals(
+        listOf(
+            "doubles" to ListingLocation(46.52, 6.57, "EPFL"),
+            "whole" to ListingLocation(46.0, -6.0, "Somewhere"),
+            "absent" to null,
+            "not-a-map" to null,
+            "text-latitude" to null,
+            "no-longitude" to null,
+            "no-name" to null,
+            "number-name" to null,
+        ),
+        result.map { it.listingId to it.location },
+    )
+  }
+
+  @Test
+  fun getListing_readsTheLocationOfAService() = runTest {
+    givenStoredListing(
+        storedService() +
+            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL"))
+    )
+
+    val loaded = repository.getListing(listingId).getOrThrow()
+
+    assertEquals(ListingLocation(46.52, 6.57, "EPFL"), loaded.location)
+  }
+
+  // Well-formed but invalid: the edit form would keep it and every save would then be refused.
+  @Test
+  fun getAllListings_readsAnInvalidLocationAsNone_andStillLoadsTheListing() = runTest {
+    fun located(latitude: Double, longitude: Double, name: String) =
+        itemFields +
+            ("location" to mapOf("latitude" to latitude, "longitude" to longitude, "name" to name))
+    givenAllListings(
+        listingDocument("latitude-too-high", located(120.0, 6.57, "EPFL")),
+        listingDocument("latitude-too-low", located(-90.5, 6.57, "EPFL")),
+        listingDocument("longitude-too-high", located(46.52, 180.5, "EPFL")),
+        listingDocument("longitude-too-low", located(46.52, -200.0, "EPFL")),
+        listingDocument("nan-latitude", located(Double.NaN, 6.57, "EPFL")),
+        listingDocument("nan-longitude", located(46.52, Double.NaN, "EPFL")),
+        listingDocument("blank-name", located(46.52, 6.57, "   ")),
+        listingDocument("long-name", located(46.52, 6.57, "a".repeat(81))),
+        // The limits themselves are valid, and the name counts once trimmed.
+        listingDocument("on-the-limits", located(-90.0, 180.0, "  ${"a".repeat(80)}  ")),
+    )
+
+    val result = repository.getAllListings().getOrThrow()
+
+    assertEquals(
+        listOf(
+            "latitude-too-high" to null,
+            "latitude-too-low" to null,
+            "longitude-too-high" to null,
+            "longitude-too-low" to null,
+            "nan-latitude" to null,
+            "nan-longitude" to null,
+            "blank-name" to null,
+            "long-name" to null,
+            "on-the-limits" to ListingLocation(-90.0, 180.0, "  ${"a".repeat(80)}  "),
+        ),
+        result.map { it.listingId to it.location },
+    )
+  }
+
+  @Test
+  fun updateListing_ofAListingWithAnInvalidStoredLocation_deletesTheLocation() = runTest {
+    givenStoredListing(
+        storedService() +
+            ("location" to mapOf("latitude" to 120.0, "longitude" to 6.57, "name" to "EPFL"))
+    )
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    val loaded = repository.getListing(listingId).getOrThrow()
+    val saved = repository.updateListing(loaded)
+
+    assertEquals(null, loaded.location)
+    val written = argumentCaptor<Map<String, Any>>()
+    verify(document).update(written.capture())
+    assertEquals(FieldValue.delete(), written.firstValue["location"])
+    assertEquals(null, saved.location)
+  }
+
+  // update() keeps the fields it is not given, so a removed location must be deleted explicitly.
+  @Test
+  fun updateListing_keepsTheLocation_andDeletesItWhenTheListingHasNone() = runTest {
+    givenStoredListing(
+        storedService() +
+            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL"))
+    )
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val location = ListingLocation(46.52, 6.57, "EPFL")
+
+    val kept = repository.updateListing(editedService(emptyList()).copy(location = location))
+    val removed = repository.updateListing(editedService(emptyList()))
+
+    val written = argumentCaptor<Map<String, Any>>()
+    verify(document, times(2)).update(written.capture())
+    assertEquals(
+        mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL"),
+        written.firstValue["location"],
+    )
+    assertEquals(FieldValue.delete(), written.secondValue["location"])
+    assertEquals(location, kept.location)
+    assertEquals(null, removed.location)
+  }
+
+  @Test
   fun createListing_withoutAuthenticatedUser_throwsError() = runTest {
     whenever(auth.currentUser).thenReturn(null)
 
@@ -983,6 +1188,8 @@ class FirebaseListingRepositoryTest {
                     "imagePaths" to listOf(path(0), path(1)),
                     // No day is offered, so any stored before are removed.
                     "availableDates" to FieldValue.delete(),
+                    // No location either, so any stored before is removed.
+                    "location" to FieldValue.delete(),
                 )
             )
         )
