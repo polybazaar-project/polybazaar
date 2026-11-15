@@ -153,9 +153,10 @@ service cloud.firestore {
       }
 
       // The inbox preview copies the new message, sent by me, and the send marks it read for me only.
+      // A text is never empty, so a '' preview means a photo-only message (one with no text).
       // Call after isNewMessage, which checks lastMessageId is a string; its getAfter is read once.
       function validLastMessage(data, readAtBefore) {
-        return data.lastMessageText == getAfter(/databases/$(database)/documents/conversations/$(conversationId)/messages/$(data.lastMessageId)).data.text
+        return data.lastMessageText == getAfter(/databases/$(database)/documents/conversations/$(conversationId)/messages/$(data.lastMessageId)).data.get('text', '')
             && data.lastMessageSenderUid == request.auth.uid
             && data.lastReadAt is map
             && data.lastReadAt.diff(readAtBefore).affectedKeys().hasOnly([request.auth.uid])
