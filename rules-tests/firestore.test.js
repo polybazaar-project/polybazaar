@@ -1284,6 +1284,13 @@ describe("messages", () => {
     await assertFails(sendMessage(db, BOB, { message: { text: 42 } }));
   });
 
+  test("a message's length counts UTF-16 units, so an emoji counts as 2", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    await assertSucceeds(sendMessage(db, BOB, { message: { text: "\u{1F600}".repeat(500) } }));
+    await assertFails(sendMessage(db, BOB, { message: { text: "\u{1F600}".repeat(501) } }));
+  });
+
   test("a message's untrimmed text is at most 2000 characters", async () => {
     await seedConversation();
     const db = verified(BOB);

@@ -6,10 +6,12 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -26,6 +28,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -37,6 +40,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.ChatMessage
+import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
@@ -124,6 +128,22 @@ class ConversationScreenTest {
 
   private fun hasDraft(text: String) =
       SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(text))
+
+  private fun tooLongSentence(): String =
+      context.resources.getQuantityString(
+          R.plurals.conversation_length_too_long,
+          ChatRules.MAX_MESSAGE_LENGTH,
+          ChatRules.MAX_MESSAGE_LENGTH,
+      )
+
+  private fun isPoliteLiveRegion() =
+      SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
+
+  private fun hasNoText() = SemanticsMatcher.keyNotDefined(SemanticsProperties.Text)
+
+  /** Every semantics property of [node], by key, for comparing what TalkBack sees. */
+  private fun semanticsOf(node: SemanticsNodeInteraction): Map<String, Any?> =
+      node.fetchSemanticsNode().config.associate { (key, value) -> key.name to value }
 
   /**
    * Asserts [node] lies entirely inside the message list, from its unclipped bounds:
@@ -495,6 +515,134 @@ class ConversationScreenTest {
     node(ConversationScreenTags.MESSAGE_FIELD).performTextInput("Hi")
 
     assertEquals(listOf("dismiss", "draft:Hi"), calls)
+  }
+
+  @Test
+  fun draftOverTheLimit_showsTheCounter_andKeepsTheText() {
+    val long = "a".repeat(1012)
+    setContent(loaded.copy(draft = long, canSend = false))
+
+    node(ConversationScreenTags.LENGTH_COUNTER)
+        .assertIsDisplayed()
+        .assertContentDescriptionEquals(tooLongSentence())
+        .assert(isPoliteLiveRegion())
+        .assert(hasNoText())
+    node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft(long))
+    // Alone, it still sits at the end, under Send.
+    val counter = node(ConversationScreenTags.LENGTH_COUNTER).getBoundsInRoot()
+    val send = node(ConversationScreenTags.SEND_BUTTON).getBoundsInRoot()
+    assertEquals(send.right.value, counter.right.value, 0.5f)
+  }
+
+  @Test
+  fun typingPastTheLimit_keepsTheSpokenSentence() {
+    var uiState by mutableStateOf(loaded.copy(draft = "a".repeat(1012), canSend = false))
+    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
+
+    val before = semanticsOf(node(ConversationScreenTags.LENGTH_COUNTER))
+
+    uiState = uiState.copy(draft = "a".repeat(1013))
+
+    assertEquals(before, semanticsOf(node(ConversationScreenTags.LENGTH_COUNTER)))
+    assertEquals(listOf(tooLongSentence()), before[SemanticsProperties.ContentDescription.name])
+  }
+
+  @Test
+  fun leadingWhitespacePastTheLimit_countsTheTrimmedText() {
+    var uiState by
+        mutableStateOf(
+            loaded.copy(draft = "\n\n" + "a".repeat(ChatRules.MAX_MESSAGE_LENGTH), canSend = true)
+        )
+    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+
+    uiState =
+        uiState.copy(
+            draft = "\n\n" + "a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1),
+            canSend = false,
+        )
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertIsDisplayed()
+  }
+
+  @Test
+  fun draftAtTheLimit_showsNoCounter() {
+    setContent(loaded.copy(draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH), canSend = true))
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+  }
+
+  @Test
+  fun trailingSpacesPastTheLimit_showNoCounter() {
+    setContent(
+        loaded.copy(draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH) + "   ", canSend = true)
+    )
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+  }
+
+  @Test
+  fun counterAndSendError_showTogether() {
+    setContent(
+        loaded.copy(
+            draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1),
+            canSend = false,
+            sendError = AppError.NETWORK,
+        )
+    )
+
+    node(ConversationScreenTags.SEND_ERROR)
+        .assertIsDisplayed()
+        .assertTextEquals(string(R.string.error_network))
+    node(ConversationScreenTags.LENGTH_COUNTER).assertIsDisplayed()
+    val error = node(ConversationScreenTags.SEND_ERROR).getBoundsInRoot()
+    val counter = node(ConversationScreenTags.LENGTH_COUNTER).getBoundsInRoot()
+    assertTrue(error.right <= counter.left)
+  }
+
+  @Test
+  fun deletedListing_showsNoCounter() {
+    setContent(
+        loaded.copy(
+            listingStatus = ConversationListingStatus.DELETED,
+            draft = "a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1),
+        )
+    )
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+  }
+
+  @Test
+  fun screen_typingPastTheLimitShowsTheCounter_andDeletingBackReenablesSend() {
+    val chat = FakeChatRepository()
+    showScreen(chat)
+    text(string(R.string.conversation_empty_title, "james")).assertIsDisplayed()
+
+    node(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextInput("a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1))
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertIsDisplayed()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
+
+    node(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextReplacement("a".repeat(ChatRules.MAX_MESSAGE_LENGTH))
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled()
+  }
+
+  @Test
+  fun screen_trailingSpacesPastTheLimit_keepSendEnabled() {
+    val chat = FakeChatRepository()
+    showScreen(chat)
+    text(string(R.string.conversation_empty_title, "james")).assertIsDisplayed()
+
+    node(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextInput("a".repeat(ChatRules.MAX_MESSAGE_LENGTH) + "   ")
+
+    node(ConversationScreenTags.LENGTH_COUNTER).assertDoesNotExist()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled()
   }
 
   @Test
