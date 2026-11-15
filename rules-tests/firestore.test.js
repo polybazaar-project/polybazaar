@@ -817,17 +817,20 @@ function newMessage(senderUid, overrides = {}) {
 /**
  * Commits what sending a message writes: a merge on the conversation, which creates it or only
  * updates it and names the new message, copies its text and sender and marks it read for the
- * sender, and that message, in one batch.
+ * sender, and that message, in one batch. `message` overrides fields of newMessage, or is a
+ * function of the new message's id that returns the whole message (see photoMessage).
  */
 function sendMessage(db, senderUid, { id = CONVERSATION_ID, conversation = {}, message = {} } = {}) {
   const messageRef = doc(collection(db, `conversations/${id}/messages`));
-  const sent = newMessage(senderUid, message);
+  const sent =
+    typeof message === "function" ? message(messageRef.id) : newMessage(senderUid, message);
   const batch = writeBatch(db);
   batch.set(
     doc(db, `conversations/${id}`),
     newConversation({
       lastMessageId: messageRef.id,
-      lastMessageText: sent.text,
+      // A photo-only message has no text, and its preview is ''.
+      lastMessageText: sent.text ?? "",
       lastMessageSenderUid: senderUid,
       lastReadAt: { [senderUid]: serverTimestamp() },
       ...conversation,
@@ -836,6 +839,26 @@ function sendMessage(db, senderUid, { id = CONVERSATION_ID, conversation = {}, m
   );
   batch.set(messageRef, sent);
   return batch.commit();
+}
+
+/** Where storage.rules keeps the photo of a message. */
+const photoPath = (conversationId, messageId) => `conversations/${conversationId}/${messageId}.jpg`;
+
+/**
+ * A photo message for sendMessage: no text unless it has a caption, and by default the photo at
+ * the message's own path in Bob's conversation. `imagePath` maps the message id to the stored path.
+ */
+function photoMessage(
+  senderUid,
+  { caption, imagePath = (messageId) => photoPath(CONVERSATION_ID, messageId), extra = {} } = {},
+) {
+  return (messageId) => ({
+    senderUid,
+    sentAt: serverTimestamp(),
+    imagePath: imagePath(messageId),
+    ...(caption === undefined ? {} : { text: caption }),
+    ...extra,
+  });
 }
 
 /** Seeds Alice's listing and a conversation Bob started earlier, with its message m1. */
@@ -1361,6 +1384,83 @@ describe("messages", () => {
     await seedConversation();
     const ref = doc(verified(BOB), `${CONVERSATION}/messages/m1`);
     await assertFails(updateDoc(ref, { text: "Edited" }));
+    await assertFails(deleteDoc(ref));
+  });
+});
+
+describe("photo messages", () => {
+  test("the renter and the lender can send a photo without text", async () => {
+    await seedConversation();
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: photoMessage(BOB) }));
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE, { message: photoMessage(ALICE) }));
+  });
+
+  // Firestore allows it; storage.rules refuses the upload while the conversation does not exist.
+  test("a photo can open a conversation", async () => {
+    await seed("listings/l1", itemListing());
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: photoMessage(BOB) }));
+  });
+
+  test("a photo can have a caption", async () => {
+    await seedConversation();
+    const message = photoMessage(BOB, { caption: "  The drill bits \n" });
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message }));
+  });
+
+  test("a caption follows the text rules", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const long = "x".repeat(1000);
+    await assertSucceeds(sendMessage(db, BOB, { message: photoMessage(BOB, { caption: long }) }));
+    for (const caption of ["", "   \n\t ", `${long}x`, 42]) {
+      await assertFails(sendMessage(db, BOB, { message: photoMessage(BOB, { caption }) }));
+    }
+  });
+
+  test("a message needs a text or a photo", async () => {
+    await seedConversation();
+    const nothing = () => ({ senderUid: BOB, sentAt: serverTimestamp() });
+    await assertFails(sendMessage(verified(BOB), BOB, { message: nothing }));
+  });
+
+  test("a photo is stored at its own conversation and message id", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const wrongPaths = [
+      (messageId) => photoPath(`l2_${BOB}`, messageId),
+      () => photoPath(CONVERSATION_ID, "m1"),
+      (messageId) => `conversations/${CONVERSATION_ID}/${messageId}.png`,
+      (messageId) => `conversations/${CONVERSATION_ID}/${messageId}`,
+      (messageId) => `/${photoPath(CONVERSATION_ID, messageId)}`,
+    ];
+    for (const imagePath of wrongPaths) {
+      await assertFails(sendMessage(db, BOB, { message: photoMessage(BOB, { imagePath }) }));
+    }
+  });
+
+  test("a photo path is a string", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    for (const path of [42, null, [CONVERSATION_ID]]) {
+      const message = photoMessage(BOB, { imagePath: () => path });
+      await assertFails(sendMessage(db, BOB, { message }));
+    }
+  });
+
+  test("a photo message holds only its fields", async () => {
+    await seedConversation();
+    const message = photoMessage(BOB, { extra: { imageUrl: "https://example.com/0.jpg" } });
+    await assertFails(sendMessage(verified(BOB), BOB, { message }));
+  });
+
+  test("a photo message cannot be edited or deleted", async () => {
+    await seedConversation();
+    const path = `${CONVERSATION}/messages/m2`;
+    const imagePath = photoPath(CONVERSATION_ID, "m2");
+    await seed(path, { senderUid: BOB, imagePath, sentAt: new Date(0) });
+    const ref = doc(verified(BOB), path);
+    await assertFails(updateDoc(ref, { imagePath: photoPath(CONVERSATION_ID, "m3") }));
+    await assertFails(updateDoc(ref, { text: "Caption" }));
     await assertFails(deleteDoc(ref));
   });
 });
