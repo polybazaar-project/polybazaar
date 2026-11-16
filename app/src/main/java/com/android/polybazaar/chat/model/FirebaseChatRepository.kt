@@ -3,6 +3,8 @@ package com.android.polybazaar.chat.model
 
 import android.net.Uri
 import android.util.Log
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.photo.PhotoCompressor
 import com.android.polybazaar.photo.PhotoStorage
 import com.google.firebase.auth.FirebaseAuth
@@ -21,10 +23,13 @@ import java.time.Instant
 import java.util.concurrent.Executor
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 
 /**
  * @param uploadTimeout how long a photo upload may take before it fails with NETWORK, rather than
@@ -88,9 +93,13 @@ class FirebaseChatRepository(
             ?.trim()
     val path = photoPath(conversation.id, messageId)
     val photoRef = storage.reference.child(path)
-    // Awaited: the message must not point to a photo that was never uploaded.
-    if (!exists(photoRef)) {
-      photoRef.putBytes(photoCompressor.compress(photo), PhotoStorage.JPEG_METADATA).await()
+    // Awaited: the message must not point to a photo that was never uploaded. Offline, the Storage
+    // SDK keeps retrying for minutes, so the user is told sooner that the photo was not sent.
+    try {
+      withTimeout(uploadTimeout) { if (!exists(photoRef)) upload(photoRef, photo) }
+    } catch (e: TimeoutCancellationException) {
+      // A CancellationException, which callers would take for their own cancellation and ignore.
+      throw AppException(AppError.NETWORK, e)
     }
     writeMessage(
         conversation,
@@ -276,6 +285,18 @@ class FirebaseChatRepository(
         if (e.errorCode != StorageException.ERROR_OBJECT_NOT_FOUND) throw e
         false
       }
+
+  /** Uploads the compressed [photo] to [ref], and cancels the upload if the caller is cancelled. */
+  private suspend fun upload(ref: StorageReference, photo: Uri) {
+    val task = ref.putBytes(photoCompressor.compress(photo), PhotoStorage.JPEG_METADATA)
+    try {
+      task.await()
+    } catch (e: CancellationException) {
+      // await() stops waiting but leaves the upload running.
+      task.cancel()
+      throw e
+    }
+  }
 
   /** Where a message's photo is stored; storage.rules only accept a participant's upload there. */
   private fun photoPath(conversationId: String, messageId: String) =

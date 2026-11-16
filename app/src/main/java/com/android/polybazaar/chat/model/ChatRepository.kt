@@ -36,9 +36,10 @@ interface ChatRepository {
    * rejection is reported through [onWriteFailure].
    *
    * Throws when signed out (UNAUTHENTICATED), when the upload fails (a Storage error, to map with
-   * toAppError), and IllegalArgumentException when the user is not a participant, when the
-   * conversation has no message yet (a photo cannot open a conversation), or when the caption is
-   * not sendable. When it throws, nothing is written.
+   * toAppError) or takes too long, as offline (an AppException with NETWORK), and
+   * IllegalArgumentException when the user is not a participant, when the conversation has no
+   * message yet (a photo cannot open a conversation), or when the caption is not sendable. When it
+   * throws, nothing is written.
    *
    * @param conversation the conversation from [observeConversation].
    * @param messageId from [newMessageId]; pass the same one to retry a failed send.
