@@ -232,7 +232,8 @@ service cloud.firestore {
 
         // getAfter, because the first message creates the conversation in the same batch. Requiring
         // the conversation to name this message allows one message per batch. A message has a text,
-        // a photo, or both (a photo with a caption).
+        // a photo, or both (a photo with a caption). exists sees the state before the batch, so a
+        // photo cannot open a conversation; the app sends a text first.
         function validMessage(data) {
           let conversation = getAfter(conversationPath()).data;
           return request.auth.uid in conversation.participants
@@ -244,7 +245,8 @@ service cloud.firestore {
               && data.senderUid == request.auth.uid
               && data.sentAt == request.time
               && (!('text' in data) || validText(data.text))
-              && (!('imagePath' in data) || validImagePath(data.imagePath))
+              && (!('imagePath' in data)
+                  || (exists(conversationPath()) && validImagePath(data.imagePath)))
               && listingData(conversation.listingId).ownerUid == conversation.lenderUid;
         }
 

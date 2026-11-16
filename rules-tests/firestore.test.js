@@ -1193,7 +1193,7 @@ describe("conversations", () => {
   });
 
   test("a photo without text stores an empty preview", async () => {
-    await seed("listings/l1", itemListing());
+    await seedConversation();
     await assertSucceeds(sendMessage(verified(BOB), BOB, { message: photoMessage(BOB) }));
     await assertSucceeds(sendMessage(verified(ALICE), ALICE, { message: photoMessage(ALICE) }));
     const stored = (await getDoc(doc(verified(BOB), CONVERSATION))).data();
@@ -1429,10 +1429,14 @@ describe("photo messages", () => {
     await assertSucceeds(sendMessage(verified(ALICE), ALICE, { message: photoMessage(ALICE) }));
   });
 
-  // Firestore allows it; storage.rules refuses the upload while the conversation does not exist.
-  test("a photo can open a conversation", async () => {
+  // The app sends a text first; a photo, even with a caption, comes after.
+  test("a photo cannot open a conversation", async () => {
     await seed("listings/l1", itemListing());
-    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: photoMessage(BOB) }));
+    const db = verified(BOB);
+    await assertFails(sendMessage(db, BOB, { message: photoMessage(BOB) }));
+    const captioned = photoMessage(BOB, { caption: "Is it available on Saturday?" });
+    await assertFails(sendMessage(db, BOB, { message: captioned }));
+    await assertSucceeds(sendMessage(db, BOB));
   });
 
   test("a photo can have a caption", async () => {
