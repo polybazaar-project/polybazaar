@@ -45,6 +45,7 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.formatChf
+import com.android.polybazaar.listing.ui.PausedBadge
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 
@@ -59,6 +60,7 @@ object ToolboxCardTags {
   const val FILTER_ITEMS = "toolbox_filter_items"
   const val FILTER_SERVICES = "toolbox_filter_services"
   const val FILTER_EMPTY = "toolbox_filter_empty"
+  const val PAUSED_BADGE = "toolbox_paused_badge"
 }
 
 /** @param onOpenListing called with a listing's id when the user taps its row. */
@@ -253,14 +255,23 @@ private fun ToolboxListingRow(listing: Listing, onClick: (() -> Unit)?) {
               .testTag(ToolboxCardTags.LISTING_ROW),
       verticalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    Text(
-        text = listing.title,
-        color = AuthColors.TextPrimary,
-        fontSize = 17.sp,
-        fontWeight = FontWeight.Bold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      Text(
+          text = listing.title,
+          color = AuthColors.TextPrimary,
+          fontSize = 17.sp,
+          fontWeight = FontWeight.Bold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          // Not filling: the badge follows a short title, and a long one is cut before the badge.
+          modifier = Modifier.weight(1f, fill = false),
+      )
+      // Paused listings are hidden from everyone else, so the owner needs to see which ones are.
+      if (listing.isPaused) PausedBadge(Modifier.testTag(ToolboxCardTags.PAUSED_BADGE))
+    }
     Row {
       Text(
           text = "${listing.category.displayName} · ",
@@ -297,6 +308,7 @@ internal fun ToolboxContentPreview() {
                           "Bosch drill set",
                           "",
                           listingId = "drill",
+                          isPaused = true,
                       ),
                       ServiceListing(
                           ListingCategory.SERVICE_TUTORING,

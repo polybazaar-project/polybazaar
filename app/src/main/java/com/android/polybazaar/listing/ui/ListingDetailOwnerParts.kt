@@ -182,18 +182,24 @@ internal fun DeleteListingDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
   )
 }
 
-/** The "Paused" pill, next to the condition badge and with its size. */
+/**
+ * The "Paused" pill, next to the condition badge and with its size. The Toolbox shows it on paused
+ * rows too.
+ *
+ * @param modifier for the screen's own test tag, for example.
+ */
 @Composable
-internal fun PausedBadge() {
+internal fun PausedBadge(modifier: Modifier = Modifier) {
   Text(
       text = stringResource(R.string.listing_detail_paused).uppercase(),
       color = PausedBadgeText,
       fontSize = 11.sp,
       fontWeight = FontWeight.SemiBold,
+      maxLines = 1,
       modifier =
-          Modifier.background(AuthColors.AccentContainer, CircleShape)
-              .padding(horizontal = 10.dp, vertical = 7.dp)
-              .testTag(ListingDetailScreenTags.PAUSED_BADGE),
+          modifier
+              .background(AuthColors.AccentContainer, CircleShape)
+              .padding(horizontal = 10.dp, vertical = 7.dp),
   )
 }
 

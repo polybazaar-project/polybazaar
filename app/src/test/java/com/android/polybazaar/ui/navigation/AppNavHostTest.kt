@@ -843,6 +843,42 @@ class AppNavHostTest {
   }
 
   @Test
+  fun listingDetail_ownerPausesAndResumes_andTheToolboxShowsIt() {
+    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule
+        .onNodeWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertDoesNotExist()
+
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    assertOnListingDetail("Bosch drill set")
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.PAUSE_ITEM).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.PAUSED_BADGE).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+
+    // Coming back to the profile reloads the Toolbox, which now shows the pause.
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    assertOnListingDetail("Bosch drill set")
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.RESUME_ITEM).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.PAUSED_BADGE).assertDoesNotExist()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertDoesNotExist()
+    assertEquals(listOf("drill" to true, "drill" to false), listingRepository.pauseCalls)
+  }
+
+  @Test
   fun signOut_fromTheListingDetail_returnsToSignIn() {
     listingRepository.allListings = listOf(gracesDrill)
     val viewModel = setContent(FakeAuthRepository(currentUser = user))

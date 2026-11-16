@@ -328,7 +328,9 @@ private fun Overview(listing: Listing, pending: ListingPendingDetails) {
           modifier = Modifier.testTag(ListingDetailScreenTags.CATEGORY),
       )
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (listing.isPaused) PausedBadge()
+        if (listing.isPaused) {
+          PausedBadge(Modifier.testTag(ListingDetailScreenTags.PAUSED_BADGE))
+        }
         pending.condition?.let { ConditionBadge(it) }
       }
     }

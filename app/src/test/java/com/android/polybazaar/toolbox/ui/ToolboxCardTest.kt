@@ -179,6 +179,65 @@ class ToolboxCardTest {
   }
 
   @Test
+  fun pausedListing_showsThePausedBadgeOnItsRowOnly() {
+    val listings = listOf((myListings[0] as ItemListing).copy(isPaused = true), myListings[1])
+    setContent(ToolboxUiState(listings = listings))
+
+    val paused = string(R.string.listing_detail_paused).uppercase()
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertCountEquals(1)[0]
+        .assertTextEquals(paused)
+        .assertIsDisplayed()
+    // Each row is one button, so the badge's text is merged into the row it belongs to.
+    val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
+    rows[0].assert(hasText("Bosch drill set")).assert(hasText(paused))
+    rows[1].assert(hasText("Math tutoring")).assert(!hasText(paused))
+  }
+
+  @Test
+  fun activeListings_showNoPausedBadge() {
+    setContent(ToolboxUiState(listings = myListings))
+
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  @Config(qualifiers = "w360dp")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Measures the text for real, so truncation shows.
+  fun pausedListingWithALongTitle_cutsTheTitleAndKeepsTheBadgeInTheRow() {
+    val longTitle = "Professional cordless drill with two batteries, a charger and a case"
+    val listing =
+        ItemListing(ListingCategory.ITEM_TOOLS, 8.0, longTitle, "", listingId = "long")
+            .copy(isPaused = true)
+    composeTestRule.setContent {
+      ToolboxContent(
+          uiState = ToolboxUiState(listings = listOf(listing)),
+          onRetry = {},
+          onTypeSelected = {},
+          modifier = Modifier.padding(horizontal = 18.dp),
+      )
+    }
+
+    val row = composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).getUnclippedBoundsInRoot()
+    val badge =
+        composeTestRule
+            .onNodeWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+            .assertIsDisplayed()
+            .getUnclippedBoundsInRoot()
+    assertTrue(badge.right <= row.right)
+    val layouts = mutableListOf<TextLayoutResult>()
+    composeTestRule.onNodeWithText(longTitle, useUnmergedTree = true).performSemanticsAction(
+        SemanticsActions.GetTextLayoutResult
+    ) {
+      it(layouts)
+    }
+    assertTrue(layouts.single().isLineEllipsized(0))
+  }
+
+  @Test
   fun itemsSelected_showsOnlyItemsAndSelectsTheItemsButton() {
     setContent(ToolboxUiState(listings = myListings, selectedType = ListingType.ITEM))
 
