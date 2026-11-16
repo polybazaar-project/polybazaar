@@ -57,7 +57,10 @@ class MainActivity : ComponentActivity() {
                   remember { FilePhotoStorage(applicationContext, FilePhotoStorage.CREATE_FORM) },
               editPhotoStorage =
                   remember { FilePhotoStorage(applicationContext, FilePhotoStorage.EDIT_FORM) },
-              chatRepository = remember { FirebaseChatRepository() },
+              chatRepository =
+                  remember {
+                    FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
+                  },
               bookingRepository = remember { FirebaseBookingRepository() },
           )
         }

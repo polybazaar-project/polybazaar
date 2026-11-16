@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.model
 
 import android.util.Log
+import com.android.polybazaar.photo.PhotoCompressor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldPath
@@ -10,16 +11,26 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.storage.FirebaseStorage
 import java.time.Instant
 import java.util.concurrent.Executor
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
+/**
+ * @param uploadTimeout how long a photo upload may take before it fails with NETWORK, rather than
+ *   the Storage SDK retrying for minutes while offline.
+ */
 class FirebaseChatRepository(
+    private val photoCompressor: PhotoCompressor,
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
+    private val uploadTimeout: Duration = 30.seconds,
     private val logWriteFailure: (Exception) -> Unit = {
       Log.e("ChatRepository", "Chat write failed", it)
     },

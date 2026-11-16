@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.model
 
+import com.android.polybazaar.photo.PhotoCompressor
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.Timestamp
@@ -19,6 +20,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.WriteBatch
+import com.google.firebase.storage.FirebaseStorage
 import java.time.Instant
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -59,7 +61,9 @@ class FirebaseChatRepositoryTest {
   private val listings = mock<CollectionReference>()
   private val listingRef = mock<DocumentReference>()
   private val listing = mock<DocumentSnapshot>()
-  private val repository = FirebaseChatRepository(firestore, auth)
+  private val storage = mock<FirebaseStorage>()
+  private val photoCompressor = PhotoCompressor { byteArrayOf(1) }
+  private val repository = FirebaseChatRepository(photoCompressor, firestore, auth, storage)
   private val conversation =
       Conversation(
           listingId = "listing",
@@ -267,7 +271,8 @@ class FirebaseChatRepositoryTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(batch.commit()).thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
-    val repository = FirebaseChatRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
     var reportedToCaller: Exception? = null
 
     repository.sendMessage(conversation, "Hi") { reportedToCaller = it }
@@ -294,7 +299,8 @@ class FirebaseChatRepositoryTest {
   @Test
   fun sendMessageDoesNotReportSuccessfulWrites() = runTest {
     var reportedFailure: Exception? = null
-    val repository = FirebaseChatRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
     var reportedToCaller: Exception? = null
 
     repository.sendMessage(conversation, "Hi") { reportedToCaller = it }
@@ -383,7 +389,8 @@ class FirebaseChatRepositoryTest {
     whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
         .thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
-    val repository = FirebaseChatRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
 
     repository.markRead("listing_renter")
 
@@ -397,7 +404,8 @@ class FirebaseChatRepositoryTest {
     whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
         .thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
-    val repository = FirebaseChatRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
 
     repository.markRead("listing_renter")
     val failure = IllegalStateException("Write rejected")
