@@ -1,4 +1,5 @@
 # Co-authored-by: Claude Code (Claude Sonnet 5.5)
+# Co-authored-by: Claude Code (Claude Opus 5.5)
 name: CI - Test Runner
 
 # Run the workflow when commits are pushed on main or when a PR is modified
@@ -44,7 +45,25 @@ jobs:
       - name: Decode secrets
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
-        run: echo "$GOOGLE_SERVICES" | base64 --decode > ./app/google-services.json
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          echo "$GOOGLE_SERVICES" | base64 --decode > ./app/google-services.json
+          # The secret is the base64 of a local.properties file. Only its MAPS_API_KEY line is used, so
+          # machine-specific lines such as sdk.dir never reach the runner. Without the secret or that
+          # line, secrets.defaults.properties supplies a placeholder key. GitHub only masks the encoded
+          # secret, so mask the decoded key before writing it.
+          if [ -n "$MAPS_API_KEY" ]; then
+            DECODED_MAPS_API_KEY=$(echo "$MAPS_API_KEY" | base64 --decode \
+              | sed 's/^\xEF\xBB\xBF//' | tr -d '\r' \
+              | sed -n 's/^[[:space:]]*MAPS_API_KEY[[:space:]]*=[[:space:]]*//p' \
+              | sed 's/[[:space:]]*$//' | head -n 1)
+            if [ -n "$DECODED_MAPS_API_KEY" ]; then
+              echo "::add-mask::$DECODED_MAPS_API_KEY"
+              echo "MAPS_API_KEY=$DECODED_MAPS_API_KEY" >> local.properties
+            else
+              echo "::warning::The MAPS_API_KEY secret has no MAPS_API_KEY line; using the placeholder key."
+            fi
+          fi
 
       # Caching is a very useful part of a CI, as a workflow is executed in a clean environment every time,
       # this means that one would need to re-download and re-process gradle files for every run. Which is very time consuming.
