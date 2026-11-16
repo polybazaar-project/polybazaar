@@ -254,10 +254,11 @@ describe("chat photos", () => {
     await assertFails(deleteObject(ref(verified(ALICE), photo)));
   });
 
-  test("a chat photo must be an image under 10 MB", async () => {
+  test("a chat photo must be a JPEG under 10 MB", async () => {
     const storage = verified(BOB);
-    const text = { contentType: "text/plain" };
-    await assertFails(uploadBytes(ref(storage, await seedMessage(BOB)), PHOTO, text));
+    for (const contentType of ["text/plain", "image/png", "image/gif", "image/svg+xml"]) {
+      await assertFails(uploadBytes(ref(storage, await seedMessage(BOB)), PHOTO, { contentType }));
+    }
     const big = new Uint8Array(8 * MB);
     await assertSucceeds(uploadBytes(ref(storage, await seedMessage(BOB)), big, JPEG));
     const tooBig = new Uint8Array(10 * MB);

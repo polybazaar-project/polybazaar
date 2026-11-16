@@ -53,13 +53,15 @@ service firebase.storage {
       // The app writes the message first and uploads its photo once the server has it. Only the
       // message's sender can upload, only at the path the message names: one photo per message.
       // The sender is a participant, since firestore.rules only lets participants write messages.
-      // resource == null refuses an upload over an existing file.
+      // resource == null refuses an upload over an existing file. The app compresses every chat photo
+      // to JPEG, so the file's format matches its .jpg name.
       allow create: if isVerified()
           && resource == null
           && fileName.matches('[^/.]+[.]jpg')
           && message().senderUid == request.auth.uid
           && message().imagePath == 'conversations/' + conversationId + '/' + fileName
-          && isImageUpload();
+          && isImageUpload()
+          && request.resource.contentType == 'image/jpeg';
 
       // A sent photo cannot be swapped or removed.
       allow update, delete: if false;
