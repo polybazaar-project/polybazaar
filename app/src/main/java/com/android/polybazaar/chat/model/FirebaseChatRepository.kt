@@ -15,6 +15,8 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
+import com.google.firebase.storage.StorageReference
 import java.time.Instant
 import java.util.concurrent.Executor
 import kotlin.time.Duration
@@ -85,11 +87,11 @@ class FirebaseChatRepository(
             }
             ?.trim()
     val path = photoPath(conversation.id, messageId)
+    val photoRef = storage.reference.child(path)
     // Awaited: the message must not point to a photo that was never uploaded.
-    storage.reference
-        .child(path)
-        .putBytes(photoCompressor.compress(photo), PhotoStorage.JPEG_METADATA)
-        .await()
+    if (!exists(photoRef)) {
+      photoRef.putBytes(photoCompressor.compress(photo), PhotoStorage.JPEG_METADATA).await()
+    }
     writeMessage(
         conversation,
         conversationDocument(conversation.id).collection(MESSAGES).document(messageId),
@@ -260,6 +262,20 @@ class FirebaseChatRepository(
   }
 
   private fun conversationDocument(id: String) = firestore.collection(CONVERSATIONS).document(id)
+
+  /**
+   * Whether a file is already at [ref], like a photo uploaded by a send whose batch then failed.
+   * The rules allow a chat photo to be created only once, so a retry with the same message ID must
+   * reuse that file rather than upload it again.
+   */
+  private suspend fun exists(ref: StorageReference): Boolean =
+      try {
+        ref.metadata.await()
+        true
+      } catch (e: StorageException) {
+        if (e.errorCode != StorageException.ERROR_OBJECT_NOT_FOUND) throw e
+        false
+      }
 
   /** Where a message's photo is stored; storage.rules only accept a participant's upload there. */
   private fun photoPath(conversationId: String, messageId: String) =
