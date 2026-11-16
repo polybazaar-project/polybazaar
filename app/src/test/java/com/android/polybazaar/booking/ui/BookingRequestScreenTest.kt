@@ -352,5 +352,8 @@ class BookingRequestScreenTest {
     node(BookingRequestScreenTags.SENT_MESSAGE).assertIsDisplayed()
     node(BookingRequestScreenTags.DONE_BUTTON).performClick()
     assertEquals(1, backs)
+    // The confirmation stays while the screen is leaving: the form coming back could be sent again.
+    node(BookingRequestScreenTags.SENT_MESSAGE).assertIsDisplayed()
+    node(BookingRequestScreenTags.SUBMIT_BUTTON).assertDoesNotExist()
   }
 }
