@@ -77,6 +77,7 @@
     <!-- Conversation screen -->
     <string name="conversation_other_username">@%1$s</string>
     <string name="conversation_paused_title">This listing is paused</string>
+    <string name="conversation_paused_first_message_body">You can send a message once it’s active again.</string>
     <string name="conversation_deleted_title">This listing has been deleted</string>
     <string name="conversation_deleted_body">You can read past messages, but neither of you can send new ones.</string>
     <string name="conversation_load_error_title">Couldn’t load this conversation</string>

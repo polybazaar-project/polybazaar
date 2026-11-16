@@ -233,6 +233,90 @@ class ConversationViewModelTest {
   }
 
   @Test
+  fun pausedListingWithoutConversation_blocksTheFirstMessage_untilOneArrives() {
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    val viewModel = loadedViewModel()
+    assertTrue(viewModel.uiState.value.firstMessageBlockedByPause)
+
+    givenConversation()
+    advance()
+
+    assertFalse(viewModel.uiState.value.firstMessageBlockedByPause)
+  }
+
+  @Test
+  fun firstMessageBlockedByPause_isFalseWhileTheConversationLoads() {
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    chat.conversationGate = CompletableDeferred()
+    val viewModel = loadedViewModel()
+    assertEquals(ConversationListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
+    assertFalse(viewModel.uiState.value.firstMessageBlockedByPause)
+
+    chat.conversationGate!!.complete(Unit)
+    advance()
+
+    assertTrue(viewModel.uiState.value.firstMessageBlockedByPause)
+  }
+
+  @Test
+  fun firstMessageBlockedByPause_isFalseAfterAFailedLoad_andTrueOnceRetryFindsNone() {
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    chat.myConversations.value =
+        Result.failure(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
+    val viewModel = loadedViewModel()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+    assertFalse(viewModel.uiState.value.firstMessageBlockedByPause)
+
+    chat.myConversations.value = Result.success(emptyList())
+    viewModel.retry()
+    advance()
+
+    assertTrue(viewModel.uiState.value.firstMessageBlockedByPause)
+  }
+
+  @Test
+  fun firstMessageBlockedByPause_turnsFalseWhenTheConversationFailsAfterAnsweringNone() {
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    val viewModel = loadedViewModel()
+    assertTrue(viewModel.uiState.value.firstMessageBlockedByPause)
+
+    chat.myConversations.value =
+        Result.failure(firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE))
+    advance()
+
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+    assertFalse(viewModel.uiState.value.firstMessageBlockedByPause)
+  }
+
+  @Test
+  fun firstMessageBlockedByPause_isFalseWhenActiveOrDeleted_orForTheLender() {
+    assertFalse(loadedViewModel().uiState.value.firstMessageBlockedByPause)
+
+    listings.allListings = emptyList()
+    assertFalse(loadedViewModel().uiState.value.firstMessageBlockedByPause)
+
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    val lenderState = loadedViewModel(myUid = lender.uid).uiState.value
+    assertEquals(ConversationListingStatus.PAUSED, lenderState.listingStatus)
+    assertFalse(lenderState.firstMessageBlockedByPause)
+  }
+
+  @Test
+  fun firstMessageBlockedByPause_turnsFalseWhenTheListingIsResumed() {
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    val viewModel = loadedViewModel()
+    viewModel.onDraftChange("Hello")
+    assertTrue(viewModel.uiState.value.firstMessageBlockedByPause)
+    assertFalse(viewModel.uiState.value.canSend)
+
+    listings.allListings = listOf(listing)
+    advance()
+
+    assertFalse(viewModel.uiState.value.firstMessageBlockedByPause)
+    assertTrue(viewModel.uiState.value.canSend)
+  }
+
+  @Test
   fun deletedListing_showsTheConversationReadOnlyWithoutError() {
     listings.allListings = emptyList()
     givenConversation(messages = arrayOf(hello, hi))

@@ -422,7 +422,7 @@ class ConversationScreenTest {
   }
 
   @Test
-  fun pausedListing_showsOnlyTheNoticeTitle_andSendsWhenAllowed() {
+  fun pausedListingWithAConversation_showsOnlyTheNoticeTitle_andSendsWhenAllowed() {
     var sends = 0
     setContent(
         loaded.copy(
@@ -438,6 +438,28 @@ class ConversationScreenTest {
     node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
     node(ConversationScreenTags.SEND_BUTTON).performClick()
     assertEquals(1, sends)
+  }
+
+  @Test
+  fun pausedListingWithoutAConversation_saysAFirstMessageWaitsUntilItIsActiveAgain() {
+    setContent(
+        loaded.copy(
+            messages = emptyList(),
+            conversation = null,
+            listingStatus = ConversationListingStatus.PAUSED,
+            draft = "Hello",
+            canSend = false,
+            firstMessageBlockedByPause = true,
+        )
+    )
+
+    node(ConversationScreenTags.PAUSED_NOTICE)
+        .assertTextEquals(
+            string(R.string.conversation_paused_title),
+            string(R.string.conversation_paused_first_message_body),
+        )
+    node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
   }
 
   @Test
@@ -626,6 +648,22 @@ class ConversationScreenTest {
     node(ConversationScreenTags.RETRY_BUTTON).assertDoesNotExist()
     assertEquals(2, listings.observeListingCalls)
     assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun screen_pausedListingWithoutAConversation_explainsTheDisabledSend_untilItIsResumed() {
+    val listings = FakeListingRepository(allListings = listOf(drill.copy(isPaused = true)))
+    showScreen(FakeChatRepository(), listings)
+    node(ConversationScreenTags.MESSAGE_FIELD).performTextInput("Hello")
+
+    text(string(R.string.conversation_paused_first_message_body)).assertIsDisplayed()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
+
+    composeTestRule.runOnIdle { listings.allListings = listOf(drill) }
+
+    node(ConversationScreenTags.PAUSED_NOTICE).assertDoesNotExist()
+    text(string(R.string.conversation_paused_first_message_body)).assertDoesNotExist()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled()
   }
 
   @Test

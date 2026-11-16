@@ -186,7 +186,7 @@ fun ConversationContent(
               .testTag(ConversationScreenTags.SCREEN)
   ) {
     Header(listingTitle = uiState.listingTitle, otherUser = uiState.otherUser, onBack = onBack)
-    uiState.listingStatus?.let { ListingNotice(it) }
+    uiState.listingStatus?.let { ListingNotice(it, uiState.firstMessageBlockedByPause) }
     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
       when (body) {
         ConversationBody.LOADING -> LoadingIndicator()
@@ -253,17 +253,23 @@ private fun Header(listingTitle: String?, otherUser: User?, onBack: () -> Unit) 
   HorizontalDivider(color = AuthColors.Outline)
 }
 
-/** What happened to the listing, while it is paused or deleted. */
+/**
+ * What happened to the listing, while it is paused or deleted. [firstMessageBlockedByPause] adds
+ * why Send stays off on a paused listing without a conversation.
+ */
 @Composable
-private fun ListingNotice(status: ConversationListingStatus) {
+private fun ListingNotice(status: ConversationListingStatus, firstMessageBlockedByPause: Boolean) {
   when (status) {
     ConversationListingStatus.ACTIVE -> Unit
-    // The title alone: whether Send works is up to canSend, and the rules refuse a first message
-    // about a paused listing.
+    // The body is only for a first message, the one the rules refuse: an existing conversation
+    // can still send.
     ConversationListingStatus.PAUSED ->
         Notice(
             title = stringResource(R.string.conversation_paused_title),
-            body = null,
+            body =
+                if (firstMessageBlockedByPause) {
+                  stringResource(R.string.conversation_paused_first_message_body)
+                } else null,
             tag = ConversationScreenTags.PAUSED_NOTICE,
         )
     ConversationListingStatus.DELETED ->

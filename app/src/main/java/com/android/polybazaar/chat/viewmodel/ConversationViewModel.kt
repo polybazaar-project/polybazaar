@@ -45,6 +45,9 @@ enum class ConversationListingStatus {
  *   when they have no profile.
  * @property draft the message being typed.
  * @property canSend whether the draft can be sent now.
+ * @property firstMessageBlockedByPause true when the renter has no conversation yet and the listing
+ *   is paused: the rules refuse a first message until it is active again. False while the
+ *   conversation loads and after it failed to load, when whether it exists is unknown.
  * @property isLoading true until the listing, the conversation and the messages have each been
  *   loaded or failed, and again while a retry reloads any of them.
  * @property loadError why the conversation could not be loaded; the screen offers Retry. What is
@@ -60,6 +63,7 @@ data class ConversationUiState(
     val otherUser: User? = null,
     val draft: String = "",
     val canSend: Boolean = false,
+    val firstMessageBlockedByPause: Boolean = false,
     val isLoading: Boolean = true,
     val loadError: AppError? = null,
     val sendError: AppError? = null,
@@ -90,8 +94,10 @@ class ConversationViewModel(
   private val _uiState = MutableStateFlow(ConversationUiState(myUid = myUid))
   val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
 
-  // Read by canSend, which a write failure can recompute from a Firestore background thread.
+  // Read by derived(), which a write failure can run from a Firestore background thread.
   @Volatile private var loaded = LoadedListing()
+  // Whether the conversation's observation has answered, so that a null conversation means none.
+  @Volatile private var conversationKnown = false
 
   // The fields below are only touched on the main thread.
   private var listingSettled = false
@@ -251,11 +257,13 @@ class ConversationViewModel(
           .catch { exception ->
             conversationFailed = true
             conversationSettled = true
-            _uiState.update { it.copy(loadError = exception.toAppError()) }
+            conversationKnown = false
+            _uiState.update { it.copy(loadError = exception.toAppError()).derived() }
             updateLoading()
           }
           .collect { conversation ->
             conversationSettled = true
+            conversationKnown = true
             _uiState.update { it.copy(conversation = conversation).derived() }
             updateLoading()
             observeOtherUser()
@@ -322,7 +330,10 @@ class ConversationViewModel(
     _uiState.update { it.copy(isLoading = loading) }
   }
 
-  /** This state with the fields that derive from the observed listing and the draft recomputed. */
+  /**
+   * This state with the fields that derive from the observed listing, the conversation and the
+   * draft recomputed.
+   */
   private fun ConversationUiState.derived(): ConversationUiState {
     val (listing, status) = loaded
     val sendable =
@@ -335,6 +346,11 @@ class ConversationViewModel(
         listingTitle = listing?.title ?: conversation?.listingTitle,
         listingStatus = status,
         canSend = sendable,
+        firstMessageBlockedByPause =
+            status == ConversationListingStatus.PAUSED &&
+                myUid == renterUid &&
+                conversation == null &&
+                conversationKnown,
     )
   }
 }
