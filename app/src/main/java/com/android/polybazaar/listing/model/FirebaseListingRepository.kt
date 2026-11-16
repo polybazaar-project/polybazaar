@@ -16,6 +16,9 @@ import com.google.firebase.storage.StorageReference
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
@@ -132,6 +135,25 @@ class FirebaseListingRepository(
       if (e is CancellationException) throw e
       Result.failure(e)
     }
+  }
+
+  override fun observeListing(listingId: String): Flow<Listing?> = callbackFlow {
+    val listener =
+        firestore.collection(LISTINGS_COLLECTION).document(listingId).addSnapshotListener {
+            snapshot,
+            error ->
+          when {
+            error != null -> close(error)
+            snapshot == null -> close(IllegalStateException("Listing snapshot was null"))
+            // Offline, or before the server answers, Firestore reports a listing it has not cached
+            // as missing; it is only deleted once the server says so.
+            !snapshot.exists() && snapshot.metadata.isFromCache -> Unit
+            // A malformed listing reads as a missing one, as in getListing.
+            else -> trySend(if (snapshot.exists()) snapshot.toListing() else null)
+          }
+        }
+
+    awaitClose { listener.remove() }
   }
 
   override suspend fun getMyListings(): Result<List<Listing>> {

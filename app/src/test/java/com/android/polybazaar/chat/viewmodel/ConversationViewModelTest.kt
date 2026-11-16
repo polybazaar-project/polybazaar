@@ -372,7 +372,7 @@ class ConversationViewModelTest {
   }
 
   @Test
-  fun laterWriteFailure_withBlankDraft_restoresTheText_withoutReloadingTheListing() {
+  fun laterWriteFailure_withBlankDraft_restoresTheText() {
     givenConversation()
     val viewModel = loadedViewModel()
     viewModel.onDraftChange("Hello")
@@ -385,8 +385,6 @@ class ConversationViewModelTest {
     assertEquals(AppError.NETWORK, viewModel.uiState.value.sendError)
     assertEquals("Hello", viewModel.uiState.value.draft)
     assertTrue(viewModel.uiState.value.canSend)
-    advance()
-    assertEquals(1, listings.getListingCalls)
   }
 
   @Test
@@ -421,104 +419,103 @@ class ConversationViewModelTest {
   }
 
   @Test
-  fun permissionDeniedWriteFailure_afterAPause_reloadsTheListingAndDisablesTheFirstMessage() {
+  fun refusedFirstMessage_keepsTheDraft_andThePauseFromTheListingDisablesSend() {
     val viewModel = loadedViewModel()
     viewModel.onDraftChange("Hello")
     viewModel.send()
     advance()
 
-    listings.allListings = listOf(listing.copy(isPaused = true))
     chat.writeFailureCallbacks.single()(
         firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
     )
+    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.sendError)
+    assertEquals("Hello", viewModel.uiState.value.draft)
+
+    listings.allListings = listOf(listing.copy(isPaused = true))
     advance()
 
     val state = viewModel.uiState.value
-    assertEquals(2, listings.getListingCalls)
-    assertEquals(AppError.PERMISSION_DENIED, state.sendError)
     assertEquals(ConversationListingStatus.PAUSED, state.listingStatus)
     assertEquals("Hello", state.draft)
     assertFalse(state.canSend)
+    assertEquals(1, listings.observeListingCalls)
   }
 
   @Test
-  fun secondRefusedSend_whileTheListingReloads_keepsTheNewerAnswer() {
+  fun firstMessage_toADeletedListing_keepsTheDraft_andTheDeletionDisablesSendingAndKeepsTheTitle() {
     val viewModel = loadedViewModel()
-    viewModel.onDraftChange("Hello")
-    viewModel.send()
-    advance()
-    viewModel.onDraftChange("Are you there?")
-    viewModel.send()
-    advance()
-    val (first, second) = chat.writeFailureCallbacks
-
-    val older = CompletableDeferred<Unit>()
-    listings.gate = older
-    first(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
-    advance()
-    val newer = CompletableDeferred<Unit>()
-    listings.gate = newer
-    second(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
-    advance()
-
-    listings.allListings = listOf(listing.copy(isPaused = true))
-    newer.complete(Unit)
-    advance()
-    listings.allListings = listOf(listing)
-    older.complete(Unit)
-    advance()
-    assertEquals(ConversationListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
-    assertFalse(viewModel.uiState.value.canSend)
-  }
-
-  @Test
-  fun retryLoad_replacedByAReloadAfterARefusedSend_staysLoadingUntilTheReloadAnswers() {
-    val viewModel = loadedViewModel()
-    viewModel.onDraftChange("Hello")
-    viewModel.send()
-    advance()
-    viewModel.onDraftChange("Are you there?")
-    viewModel.send()
-    advance()
-    val (first, second) = chat.writeFailureCallbacks
-    listings.failure = UnknownHostException("offline")
-    first(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
-    advance()
-    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
-
-    listings.failure = null
-    listings.gate = CompletableDeferred()
-    viewModel.retry()
-    advance()
-    assertTrue(viewModel.uiState.value.isLoading)
-    second(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
-    advance()
-    assertEquals(4, listings.getListingCalls)
-    assertTrue(viewModel.uiState.value.isLoading)
-
-    listings.gate!!.complete(Unit)
-    advance()
-    assertFalse(viewModel.uiState.value.isLoading)
-  }
-
-  @Test
-  fun firstMessage_toADeletedListing_reloadsItAndDisablesSendingAndKeepsTheTitle() {
-    val viewModel = loadedViewModel()
-    listings.allListings = emptyList()
     chat.sendFailure = firestoreError(FirebaseFirestoreException.Code.NOT_FOUND)
     viewModel.onDraftChange("Hello")
 
     viewModel.send()
     advance()
+    listings.allListings = emptyList()
+    advance()
 
     val state = viewModel.uiState.value
     assertEquals(AppError.NOT_FOUND, state.sendError)
     assertEquals("Hello", state.draft)
-    assertEquals(2, listings.getListingCalls)
     assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
     assertFalse(state.canSend)
     assertEquals("Bosch drill", state.listingTitle)
     assertNull(state.loadError)
+  }
+
+  @Test
+  fun listingPausedResumedOrDeletedWhileOpen_updatesTheStatusAndSend() {
+    val viewModel = loadedViewModel()
+    viewModel.onDraftChange("Hello")
+    assertTrue(viewModel.uiState.value.canSend)
+
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    advance()
+    assertEquals(ConversationListingStatus.PAUSED, viewModel.uiState.value.listingStatus)
+    assertFalse(viewModel.uiState.value.canSend)
+
+    listings.allListings = listOf(listing)
+    advance()
+    assertEquals(ConversationListingStatus.ACTIVE, viewModel.uiState.value.listingStatus)
+    assertTrue(viewModel.uiState.value.canSend)
+
+    listings.allListings = emptyList()
+    advance()
+    val state = viewModel.uiState.value
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
+    assertFalse(state.canSend)
+    assertEquals("Bosch drill", state.listingTitle)
+  }
+
+  @Test
+  fun renamedListingWhileOpen_updatesTheTitle() {
+    val viewModel = loadedViewModel()
+
+    listings.allListings = listOf(listing.copy(title = "Bosch drill and bits"))
+    advance()
+
+    assertEquals("Bosch drill and bits", viewModel.uiState.value.listingTitle)
+  }
+
+  @Test
+  fun listingObservationFailingWhileOpen_setsLoadErrorAndKeepsTheStatus_andRetryRestartsIt() {
+    givenConversation(messages = arrayOf(hello))
+    val viewModel = loadedViewModel()
+
+    listings.failure = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    advance()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+    assertEquals(ConversationListingStatus.ACTIVE, viewModel.uiState.value.listingStatus)
+
+    listings.failure = null
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    viewModel.retry()
+    advance()
+
+    val state = viewModel.uiState.value
+    assertNull(state.loadError)
+    assertEquals(ConversationListingStatus.PAUSED, state.listingStatus)
+    assertEquals(2, listings.observeListingCalls)
+    assertEquals(1, chat.observeConversationCalls)
+    assertEquals(1, chat.observeMessagesCalls)
   }
 
   @Test
@@ -539,7 +536,7 @@ class ConversationViewModelTest {
     val state = viewModel.uiState.value
     assertNull(state.loadError)
     assertEquals(ConversationListingStatus.ACTIVE, state.listingStatus)
-    assertEquals(2, listings.getListingCalls)
+    assertEquals(2, listings.observeListingCalls)
     assertEquals(1, chat.observeConversationCalls)
     assertEquals(1, chat.observeMessagesCalls)
   }
@@ -588,7 +585,7 @@ class ConversationViewModelTest {
     assertEquals(listOf(hello, hi), state.messages)
     assertEquals(2, chat.observeMessagesCalls)
     assertEquals(1, chat.observeConversationCalls)
-    assertEquals(1, listings.getListingCalls)
+    assertEquals(1, listings.observeListingCalls)
   }
 
   @Test

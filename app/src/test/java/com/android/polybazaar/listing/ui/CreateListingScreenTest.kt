@@ -58,6 +58,7 @@ import java.io.File
 import java.net.UnknownHostException
 import java.time.LocalDate
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -1074,6 +1075,8 @@ class CreateListingScreenTest {
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
 
     override suspend fun getListing(listingId: String): Result<Listing> = error("Not used here")
+
+    override fun observeListing(listingId: String): Flow<Listing?> = error("Not used here")
 
     override suspend fun updateListing(listing: Listing): Listing = error("Not used here")
 

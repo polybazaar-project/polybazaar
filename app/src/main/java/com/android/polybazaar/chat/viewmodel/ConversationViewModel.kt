@@ -17,13 +17,11 @@ import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** What the listing a conversation is about has become. */
@@ -39,9 +37,10 @@ enum class ConversationListingStatus {
  * @property myUid uid of the signed-in user, to tell their messages apart.
  * @property messages the messages, oldest first.
  * @property conversation the conversation, or null while it does not exist yet.
- * @property listingTitle title for the header: the last loaded listing's, else the one stored in
- *   the conversation. Null until either is known.
- * @property listingStatus the state of the listing, or null until it is known.
+ * @property listingTitle title for the header: the listing's, else the one stored in the
+ *   conversation. Null until either is known.
+ * @property listingStatus the state of the listing, kept up to date while the screen is open, or
+ *   null until it is known.
  * @property otherUser profile of the other participant, or null while it loads, after a failure, or
  *   when they have no profile.
  * @property draft the message being typed.
@@ -66,7 +65,7 @@ data class ConversationUiState(
     val sendError: AppError? = null,
 )
 
-/** The listing as last loaded, kept in one reference so other threads never see half of it. */
+/** The listing as last observed, kept in one reference so other threads never see half of it. */
 private data class LoadedListing(
     val listing: Listing? = null,
     val status: ConversationListingStatus? = null,
@@ -95,7 +94,6 @@ class ConversationViewModel(
   @Volatile private var loaded = LoadedListing()
 
   // The fields below are only touched on the main thread.
-  private var listingLoad: Job? = null
   private var listingSettled = false
   private var listingFailed = false
   private var conversationSettled = false
@@ -108,7 +106,7 @@ class ConversationViewModel(
   private var isVisible = false
 
   init {
-    loadListing()
+    observeListing()
     observeConversation()
     observeMessages()
     observeOtherUser()
@@ -155,9 +153,7 @@ class ConversationViewModel(
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
-        val error = exception.toAppError()
-        _uiState.update { it.copy(sendError = error) }
-        reloadListingAfter(error)
+        _uiState.update { it.copy(sendError = exception.toAppError()) }
       } finally {
         sendInFlight = false
       }
@@ -179,7 +175,7 @@ class ConversationViewModel(
     // loadError after it would hide that new failure.
     _uiState.update { it.copy(loadError = null) }
     updateLoading()
-    if (listing) loadListing()
+    if (listing) observeListing()
     if (conversation) observeConversation()
     if (messages) observeMessages()
   }
@@ -199,18 +195,14 @@ class ConversationViewModel(
     return Conversation(listingId, listing.title, renterUid, ownerUid, lastMessageAt = null)
   }
 
-  /** Runs on any thread and must not throw: Firestore may call it from a background thread. */
+  /**
+   * Runs on any thread and must not throw: Firestore may call it from a background thread. When the
+   * refusal comes from a pause or deletion of the listing, its observation delivers that change and
+   * disables sending.
+   */
   private fun onWriteFailure(text: String, exception: Exception) {
     val error = exception.toAppError()
     _uiState.update { it.copy(sendError = error, draft = restoredDraft(text, it.draft)).derived() }
-    reloadListingAfter(error)
-  }
-
-  private fun reloadListingAfter(error: AppError) {
-    // Usually the listing was paused or deleted since it was loaded: reloading it disables sending.
-    if (error == AppError.NOT_FOUND || error == AppError.PERMISSION_DENIED) {
-      viewModelScope.launch { loadListing() }
-    }
   }
 
   private fun restoredDraft(text: String, draft: String): String =
@@ -221,44 +213,32 @@ class ConversationViewModel(
         else -> text + "\n" + draft
       }
 
-  /**
-   * Loads the listing. A load still running is cancelled, so its older answer cannot overwrite the
-   * newer one.
-   */
-  private fun loadListing() {
-    listingLoad?.cancel()
+  /** Follows the listing, so that pausing, resuming or deleting it updates the screen. */
+  private fun observeListing() {
     listingFailed = false
-    listingLoad = viewModelScope.launch {
-      try {
-        listingRepository
-            .getListing(listingId)
-            .onSuccess { listing ->
-              val status =
-                  if (listing.isPaused) ConversationListingStatus.PAUSED
-                  else ConversationListingStatus.ACTIVE
-              loaded = LoadedListing(listing, status)
-              _uiState.update { it.derived() }
-              observeOtherUser()
-            }
-            .onFailure { exception ->
-              if (exception is CancellationException) throw exception
-              val error = exception.toAppError()
-              if (error == AppError.NOT_FOUND) {
-                // The listing loaded before, if any, keeps the header's title.
-                loaded = loaded.copy(status = ConversationListingStatus.DELETED)
-                _uiState.update { it.derived() }
-              } else {
-                listingFailed = true
-                _uiState.update { it.copy(loadError = error) }
-              }
-            }
-      } finally {
-        // A load cancelled by a newer one leaves settling to it.
-        if (isActive) {
-          listingSettled = true
-          updateLoading()
-        }
-      }
+    viewModelScope.launch {
+      listingRepository
+          .observeListing(listingId)
+          // catch never sees a cancellation, so closing the screen is not shown as an error.
+          .catch { exception ->
+            listingFailed = true
+            listingSettled = true
+            _uiState.update { it.copy(loadError = exception.toAppError()) }
+            updateLoading()
+          }
+          .collect { listing ->
+            loaded =
+                when {
+                  // The listing observed before, if any, keeps the header's title.
+                  listing == null -> loaded.copy(status = ConversationListingStatus.DELETED)
+                  listing.isPaused -> LoadedListing(listing, ConversationListingStatus.PAUSED)
+                  else -> LoadedListing(listing, ConversationListingStatus.ACTIVE)
+                }
+            listingSettled = true
+            _uiState.update { it.derived() }
+            updateLoading()
+            observeOtherUser()
+          }
     }
   }
 
@@ -342,7 +322,7 @@ class ConversationViewModel(
     _uiState.update { it.copy(isLoading = loading) }
   }
 
-  /** This state with the fields that derive from the loaded listing and the draft recomputed. */
+  /** This state with the fields that derive from the observed listing and the draft recomputed. */
   private fun ConversationUiState.derived(): ConversationUiState {
     val (listing, status) = loaded
     val sendable =

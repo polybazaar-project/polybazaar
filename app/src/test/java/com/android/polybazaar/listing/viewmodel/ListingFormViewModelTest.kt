@@ -27,6 +27,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -1019,6 +1020,8 @@ class ListingFormViewModelTest {
       }
       return Result.success(requireNotNull(storedListing) { "Set a stored listing to edit" })
     }
+
+    override fun observeListing(listingId: String): Flow<Listing?> = error("Not used here")
 
     override suspend fun updateListing(listing: Listing): Listing {
       updatedListings += listing

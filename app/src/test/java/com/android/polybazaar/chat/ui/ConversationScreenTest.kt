@@ -624,7 +624,7 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.ERROR_MESSAGE).assertDoesNotExist()
     node(ConversationScreenTags.RETRY_BUTTON).assertDoesNotExist()
-    assertEquals(2, listings.getListingCalls)
+    assertEquals(2, listings.observeListingCalls)
     assertFalse(viewModel.uiState.value.isLoading)
   }
 
