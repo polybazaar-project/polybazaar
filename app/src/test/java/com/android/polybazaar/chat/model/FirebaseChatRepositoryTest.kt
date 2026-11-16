@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.model
 
+import android.net.Uri
 import com.android.polybazaar.photo.PhotoCompressor
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
@@ -21,6 +22,10 @@ import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
+import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.StorageReference
+import com.google.firebase.storage.UploadTask
 import java.time.Instant
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -38,11 +43,13 @@ import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyVararg
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
+import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -62,7 +69,18 @@ class FirebaseChatRepositoryTest {
   private val listingRef = mock<DocumentReference>()
   private val listing = mock<DocumentSnapshot>()
   private val storage = mock<FirebaseStorage>()
-  private val photoCompressor = PhotoCompressor { byteArrayOf(1) }
+  private val storageRoot = mock<StorageReference>()
+  private val photoRef = mock<StorageReference>()
+  // A separate mock from messageRef, so a test fails if a photo is written to a new document
+  // instead of the one its ID names.
+  private val photoMessageRef = mock<DocumentReference>()
+  private val uploadTask = mock<UploadTask>()
+  private val photo = mock<Uri>()
+  private val compressedPhoto = byteArrayOf(4, 2)
+  private val photoCompressor = PhotoCompressor {
+    assertSame(photo, it)
+    compressedPhoto
+  }
   private val repository = FirebaseChatRepository(photoCompressor, firestore, auth, storage)
   private val conversation =
       Conversation(
@@ -71,6 +89,8 @@ class FirebaseChatRepositoryTest {
           renterUid = "renter",
           lenderUid = "lender",
       )
+  // A photo can't be the first message, so photo tests send to a conversation that has one.
+  private val replied = conversation.copy(lastMessageAt = Instant.ofEpochSecond(1_700_000_000))
 
   @Before
   fun setUp() {
@@ -93,6 +113,16 @@ class FirebaseChatRepositoryTest {
     whenever(listingRef.get()).thenReturn(Tasks.forResult(listing))
     whenever(listing.exists()).thenReturn(true)
     whenever(listing.getString("title")).thenReturn("Drill")
+    whenever(messages.document(PHOTO_ID)).thenReturn(photoMessageRef)
+    whenever(photoMessageRef.id).thenReturn(PHOTO_ID)
+    whenever(storage.reference).thenReturn(storageRoot)
+    whenever(storageRoot.child(PHOTO_PATH)).thenReturn(photoRef)
+    val notUploaded = storageException(StorageException.ERROR_OBJECT_NOT_FOUND)
+    whenever(photoRef.metadata).thenReturn(Tasks.forException(notUploaded))
+    whenever(photoRef.putBytes(any(), any())).thenReturn(uploadTask)
+    whenever(uploadTask.isComplete).thenReturn(true)
+    val uploaded = mock<UploadTask.TaskSnapshot>()
+    whenever(uploadTask.result).thenReturn(uploaded)
   }
 
   @Test
@@ -358,6 +388,154 @@ class FirebaseChatRepositoryTest {
             is IllegalArgumentException
     )
     verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun newMessageIdIsTheIdOfANewMessageDocument() {
+    assertEquals("message-id", repository.newMessageId("listing_renter"))
+
+    verify(messages).document()
+  }
+
+  @Test
+  fun sendPhotoUploadsCompressedPhotoAsJpegToTheMessagePath() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    val metadata = argumentCaptor<StorageMetadata>()
+    verify(storageRoot).child(PHOTO_PATH)
+    verify(photoRef).putBytes(eq(compressedPhoto), metadata.capture())
+    assertEquals("image/jpeg", metadata.firstValue.contentType)
+  }
+
+  @Test
+  fun sendPhotoUploadsBeforeCommittingTheBatch() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    val order = inOrder(photoRef, batch)
+    order.verify(photoRef).putBytes(any(), any())
+    order.verify(batch).commit()
+  }
+
+  @Test
+  fun sendPhotoWithoutCaptionWritesImagePathWithoutTextAndEmptyPreview() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verifyPhotoBatch(
+        preview = "",
+        message =
+            mapOf(
+                "senderUid" to "renter",
+                "sentAt" to FieldValue.serverTimestamp(),
+                "imagePath" to PHOTO_PATH,
+            ),
+    )
+  }
+
+  @Test
+  fun sendPhotoWithCaptionWritesTrimmedCaptionAsTextAndPreview() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo, caption = "  The drill bits  ")
+
+    verifyPhotoBatch(
+        preview = "The drill bits",
+        message =
+            mapOf(
+                "senderUid" to "renter",
+                "sentAt" to FieldValue.serverTimestamp(),
+                "imagePath" to PHOTO_PATH,
+                "text" to "The drill bits",
+            ),
+    )
+  }
+
+  @Test
+  fun sendPhotoTreatsBlankCaptionAsNoCaption() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo, caption = "   ")
+
+    verifyPhotoBatch(
+        preview = "",
+        message =
+            mapOf(
+                "senderUid" to "renter",
+                "sentAt" to FieldValue.serverTimestamp(),
+                "imagePath" to PHOTO_PATH,
+            ),
+    )
+  }
+
+  @Test
+  fun sendPhotoFromLenderIsSentAndReadByLenderOnly() = runTest {
+    signInAs("lender")
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    val fields = argumentCaptor<Map<String, Any>>()
+    verify(batch).set(eq(conversationRef), fields.capture(), eq(SetOptions.merge()))
+    assertEquals("lender", fields.firstValue["lastMessageSenderUid"])
+    assertEquals(mapOf("lender" to FieldValue.serverTimestamp()), fields.firstValue["lastReadAt"])
+    val message = argumentCaptor<Map<String, Any>>()
+    verify(batch).set(eq(photoMessageRef), message.capture())
+    assertEquals("lender", message.firstValue["senderUid"])
+  }
+
+  @Test
+  fun sendPhotoReportsLaterWriteFailuresToBothCallbacks() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(batch.commit()).thenReturn(pendingWrite.task)
+    var reportedFailure: Exception? = null
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
+    var reportedToCaller: Exception? = null
+
+    repository.sendPhoto(replied, PHOTO_ID, photo) { reportedToCaller = it }
+    assertNull(reportedFailure)
+    val failure = IllegalStateException("Write rejected")
+    pendingWrite.setException(failure)
+
+    assertSame(failure, reportedFailure)
+    assertSame(failure, reportedToCaller)
+  }
+
+  @Test
+  fun sendPhotoRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (error as FirebaseFirestoreException).code,
+    )
+    verifyNothingSent()
+  }
+
+  @Test
+  fun sendPhotoRejectsNonParticipant() = runTest {
+    signInAs("stranger")
+
+    assertTrue(
+        runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+            is IllegalArgumentException
+    )
+    verifyNothingSent()
+  }
+
+  @Test
+  fun sendPhotoRejectsConversationWithoutMessages() = runTest {
+    assertTrue(
+        runCatching { repository.sendPhoto(conversation, PHOTO_ID, photo) }.exceptionOrNull()
+            is IllegalArgumentException
+    )
+    verifyNothingSent()
+  }
+
+  @Test
+  fun sendPhotoRejectsTooLongCaption() = runTest {
+    assertTrue(
+        runCatching { repository.sendPhoto(replied, PHOTO_ID, photo, "a".repeat(1001)) }
+            .exceptionOrNull() is IllegalArgumentException
+    )
+    verifyNothingSent()
   }
 
   @Test
@@ -723,6 +901,40 @@ class FirebaseChatRepositoryTest {
     assertEquals("Conversation listing_renter is missing listingId", error?.message)
   }
 
+  /** Checks the one batch of a photo reply: the conversation merge and the photo's message. */
+  private fun verifyPhotoBatch(preview: String, message: Map<String, Any>) {
+    verify(batch)
+        .set(
+            eq(conversationRef),
+            eq(
+                mapOf(
+                    "listingId" to "listing",
+                    "renterUid" to "renter",
+                    "lenderUid" to "lender",
+                    "participants" to listOf("renter", "lender"),
+                    "lastMessageAt" to FieldValue.serverTimestamp(),
+                    "lastMessageId" to PHOTO_ID,
+                    "lastMessageText" to preview,
+                    "lastMessageSenderUid" to "renter",
+                    "lastReadAt" to mapOf("renter" to FieldValue.serverTimestamp()),
+                )
+            ),
+            eq(SetOptions.merge()),
+        )
+    verify(batch).set(eq(photoMessageRef), eq(message))
+    verify(batch).commit()
+    verify(listingRef, never()).get()
+  }
+
+  private fun verifyNothingSent() {
+    verifyNoInteractions(storage)
+    verify(firestore, never()).batch()
+  }
+
+  private fun storageException(errorCode: Int): StorageException = mock {
+    on { this.errorCode } doReturn errorCode
+  }
+
   private fun signInAs(uid: String) {
     val user = mock<FirebaseUser>()
     whenever(user.uid).thenReturn(uid)
@@ -793,5 +1005,10 @@ class FirebaseChatRepositoryTest {
 
   private fun TestScope.observeMyConversationsFailure() = async {
     runCatching { repository.observeMyConversations().first() }.exceptionOrNull()
+  }
+
+  private companion object {
+    const val PHOTO_ID = "photo-id"
+    const val PHOTO_PATH = "conversations/listing_renter/photo-id.jpg"
   }
 }
