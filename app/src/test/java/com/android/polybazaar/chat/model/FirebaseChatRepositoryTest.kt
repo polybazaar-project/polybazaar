@@ -2,6 +2,8 @@
 package com.android.polybazaar.chat.model
 
 import android.net.Uri
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.photo.PhotoCompressor
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
@@ -539,6 +541,49 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendPhotoOfflineUploadFailureIsNetworkAndWritesNoBatch() = runTest {
+    val failure = storageException(StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
+    failUpload(failure)
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertSame(failure, error)
+    assertEquals(AppError.NETWORK, error?.toAppError())
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun sendPhotoRefusedUploadIsPermissionDeniedAndWritesNoBatch() = runTest {
+    val failure = storageException(StorageException.ERROR_NOT_AUTHORIZED)
+    failUpload(failure)
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertSame(failure, error)
+    assertEquals(AppError.PERMISSION_DENIED, error?.toAppError())
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun sendPhotoCompressionFailureUploadsAndWritesNothing() = runTest {
+    val repository =
+        FirebaseChatRepository(
+            { throw IllegalStateException("Unreadable photo") },
+            firestore,
+            auth,
+            storage,
+        )
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    // Not assertSame: coroutine stack-trace recovery may rethrow a copy of it.
+    assertTrue(error is IllegalStateException)
+    assertEquals("Unreadable photo", error?.message)
+    verify(photoRef, never()).putBytes(any(), any())
+    verify(firestore, never()).batch()
+  }
+
+  @Test
   fun markReadSetsOnlyMyReadTimeToServerTime() {
     whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
         .thenReturn(Tasks.forResult(null))
@@ -929,6 +974,12 @@ class FirebaseChatRepositoryTest {
   private fun verifyNothingSent() {
     verifyNoInteractions(storage)
     verify(firestore, never()).batch()
+  }
+
+  /** Makes the photo upload end with [failure]. */
+  private fun failUpload(failure: Exception) {
+    whenever(uploadTask.isSuccessful).thenReturn(false)
+    whenever(uploadTask.exception).thenReturn(failure)
   }
 
   private fun storageException(errorCode: Int): StorageException = mock {
