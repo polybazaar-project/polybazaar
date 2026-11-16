@@ -29,6 +29,9 @@ import kotlinx.coroutines.flow.map
  * [sendPhoto] works the same way with [sentPhotos] and [photoWriteFailureCallbacks], sharing [gate]
  * and [sendFailure]. [newMessageId] returns "m1", "m2", … in call order.
  *
+ * [loadMessagePhoto] returns the bytes stored in [photos] for the path, and throws
+ * [photoLoadFailure] if set, or when the path is not in [photos].
+ *
  * [markRead] records every id in [markedRead]. When [myUid] is set and the conversation is in
  * [myConversations] with a last message, it also sets [myUid]'s lastReadAt to that message's time
  * and emits the updated list, like a local write the listener sees at once.
@@ -64,6 +67,12 @@ class FakeChatRepository(
 
   /** The `onWriteFailure` callbacks passed to [sendPhoto], in order. */
   val photoWriteFailureCallbacks = mutableListOf<(Exception) -> Unit>()
+
+  /** The photos [loadMessagePhoto] returns, by Storage path. */
+  val photos = mutableMapOf<String, ByteArray>()
+
+  /** When set, [loadMessagePhoto] throws it. */
+  var photoLoadFailure: Exception? = null
 
   /** The ids passed to [markRead], in order. */
   val markedRead = mutableListOf<String>()
@@ -105,6 +114,11 @@ class FakeChatRepository(
     photoWriteFailureCallbacks += onWriteFailure
     gate?.await()
     sendFailure?.let { throw it }
+  }
+
+  override suspend fun loadMessagePhoto(imagePath: String): ByteArray {
+    photoLoadFailure?.let { throw it }
+    return photos[imagePath] ?: throw NoSuchElementException("No photo at $imagePath")
   }
 
   override fun markRead(conversationId: String) {

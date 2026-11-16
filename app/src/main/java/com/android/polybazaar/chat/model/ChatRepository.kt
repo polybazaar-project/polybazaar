@@ -56,6 +56,13 @@ interface ChatRepository {
   )
 
   /**
+   * Downloads the photo of a message, from its [ChatMessage.imagePath], as the signed-in user.
+   * Fails with PERMISSION_DENIED for a user who is not a participant of the conversation, and with
+   * a Storage error to map with toAppError otherwise.
+   */
+  suspend fun loadMessagePhoto(imagePath: String): ByteArray
+
+  /**
    * Marks the conversation with this ID as read by the signed-in user: sets only their lastReadAt
    * to the server time. Like [sendMessage], the write is queued without waiting for the server, so
    * it works offline. It never throws: a failure is only logged, and when signed out nothing is

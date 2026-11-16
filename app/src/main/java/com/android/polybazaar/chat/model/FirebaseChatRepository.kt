@@ -116,6 +116,9 @@ class FirebaseChatRepository(
     )
   }
 
+  override suspend fun loadMessagePhoto(imagePath: String): ByteArray =
+      storage.reference.child(imagePath).getBytes(PhotoStorage.MAX_PHOTO_BYTES).await()
+
   override fun markRead(conversationId: String) {
     val uid = auth.currentUser?.uid ?: return
     // Not awaited, like sendMessage: the write is queued offline and the listener sees it at once.
