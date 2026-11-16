@@ -697,6 +697,37 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun loadMessagePhotoDownloadsUpToTenMegabytesFromItsPath() = runTest {
+    val bytes = byteArrayOf(7, 7)
+    whenever(photoRef.getBytes(10L * 1024 * 1024)).thenReturn(Tasks.forResult(bytes))
+
+    assertSame(bytes, repository.loadMessagePhoto(PHOTO_PATH))
+    verify(storageRoot).child(PHOTO_PATH)
+  }
+
+  @Test
+  fun loadMessagePhotoPropagatesMissingPhotoAsNotFound() = runTest {
+    val failure = storageException(StorageException.ERROR_OBJECT_NOT_FOUND)
+    whenever(photoRef.getBytes(any())).thenReturn(Tasks.forException(failure))
+
+    val error = runCatching { repository.loadMessagePhoto(PHOTO_PATH) }.exceptionOrNull()
+
+    assertSame(failure, error)
+    assertEquals(AppError.NOT_FOUND, error?.toAppError())
+  }
+
+  @Test
+  fun loadMessagePhotoPropagatesRefusalAsPermissionDenied() = runTest {
+    val failure = storageException(StorageException.ERROR_NOT_AUTHORIZED)
+    whenever(photoRef.getBytes(any())).thenReturn(Tasks.forException(failure))
+
+    val error = runCatching { repository.loadMessagePhoto(PHOTO_PATH) }.exceptionOrNull()
+
+    assertSame(failure, error)
+    assertEquals(AppError.PERMISSION_DENIED, error?.toAppError())
+  }
+
+  @Test
   fun markReadSetsOnlyMyReadTimeToServerTime() {
     whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
         .thenReturn(Tasks.forResult(null))
