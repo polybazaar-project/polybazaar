@@ -584,6 +584,59 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendPhotoRetryReusesStoredPhotoWithoutCompressingOrUploading() = runTest {
+    val stored = mock<StorageMetadata>()
+    whenever(photoRef.metadata).thenReturn(Tasks.forResult(stored))
+    var compressions = 0
+    val repository =
+        FirebaseChatRepository(
+            {
+              compressions++
+              compressedPhoto
+            },
+            firestore,
+            auth,
+            storage,
+        )
+
+    repository.sendPhoto(replied, PHOTO_ID, photo, caption = "The drill bits")
+
+    assertEquals(0, compressions)
+    verify(photoRef, never()).putBytes(any(), any())
+    verifyPhotoBatch(
+        preview = "The drill bits",
+        message =
+            mapOf(
+                "senderUid" to "renter",
+                "sentAt" to FieldValue.serverTimestamp(),
+                "imagePath" to PHOTO_PATH,
+                "text" to "The drill bits",
+            ),
+    )
+  }
+
+  @Test
+  fun sendPhotoUploadsOnlyAfterCheckingNoPhotoIsStored() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    val order = inOrder(photoRef)
+    order.verify(photoRef).metadata
+    order.verify(photoRef).putBytes(any(), any())
+  }
+
+  @Test
+  fun sendPhotoRethrowsOtherStoredPhotoCheckFailuresAndSendsNothing() = runTest {
+    val failure = storageException(StorageException.ERROR_NOT_AUTHORIZED)
+    whenever(photoRef.metadata).thenReturn(Tasks.forException(failure))
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertSame(failure, error)
+    verify(photoRef, never()).putBytes(any(), any())
+    verify(firestore, never()).batch()
+  }
+
+  @Test
   fun markReadSetsOnlyMyReadTimeToServerTime() {
     whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
         .thenReturn(Tasks.forResult(null))
