@@ -1,9 +1,12 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.model
 
+import android.net.Uri
 import android.util.Log
 import com.android.polybazaar.photo.PhotoCompressor
+import com.android.polybazaar.photo.PhotoStorage
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
@@ -41,58 +44,65 @@ class FirebaseChatRepository(
       text: String,
       onWriteFailure: (Exception) -> Unit,
   ) {
-    val senderUid =
-        auth.currentUser?.uid
-            ?: throw FirebaseFirestoreException(
-                "Sign in to send a message",
-                FirebaseFirestoreException.Code.UNAUTHENTICATED,
-            )
-    require(senderUid in conversation.participants) { "Only participants can send messages" }
+    val senderUid = participantUid(conversation)
     require(ChatRules.isSendable(text)) {
       "A message must have 1 to ${ChatRules.MAX_MESSAGE_LENGTH} characters"
     }
-    val conversationRef = conversationDocument(conversation.id)
-    val messageRef = conversationRef.collection(MESSAGES).document()
+    val messageRef = conversationDocument(conversation.id).collection(MESSAGES).document()
     val trimmed = text.trim()
-    val conversationFields =
-        mutableMapOf<String, Any>(
-            "listingId" to conversation.listingId,
-            "renterUid" to conversation.renterUid,
-            "lenderUid" to conversation.lenderUid,
-            "participants" to conversation.participants,
-            "lastMessageAt" to FieldValue.serverTimestamp(),
-            "lastMessageId" to messageRef.id,
-            "lastMessageText" to trimmed,
-            "lastMessageSenderUid" to senderUid,
-            // The merge sets only my key, so the other participant's read time is kept, and my own
-            // message never shows as unread to me.
-            "lastReadAt" to mapOf(senderUid to FieldValue.serverTimestamp()),
-        )
-    // A reply leaves the title as stored, so an outdated title on this device cannot get the
-    // reply rejected.
-    if (conversation.lastMessageAt == null) {
-      // The rules require the listing's current title, and the one this screen loaded may be
-      // outdated.
-      conversationFields["listingTitle"] = currentListingTitle(conversation.listingId)
+    writeMessage(
+        conversation,
+        messageRef,
+        senderUid,
+        preview = trimmed,
+        messageFields = mapOf("text" to trimmed),
+        onWriteFailure,
+    )
+  }
+
+  override fun newMessageId(conversationId: String): String =
+      conversationDocument(conversationId).collection(MESSAGES).document().id
+
+  override suspend fun sendPhoto(
+      conversation: Conversation,
+      messageId: String,
+      photo: Uri,
+      caption: String?,
+      onWriteFailure: (Exception) -> Unit,
+  ) {
+    val senderUid = participantUid(conversation)
+    // Storage only accepts a chat photo once the conversation exists.
+    require(conversation.lastMessageAt != null) {
+      "A photo cannot be the first message of a conversation"
     }
-    firestore
-        .batch()
-        // A merge leaves unchanged fields out of the rules' affected keys, so the same write
-        // creates the conversation on the first message and only bumps it on later ones.
-        .set(conversationRef, conversationFields, SetOptions.merge())
-        .set(
-            messageRef,
-            mapOf(
-                "senderUid" to senderUid,
-                "text" to trimmed,
-                "sentAt" to FieldValue.serverTimestamp(),
-            ),
-        )
-        .commit()
-        .addOnFailureListener(Executor { it.run() }) {
-          logWriteFailure(it)
-          onWriteFailure(it)
-        }
+    val trimmedCaption =
+        caption
+            ?.takeIf { it.isNotBlank() }
+            ?.also {
+              require(ChatRules.isSendable(it)) {
+                "A caption must have 1 to ${ChatRules.MAX_MESSAGE_LENGTH} characters"
+              }
+            }
+            ?.trim()
+    val path = photoPath(conversation.id, messageId)
+    // Awaited: the message must not point to a photo that was never uploaded.
+    storage.reference
+        .child(path)
+        .putBytes(photoCompressor.compress(photo), PhotoStorage.JPEG_METADATA)
+        .await()
+    writeMessage(
+        conversation,
+        conversationDocument(conversation.id).collection(MESSAGES).document(messageId),
+        senderUid,
+        // A photo alone previews as an empty text.
+        preview = trimmedCaption ?: "",
+        messageFields =
+            buildMap {
+              put("imagePath", path)
+              trimmedCaption?.let { put("text", it) }
+            },
+        onWriteFailure,
+    )
   }
 
   override fun markRead(conversationId: String) {
@@ -178,6 +188,68 @@ class FirebaseChatRepository(
     awaitClose { listener.remove() }
   }
 
+  /** The signed-in user's uid, who must be one of the [conversation]'s participants. */
+  private fun participantUid(conversation: Conversation): String {
+    val senderUid =
+        auth.currentUser?.uid
+            ?: throw FirebaseFirestoreException(
+                "Sign in to send a message",
+                FirebaseFirestoreException.Code.UNAUTHENTICATED,
+            )
+    require(senderUid in conversation.participants) { "Only participants can send messages" }
+    return senderUid
+  }
+
+  /**
+   * Queues the message at [messageRef] with [messageFields], plus its sender and time, and updates
+   * the conversation's preview to [preview], in one batch that is not awaited.
+   */
+  private suspend fun writeMessage(
+      conversation: Conversation,
+      messageRef: DocumentReference,
+      senderUid: String,
+      preview: String,
+      messageFields: Map<String, Any>,
+      onWriteFailure: (Exception) -> Unit,
+  ) {
+    val conversationFields =
+        mutableMapOf<String, Any>(
+            "listingId" to conversation.listingId,
+            "renterUid" to conversation.renterUid,
+            "lenderUid" to conversation.lenderUid,
+            "participants" to conversation.participants,
+            "lastMessageAt" to FieldValue.serverTimestamp(),
+            "lastMessageId" to messageRef.id,
+            "lastMessageText" to preview,
+            "lastMessageSenderUid" to senderUid,
+            // The merge sets only my key, so the other participant's read time is kept, and my own
+            // message never shows as unread to me.
+            "lastReadAt" to mapOf(senderUid to FieldValue.serverTimestamp()),
+        )
+    // A reply leaves the title as stored, so an outdated title on this device cannot get the
+    // reply rejected.
+    if (conversation.lastMessageAt == null) {
+      // The rules require the listing's current title, and the one this screen loaded may be
+      // outdated.
+      conversationFields["listingTitle"] = currentListingTitle(conversation.listingId)
+    }
+    firestore
+        .batch()
+        // A merge leaves unchanged fields out of the rules' affected keys, so the same write
+        // creates the conversation on the first message and only bumps it on later ones.
+        .set(conversationDocument(conversation.id), conversationFields, SetOptions.merge())
+        .set(
+            messageRef,
+            mapOf("senderUid" to senderUid, "sentAt" to FieldValue.serverTimestamp()) +
+                messageFields,
+        )
+        .commit()
+        .addOnFailureListener(Executor { it.run() }) {
+          logWriteFailure(it)
+          onWriteFailure(it)
+        }
+  }
+
   private suspend fun currentListingTitle(listingId: String): String {
     val listing = firestore.collection(LISTINGS).document(listingId).get().await()
     return listing.takeIf { it.exists() }?.getString("title")
@@ -188,6 +260,10 @@ class FirebaseChatRepository(
   }
 
   private fun conversationDocument(id: String) = firestore.collection(CONVERSATIONS).document(id)
+
+  /** Where a message's photo is stored; storage.rules only accept a participant's upload there. */
+  private fun photoPath(conversationId: String, messageId: String) =
+      "$CONVERSATIONS/$conversationId/$messageId.jpg"
 
   // A write not yet confirmed by the server has no sentAt or lastMessageAt; ESTIMATE gives it the
   // local time.

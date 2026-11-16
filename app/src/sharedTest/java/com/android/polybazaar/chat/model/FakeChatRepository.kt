@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.model
 
+import android.net.Uri
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,9 @@ import kotlinx.coroutines.flow.map
  * look at a send in progress, and throws [sendFailure] if set, like a send refused before queuing;
  * such a call is still recorded.
  *
+ * [sendPhoto] works the same way with [sentPhotos] and [photoWriteFailureCallbacks], sharing [gate]
+ * and [sendFailure]. [newMessageId] returns "m1", "m2", … in call order.
+ *
  * [markRead] records every id in [markedRead]. When [myUid] is set and the conversation is in
  * [myConversations] with a last message, it also sets [myUid]'s lastReadAt to that message's time
  * and emits the updated list, like a local write the listener sees at once.
@@ -47,6 +51,20 @@ class FakeChatRepository(
   /** The `onWriteFailure` callbacks passed to [sendMessage], in order. */
   val writeFailureCallbacks = mutableListOf<(Exception) -> Unit>()
 
+  /** A call to [sendPhoto]. */
+  data class SentPhoto(
+      val conversation: Conversation,
+      val messageId: String,
+      val photo: Uri,
+      val caption: String?,
+  )
+
+  /** The calls to [sendPhoto], in order. */
+  val sentPhotos = mutableListOf<SentPhoto>()
+
+  /** The `onWriteFailure` callbacks passed to [sendPhoto], in order. */
+  val photoWriteFailureCallbacks = mutableListOf<(Exception) -> Unit>()
+
   /** The ids passed to [markRead], in order. */
   val markedRead = mutableListOf<String>()
 
@@ -54,6 +72,8 @@ class FakeChatRepository(
   var gate: CompletableDeferred<Unit>? = null
   var conversationGate: CompletableDeferred<Unit>? = null
   var messagesGate: CompletableDeferred<Unit>? = null
+
+  private var messageIds = 0
 
   var observeConversationCalls = 0
     private set
@@ -68,6 +88,21 @@ class FakeChatRepository(
   ) {
     sentMessages += conversation to text
     writeFailureCallbacks += onWriteFailure
+    gate?.await()
+    sendFailure?.let { throw it }
+  }
+
+  override fun newMessageId(conversationId: String): String = "m${++messageIds}"
+
+  override suspend fun sendPhoto(
+      conversation: Conversation,
+      messageId: String,
+      photo: Uri,
+      caption: String?,
+      onWriteFailure: (Exception) -> Unit,
+  ) {
+    sentPhotos += SentPhoto(conversation, messageId, photo, caption)
+    photoWriteFailureCallbacks += onWriteFailure
     gate?.await()
     sendFailure?.let { throw it }
   }
