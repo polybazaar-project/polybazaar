@@ -17,6 +17,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -690,6 +691,53 @@ class ListingDetailScreenTest {
             useUnmergedTree = true,
         )
         .assertCountEquals(2)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding, so there is a photo to tap.
+  fun closingTheFullScreenPhotos_leavesTheDetailOnTheLastPhotoSeen() {
+    setContent(
+        ListingDetailUiState(
+            listing = drillWithPhotos,
+            listingPhotos = mapOf(firstPhoto to redPhoto(), secondPhoto to redPhoto()),
+        )
+    )
+    waitForPhoto()
+    node(ListingDetailScreenTags.PHOTO).performClick()
+
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).performTouchInput { swipeLeft() }
+    node(ListingDetailScreenTags.FULL_SCREEN_CLOSE).performClick()
+
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertDoesNotExist()
+    node(ListingDetailScreenTags.PHOTO_COUNTER)
+        .assertTextEquals(context.getString(R.string.listing_detail_photo_counter, 2, 2))
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding, so there is a photo to tap.
+  fun fullScreenPhotos_stayOpen_afterRotation() {
+    // Made once: new bytes on every recomposition would decode again each time.
+    val uiState =
+        ListingDetailUiState(
+            listing = drillWithPhotos,
+            listingPhotos = mapOf(firstPhoto to redPhoto()),
+        )
+    val restorationTester = StateRestorationTester(composeTestRule)
+    restorationTester.setContent {
+      ListingDetailContent(
+          uiState = uiState,
+          actions = ListingDetailActions(),
+          onRetry = {},
+          onSetPaused = {},
+          onDelete = {},
+      )
+    }
+    waitForPhoto()
+    node(ListingDetailScreenTags.PHOTO).performClick()
+
+    restorationTester.emulateSavedInstanceStateRestore()
+
+    node(ListingDetailScreenTags.FULL_SCREEN_PHOTOS).assertIsDisplayed()
   }
 
   @Test

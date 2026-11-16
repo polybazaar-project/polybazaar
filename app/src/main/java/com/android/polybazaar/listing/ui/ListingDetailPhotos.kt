@@ -19,7 +19,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,7 +102,11 @@ internal fun BoxScope.ListingPhotos(imagePaths: List<String>, photos: Map<String
         imagePaths = imagePaths,
         photos = decoded,
         initialPage = page,
-        onClose = { fullScreenPage = null },
+        onClose = { lastPage ->
+          fullScreenPage = null
+          // The detail shows the photo the viewer was closed on.
+          pagerState.requestScrollToPage(lastPage)
+        },
     )
   }
 }
@@ -127,18 +133,23 @@ private fun BoxScope.PhotoCounter(pagerState: PagerState, count: Int) {
 
 /**
  * The listing's photos full screen on black, each shown whole (not cropped), swiped one at a time
- * from [initialPage]. Closed with the close button or the system back.
+ * from [initialPage]. Closed with the close button or the system back, which pass [onClose] the
+ * page it was closed on.
  */
 @Composable
 private fun FullScreenPhotos(
     imagePaths: List<String>,
     photos: Map<String, ImageBitmap>,
     initialPage: Int,
-    onClose: () -> Unit,
+    onClose: (lastPage: Int) -> Unit,
 ) {
+  val pagerState = rememberPagerState(initialPage = initialPage) { imagePaths.size }
+  val close = { onClose(pagerState.currentPage) }
   Dialog(
-      onDismissRequest = onClose,
-      properties = DialogProperties(usePlatformDefaultWidth = false),
+      onDismissRequest = close,
+      // Edge to edge, so the black covers the status bar too instead of the dimmed detail.
+      properties =
+          DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
   ) {
     Box(
         modifier =
@@ -146,12 +157,12 @@ private fun FullScreenPhotos(
                 .background(Color.Black)
                 .testTag(ListingDetailScreenTags.FULL_SCREEN_PHOTOS)
     ) {
-      val pagerState = rememberPagerState(initialPage = initialPage) { imagePaths.size }
       HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
         val photo = photos[imagePaths[page]]
         Box(modifier = Modifier.fillMaxSize()) {
           if (photo == null) {
-            PhotoPlaceholderIcon()
+            // Lighter than on the detail, to show on black.
+            PhotoPlaceholderIcon(tint = Color.White.copy(alpha = 0.6f))
           } else {
             Image(
                 bitmap = photo,
@@ -165,7 +176,7 @@ private fun FullScreenPhotos(
         }
       }
       IconButton(
-          onClick = onClose,
+          onClick = close,
           modifier =
               Modifier.align(Alignment.TopStart)
                   .statusBarsPadding()
@@ -186,12 +197,12 @@ private fun FullScreenPhotos(
 
 /** The image icon in the middle of the photo area, while there is no photo to show. */
 @Composable
-private fun BoxScope.PhotoPlaceholderIcon() {
+private fun BoxScope.PhotoPlaceholderIcon(tint: Color = AuthColors.TextSecondary) {
   // Decorative: the area holds no information without a photo.
   Icon(
       painter = painterResource(R.drawable.ic_image),
       contentDescription = null,
-      tint = AuthColors.TextSecondary,
+      tint = tint,
       modifier = Modifier.align(Alignment.Center).size(32.dp),
   )
 }
@@ -203,20 +214,18 @@ private fun BoxScope.PhotoPlaceholderIcon() {
 @Composable
 private fun rememberListingPhotos(photos: Map<String, ByteArray>): Map<String, ImageBitmap> {
   val decoded = remember { mutableStateMapOf<String, ImageBitmap>() }
-  // The bytes each entry of [decoded] was decoded from, to skip the ones already done.
-  val decodedFrom = remember { mutableMapOf<String, ByteArray>() }
-  LaunchedEffect(photos) {
-    (decodedFrom.keys - photos.keys).forEach { path ->
-      decodedFrom.remove(path)
-      decoded.remove(path)
-    }
-    photos.forEach { (path, bytes) ->
-      if (decodedFrom[path] !== bytes) {
+  photos.forEach { (path, bytes) ->
+    // One effect per photo: a photo that finishes downloading starts its own decode, without
+    // restarting the ones already running.
+    key(path) {
+      LaunchedEffect(bytes) {
         val photo = decodePhotoPreview(bytes, maxSize = LISTING_PHOTO_MAX_SIZE)
         if (photo == null) decoded.remove(path) else decoded[path] = photo
-        decodedFrom[path] = bytes
       }
     }
   }
+  // A photo no longer in [photos] is dropped. Its effect has left the composition, so it is
+  // cancelled and does not write it back.
+  SideEffect { (decoded.keys - photos.keys).forEach(decoded::remove) }
   return decoded
 }
