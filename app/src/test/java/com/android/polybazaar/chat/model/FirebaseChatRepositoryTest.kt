@@ -3,6 +3,7 @@ package com.android.polybazaar.chat.model
 
 import android.net.Uri
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.photo.PhotoCompressor
 import com.google.android.gms.tasks.TaskCompletionSource
@@ -29,8 +30,12 @@ import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
 import java.time.Instant
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -637,6 +642,61 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendPhotoUploadWithNoAnswerFailsWithNetworkAfterTimeoutAndCancelsIt() = runTest {
+    whenever(uploadTask.isComplete).thenReturn(false)
+
+    val error = runCatching {
+      shortTimeoutRepository().sendPhoto(replied, PHOTO_ID, photo)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NETWORK, (error as AppException).error)
+    assertTrue(error.cause is TimeoutCancellationException)
+    assertEquals(5_000L, testScheduler.currentTime)
+    verify(uploadTask).cancel()
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun sendPhotoStoredPhotoCheckWithNoAnswerFailsWithNetworkWithoutUploading() = runTest {
+    whenever(photoRef.metadata).thenReturn(TaskCompletionSource<StorageMetadata>().task)
+
+    val error = runCatching {
+      shortTimeoutRepository().sendPhoto(replied, PHOTO_ID, photo)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NETWORK, (error as AppException).error)
+    verify(photoRef, never()).putBytes(any(), any())
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun sendPhotoCancelledByCallerCancelsUploadAndPropagatesCancellation() = runTest {
+    whenever(uploadTask.isComplete).thenReturn(false)
+    var thrown: Throwable? = null
+    val sending = launch {
+      try {
+        repository.sendPhoto(replied, PHOTO_ID, photo)
+      } catch (e: Throwable) {
+        thrown = e
+        throw e
+      }
+    }
+    runCurrent()
+    verify(photoRef).putBytes(any(), any())
+
+    sending.cancel()
+    runCurrent()
+
+    // What sendPhoto itself threw: a cancelled job always ends with a CancellationException.
+    assertTrue(thrown is CancellationException)
+    assertFalse(thrown is TimeoutCancellationException)
+    verify(uploadTask).cancel()
+    verify(firestore, never()).batch()
+  }
+
+  @Test
   fun markReadSetsOnlyMyReadTimeToServerTime() {
     whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
         .thenReturn(Tasks.forResult(null))
@@ -1028,6 +1088,9 @@ class FirebaseChatRepositoryTest {
     verifyNoInteractions(storage)
     verify(firestore, never()).batch()
   }
+
+  private fun shortTimeoutRepository() =
+      FirebaseChatRepository(photoCompressor, firestore, auth, storage, uploadTimeout = 5.seconds)
 
   /** Makes the photo upload end with [failure]. */
   private fun failUpload(failure: Exception) {
