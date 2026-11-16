@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar.ui.navigation
 
 import android.content.Context
@@ -59,6 +60,11 @@ import com.android.polybazaar.auth.ui.ForgotPasswordScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.booking.model.Booking
+import com.android.polybazaar.booking.model.FakeBookingRepository
+import com.android.polybazaar.booking.ui.AvailabilityCalendarSheetTags
+import com.android.polybazaar.booking.ui.AvailabilityCalendarTags
+import com.android.polybazaar.booking.ui.BookingRequestScreenTags
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.Conversation
@@ -86,6 +92,7 @@ import com.android.polybazaar.settings.ui.SettingsScreenTags
 import com.android.polybazaar.toolbox.ui.ToolboxCardTags
 import java.net.UnknownHostException
 import java.time.Instant
+import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,6 +129,7 @@ class AppNavHostTest {
   // Listings published in these tests belong to the signed-in user, as with the real repository.
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
   private val chatRepository = FakeChatRepository()
+  private val bookingRepository = FakeBookingRepository()
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -153,6 +161,7 @@ class AppNavHostTest {
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
+            bookingRepository = bookingRepository,
             navController = navController,
         )
       }
@@ -194,6 +203,7 @@ class AppNavHostTest {
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
+            bookingRepository = bookingRepository,
             navController = navController,
         )
       }
@@ -662,6 +672,7 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
+          bookingRepository = bookingRepository,
           navController = navController,
       )
     }
@@ -969,6 +980,116 @@ class AppNavHostTest {
     assertNull(navController.previousBackStackEntry)
   }
 
+  /** Opens the only listing Browse shows, titled [title], and taps "Choose dates" on its detail. */
+  private fun chooseDatesOn(title: String) {
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).performClick()
+    assertOnListingDetail(title)
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).performClick()
+  }
+
+  /** Checks the booking request screen is on top, for the listing [listingId] titled [title]. */
+  private fun assertOnBookingRequest(title: String, listingId: String) {
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.LISTING_TITLE).assertTextEquals(title)
+    assertCurrentRoute(Routes.BOOKING_REQUEST, Routes.LISTING_ID, listingId)
+  }
+
+  @Test
+  fun listingDetailChooseDates_opensTheBookingRequestForTheListing() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+
+    chooseDatesOn("Bosch drill set")
+
+    assertOnBookingRequest("Bosch drill set", listingId = "drill")
+    assertBottomBarHidden()
+  }
+
+  @Test
+  fun listingDetailChooseDates_tappedTwice_opensOneBookingRequest() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    // The detail is still on screen while it leaves, so the second tap reaches the button too.
+    composeTestRule.mainClock.autoAdvance = false
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).performClick()
+    composeTestRule.mainClock.advanceTimeBy(100)
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.CHOOSE_DATES_BUTTON).performClick()
+    composeTestRule.mainClock.autoAdvance = true
+
+    assertOnBookingRequest("Bosch drill set", listingId = "drill")
+    assertEquals(Routes.LISTING_DETAIL, navController.previousBackStackEntry?.destination?.route)
+  }
+
+  @Test
+  fun bookingRequestBack_returnsToTheListingDetail() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+    chooseDatesOn("Bosch drill set")
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.SCREEN).assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.BACK_BUTTON).performClick()
+
+    assertOnListingDetail("Bosch drill set")
+    assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "drill")
+  }
+
+  @Test
+  fun bookingRequest_sendsTheChosenDayAsTheViewer_andDoneReturnsToTheListingDetail() {
+    val today = LocalDate.now()
+    listingRepository.allListings = listOf(gracesDrill.copy(availableDates = setOf(today)))
+    setContent(FakeAuthRepository(currentUser = user))
+    chooseDatesOn("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.DATES_FIELD).performClick()
+    composeTestRule.onNodeWithTag(AvailabilityCalendarTags.day(today)).performClick()
+    composeTestRule.onNodeWithTag(AvailabilityCalendarSheetTags.DONE_BUTTON).performClick()
+    composeTestRule
+        .onNodeWithTag(BookingRequestScreenTags.SUBMIT_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.SENT_MESSAGE).assertIsDisplayed()
+    assertEquals(
+        Booking(
+            listingId = "drill",
+            renterUid = user.uid,
+            lenderUid = "uid-grace",
+            startDate = today,
+            endDate = today,
+        ),
+        bookingRepository.requestedBooking,
+    )
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.DONE_BUTTON).performClick()
+    assertOnListingDetail("Bosch drill set")
+  }
+
+  @Test
+  fun bookingRequestRoute_keepsAListingIdWithReservedCharacters() {
+    listingRepository.allListings = listOf(gracesDrill.copy(listingId = "a/b?c d"))
+    setContent(FakeAuthRepository(currentUser = user))
+
+    chooseDatesOn("Bosch drill set")
+
+    assertOnBookingRequest("Bosch drill set", listingId = "a/b?c d")
+  }
+
+  @Test
+  fun signOut_fromTheBookingRequest_returnsToSignIn() {
+    listingRepository.allListings = listOf(gracesDrill)
+    val viewModel = setContent(FakeAuthRepository(currentUser = user))
+    chooseDatesOn("Bosch drill set")
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.SCREEN).assertIsDisplayed()
+
+    viewModel.signOut()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    assertNull(navController.previousBackStackEntry)
+  }
+
   @Test
   fun editProfileButton_opensEditProfileAndCancelReturnsToProfile() {
     setContent(FakeAuthRepository(currentUser = user))
@@ -1253,6 +1374,7 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
+          bookingRepository = bookingRepository,
           navController = navController,
       )
     }
@@ -1328,6 +1450,7 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
+          bookingRepository = bookingRepository,
           navController = navController,
       )
     }
