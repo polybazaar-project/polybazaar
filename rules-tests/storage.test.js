@@ -166,8 +166,29 @@ const CHAT_FOLDER = `conversations/${CONVERSATION_ID}`;
 // to it is checked against `resource != null`. Each test therefore uses message ids no other test
 // has used.
 let lastMessageNumber = 0;
-/** The path of a new message's photo in Bob's conversation, unused by any other test. */
-const newChatPhoto = () => `${CHAT_FOLDER}/m${++lastMessageNumber}.jpg`;
+/** A message id no other test has used. */
+const newMessageId = () => `m${++lastMessageNumber}`;
+/** Where storage.rules keeps the photo of a message in Bob's conversation. */
+const chatPhoto = (messageId) => `${CHAT_FOLDER}/${messageId}.jpg`;
+/** The photo path of a new message, unused by any other test. */
+const newChatPhoto = () => chatPhoto(newMessageId());
+
+/**
+ * Writes a message by `senderUid` in Bob's conversation, with the rules turned off, and returns
+ * its photo's path. The message names that path unless `fields` replaces it (a text message, or a
+ * photo stored elsewhere).
+ */
+async function seedMessage(senderUid, { messageId = newMessageId(), fields } = {}) {
+  const photo = chatPhoto(messageId);
+  await env.withSecurityRulesDisabled((context) =>
+    setDoc(doc(context.firestore(), `${CHAT_FOLDER}/messages/${messageId}`), {
+      senderUid,
+      sentAt: new Date(0),
+      ...(fields ?? { imagePath: photo }),
+    }),
+  );
+  return photo;
+}
 
 /** Writes the conversation storage.rules reads, with the rules turned off, to set up a test. */
 async function seedConversation() {
@@ -182,10 +203,9 @@ async function seedConversation() {
 }
 
 describe("chat photos", () => {
-  test("both participants can upload a photo", async () => {
-    await seedConversation();
-    await assertSucceeds(uploadBytes(ref(verified(BOB), newChatPhoto()), PHOTO, JPEG));
-    await assertSucceeds(uploadBytes(ref(verified(ALICE), newChatPhoto()), PHOTO, JPEG));
+  test("both participants can upload the photo of their message", async () => {
+    await assertSucceeds(uploadBytes(ref(verified(BOB), await seedMessage(BOB)), PHOTO, JPEG));
+    await assertSucceeds(uploadBytes(ref(verified(ALICE), await seedMessage(ALICE)), PHOTO, JPEG));
   });
 
   test("both participants can see a photo", async () => {
@@ -196,10 +216,10 @@ describe("chat photos", () => {
     await assertSucceeds(getBytes(ref(verified(ALICE), photo)));
   });
 
-  test("only a verified participant can upload a photo", async () => {
-    await seedConversation();
-    const photo = newChatPhoto();
-    for (const storage of [verified(EVE), unverified(BOB), outsider(BOB), signedOut()]) {
+  test("only the verified sender can upload the photo of a message", async () => {
+    const photo = await seedMessage(BOB);
+    const others = [verified(ALICE), verified(EVE), unverified(BOB), outsider(BOB), signedOut()];
+    for (const storage of others) {
       await assertFails(uploadBytes(ref(storage, photo), PHOTO, JPEG));
     }
   });
@@ -213,13 +233,21 @@ describe("chat photos", () => {
     }
   });
 
-  test("a photo cannot be uploaded before its conversation exists", async () => {
+  test("a photo cannot be uploaded before its message exists", async () => {
+    await seedConversation();
     await assertFails(uploadBytes(ref(verified(BOB), newChatPhoto()), PHOTO, JPEG));
   });
 
+  test("a photo can only be uploaded at the path its message names", async () => {
+    const storage = verified(BOB);
+    const textMessage = await seedMessage(BOB, { fields: { text: "Hi" } });
+    await assertFails(uploadBytes(ref(storage, textMessage), PHOTO, JPEG));
+    const elsewhere = await seedMessage(BOB, { fields: { imagePath: chatPhoto("m0") } });
+    await assertFails(uploadBytes(ref(storage, elsewhere), PHOTO, JPEG));
+  });
+
   test("a sent photo cannot be replaced or deleted", async () => {
-    await seedConversation();
-    const photo = newChatPhoto();
+    const photo = await seedMessage(BOB);
     await seed(photo);
     await assertFails(uploadBytes(ref(verified(BOB), photo), PHOTO, JPEG));
     await assertFails(deleteObject(ref(verified(BOB), photo)));
@@ -227,19 +255,22 @@ describe("chat photos", () => {
   });
 
   test("a chat photo must be an image under 10 MB", async () => {
-    await seedConversation();
     const storage = verified(BOB);
     const text = { contentType: "text/plain" };
-    await assertFails(uploadBytes(ref(storage, newChatPhoto()), PHOTO, text));
-    await assertSucceeds(uploadBytes(ref(storage, newChatPhoto()), new Uint8Array(8 * MB), JPEG));
-    await assertFails(uploadBytes(ref(storage, newChatPhoto()), new Uint8Array(10 * MB), JPEG));
+    await assertFails(uploadBytes(ref(storage, await seedMessage(BOB)), PHOTO, text));
+    const big = new Uint8Array(8 * MB);
+    await assertSucceeds(uploadBytes(ref(storage, await seedMessage(BOB)), big, JPEG));
+    const tooBig = new Uint8Array(10 * MB);
+    await assertFails(uploadBytes(ref(storage, await seedMessage(BOB)), tooBig, JPEG));
   });
 
+  // Message m0 names each path, so only the file name pattern can refuse it.
   test("a chat photo is named <messageId>.jpg", async () => {
-    await seedConversation();
     const storage = verified(BOB);
     for (const name of ["m0.png", "m0", "m0.jpg.png", "m0.v2.jpg", ".jpg", "m0/0.jpg"]) {
-      await assertFails(uploadBytes(ref(storage, `${CHAT_FOLDER}/${name}`), PHOTO, JPEG));
+      const path = `${CHAT_FOLDER}/${name}`;
+      await seedMessage(BOB, { messageId: "m0", fields: { imagePath: path } });
+      await assertFails(uploadBytes(ref(storage, path), PHOTO, JPEG));
     }
   });
 

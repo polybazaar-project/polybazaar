@@ -42,19 +42,26 @@ service firebase.storage {
         return firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.participants;
       }
 
+      // The message named by the file, conversations/{conversationId}/messages/{messageId}. A missing
+      // message has no data, so the lookup errors and the rule fails closed.
+      function message() {
+        return firestore.get(/databases/(default)/documents/conversations/$(conversationId)/messages/$(fileName.split('[.]')[0])).data;
+      }
+
       allow get: if isVerified() && request.auth.uid in participants();
 
-      // "Written only by the sender": the message is written after the upload, so there is no message
-      // to look up yet, and the uploader is taken as the sender. The conversation must exist already,
-      // so a photo cannot open a conversation; the app sends a text first.
-      // resource == null: an upload over an existing file is checked as create, not update.
+      // The app writes the message first and uploads its photo once the server has it. Only the
+      // message's sender can upload, only at the path the message names: one photo per message.
+      // The sender is a participant, since firestore.rules only lets participants write messages.
+      // resource == null refuses an upload over an existing file.
       allow create: if isVerified()
           && resource == null
-          && request.auth.uid in participants()
           && fileName.matches('[^/.]+[.]jpg')
+          && message().senderUid == request.auth.uid
+          && message().imagePath == 'conversations/' + conversationId + '/' + fileName
           && isImageUpload();
 
-      // A sent photo cannot be swapped; a retry reuses the file already uploaded.
+      // A sent photo cannot be swapped or removed.
       allow update, delete: if false;
     }
 
