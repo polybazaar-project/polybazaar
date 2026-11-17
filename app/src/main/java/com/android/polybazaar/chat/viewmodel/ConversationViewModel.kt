@@ -334,6 +334,32 @@ class ConversationViewModel(
   }
 
   /**
+   * Sends the failed photo of [messageId] again, with the same message ID: the photo already
+   * uploaded is reused, and the rules refuse to overwrite it with another. Ignored unless it
+   * failed.
+   */
+  fun retryPhoto(messageId: String) {
+    val state = _uiState.value
+    val failed = state.failedPhoto(messageId) ?: return
+    val conversation = state.conversation ?: return
+    val retried = failed.copy(status = PendingPhotoStatus.UPLOADING, error = null)
+    _uiState.update { it.withPendingPhoto(retried) }
+    upload(conversation, retried)
+  }
+
+  /**
+   * Removes the failed photo of [messageId], deleting it if it was taken with the camera. Ignored
+   * unless it failed: an upload under way cannot be taken back.
+   */
+  fun discardPhoto(messageId: String) {
+    val failed = _uiState.value.failedPhoto(messageId) ?: return
+    _uiState.update {
+      it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(failed) })
+    }
+    deleteIfTaken(failed.photo)
+  }
+
+  /**
    * Shows [pending] as failed again after the server rejected its message. Runs on any thread and
    * must not throw: Firestore may call it from a background thread.
    */
@@ -347,11 +373,29 @@ class ConversationViewModel(
     _uiState.update { it.copy(sendError = null) }
   }
 
+  /**
+   * Deletes the photos taken with the camera that were not sent: the one being taken, the attached
+   * one and the failed ones. Gallery photos are left alone.
+   */
+  override fun onCleared() {
+    photoBeingTaken?.let(photoStorage::delete)
+    // Closing the screen cancels the uploads under way, but compressing a photo is not cancelled
+    // mid-read, so their files are kept rather than deleted under it. They stay in the chat folder.
+    if (_uiState.value.pendingPhotos.any { it.status == PendingPhotoStatus.UPLOADING }) return
+    takenPhotos.forEach(photoStorage::delete)
+    takenPhotos.clear()
+  }
+
   private fun replaceAttachedPhoto(photo: Uri) {
     val replaced = _uiState.value.attachedPhoto
     _uiState.update { it.copy(attachedPhoto = photo).derived() }
     if (replaced != null && replaced != photo) deleteIfTaken(replaced)
   }
+
+  private fun ConversationUiState.failedPhoto(messageId: String): PendingPhoto? =
+      pendingPhotos.find {
+        it.messageId == messageId && it.status == PendingPhotoStatus.FAILED
+      }
 
   private fun PendingPhoto.isSameAs(other: PendingPhoto) = messageId == other.messageId
 
