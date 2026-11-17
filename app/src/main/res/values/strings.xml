@@ -76,7 +76,18 @@
     <string name="listing_detail_renter_paused_text">The lender isn\'t taking bookings right now.</string>
 
     <!-- Conversation screen -->
-    <string name="conversation_other_username">@%1$s</string>
+    <string name="conversation_other_username">@%1$s · %2$s</string>
+    <string name="conversation_role_lender">Lender</string>
+    <string name="conversation_role_renter">Renter</string>
+    <string name="conversation_summary_you">You</string>
+    <string name="conversation_summary_spoken_lender">Listing by %1$s</string>
+    <string name="conversation_summary_spoken_mine">Your listing</string>
+    <string name="conversation_status_rental">Rental</string>
+    <string name="conversation_status_service">Service</string>
+    <string name="conversation_status_paused">Paused</string>
+    <string name="conversation_status_deleted">Deleted</string>
+    <string name="conversation_day_today">Today</string>
+    <string name="conversation_day_yesterday">Yesterday</string>
     <string name="conversation_paused_title">This listing is paused</string>
     <string name="conversation_paused_first_message_body">You can send a message once it’s active again.</string>
     <string name="conversation_deleted_title">This listing has been deleted</string>
@@ -87,6 +98,7 @@
     <string name="conversation_empty_title_unknown">Say hello</string>
     <string name="conversation_empty_body">No messages yet. Ask about “%1$s”, its availability or a good time to meet.</string>
     <string name="conversation_empty_body_no_title">No messages yet.</string>
+    <string name="conversation_empty_tagline">Good tools. Great neighbours.</string>
     <string name="conversation_my_message_footer">You · %1$s</string>
     <string name="conversation_their_message_footer">%1$s · %2$s</string>
     <string name="conversation_placeholder">Write a message…</string>
