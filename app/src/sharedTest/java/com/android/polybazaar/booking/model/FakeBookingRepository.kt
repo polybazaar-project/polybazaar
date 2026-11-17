@@ -22,7 +22,9 @@ class FakeBookingRepository : BookingRepository {
   var renterBookings: List<Booking> = emptyList()
   var pendingLoad: CompletableDeferred<Unit>? = null
   var loadFailure: Exception? = null
+  var loadCount = 0
   var cancellationCount = 0
+  var cancelFailure: Exception? = null
   var cancelWriteFailure: ((Exception) -> Unit)? = null
   var cancelWriteSuccess: (() -> Unit)? = null
 
@@ -39,6 +41,7 @@ class FakeBookingRepository : BookingRepository {
   override suspend fun getBookingsForListing(listingId: String): List<Booking> = emptyList()
 
   override suspend fun getBookingsForRenter(): List<Booking> {
+    loadCount++
     pendingLoad?.await()
     loadFailure?.let { throw it }
     return renterBookings
@@ -52,5 +55,6 @@ class FakeBookingRepository : BookingRepository {
     cancellationCount++
     cancelWriteFailure = onWriteFailure
     cancelWriteSuccess = onWriteSuccess
+    cancelFailure?.let { throw it }
   }
 }

@@ -244,6 +244,21 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
+  fun cancelBookingWithDefaultCallbacksHandlesFailureAndSuccess() = runTest {
+    val failedWrite = TaskCompletionSource<Void>()
+    val acceptedWrite = TaskCompletionSource<Void>()
+    whenever(document.update("status", "CANCELLED"))
+        .thenReturn(failedWrite.task, acceptedWrite.task)
+
+    repository.cancelBooking("booking-id")
+    repository.cancelBooking("booking-id")
+    failedWrite.setException(IllegalStateException("Write rejected"))
+    acceptedWrite.setResult(null)
+
+    assertTrue(failedWrite.task.isComplete && acceptedWrite.task.isSuccessful)
+  }
+
+  @Test
   fun cancelBookingRejectsSignedOutUser() = runTest {
     whenever(auth.currentUser).thenReturn(null)
 
