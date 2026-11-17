@@ -86,9 +86,7 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
     val state = _uiState.value
     if (id in state.cancellingBookingIds) return
     if (state.bookings.any { it.id == id && it.status == BookingStatus.CANCELLED }) return
-    _uiState.update {
-      it.copy(cancellingBookingIds = it.cancellingBookingIds + id, error = null)
-    }
+    _uiState.update { it.copy(cancellingBookingIds = it.cancellingBookingIds + id, error = null) }
     viewModelScope.launch {
       try {
         bookingRepository.cancelBooking(
