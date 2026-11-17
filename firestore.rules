@@ -94,26 +94,27 @@ service cloud.firestore {
     match /bookings/{bookingId} {
       function validBooking(data) {
         let listing = get(/databases/$(database)/documents/listings/$(data.listingId)).data;
-        return data.keys().hasAll(['listingId', 'renterUid', 'lenderUid', 'startDate', 'endDate', 'status'])
-            && data.keys().hasOnly(['listingId', 'renterUid', 'lenderUid', 'startDate', 'endDate', 'status'])
+        return data.keys().hasAll(['listingId', 'renterUid', 'lenderUid', 'days', 'status'])
+            && data.keys().hasOnly(['listingId', 'renterUid', 'lenderUid', 'days', 'status'])
             && data.listingId is string && data.listingId.size() > 0
             && data.renterUid == request.auth.uid
             && data.lenderUid is string
             && data.lenderUid == listing.ownerUid
             && listing.paused == false
             && data.renterUid != data.lenderUid
-            // LocalDate epoch days, bounded to the range supported by java.time.LocalDate.
-            && data.startDate is int && data.startDate >= -365243219162
-            && data.endDate is int && data.endDate <= 365241780471
-            // Compare against server time so client clock changes cannot create past bookings.
-            && data.startDate >= request.time.toMillis() / 86400000
-            && data.startDate <= data.endDate
-            // Both ends are inclusive. A listing without maxRentalDays has no limit.
-            && (!('maxRentalDays' in listing) || data.endDate - data.startDate + 1 <= listing.maxRentalDays)
-            // Rules cannot loop over the range: only its first and last days must be on offer.
+            // The days booked, as LocalDate epoch days. They need not follow each other. Every one
+            // must be on offer, once: so there are at most as many as the listing offers (366).
+            && data.days is list && data.days.size() > 0
+            && data.days.toSet().size() == data.days.size()
             && 'availableDates' in listing
-            && data.startDate in listing.availableDates
-            && data.endDate in listing.availableDates
+            && listing.availableDates.hasAll(data.days)
+            // Every day counts. A listing without maxRentalDays has no limit.
+            && (!('maxRentalDays' in listing) || data.days.size() <= listing.maxRentalDays)
+            // Rules cannot loop over the days, so only the first is checked against server time
+            // (not the client clock). The app sends them earliest first; a modified client could
+            // still add a past day the listing offers (#346).
+            && data.days[0] is int
+            && data.days[0] >= request.time.toMillis() / 86400000
             && data.status == 'REQUESTED';
       }
 

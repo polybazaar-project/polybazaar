@@ -1,5 +1,6 @@
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Copilot (GPT-5.6 Terra)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
 import android.util.Log
@@ -30,7 +31,7 @@ class FirebaseBookingRepository(
                 FirebaseFirestoreException.Code.UNAUTHENTICATED,
             )
     require(booking.status == BookingStatus.REQUESTED) { "A new booking must be requested" }
-    require(!booking.endDate.isBefore(booking.startDate)) { "Booking end date precedes start date" }
+    require(booking.days.isNotEmpty()) { "A booking needs at least one day" }
     firestore
         .collection("bookings")
         .document()
@@ -39,8 +40,8 @@ class FirebaseBookingRepository(
                 "listingId" to booking.listingId,
                 "renterUid" to renterUid,
                 "lenderUid" to booking.lenderUid,
-                "startDate" to booking.startDate.toEpochDay(),
-                "endDate" to booking.endDate.toEpochDay(),
+                // Earliest first: the rules check that the first day is not in the past.
+                DAYS to booking.days.sorted().map { it.toEpochDay() },
                 "status" to booking.status.name,
             )
         )
@@ -70,19 +71,29 @@ class FirebaseBookingRepository(
   private fun DocumentSnapshot.toBooking(): Booking {
     fun string(field: String): String =
         getString(field) ?: throw IllegalStateException("Booking $id is missing $field")
-    fun date(field: String): LocalDate =
+    fun days(): Set<LocalDate> {
+      val epochDays =
+          (get(DAYS) as? List<*>)?.takeIf { it.isNotEmpty() }
+              ?: throw IllegalStateException("Booking $id is missing $DAYS")
+      return epochDays.mapTo(mutableSetOf()) {
         LocalDate.ofEpochDay(
-            getLong(field) ?: throw IllegalStateException("Booking $id is missing $field")
+            (it as? Long) ?: throw IllegalStateException("Booking $id has an invalid day: $it")
         )
+      }
+    }
 
     return Booking(
         listingId = string("listingId"),
         renterUid = string("renterUid"),
         lenderUid = string("lenderUid"),
-        startDate = date("startDate"),
-        endDate = date("endDate"),
+        days = days(),
         status = BookingStatus.valueOf(string("status")),
         id = id,
     )
+  }
+
+  private companion object {
+    /** The booked days, as epoch days. */
+    const val DAYS = "days"
   }
 }

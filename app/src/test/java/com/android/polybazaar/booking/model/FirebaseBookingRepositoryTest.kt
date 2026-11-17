@@ -1,5 +1,6 @@
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Copilot (GPT-5.6 Terra)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
 import com.google.android.gms.tasks.TaskCompletionSource
@@ -44,8 +45,8 @@ class FirebaseBookingRepositoryTest {
           listingId = "listing",
           renterUid = "caller-renter",
           lenderUid = "lender",
-          startDate = LocalDate.of(2026, 12, 31),
-          endDate = LocalDate.of(2027, 1, 2),
+          // Separate days, given out of order, across two years.
+          days = setOf(LocalDate.of(2027, 1, 2), LocalDate.of(2026, 12, 31)),
       )
 
   @Before
@@ -72,8 +73,12 @@ class FirebaseBookingRepositoryTest {
                     "listingId" to "listing",
                     "renterUid" to "renter",
                     "lenderUid" to "lender",
-                    "startDate" to booking.startDate.toEpochDay(),
-                    "endDate" to booking.endDate.toEpochDay(),
+                    // Earliest first, as the rules check the first day against today.
+                    "days" to
+                        listOf(
+                            LocalDate.of(2026, 12, 31).toEpochDay(),
+                            LocalDate.of(2027, 1, 2).toEpochDay(),
+                        ),
                     "status" to "REQUESTED",
                 )
             )
@@ -108,12 +113,12 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
-  fun requestBookingRejectsInvalidDatesAndStatus() = runTest {
-    val reversed = booking.copy(endDate = booking.startDate.minusDays(1))
+  fun requestBookingRejectsNoDaysAndANonRequestedStatus() = runTest {
+    val noDays = booking.copy(days = emptySet())
     val confirmed = booking.copy(status = BookingStatus.CONFIRMED)
 
     assertTrue(
-        runCatching { repository.requestBooking(reversed) }.exceptionOrNull()
+        runCatching { repository.requestBooking(noDays) }.exceptionOrNull()
             is IllegalArgumentException
     )
     assertTrue(
@@ -133,8 +138,7 @@ class FirebaseBookingRepositoryTest {
     whenever(stored.getString("listingId")).thenReturn(booking.listingId)
     whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
     whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
-    whenever(stored.getLong("startDate")).thenReturn(booking.startDate.toEpochDay())
-    whenever(stored.getLong("endDate")).thenReturn(booking.endDate.toEpochDay())
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
     whenever(stored.getString("status")).thenReturn("CANCELLED")
     whenever(stored.id).thenReturn("booking-id")
 
@@ -152,6 +156,36 @@ class FirebaseBookingRepositoryTest {
     whenever(auth.currentUser).thenReturn(lender)
     whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
     whenever(snapshot.documents).thenReturn(listOf(stored))
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+  }
+
+  @Test
+  fun getBookingsRejectsABookingWithoutDaysOrWithAnInvalidDay() = runTest {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
+    whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getString("status")).thenReturn("REQUESTED")
+
+    // A booking written with the first and last day of earlier versions has no days.
+    whenever(stored.get("days")).thenReturn(null)
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+    whenever(stored.get("days")).thenReturn(emptyList<Long>())
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+    whenever(stored.get("days")).thenReturn(listOf("20000"))
     assertTrue(
         runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
             is IllegalStateException
