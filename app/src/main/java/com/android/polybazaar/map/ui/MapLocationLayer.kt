@@ -1,6 +1,11 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.map.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
@@ -29,9 +34,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -43,11 +52,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.viewmodel.MapCentre
+import com.android.polybazaar.map.viewmodel.MapViewModel
 
 object MapLocationTags {
   const val REASON_CARD = "map_location_reason_card"
@@ -77,6 +88,46 @@ private val PageMargin = 18.dp
 
 /** The dim behind a bottom card, so it stands out from the map (Figma "Map — Location reason"). */
 private val Scrim = AuthColors.TextPrimary.copy(alpha = 0.2f)
+
+private fun hasCoarseLocation(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+
+/**
+ * The location layer drawn over the map (#340): asks for the approximate location once the renter
+ * read why, and reports Android's answer to [viewModel], which decides the centre. Already granted,
+ * it skips the explanation and reads the location straight away.
+ */
+@Composable
+fun MapLocationLayer(viewModel: MapViewModel, modifier: Modifier = Modifier) {
+  val uiState by viewModel.uiState.collectAsState()
+  val context = LocalContext.current
+  val alreadyGranted = hasCoarseLocation(context)
+  val requestPermission =
+      rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        viewModel.onPermissionResult(granted)
+      }
+  LaunchedEffect(Unit) {
+    // Only on opening: with the permission already granted there is nothing to explain.
+    if (uiState.centre == MapCentre.Undecided && alreadyGranted) viewModel.onPermissionResult(true)
+  }
+  MapLocationContent(
+      // Undecided but granted is the frame before the effect above runs: show nothing rather than
+      // flash the explanation.
+      centre =
+          if (uiState.centre == MapCentre.Undecided && alreadyGranted) MapCentre.Locating
+          else uiState.centre,
+      actions =
+          MapLocationActions(
+              onContinue = { requestPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+              onNotNow = { viewModel.onPermissionResult(false) },
+              onChooseCampus = viewModel::chooseCampus,
+              onChangeCampus = viewModel::changeCampus,
+              onCancelChoice = viewModel::cancelCampusChoice,
+          ),
+      modifier = modifier,
+  )
+}
 
 /**
  * What the map shows over itself for [centre] (Figma "Map — …" frames): the reason before asking

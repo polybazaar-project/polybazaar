@@ -1,7 +1,14 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.map.ui
 
+import android.Manifest
+import android.app.Application
 import android.content.Context
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
@@ -11,16 +18,21 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityOptionsCompat
+import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.map.viewmodel.MapCentre
+import com.android.polybazaar.map.viewmodel.MapViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 
 @RunWith(AndroidJUnit4::class)
 class MapLocationLayerTest {
@@ -109,5 +121,102 @@ class MapLocationLayerTest {
     node(MapLocationTags.CANCEL_BUTTON).performClick()
 
     assertEquals(1, cancels)
+  }
+
+  // ---- With the real ViewModel and Android's permission ----
+
+  private val location = FakeLocationRepository(Coordinates(46.518, 6.568))
+
+  /** Stands in for Android's permission dialog: every request is answered [granted]. */
+  private fun permissionDialog(granted: Boolean, onAsk: (String) -> Unit = {}) =
+      object : ActivityResultRegistryOwner {
+        override val activityResultRegistry =
+            object : ActivityResultRegistry() {
+              override fun <I, O> onLaunch(
+                  requestCode: Int,
+                  contract: ActivityResultContract<I, O>,
+                  input: I,
+                  options: ActivityOptionsCompat?,
+              ) {
+                onAsk(input as String)
+                dispatchResult(requestCode, granted)
+              }
+            }
+      }
+
+  private fun showLayer(viewModel: MapViewModel, owner: ActivityResultRegistryOwner? = null) {
+    composeTestRule.setContent {
+      if (owner == null) {
+        MapLocationLayer(viewModel)
+      } else {
+        CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+          MapLocationLayer(viewModel)
+        }
+      }
+    }
+  }
+
+  @Test
+  fun permissionAlreadyGranted_skipsTheExplanation_andCentresOnTheRenter() {
+    shadowOf(context as Application).grantPermissions(Manifest.permission.ACCESS_COARSE_LOCATION)
+    val viewModel = MapViewModel(location, SavedStateHandle())
+
+    showLayer(viewModel)
+    composeTestRule.waitForIdle()
+
+    node(MapLocationTags.REASON_CARD).assertDoesNotExist()
+    assertEquals(MapCentre.Located(Coordinates(46.518, 6.568)), viewModel.uiState.value.centre)
+  }
+
+  @Test
+  fun continue_asksForApproximateLocationOnly_andAGrantCentresOnTheRenter() {
+    val asked = mutableListOf<String>()
+    val viewModel = MapViewModel(location, SavedStateHandle())
+    showLayer(viewModel, permissionDialog(granted = true) { asked += it })
+
+    node(MapLocationTags.CONTINUE_BUTTON).performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(listOf(Manifest.permission.ACCESS_COARSE_LOCATION), asked)
+    assertEquals(MapCentre.Located(Coordinates(46.518, 6.568)), viewModel.uiState.value.centre)
+  }
+
+  @Test
+  fun aRefusal_showsTheChooser_andPickingACampusCentresOnIt() {
+    val viewModel = MapViewModel(location, SavedStateHandle())
+    showLayer(viewModel, permissionDialog(granted = false))
+
+    node(MapLocationTags.CONTINUE_BUTTON).performClick()
+    node(MapLocationTags.campusButton(Campus.EPFL)).performClick()
+
+    node(MapLocationTags.CAMPUS_PILL).assertIsDisplayed()
+    assertEquals(MapCentre.OnCampus(Campus.EPFL), viewModel.uiState.value.centre)
+    assertEquals(0, location.calls)
+  }
+
+  @Test
+  fun notNow_showsTheChooser_withoutAskingAndroid() {
+    val asked = mutableListOf<String>()
+    val viewModel = MapViewModel(location, SavedStateHandle())
+    showLayer(viewModel, permissionDialog(granted = true) { asked += it })
+
+    node(MapLocationTags.NOT_NOW_BUTTON).performClick()
+
+    node(MapLocationTags.CHOOSER_CARD).assertIsDisplayed()
+    assertEquals(emptyList<String>(), asked)
+  }
+
+  @Test
+  fun changeThenCancel_goesBackToTheCampus() {
+    val viewModel = MapViewModel(location, SavedStateHandle())
+    viewModel.chooseCampus(Campus.UNIL)
+    showLayer(viewModel)
+
+    node(MapLocationTags.CHANGE_BUTTON).performClick()
+    node(MapLocationTags.campusButton(Campus.UNIL)).assertIsSelected()
+    node(MapLocationTags.CANCEL_BUTTON).performClick()
+
+    node(MapLocationTags.CAMPUS_PILL).assertIsDisplayed()
+    assertEquals(MapCentre.OnCampus(Campus.UNIL), viewModel.uiState.value.centre)
   }
 }
