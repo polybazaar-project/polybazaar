@@ -29,6 +29,7 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
@@ -85,6 +86,7 @@ class EndToEndFlowTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = FakeChatRepository(),
           locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }

@@ -65,6 +65,7 @@ import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -155,6 +156,7 @@ class AppNavHostTest {
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
             locationRepository = FakeLocationRepository(),
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -197,6 +199,7 @@ class AppNavHostTest {
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
             locationRepository = FakeLocationRepository(),
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -666,6 +669,7 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }
@@ -1258,6 +1262,7 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }
@@ -1334,6 +1339,7 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }
