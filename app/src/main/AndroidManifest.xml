@@ -12,6 +12,9 @@
     <uses-feature
         android:name="android.hardware.camera.autofocus"
         android:required="false" />
+    <!-- Approximate location only, to centre the map on the renter (#340); never stored or sent.
+         Without it the renter picks their campus instead. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:allowBackup="true"
