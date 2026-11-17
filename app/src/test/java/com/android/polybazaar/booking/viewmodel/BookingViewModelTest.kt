@@ -1,5 +1,6 @@
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.viewmodel
 
 import com.android.polybazaar.booking.model.Booking
@@ -31,8 +32,7 @@ class BookingViewModelTest {
           listingId = "listing",
           renterUid = "renter",
           lenderUid = "lender",
-          startDate = LocalDate.of(2026, 12, 1),
-          endDate = LocalDate.of(2026, 12, 3),
+          days = setOf(LocalDate.of(2026, 12, 1), LocalDate.of(2026, 12, 3)),
       )
 
   private lateinit var repository: FakeBookingRepository
@@ -66,7 +66,7 @@ class BookingViewModelTest {
     viewModel.requestBooking(booking)
     testDispatcher.scheduler.advanceUntilIdle()
     viewModel.acknowledgeQueuedBooking()
-    viewModel.requestBooking(booking.copy(startDate = LocalDate.of(2026, 12, 4)))
+    viewModel.requestBooking(booking.copy(days = setOf(LocalDate.of(2026, 12, 4))))
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(2, repository.requestCount)

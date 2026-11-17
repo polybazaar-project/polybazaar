@@ -1,10 +1,10 @@
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.viewmodel
 
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
-import com.android.polybazaar.booking.model.DateRun
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
@@ -194,13 +194,12 @@ class BookingRequestViewModelTest {
   }
 
   @Test
-  fun daysInARow_makeAPeriod_withItsTotalAndBooking() {
+  fun daysInARow_giveTheirTotalAndBooking() {
     val viewModel = loadedViewModel()
 
     viewModel.updateSelection(days(13..15))
     val state = viewModel.uiState.value
 
-    assertEquals(DateRun(day(13), day(15)), state.period)
     assertEquals(3, state.dayCount)
     assertEquals(24.0, state.total!!, 0.0)
     assertFalse(state.isTooLong)
@@ -209,15 +208,27 @@ class BookingRequestViewModelTest {
             listingId = "drill",
             renterUid = "renter",
             lenderUid = "lender",
-            startDate = day(13),
-            endDate = day(15),
+            days = days(13..15),
         ),
         state.booking,
     )
   }
 
   @Test
-  fun aSingleDay_isAPeriodOfOneDay() {
+  fun separateDays_areRequestedTogether_andEachIsPaid() {
+    val viewModel = loadedViewModel()
+
+    viewModel.updateSelection(setOf(day(13), day(16), day(20)))
+    val state = viewModel.uiState.value
+
+    assertEquals(setOf(day(13), day(16), day(20)), state.selection)
+    assertEquals(3, state.dayCount)
+    assertEquals(24.0, state.total!!, 0.0)
+    assertEquals(setOf(day(13), day(16), day(20)), state.booking?.days)
+  }
+
+  @Test
+  fun aSingleDay_isRequestedAlone() {
     val viewModel = loadedViewModel()
 
     viewModel.updateSelection(setOf(day(20)))
@@ -225,8 +236,7 @@ class BookingRequestViewModelTest {
 
     assertEquals(1, state.dayCount)
     assertEquals(8.0, state.total!!, 0.0)
-    assertEquals(day(20), state.booking?.startDate)
-    assertEquals(day(20), state.booking?.endDate)
+    assertEquals(setOf(day(20)), state.booking?.days)
   }
 
   @Test
@@ -234,55 +244,57 @@ class BookingRequestViewModelTest {
     val state = loadedViewModel().uiState.value
 
     assertFalse(state.isTooLong)
-    assertNull(state.period)
     assertNull(state.total)
     assertEquals(0, state.dayCount)
     assertNull(state.booking)
   }
 
   @Test
-  fun choosingADayAwayFromThePeriod_startsANewPeriod() {
+  fun choosingADayAwayFromTheOthers_keepsThemAll() {
     val viewModel = loadedViewModel()
-    viewModel.updateSelection(days(13..14))
+    viewModel.updateSelection(setOf(day(13)))
 
-    viewModel.updateSelection(days(13..14) + day(20))
+    viewModel.updateSelection(setOf(day(13), day(15)))
 
-    assertEquals(setOf(day(20)), viewModel.uiState.value.selection)
-    assertEquals(DateRun(day(20), day(20)), viewModel.uiState.value.period)
+    assertEquals(setOf(day(13), day(15)), viewModel.uiState.value.selection)
   }
 
   @Test
-  fun choosingTheNextDay_extendsThePeriod() {
-    val viewModel = loadedViewModel()
-    viewModel.updateSelection(days(13..14))
-
-    viewModel.updateSelection(days(13..15))
-
-    assertEquals(days(13..15), viewModel.uiState.value.selection)
-  }
-
-  @Test
-  fun unselectingADayInTheMiddle_keepsTheEarliestPeriod() {
+  fun unselectingADayInTheMiddle_keepsTheDaysOnEitherSide() {
     val viewModel = loadedViewModel()
     viewModel.updateSelection(days(13..15))
 
     viewModel.updateSelection(setOf(day(13), day(15)))
 
-    assertEquals(setOf(day(13)), viewModel.uiState.value.selection)
+    assertEquals(setOf(day(13), day(15)), viewModel.uiState.value.selection)
   }
 
   @Test
-  fun aRangeOverDaysNotOffered_keepsItsFirstPeriod() {
-    val viewModel = loadedViewModel()
+  fun aRangeOverDaysNotOffered_keepsOnlyTheOfferedOnes() {
+    val viewModel = loadedViewModel(listing = drill.copy(maxRentalDays = null))
 
     // Holding the 13th then tapping the 20th skips the 17th to the 19th, which are not offered.
-    viewModel.updateSelection(days(13..16) + day(20))
+    viewModel.updateSelection(days(13..20))
 
-    assertEquals(days(13..16), viewModel.uiState.value.selection)
+    assertEquals(days(13..16) + day(20), viewModel.uiState.value.selection)
   }
 
   @Test
-  fun aPeriodLongerThanMaxRentalDays_cannotBeRequested() {
+  fun separateDays_countTogether_towardsMaxRentalDays() {
+    val viewModel = loadedViewModel()
+
+    // Four days, no two of them in a row, are still four days: one more than the drill allows.
+    viewModel.updateSelection(setOf(day(13), day(15), day(16), day(20)))
+    val state = viewModel.uiState.value
+
+    assertEquals(4, state.dayCount)
+    assertTrue(state.isTooLong)
+    assertNull(state.total)
+    assertNull(state.booking)
+  }
+
+  @Test
+  fun moreDaysThanMaxRentalDays_cannotBeRequested() {
     val viewModel = loadedViewModel()
 
     viewModel.updateSelection(days(13..16))
@@ -301,7 +313,7 @@ class BookingRequestViewModelTest {
     viewModel.updateSelection(days(13..16))
 
     assertFalse(viewModel.uiState.value.isTooLong)
-    assertEquals(day(16), viewModel.uiState.value.booking?.endDate)
+    assertEquals(days(13..16), viewModel.uiState.value.booking?.days)
   }
 
   @Test
@@ -352,7 +364,7 @@ class BookingRequestViewModelTest {
   }
 
   @Test
-  fun aReload_keepsOnePeriod_whenTheLenderTookBackADayInTheMiddle() {
+  fun aReload_keepsTheDaysOnEitherSide_whenTheLenderTookBackADayInTheMiddle() {
     val listings = FakeListingRepository(allListings = listOf(drill))
     val viewModel = loadedViewModel(listings = listings)
     viewModel.updateSelection(days(13..15))
@@ -361,7 +373,7 @@ class BookingRequestViewModelTest {
     viewModel.loadListing()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(setOf(day(13)), viewModel.uiState.value.selection)
+    assertEquals(setOf(day(13), day(15)), viewModel.uiState.value.selection)
   }
 
   @Test
