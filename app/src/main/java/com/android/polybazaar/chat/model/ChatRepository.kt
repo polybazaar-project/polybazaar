@@ -30,29 +30,30 @@ interface ChatRepository {
   fun newMessageId(conversationId: String): String
 
   /**
-   * Sends a photo message from the signed-in participant. The photo is compressed and uploaded
-   * first, and this waits for the upload, so it needs a connection. Then, like [sendMessage], the
-   * message and the conversation update are queued without waiting for the server, and a later
-   * rejection is reported through [onWriteFailure].
+   * Sends a photo message from the signed-in participant, and returns once the server has both the
+   * message and the photo, so it needs a connection. Storage only accepts the photo once its
+   * message is on the server, so the message and the conversation update are written first, then
+   * the photo is compressed and uploaded. Until the upload ends, the other participant may see the
+   * message before its photo can be downloaded.
    *
-   * Throws when signed out (UNAUTHENTICATED), when the upload fails (a Storage error, to map with
-   * toAppError) or takes too long, as offline (an AppException with NETWORK), and
-   * IllegalArgumentException when the user is not a participant, when the conversation has no
-   * message yet (a photo cannot open a conversation), or when the caption is not sendable. When it
-   * throws, nothing is written.
+   * Throws when signed out (UNAUTHENTICATED), when offline or when the send takes too long (an
+   * error that maps to NETWORK with toAppError), when the server rejects the message (a Firestore
+   * error) or the upload (a Storage error), and IllegalArgumentException when the user is not a
+   * participant, when the conversation has no message yet (a photo cannot open a conversation), or
+   * when the caption is not sendable. Signed out, offline, or for an IllegalArgumentException,
+   * nothing is written. After a failed upload the message stays: retrying with the same [messageId]
+   * only uploads the photo.
    *
    * @param conversation the conversation from [observeConversation].
    * @param messageId from [newMessageId]; pass the same one to retry a failed send.
    * @param caption optional text sent with the photo; null or blank sends the photo alone, which
    *   previews as an empty lastMessageText.
-   * @param onWriteFailure as for [sendMessage].
    */
   suspend fun sendPhoto(
       conversation: Conversation,
       messageId: String,
       photo: Uri,
       caption: String? = null,
-      onWriteFailure: (Exception) -> Unit = {},
   )
 
   /**

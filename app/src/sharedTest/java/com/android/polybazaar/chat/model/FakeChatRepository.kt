@@ -26,8 +26,9 @@ import kotlinx.coroutines.flow.map
  * look at a send in progress, and throws [sendFailure] if set, like a send refused before queuing;
  * such a call is still recorded.
  *
- * [sendPhoto] works the same way with [sentPhotos] and [photoWriteFailureCallbacks], sharing [gate]
- * and [sendFailure]. [newMessageId] returns "m1", "m2", … in call order.
+ * [sendPhoto] records every call in [sentPhotos], then waits for [gate] and throws [sendFailure]
+ * like [sendMessage]; it has no later rejection, since a photo send waits for the server.
+ * [newMessageId] returns "m1", "m2", … in call order.
  *
  * [loadMessagePhoto] returns the bytes stored in [photos] for the path, and throws
  * [photoLoadFailure] if set, or when the path is not in [photos].
@@ -64,9 +65,6 @@ class FakeChatRepository(
 
   /** The calls to [sendPhoto], in order. */
   val sentPhotos = mutableListOf<SentPhoto>()
-
-  /** The `onWriteFailure` callbacks passed to [sendPhoto], in order. */
-  val photoWriteFailureCallbacks = mutableListOf<(Exception) -> Unit>()
 
   /** The photos [loadMessagePhoto] returns, by Storage path. */
   val photos = mutableMapOf<String, ByteArray>()
@@ -108,10 +106,8 @@ class FakeChatRepository(
       messageId: String,
       photo: Uri,
       caption: String?,
-      onWriteFailure: (Exception) -> Unit,
   ) {
     sentPhotos += SentPhoto(conversation, messageId, photo, caption)
-    photoWriteFailureCallbacks += onWriteFailure
     gate?.await()
     sendFailure?.let { throw it }
   }

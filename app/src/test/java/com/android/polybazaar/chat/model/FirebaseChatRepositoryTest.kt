@@ -23,6 +23,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
@@ -122,6 +123,10 @@ class FirebaseChatRepositoryTest {
     whenever(listing.getString("title")).thenReturn("Drill")
     whenever(messages.document(PHOTO_ID)).thenReturn(photoMessageRef)
     whenever(photoMessageRef.id).thenReturn(PHOTO_ID)
+    // By default the photo's message is not on the server yet, as for a first try.
+    val notWritten = mock<DocumentSnapshot>()
+    whenever(notWritten.exists()).thenReturn(false)
+    whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(notWritten))
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child(PHOTO_PATH)).thenReturn(photoRef)
     val notUploaded = storageException(StorageException.ERROR_OBJECT_NOT_FOUND)
@@ -415,12 +420,28 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
-  fun sendPhotoUploadsBeforeCommittingTheBatch() = runTest {
+  fun sendPhotoChecksTheServerThenCommitsTheMessageBeforeUploading() = runTest {
     repository.sendPhoto(replied, PHOTO_ID, photo)
 
-    val order = inOrder(photoRef, batch)
-    order.verify(photoRef).putBytes(any(), any())
+    // storage.rules only accept the upload once the server has the message.
+    val order = inOrder(photoMessageRef, batch, photoRef)
+    order.verify(photoMessageRef).get(Source.SERVER)
     order.verify(batch).commit()
+    order.verify(photoRef).putBytes(any(), any())
+  }
+
+  @Test
+  fun sendPhotoWaitsForTheServerToConfirmTheMessageBeforeUploading() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(batch.commit()).thenReturn(pendingWrite.task)
+    val sending = async { repository.sendPhoto(replied, PHOTO_ID, photo) }
+    runCurrent()
+
+    verify(photoRef, never()).putBytes(any(), any())
+    pendingWrite.setResult(null)
+    sending.await()
+
+    verify(photoRef).putBytes(any(), any())
   }
 
   @Test
@@ -485,21 +506,64 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
-  fun sendPhotoReportsLaterWriteFailuresToBothCallbacks() = runTest {
-    val pendingWrite = TaskCompletionSource<Void>()
-    whenever(batch.commit()).thenReturn(pendingWrite.task)
-    var reportedFailure: Exception? = null
+  fun sendPhotoRejectedMessageIsLoggedAndThrownAndNothingIsUploaded() = runTest {
+    val failure =
+        FirebaseFirestoreException(
+            "Missing or insufficient permissions.",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
+    whenever(batch.commit()).thenReturn(Tasks.forException(failure))
+    var logged: Exception? = null
     val repository =
-        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
-    var reportedToCaller: Exception? = null
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { logged = it }
 
-    repository.sendPhoto(replied, PHOTO_ID, photo) { reportedToCaller = it }
-    assertNull(reportedFailure)
-    val failure = IllegalStateException("Write rejected")
-    pendingWrite.setException(failure)
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
 
-    assertSame(failure, reportedFailure)
-    assertSame(failure, reportedToCaller)
+    assertSame(failure, logged)
+    assertEquals(AppError.PERMISSION_DENIED, error?.toAppError())
+    verify(photoRef, never()).putBytes(any(), any())
+  }
+
+  @Test
+  fun sendPhotoOfflineFailsWithNetworkBeforeWritingOrUploadingAnything() = runTest {
+    val offline =
+        FirebaseFirestoreException(
+            "Failed to get document from server.",
+            FirebaseFirestoreException.Code.UNAVAILABLE,
+        )
+    whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forException(offline))
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertEquals(AppError.NETWORK, error?.toAppError())
+    // Nothing queued: an offline write would reach the server later without its photo.
+    verify(firestore, never()).batch()
+    verify(photoRef, never()).putBytes(any(), any())
+  }
+
+  @Test
+  fun sendPhotoMessageWithNoServerAnswerFailsWithNetworkAfterTimeoutWithoutUploading() = runTest {
+    whenever(batch.commit()).thenReturn(TaskCompletionSource<Void>().task)
+
+    val error = runCatching {
+      shortTimeoutRepository().sendPhoto(replied, PHOTO_ID, photo)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NETWORK, (error as AppException).error)
+    assertEquals(5_000L, testScheduler.currentTime)
+    verify(photoRef, never()).putBytes(any(), any())
+  }
+
+  @Test
+  fun sendPhotoRetryAfterFailedUploadOnlyUploadsWithoutRewritingTheMessage() = runTest {
+    messageAlreadyOnServer()
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    // The rules refuse rewriting a message, and the conversation already names it.
+    verify(firestore, never()).batch()
+    verify(photoRef).putBytes(eq(compressedPhoto), any())
   }
 
   @Test
@@ -546,7 +610,7 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
-  fun sendPhotoOfflineUploadFailureIsNetworkAndWritesNoBatch() = runTest {
+  fun sendPhotoUploadFailureOfflineIsNetworkAfterTheMessageIsWritten() = runTest {
     val failure = storageException(StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
     failUpload(failure)
 
@@ -554,11 +618,12 @@ class FirebaseChatRepositoryTest {
 
     assertSame(failure, error)
     assertEquals(AppError.NETWORK, error?.toAppError())
-    verify(firestore, never()).batch()
+    // Kept: a retry with the same ID only uploads.
+    verify(batch).commit()
   }
 
   @Test
-  fun sendPhotoRefusedUploadIsPermissionDeniedAndWritesNoBatch() = runTest {
+  fun sendPhotoRefusedUploadIsPermissionDenied() = runTest {
     val failure = storageException(StorageException.ERROR_NOT_AUTHORIZED)
     failUpload(failure)
 
@@ -566,11 +631,10 @@ class FirebaseChatRepositoryTest {
 
     assertSame(failure, error)
     assertEquals(AppError.PERMISSION_DENIED, error?.toAppError())
-    verify(firestore, never()).batch()
   }
 
   @Test
-  fun sendPhotoCompressionFailureUploadsAndWritesNothing() = runTest {
+  fun sendPhotoCompressionFailureUploadsNothing() = runTest {
     val repository =
         FirebaseChatRepository(
             { throw IllegalStateException("Unreadable photo") },
@@ -585,11 +649,11 @@ class FirebaseChatRepositoryTest {
     assertTrue(error is IllegalStateException)
     assertEquals("Unreadable photo", error?.message)
     verify(photoRef, never()).putBytes(any(), any())
-    verify(firestore, never()).batch()
   }
 
   @Test
-  fun sendPhotoRetryReusesStoredPhotoWithoutCompressingOrUploading() = runTest {
+  fun sendPhotoRetryWithMessageAndPhotoStoredWritesAndUploadsNothing() = runTest {
+    messageAlreadyOnServer()
     val stored = mock<StorageMetadata>()
     whenever(photoRef.metadata).thenReturn(Tasks.forResult(stored))
     var compressions = 0
@@ -608,16 +672,7 @@ class FirebaseChatRepositoryTest {
 
     assertEquals(0, compressions)
     verify(photoRef, never()).putBytes(any(), any())
-    verifyPhotoBatch(
-        preview = "The drill bits",
-        message =
-            mapOf(
-                "senderUid" to "renter",
-                "sentAt" to FieldValue.serverTimestamp(),
-                "imagePath" to PHOTO_PATH,
-                "text" to "The drill bits",
-            ),
-    )
+    verify(firestore, never()).batch()
   }
 
   @Test
@@ -630,7 +685,7 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
-  fun sendPhotoRethrowsOtherStoredPhotoCheckFailuresAndSendsNothing() = runTest {
+  fun sendPhotoRethrowsOtherStoredPhotoCheckFailuresWithoutUploading() = runTest {
     val failure = storageException(StorageException.ERROR_NOT_AUTHORIZED)
     whenever(photoRef.metadata).thenReturn(Tasks.forException(failure))
 
@@ -638,7 +693,6 @@ class FirebaseChatRepositoryTest {
 
     assertSame(failure, error)
     verify(photoRef, never()).putBytes(any(), any())
-    verify(firestore, never()).batch()
   }
 
   @Test
@@ -654,7 +708,6 @@ class FirebaseChatRepositoryTest {
     assertTrue(error.cause is TimeoutCancellationException)
     assertEquals(5_000L, testScheduler.currentTime)
     verify(uploadTask).cancel()
-    verify(firestore, never()).batch()
   }
 
   @Test
@@ -668,7 +721,6 @@ class FirebaseChatRepositoryTest {
 
     assertEquals(AppError.NETWORK, (error as AppException).error)
     verify(photoRef, never()).putBytes(any(), any())
-    verify(firestore, never()).batch()
   }
 
   @Test
@@ -693,7 +745,6 @@ class FirebaseChatRepositoryTest {
     assertTrue(thrown is CancellationException)
     assertFalse(thrown is TimeoutCancellationException)
     verify(uploadTask).cancel()
-    verify(firestore, never()).batch()
   }
 
   @Test
@@ -1121,7 +1172,20 @@ class FirebaseChatRepositoryTest {
   }
 
   private fun shortTimeoutRepository() =
-      FirebaseChatRepository(photoCompressor, firestore, auth, storage, uploadTimeout = 5.seconds)
+      FirebaseChatRepository(
+          photoCompressor,
+          firestore,
+          auth,
+          storage,
+          photoSendTimeout = 5.seconds,
+      )
+
+  /** Puts the photo's message on the server, as after a send whose upload failed. */
+  private fun messageAlreadyOnServer() {
+    val written = mock<DocumentSnapshot>()
+    whenever(written.exists()).thenReturn(true)
+    whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(written))
+  }
 
   /** Makes the photo upload end with [failure]. */
   private fun failUpload(failure: Exception) {

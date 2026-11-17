@@ -16,6 +16,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageReference
@@ -32,15 +34,15 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 
 /**
- * @param uploadTimeout how long a photo upload may take before it fails with NETWORK, rather than
- *   the Storage SDK retrying for minutes while offline.
+ * @param photoSendTimeout how long sending a photo (its message, then its upload) may take before
+ *   it fails with NETWORK, rather than the Storage SDK retrying for minutes while offline.
  */
 class FirebaseChatRepository(
     private val photoCompressor: PhotoCompressor,
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
-    private val uploadTimeout: Duration = 30.seconds,
+    private val photoSendTimeout: Duration = 30.seconds,
     private val logWriteFailure: (Exception) -> Unit = {
       Log.e("ChatRepository", "Chat write failed", it)
     },
@@ -57,14 +59,19 @@ class FirebaseChatRepository(
     }
     val messageRef = conversationDocument(conversation.id).collection(MESSAGES).document()
     val trimmed = text.trim()
-    writeMessage(
-        conversation,
-        messageRef,
-        senderUid,
-        preview = trimmed,
-        messageFields = mapOf("text" to trimmed),
-        onWriteFailure,
-    )
+    // Not awaited: the write is queued, so a text can be sent offline.
+    messageBatch(
+            conversation,
+            messageRef,
+            senderUid,
+            preview = trimmed,
+            messageFields = mapOf("text" to trimmed),
+        )
+        .commit()
+        .addOnFailureListener(Executor { it.run() }) {
+          logWriteFailure(it)
+          onWriteFailure(it)
+        }
   }
 
   override fun newMessageId(conversationId: String): String =
@@ -75,7 +82,6 @@ class FirebaseChatRepository(
       messageId: String,
       photo: Uri,
       caption: String?,
-      onWriteFailure: (Exception) -> Unit,
   ) {
     val senderUid = participantUid(conversation)
     // Storage only accepts a chat photo once the conversation exists.
@@ -92,28 +98,43 @@ class FirebaseChatRepository(
             }
             ?.trim()
     val path = photoPath(conversation.id, messageId)
+    val messageRef = conversationDocument(conversation.id).collection(MESSAGES).document(messageId)
     val photoRef = storage.reference.child(path)
-    // Awaited: the message must not point to a photo that was never uploaded. Offline, the Storage
-    // SDK keeps retrying for minutes, so the user is told sooner that the photo was not sent.
+    // storage.rules only accept the upload once the server has the message that names the photo,
+    // so the message is written and confirmed first. Offline, the Storage SDK keeps retrying for
+    // minutes, so the user is told sooner that the photo was not sent.
     try {
-      withTimeout(uploadTimeout) { if (!exists(photoRef)) upload(photoRef, photo) }
+      withTimeout(photoSendTimeout) {
+        // Read from the server: offline it fails at once with UNAVAILABLE, rather than queuing a
+        // message that would reach the server later without its photo. A retry finds the message
+        // already written, and only uploads.
+        if (!messageRef.get(Source.SERVER).await().exists()) {
+          val batch =
+              messageBatch(
+                  conversation,
+                  messageRef,
+                  senderUid,
+                  // A photo alone previews as an empty text.
+                  preview = trimmedCaption ?: "",
+                  messageFields =
+                      buildMap {
+                        put("imagePath", path)
+                        trimmedCaption?.let { put("text", it) }
+                      },
+              )
+          try {
+            batch.commit().await()
+          } catch (e: FirebaseFirestoreException) {
+            logWriteFailure(e)
+            throw e
+          }
+        }
+        if (!exists(photoRef)) upload(photoRef, photo)
+      }
     } catch (e: TimeoutCancellationException) {
       // A CancellationException, which callers would take for their own cancellation and ignore.
       throw AppException(AppError.NETWORK, e)
     }
-    writeMessage(
-        conversation,
-        conversationDocument(conversation.id).collection(MESSAGES).document(messageId),
-        senderUid,
-        // A photo alone previews as an empty text.
-        preview = trimmedCaption ?: "",
-        messageFields =
-            buildMap {
-              put("imagePath", path)
-              trimmedCaption?.let { put("text", it) }
-            },
-        onWriteFailure,
-    )
   }
 
   override suspend fun loadMessagePhoto(imagePath: String): ByteArray =
@@ -215,17 +236,16 @@ class FirebaseChatRepository(
   }
 
   /**
-   * Queues the message at [messageRef] with [messageFields], plus its sender and time, and updates
-   * the conversation's preview to [preview], in one batch that is not awaited.
+   * The batch that writes the message at [messageRef] with [messageFields], plus its sender and
+   * time, and updates the conversation's preview to [preview]. Not committed yet.
    */
-  private suspend fun writeMessage(
+  private suspend fun messageBatch(
       conversation: Conversation,
       messageRef: DocumentReference,
       senderUid: String,
       preview: String,
       messageFields: Map<String, Any>,
-      onWriteFailure: (Exception) -> Unit,
-  ) {
+  ): WriteBatch {
     val conversationFields =
         mutableMapOf<String, Any>(
             "listingId" to conversation.listingId,
@@ -247,7 +267,7 @@ class FirebaseChatRepository(
       // outdated.
       conversationFields["listingTitle"] = currentListingTitle(conversation.listingId)
     }
-    firestore
+    return firestore
         .batch()
         // A merge leaves unchanged fields out of the rules' affected keys, so the same write
         // creates the conversation on the first message and only bumps it on later ones.
@@ -257,11 +277,6 @@ class FirebaseChatRepository(
             mapOf("senderUid" to senderUid, "sentAt" to FieldValue.serverTimestamp()) +
                 messageFields,
         )
-        .commit()
-        .addOnFailureListener(Executor { it.run() }) {
-          logWriteFailure(it)
-          onWriteFailure(it)
-        }
   }
 
   private suspend fun currentListingTitle(listingId: String): String {
