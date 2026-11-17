@@ -1,0 +1,113 @@
+// Co-authored-by: Claude Code (Claude Opus 5.5)
+package com.android.polybazaar.map.ui
+
+import android.content.Context
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.android.polybazaar.R
+import com.android.polybazaar.map.model.Campus
+import com.android.polybazaar.map.model.Coordinates
+import com.android.polybazaar.map.viewmodel.MapCentre
+import org.junit.Assert.assertEquals
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class MapLocationLayerTest {
+
+  @get:Rule val composeTestRule = createComposeRule()
+
+  private val context: Context = ApplicationProvider.getApplicationContext()
+
+  private fun node(tag: String) = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
+
+  private fun setContent(centre: MapCentre, actions: MapLocationActions = MapLocationActions()) {
+    composeTestRule.setContent { MapLocationContent(centre = centre, actions = actions) }
+  }
+
+  @Test
+  fun undecided_explainsWhy_andContinueOrNotNowCallBack() {
+    val calls = mutableListOf<String>()
+    setContent(
+        MapCentre.Undecided,
+        MapLocationActions(onContinue = { calls += "continue" }, onNotNow = { calls += "not now" }),
+    )
+
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.map_location_reason_title))
+        .assertIsDisplayed()
+    node(MapLocationTags.CONTINUE_BUTTON).performClick()
+    node(MapLocationTags.NOT_NOW_BUTTON).assertHeightIsAtLeast(48.dp).performClick()
+
+    assertEquals(listOf("continue", "not now"), calls)
+  }
+
+  @Test
+  fun locating_showsThePill() {
+    setContent(MapCentre.Locating)
+
+    node(MapLocationTags.LOCATING_PILL).assertIsDisplayed()
+    composeTestRule.onNodeWithText(context.getString(R.string.map_locating)).assertIsDisplayed()
+  }
+
+  @Test
+  fun located_showsNothingOverTheMap() {
+    setContent(MapCentre.Located(Coordinates(46.52, 6.57)))
+
+    node(MapLocationTags.REASON_CARD).assertDoesNotExist()
+    node(MapLocationTags.LOCATING_PILL).assertDoesNotExist()
+    node(MapLocationTags.CAMPUS_PILL).assertDoesNotExist()
+    node(MapLocationTags.CHOOSER_CARD).assertDoesNotExist()
+  }
+
+  @Test
+  fun onCampus_saysWhichOne_andChangeCallsBack() {
+    var changes = 0
+    setContent(MapCentre.OnCampus(Campus.UNIL), MapLocationActions(onChangeCampus = { changes++ }))
+
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.map_showing_campus, "UNIL"))
+        .assertIsDisplayed()
+    node(MapLocationTags.CHANGE_BUTTON).assertHeightIsAtLeast(48.dp).performClick()
+
+    assertEquals(1, changes)
+  }
+
+  @Test
+  fun needsChoice_offersBothCampuses_withoutCancel() {
+    val chosen = mutableListOf<Campus>()
+    setContent(MapCentre.NeedsChoice(), MapLocationActions(onChooseCampus = { chosen += it }))
+
+    node(MapLocationTags.campusButton(Campus.EPFL)).assertIsNotSelected()
+    node(MapLocationTags.campusButton(Campus.UNIL)).assertHeightIsAtLeast(48.dp).performClick()
+    // The map needs a centre, so there is nothing to cancel to.
+    node(MapLocationTags.CANCEL_BUTTON).assertDoesNotExist()
+
+    assertEquals(listOf(Campus.UNIL), chosen)
+  }
+
+  @Test
+  fun changingCampus_showsTheCurrentOneSelected_andCancelCallsBack() {
+    var cancels = 0
+    setContent(
+        MapCentre.NeedsChoice(current = Campus.EPFL),
+        MapLocationActions(onCancelChoice = { cancels++ }),
+    )
+
+    node(MapLocationTags.campusButton(Campus.EPFL)).assertIsSelected()
+    node(MapLocationTags.campusButton(Campus.UNIL)).assertIsNotSelected()
+    node(MapLocationTags.CANCEL_BUTTON).performClick()
+
+    assertEquals(1, cancels)
+  }
+}
