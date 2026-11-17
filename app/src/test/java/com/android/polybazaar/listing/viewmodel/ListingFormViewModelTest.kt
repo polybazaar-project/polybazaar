@@ -14,6 +14,7 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
+import com.android.polybazaar.listing.model.ListingRules.MAX_LOCATION_NAME_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingType
@@ -21,6 +22,9 @@ import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
+import com.android.polybazaar.map.model.Campus
+import com.android.polybazaar.map.model.Coordinates
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.io.IOException
 import java.net.UnknownHostException
@@ -52,6 +56,7 @@ class ListingFormViewModelTest {
   private lateinit var repository: FakeListingRepository
   private lateinit var photoStorage: FakePhotoStorage
   private lateinit var savedStateHandle: SavedStateHandle
+  private val locationRepository = FakeLocationRepository()
   private lateinit var viewModel: ListingFormViewModel
 
   private val listing =
@@ -68,7 +73,10 @@ class ListingFormViewModelTest {
     repository = FakeListingRepository()
     photoStorage = FakePhotoStorage()
     savedStateHandle = SavedStateHandle()
-    viewModel = ListingFormViewModel(null, repository, photoStorage, savedStateHandle) { today }
+    viewModel =
+        ListingFormViewModel(null, repository, photoStorage, savedStateHandle, locationRepository) {
+          today
+        }
   }
 
   @After
@@ -286,7 +294,13 @@ class ListingFormViewModelTest {
     viewModel.startTakingPhoto(retakeIndex = null)
 
     val restored =
-        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle))
+        ListingFormViewModel(
+            null,
+            repository,
+            photoStorage,
+            afterAppKilled(savedStateHandle),
+            locationRepository,
+        )
     restored.finishTakingPhoto(saved = true)
 
     assertEquals(
@@ -302,7 +316,7 @@ class ListingFormViewModelTest {
 
     viewModel.addPhotos(uris(1))
     viewModel.startTakingPhoto(retakeIndex = null)
-    ListingFormViewModel(null, repository, photoStorage, savedStateHandle)
+    ListingFormViewModel(null, repository, photoStorage, savedStateHandle, locationRepository)
 
     assertEquals(uris(1) + photoStorage.taken[0].uri, photoStorage.keptOnCleanup.last())
   }
@@ -485,7 +499,13 @@ class ListingFormViewModelTest {
     assertEquals(AppError.NETWORK, viewModel.uiState.value.saveError)
 
     val restored =
-        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle))
+        ListingFormViewModel(
+            null,
+            repository,
+            photoStorage,
+            afterAppKilled(savedStateHandle),
+            locationRepository,
+        )
 
     // The form comes back, the error of a save that no longer runs does not.
     assertEquals("Math tutoring", restored.uiState.value.title)
@@ -621,7 +641,8 @@ class ListingFormViewModelTest {
     repository.storedListing = storedItem
     // The same fixed day as the other forms: with the real date, available days chosen in these
     // tests end up in the past and are dropped.
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, handle) { today }
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, handle, locationRepository) { today }
     testDispatcher.scheduler.advanceUntilIdle()
     return editViewModel
   }
@@ -640,7 +661,8 @@ class ListingFormViewModelTest {
   fun edit_showsLoadingUntilTheListingArrives() = runTest {
     repository.storedListing = storedItem
     repository.pendingLoad = CompletableDeferred()
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.runCurrent()
 
     assertTrue(editViewModel.uiState.value.isLoading)
@@ -658,7 +680,8 @@ class ListingFormViewModelTest {
   fun edit_formCannotBeChangedWhileLoading() = runTest {
     repository.storedListing = storedItem
     repository.pendingLoad = CompletableDeferred()
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.runCurrent()
 
     assertFalse(editViewModel.uiState.value.canEdit)
@@ -685,7 +708,8 @@ class ListingFormViewModelTest {
   fun edit_formCannotBeChangedAfterALoadFailure() = runTest {
     repository.storedListing = storedItem
     repository.loadFailure = UnknownHostException("offline")
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertFalse(editViewModel.uiState.value.canEdit)
@@ -709,7 +733,8 @@ class ListingFormViewModelTest {
     savedStateHandle["pendingPhoto"] = photo
     repository.storedListing = storedItem
     repository.pendingLoad = CompletableDeferred()
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.runCurrent()
 
     editViewModel.finishTakingPhoto(saved = true)
@@ -738,7 +763,8 @@ class ListingFormViewModelTest {
     repository.storedListing = storedItem
     repository.loadFailure =
         FirebaseFirestoreException("missing", FirebaseFirestoreException.Code.NOT_FOUND)
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(AppError.NOT_FOUND, editViewModel.uiState.value.loadError)
@@ -875,7 +901,8 @@ class ListingFormViewModelTest {
   fun edit_loadFailureSetsLoadErrorNotSaveError() = runTest {
     repository.storedListing = storedItem
     repository.loadFailure = UnknownHostException("offline")
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(AppError.NETWORK, editViewModel.uiState.value.loadError)
@@ -887,7 +914,8 @@ class ListingFormViewModelTest {
   fun edit_listingAboveThePhotoLimitAcceptsNoNewPhotos() = runTest {
     val paths = (0..MAX_PHOTOS).map { "listings/u/l1/old/$it" }
     repository.storedListing = storedItem.copy(imagePaths = paths)
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.advanceUntilIdle()
 
     editViewModel.addPhotos(uris(1))
@@ -902,7 +930,8 @@ class ListingFormViewModelTest {
   fun edit_cancelledLoadShowsNoErrorAndCanBeRetried() = runTest {
     repository.storedListing = storedItem
     repository.loadFailure = CancellationException()
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.advanceUntilIdle()
 
     // Cancellation means the screen closed, so it is not an error, and the load is not stuck.
@@ -920,7 +949,8 @@ class ListingFormViewModelTest {
   fun edit_loadIsIgnoredWhileOneIsRunning() = runTest {
     repository.storedListing = storedItem
     repository.pendingLoad = CompletableDeferred()
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.runCurrent()
 
     editViewModel.loadListing()
@@ -935,7 +965,8 @@ class ListingFormViewModelTest {
   fun edit_serviceListingLoadsWithoutARefundValue() = runTest {
     val service = listing.copy(imagePaths = storedPaths, listingId = "l1", ownerUid = "owner")
     repository.storedListing = service
-    val editViewModel = ListingFormViewModel("l1", repository, photoStorage, savedStateHandle)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals("", editViewModel.uiState.value.refundValue)
@@ -1104,7 +1135,13 @@ class ListingFormViewModelTest {
     viewModel.updateAvailableDates(chosenDays)
 
     val restored =
-        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle)) {
+        ListingFormViewModel(
+            null,
+            repository,
+            photoStorage,
+            afterAppKilled(savedStateHandle),
+            locationRepository,
+        ) {
           today
         }
 
@@ -1114,7 +1151,16 @@ class ListingFormViewModelTest {
   @Test
   fun save_afterTheDayChanged_leavesOutTheDaysNowPast() = runTest {
     var now = today
-    val form = ListingFormViewModel(null, repository, photoStorage, SavedStateHandle()) { now }
+    val form =
+        ListingFormViewModel(
+            null,
+            repository,
+            photoStorage,
+            SavedStateHandle(),
+            locationRepository,
+        ) {
+          now
+        }
     viewModel = form
     fillForm()
     form.updateAvailableDates(chosenDays)
@@ -1132,7 +1178,13 @@ class ListingFormViewModelTest {
     val laterDay = LocalDate.of(2026, 11, 20)
 
     val restored =
-        ListingFormViewModel(null, repository, photoStorage, afterAppKilled(savedStateHandle)) {
+        ListingFormViewModel(
+            null,
+            repository,
+            photoStorage,
+            afterAppKilled(savedStateHandle),
+            locationRepository,
+        ) {
           laterDay
         }
 
@@ -1145,7 +1197,9 @@ class ListingFormViewModelTest {
     repository.storedListing =
         storedItem.copy(availableDates = chosenDays + LocalDate.of(2026, 11, 9) + today)
     val editViewModel =
-        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository) {
+          today
+        }
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(chosenDays + today, editViewModel.uiState.value.availableDates)
@@ -1180,19 +1234,23 @@ class ListingFormViewModelTest {
   fun edit_loadsTheStoredLocationIntoTheForm() = runTest {
     repository.storedListing = storedItem.copy(location = storedLocation)
     val editViewModel =
-        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository) {
+          today
+        }
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(storedLocation, editViewModel.uiState.value.location)
     assertEquals(storedLocation, editViewModel.uiState.value.listing?.location)
   }
 
-  // The form has no input for the location, so saving an edit must send the stored one back.
+  // Unless the lender changes it, saving an edit must send the stored location back.
   @Test
   fun edit_saveKeepsTheStoredLocation() = runTest {
     repository.storedListing = storedItem.copy(location = storedLocation)
     val editViewModel =
-        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository) {
+          today
+        }
     testDispatcher.scheduler.advanceUntilIdle()
     repository.result = storedItem.copy(price = 15.0, location = storedLocation)
 
@@ -1217,7 +1275,9 @@ class ListingFormViewModelTest {
   @Test
   fun location_survivesTheAppBeingKilled() = runTest {
     repository.storedListing = storedItem.copy(location = storedLocation)
-    ListingFormViewModel("l1", repository, photoStorage, savedStateHandle) { today }
+    ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository) {
+      today
+    }
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(storedLocation.latitude, savedStateHandle.get<Double>("locationLatitude"))
@@ -1249,8 +1309,281 @@ class ListingFormViewModelTest {
         )
 
     handles.forEach { handle ->
-      val restored = ListingFormViewModel(null, repository, photoStorage, handle) { today }
+      val restored =
+          ListingFormViewModel(null, repository, photoStorage, handle, locationRepository) { today }
       assertNull(restored.uiState.value.location)
+    }
+  }
+
+  // Location picked on the map
+
+  private val epfl = Campus.EPFL.centre
+  private val lausanne = Coordinates(46.5167, 6.6291)
+  private val ouchy = Coordinates(46.5065, 6.6265)
+
+  private fun uiLocation() = viewModel.uiState.value.location
+
+  @Test
+  fun locateLender_opensThePickerWhereTheLenderIs() = runTest {
+    locationRepository.location = lausanne
+
+    viewModel.locateLender()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, locationRepository.calls)
+    assertEquals(lausanne, viewModel.uiState.value.suggestedPoint)
+    assertNull(uiLocation())
+  }
+
+  @Test
+  fun locateLender_failureLeavesTheFormUnchangedWithoutError() = runTest {
+    locationRepository.failure = IllegalStateException("No location")
+    val before = viewModel.uiState.value
+
+    viewModel.locateLender()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, locationRepository.calls)
+    assertEquals(before, viewModel.uiState.value)
+    assertEquals(epfl, viewModel.uiState.value.suggestedPoint)
+  }
+
+  @Test
+  fun locateLender_isSkippedWhenALocationIsSet() = runTest {
+    locationRepository.location = lausanne
+    viewModel.setLocationPoint(ouchy)
+
+    viewModel.locateLender()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(0, locationRepository.calls)
+    assertEquals(ouchy, viewModel.uiState.value.suggestedPoint)
+  }
+
+  @Test
+  fun locateLender_answeringAfterALocationWasChosen_keepsTheChosenPoint() = runTest {
+    locationRepository.location = lausanne
+
+    viewModel.locateLender()
+    viewModel.setLocationPoint(ouchy)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, locationRepository.calls)
+    assertEquals(ouchy, viewModel.uiState.value.suggestedPoint)
+  }
+
+  @Test
+  fun setLocationPoint_onACampus_isNamedAfterIt() {
+    val unil = Campus.UNIL.centre
+
+    viewModel.setLocationPoint(unil)
+
+    assertEquals(ListingLocation(unil.latitude, unil.longitude, "UNIL campus"), uiLocation())
+    assertEquals(unil, viewModel.uiState.value.suggestedPoint)
+    assertFalse(viewModel.uiState.value.showLocationNameError)
+  }
+
+  @Test
+  fun setLocationPoint_offCampus_isLeftUnnamedAndBlocksSaving() {
+    fillForm()
+
+    viewModel.setLocationPoint(lausanne)
+
+    assertEquals(ListingLocation(lausanne.latitude, lausanne.longitude, ""), uiLocation())
+    assertTrue(viewModel.uiState.value.showLocationNameError)
+    assertNull(viewModel.uiState.value.listing)
+    assertFalse(viewModel.uiState.value.canSave)
+  }
+
+  @Test
+  fun setLocationPoint_offCampus_keepsTheNameTypedForThePreviousPoint() {
+    viewModel.setLocationPoint(lausanne)
+    viewModel.updateLocationName("Flat")
+
+    viewModel.setLocationPoint(ouchy)
+    assertEquals(ListingLocation(ouchy.latitude, ouchy.longitude, "Flat"), uiLocation())
+
+    // A campus point names itself, replacing the typed name.
+    viewModel.setLocationPoint(epfl)
+    assertEquals("EPFL campus", uiLocation()?.name)
+  }
+
+  @Test
+  fun setLocationPoint_movedOffACampus_dropsTheCampusName() {
+    fillForm()
+    viewModel.setLocationPoint(epfl)
+
+    viewModel.setLocationPoint(lausanne)
+
+    assertEquals(ListingLocation(lausanne.latitude, lausanne.longitude, ""), uiLocation())
+    assertTrue(viewModel.uiState.value.showLocationNameError)
+    assertFalse(viewModel.uiState.value.canSave)
+  }
+
+  @Test
+  fun locateLender_asksOnceAtATime() = runTest {
+    locationRepository.location = lausanne
+
+    viewModel.locateLender()
+    viewModel.locateLender()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(1, locationRepository.calls)
+
+    // Once the first request is over, the lender can be located again.
+    viewModel.locateLender()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(2, locationRepository.calls)
+  }
+
+  @Test
+  fun locateLender_whileTheEditedListingLoads_asksNothing() = runTest {
+    locationRepository.location = lausanne
+    repository.storedListing = storedItem.copy(location = storedLocation)
+    repository.pendingLoad = CompletableDeferred()
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
+    testDispatcher.scheduler.runCurrent()
+
+    editViewModel.locateLender()
+    repository.pendingLoad!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(0, locationRepository.calls)
+    assertEquals(
+        Coordinates(storedLocation.latitude, storedLocation.longitude),
+        editViewModel.uiState.value.suggestedPoint,
+    )
+  }
+
+  @Test
+  fun updateLocationName_dropsLeadingSpacesAndCapsTheLength() {
+    viewModel.setLocationPoint(lausanne)
+
+    viewModel.updateLocationName("  Flat ")
+    assertEquals("Flat ", uiLocation()?.name)
+
+    viewModel.updateLocationName("a".repeat(MAX_LOCATION_NAME_LENGTH + 5))
+    assertEquals("a".repeat(MAX_LOCATION_NAME_LENGTH), uiLocation()?.name)
+  }
+
+  @Test
+  fun updateLocationName_withoutALocation_changesNothing() {
+    viewModel.updateLocationName("Flat")
+
+    assertEquals(ListingFormUiState(today = today), viewModel.uiState.value)
+  }
+
+  @Test
+  fun clearLocation_removesItAndTheNameError() {
+    fillForm()
+    viewModel.setLocationPoint(lausanne)
+
+    viewModel.clearLocation()
+
+    assertNull(uiLocation())
+    assertFalse(viewModel.uiState.value.showLocationNameError)
+    assertTrue(viewModel.uiState.value.canSave)
+  }
+
+  @Test
+  fun create_savesTheLocationWithItsNameTrimmed() = runTest {
+    repository.result = listing
+    fillForm()
+    viewModel.setLocationPoint(lausanne)
+    viewModel.updateLocationName("Flat  ")
+
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(
+        ListingLocation(lausanne.latitude, lausanne.longitude, "Flat"),
+        repository.createdListing?.location,
+    )
+  }
+
+  @Test
+  fun locationChanges_areIgnoredWhileTheEditedListingLoads() = runTest {
+    repository.storedListing = storedItem.copy(location = storedLocation)
+    repository.pendingLoad = CompletableDeferred()
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository)
+    testDispatcher.scheduler.runCurrent()
+
+    editViewModel.setLocationPoint(lausanne)
+    editViewModel.updateLocationName("Flat")
+    editViewModel.clearLocation()
+    assertNull(editViewModel.uiState.value.location)
+    assertEquals(epfl, editViewModel.uiState.value.suggestedPoint)
+
+    repository.pendingLoad!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(storedLocation, editViewModel.uiState.value.location)
+  }
+
+  @Test
+  fun edit_opensThePickerOnTheStoredLocation_orEpflWithoutOne() = runTest {
+    repository.storedListing = storedItem.copy(location = ListingLocation(46.5, 6.6, "Flat"))
+    val withLocation =
+        ListingFormViewModel("l1", repository, photoStorage, SavedStateHandle(), locationRepository)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(Coordinates(46.5, 6.6), withLocation.uiState.value.suggestedPoint)
+    assertEquals(epfl, editForm().uiState.value.suggestedPoint)
+  }
+
+  @Test
+  fun edit_savesTheChangedLocation() = runTest {
+    repository.storedListing = storedItem.copy(location = storedLocation)
+    val editViewModel =
+        ListingFormViewModel("l1", repository, photoStorage, savedStateHandle, locationRepository) {
+          today
+        }
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.result = storedItem
+
+    editViewModel.setLocationPoint(Campus.UNIL.centre)
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("UNIL campus", repository.updatedListings.single().location?.name)
+  }
+
+  @Test
+  fun suggestedPointAndUnnamedLocation_surviveTheAppBeingKilled() = runTest {
+    fun restored() =
+        ListingFormViewModel(
+                null,
+                repository,
+                photoStorage,
+                afterAppKilled(savedStateHandle),
+                locationRepository,
+            ) {
+              today
+            }
+            .uiState
+            .value
+    locationRepository.location = lausanne
+    viewModel.locateLender()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(lausanne, restored().suggestedPoint)
+
+    // A name still being typed, even blank, comes back as it was.
+    viewModel.setLocationPoint(ouchy)
+    viewModel.updateLocationName(" ")
+    val form = restored()
+    assertEquals(ouchy, form.suggestedPoint)
+    assertEquals(ListingLocation(ouchy.latitude, ouchy.longitude, ""), form.location)
+    assertTrue(form.showLocationNameError)
+  }
+
+  @Test
+  fun suggestedPoint_partlySavedIsRestoredAsEpfl() {
+    listOf("suggestedLatitude", "suggestedLongitude").forEach { key ->
+      val handle = SavedStateHandle(mapOf(key to 46.5))
+      val restored =
+          ListingFormViewModel(null, repository, photoStorage, handle, locationRepository) { today }
+      assertEquals(epfl, restored.uiState.value.suggestedPoint)
     }
   }
 }

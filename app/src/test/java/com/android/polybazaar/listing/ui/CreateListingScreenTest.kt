@@ -55,6 +55,7 @@ import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.FakeLocationRepository
 import java.io.File
 import java.net.UnknownHostException
 import java.time.LocalDate
@@ -92,7 +93,14 @@ class CreateListingScreenTest {
       today: () -> LocalDate = LocalDate::now,
   ): ListingFormViewModel {
     val viewModel =
-        ListingFormViewModel(null, repository, createStorage(), SavedStateHandle(), today)
+        ListingFormViewModel(
+            null,
+            repository,
+            createStorage(),
+            SavedStateHandle(),
+            FakeLocationRepository(),
+            today,
+        )
     setContentWithRegistry(registry) {
       CreateListingScreen(listingViewModel = viewModel, onListingCreated = onListingCreated)
     }
@@ -878,6 +886,7 @@ class CreateListingScreenTest {
             RecordingListingRepository(),
             createStorage(),
             SavedStateHandle(),
+            FakeLocationRepository(),
         )
     var createdCount = 0
     val owner =
