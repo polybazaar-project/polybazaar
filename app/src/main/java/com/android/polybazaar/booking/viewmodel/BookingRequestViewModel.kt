@@ -4,7 +4,7 @@ package com.android.polybazaar.booking.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
-import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.auth.model.ViewerCache
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.DateRun
 import com.android.polybazaar.booking.model.groupIntoRuns
@@ -123,7 +123,7 @@ data class BookingRequestUiState(
 class BookingRequestViewModel(
     private val listingId: String,
     private val listingRepository: ListingRepository,
-    private val authRepository: AuthRepository,
+    authRepository: AuthRepository,
     private val today: LocalDate = LocalDate.now(),
 ) : ViewModel() {
 
@@ -131,7 +131,7 @@ class BookingRequestViewModel(
   val uiState: StateFlow<BookingRequestUiState> = _uiState.asStateFlow()
 
   /** The signed-in user once read, kept for the rest of the screen's life (see [showListing]). */
-  private var knownViewer: User? = null
+  private val viewerCache = ViewerCache(authRepository)
 
   init {
     loadListing()
@@ -169,11 +169,8 @@ class BookingRequestViewModel(
   }
 
   private suspend fun showListing(listing: Listing) {
-    // Read once and kept, as on the listing detail: every getCurrentUser() also writes the user's
-    // profile document. Read again only while unknown, so a reload after a failed read can still
-    // allow the request.
-    val viewer = knownViewer ?: currentViewer()
-    knownViewer = viewer
+    // Read again only while unknown, so a reload after a failed read can still allow the request.
+    val viewer = viewerCache.viewer()
     val selectableDays = upcomingDays(listing.availableDates, today)
     _uiState.update {
       it.copy(
@@ -188,18 +185,4 @@ class BookingRequestViewModel(
       )
     }
   }
-
-  /**
-   * The signed-in user, or null when there is none or it cannot be read. Not shown as an error: the
-   * listing is still shown, only the request stays disabled.
-   */
-  private suspend fun currentViewer(): User? =
-      try {
-        authRepository.getCurrentUser()
-      } catch (exception: Exception) {
-        if (exception is CancellationException) throw exception
-        // Only for the log: toAppError() logs the exceptions it does not recognise.
-        exception.toAppError()
-        null
-      }
 }
