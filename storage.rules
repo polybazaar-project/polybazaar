@@ -35,6 +35,38 @@ service firebase.storage {
       allow delete: if isOwner(uid);
     }
 
+    // A chat photo, at the imagePath its message names: conversations/{conversationId}/{messageId}.jpg.
+    match /conversations/{conversationId}/{fileName} {
+      // A missing conversation has no data, so the lookup errors and the rule fails closed.
+      function participants() {
+        return firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.participants;
+      }
+
+      // The message named by the file, conversations/{conversationId}/messages/{messageId}. A missing
+      // message has no data, so the lookup errors and the rule fails closed.
+      function message() {
+        return firestore.get(/databases/(default)/documents/conversations/$(conversationId)/messages/$(fileName.split('[.]')[0])).data;
+      }
+
+      allow get: if isVerified() && request.auth.uid in participants();
+
+      // The app writes the message first and uploads its photo once the server has it. Only the
+      // message's sender can upload, only at the path the message names: one photo per message.
+      // The sender is a participant, since firestore.rules only lets participants write messages.
+      // resource == null refuses an upload over an existing file. The app compresses every chat photo
+      // to JPEG, so the file's format matches its .jpg name.
+      allow create: if isVerified()
+          && resource == null
+          && fileName.matches('[^/.]+[.]jpg')
+          && message().senderUid == request.auth.uid
+          && message().imagePath == 'conversations/' + conversationId + '/' + fileName
+          && isImageUpload()
+          && request.resource.contentType == 'image/jpeg';
+
+      // A sent photo cannot be swapped or removed.
+      allow update, delete: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

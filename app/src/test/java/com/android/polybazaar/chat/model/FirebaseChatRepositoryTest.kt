@@ -597,6 +597,53 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun observeMessagesMapsPhotoWithoutTextToEmptyTextAndItsPath() = runTest {
+    val path = "conversations/listing_renter/m1.jpg"
+
+    val observed = observeOnlyMessage(message("m1", "lender", null, 1_700_000_000, path))
+
+    assertEquals(
+        ChatMessage("m1", "lender", "", Instant.ofEpochSecond(1_700_000_000), path),
+        observed,
+    )
+  }
+
+  @Test
+  fun observeMessagesMapsPhotoWithCaptionToBoth() = runTest {
+    val path = "conversations/listing_renter/m1.jpg"
+
+    val observed =
+        observeOnlyMessage(message("m1", "renter", "The drill bits", 1_700_000_000, path))
+
+    assertEquals("The drill bits", observed.text)
+    assertEquals(path, observed.imagePath)
+  }
+
+  @Test
+  fun observeMessagesMapsTextMessageWithoutPhoto() = runTest {
+    val observed = observeOnlyMessage(message("m1", "renter", "Hi", 1_700_000_000))
+
+    assertEquals("Hi", observed.text)
+    assertNull(observed.imagePath)
+  }
+
+  @Test
+  fun observeMessagesRejectsMessageWithNeitherTextNorPhoto() = runTest {
+    val listener = captureMessagesListener()
+    val empty = message("m1", "renter", null, 1_700_000_000)
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(listOf(empty))
+
+    val observed = observeMessagesFailure()
+    runCurrent()
+    listener().onEvent(snapshot, null)
+
+    val error = observed.await()
+    assertTrue(error is IllegalStateException)
+    assertEquals("Message m1 is missing text", error?.message)
+  }
+
+  @Test
   fun observeMyConversationsQueriesUserConversationsByRecencyAndRemovesListener() = runTest {
     val listener = captureMyConversationsListener()
     val other = conversation.copy(listingId = "other", listingTitle = "Tent")
@@ -684,13 +731,31 @@ class FirebaseChatRepositoryTest {
     whenever(snapshot.getString("lenderUid")).thenReturn(stored.lenderUid)
   }
 
-  private fun message(id: String, senderUid: String, text: String, sentAt: Long) =
+  private fun message(
+      id: String,
+      senderUid: String,
+      text: String?,
+      sentAt: Long,
+      imagePath: String? = null,
+  ) =
       mock<DocumentSnapshot>().also {
         whenever(it.id).thenReturn(id)
         whenever(it.getString("senderUid")).thenReturn(senderUid)
         whenever(it.getString("text")).thenReturn(text)
+        whenever(it.getString("imagePath")).thenReturn(imagePath)
         whenever(timestampOf(it, "sentAt")).thenReturn(Timestamp(sentAt, 0))
       }
+
+  /** Emits [document] as the only message of the conversation and returns what is observed. */
+  private suspend fun TestScope.observeOnlyMessage(document: DocumentSnapshot): ChatMessage {
+    val listener = captureMessagesListener()
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(listOf(document))
+    val observed = async { repository.observeMessages("listing_renter").first() }
+    runCurrent()
+    listener().onEvent(snapshot, null)
+    return observed.await().single()
+  }
 
   private fun captureConversationListener(): () -> EventListener<DocumentSnapshot> {
     val captor = argumentCaptor<EventListener<DocumentSnapshot>>()

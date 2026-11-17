@@ -210,11 +210,14 @@ class FirebaseChatRepository(
   private fun DocumentSnapshot.toChatMessage(): ChatMessage {
     fun missing(field: String) = IllegalStateException("Message $id is missing $field")
 
+    val imagePath = getString("imagePath")
     return ChatMessage(
         id = id,
         senderUid = getString("senderUid") ?: throw missing("senderUid"),
-        text = getString("text") ?: throw missing("text"),
+        // A photo-only message has no text.
+        text = getString("text") ?: if (imagePath != null) "" else throw missing("text"),
         sentAt = instant("sentAt") ?: throw missing("sentAt"),
+        imagePath = imagePath,
     )
   }
 
