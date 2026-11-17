@@ -8,12 +8,14 @@ import java.time.Instant
  *
  * @property id Firestore document ID of the message.
  * @property senderUid uid of the participant who sent the message.
- * @property text trimmed message text.
+ * @property text trimmed message text, or "" for a photo-only message.
  * @property sentAt when the message was sent.
+ * @property imagePath Storage path of the message's photo, or null for a text message.
  */
 data class ChatMessage(
     val id: String,
     val senderUid: String,
     val text: String,
     val sentAt: Instant,
+    val imagePath: String? = null,
 )
