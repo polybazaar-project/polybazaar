@@ -9,6 +9,7 @@ import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.testing.InMemoryBackend
 import com.android.polybazaar.ui.navigation.AppNavHost
 import com.kaspersky.components.composesupport.config.withComposeSupport
@@ -54,6 +55,7 @@ abstract class PolyBazaarTestCase :
                   FilePhotoStorage.EDIT_FORM,
               ),
           chatRepository = FakeChatRepository(),
+          locationRepository = FakeLocationRepository(),
           navController = rememberNavController(),
       )
     }

@@ -75,6 +75,7 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.listing.ui.ListingDetailScreenTags
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.LenderProfileScreenTags
@@ -153,6 +154,7 @@ class AppNavHostTest {
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
+            locationRepository = FakeLocationRepository(),
             navController = navController,
         )
       }
@@ -194,6 +196,7 @@ class AppNavHostTest {
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
+            locationRepository = FakeLocationRepository(),
             navController = navController,
         )
       }
@@ -662,6 +665,7 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
+          locationRepository = FakeLocationRepository(),
           navController = navController,
       )
     }
@@ -1253,6 +1257,7 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
+          locationRepository = FakeLocationRepository(),
           navController = navController,
       )
     }
@@ -1328,6 +1333,7 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
+          locationRepository = FakeLocationRepository(),
           navController = navController,
       )
     }

@@ -34,6 +34,7 @@ import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
@@ -83,6 +84,7 @@ class EndToEndFlowTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = FakeChatRepository(),
+          locationRepository = FakeLocationRepository(),
           navController = navController,
       )
     }
