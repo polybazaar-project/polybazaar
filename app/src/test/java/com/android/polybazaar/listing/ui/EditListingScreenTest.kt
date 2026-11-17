@@ -27,6 +27,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
@@ -99,6 +100,7 @@ class EditListingScreenTest {
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
             FakeLocationRepository(),
+            FakeConnectivityRepository(),
         )
     composeTestRule.setContent {
       EditListingScreen(
@@ -343,6 +345,7 @@ class EditListingScreenTest {
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
             FakeLocationRepository(),
+            FakeConnectivityRepository(),
         )
     composeTestRule.setContent {
       dispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher

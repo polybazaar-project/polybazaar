@@ -72,6 +72,7 @@ import com.android.polybazaar.chat.ui.InboxScreen
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.chat.viewmodel.photoUploadScope
+import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -121,6 +122,7 @@ object AppNavHostTags {
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
  * @param locationRepository finds the lender, to open the listing form's map picker where they are.
+ * @param connectivityRepository tells the listing forms whether the device is online.
  */
 @Composable
 fun AppNavHost(
@@ -133,6 +135,7 @@ fun AppNavHost(
     chatRepository: ChatRepository,
     locationRepository: LocationRepository,
     bookingRepository: BookingRepository,
+    connectivityRepository: ConnectivityRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -304,6 +307,7 @@ fun AppNavHost(
                               photoStorage = photoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               locationRepository = locationRepository,
+                              connectivityRepository = connectivityRepository,
                           )
                         }
                       }
@@ -331,6 +335,7 @@ fun AppNavHost(
                               photoStorage = editPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               locationRepository = locationRepository,
+                              connectivityRepository = connectivityRepository,
                           )
                         }
                       }
