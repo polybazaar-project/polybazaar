@@ -223,7 +223,7 @@ class FirebaseBookingRepositoryTest {
     val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
     var reportedToCaller: Exception? = null
 
-    repository.cancelBooking("booking-id") { reportedToCaller = it }
+    repository.cancelBooking("booking-id", onWriteFailure = { reportedToCaller = it })
     val failure = IllegalStateException("Write rejected")
     pendingWrite.setException(failure)
 
