@@ -6,10 +6,12 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { deleteObject, getBytes, ref, uploadBytes } from "firebase/storage";
+import { doc, setDoc } from "firebase/firestore";
+import { deleteObject, getBytes, listAll, ref, uploadBytes } from "firebase/storage";
 
 const ALICE = "alice-uid";
 const BOB = "bob-uid";
+const EVE = "eve-uid";
 
 const JPEG = { contentType: "image/jpeg" };
 const PHOTO = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
@@ -20,12 +22,14 @@ before(async () => {
   env = await initializeTestEnvironment({
     projectId: "demo-polybazaar",
     storage: { rules: readFileSync(new URL("../storage.rules", import.meta.url), "utf8") },
+    // storage.rules looks up chat participants in Firestore.
+    firestore: { rules: readFileSync(new URL("../firestore.rules", import.meta.url), "utf8") },
   });
 });
 
 after(() => env.cleanup());
 
-beforeEach(() => env.clearStorage());
+beforeEach(() => Promise.all([env.clearStorage(), env.clearFirestore()]));
 
 const signedIn = (uid, email, emailVerified) =>
   env.authenticatedContext(uid, { email, email_verified: emailVerified }).storage();
@@ -151,5 +155,129 @@ describe("other paths", () => {
   test("nothing else can be read or written", async () => {
     await assertFails(uploadBytes(ref(verified(ALICE), `other/${ALICE}/file.jpg`), PHOTO, JPEG));
     await assertFails(getBytes(ref(verified(ALICE), "listings/readme")));
+  });
+});
+
+// Bob rents Alice's listing l1.
+const CONVERSATION_ID = `l1_${BOB}`;
+const CHAT_FOLDER = `conversations/${CONVERSATION_ID}`;
+
+// The Storage emulator still treats a file removed by clearStorage as existing, so a later upload
+// to it is checked against `resource != null`. Each test therefore uses message ids no other test
+// has used.
+let lastMessageNumber = 0;
+/** A message id no other test has used. */
+const newMessageId = () => `m${++lastMessageNumber}`;
+/** Where storage.rules keeps the photo of a message in Bob's conversation. */
+const chatPhoto = (messageId) => `${CHAT_FOLDER}/${messageId}.jpg`;
+/** The photo path of a new message, unused by any other test. */
+const newChatPhoto = () => chatPhoto(newMessageId());
+
+/**
+ * Writes a message by `senderUid` in Bob's conversation, with the rules turned off, and returns
+ * its photo's path. The message names that path unless `fields` replaces it (a text message, or a
+ * photo stored elsewhere).
+ */
+async function seedMessage(senderUid, { messageId = newMessageId(), fields } = {}) {
+  const photo = chatPhoto(messageId);
+  await env.withSecurityRulesDisabled((context) =>
+    setDoc(doc(context.firestore(), `${CHAT_FOLDER}/messages/${messageId}`), {
+      senderUid,
+      sentAt: new Date(0),
+      ...(fields ?? { imagePath: photo }),
+    }),
+  );
+  return photo;
+}
+
+/** Writes the conversation storage.rules reads, with the rules turned off, to set up a test. */
+async function seedConversation() {
+  await env.withSecurityRulesDisabled((context) =>
+    setDoc(doc(context.firestore(), CHAT_FOLDER), {
+      listingId: "l1",
+      renterUid: BOB,
+      lenderUid: ALICE,
+      participants: [BOB, ALICE],
+    }),
+  );
+}
+
+describe("chat photos", () => {
+  test("both participants can upload the photo of their message", async () => {
+    await assertSucceeds(uploadBytes(ref(verified(BOB), await seedMessage(BOB)), PHOTO, JPEG));
+    await assertSucceeds(uploadBytes(ref(verified(ALICE), await seedMessage(ALICE)), PHOTO, JPEG));
+  });
+
+  test("both participants can see a photo", async () => {
+    await seedConversation();
+    const photo = newChatPhoto();
+    await seed(photo);
+    await assertSucceeds(getBytes(ref(verified(BOB), photo)));
+    await assertSucceeds(getBytes(ref(verified(ALICE), photo)));
+  });
+
+  test("only the verified sender can upload the photo of a message", async () => {
+    const photo = await seedMessage(BOB);
+    const others = [verified(ALICE), verified(EVE), unverified(BOB), outsider(BOB), signedOut()];
+    for (const storage of others) {
+      await assertFails(uploadBytes(ref(storage, photo), PHOTO, JPEG));
+    }
+  });
+
+  test("only a verified participant can see a photo", async () => {
+    await seedConversation();
+    const photo = newChatPhoto();
+    await seed(photo);
+    for (const storage of [verified(EVE), unverified(BOB), outsider(BOB), signedOut()]) {
+      await assertFails(getBytes(ref(storage, photo)));
+    }
+  });
+
+  test("a photo cannot be uploaded before its message exists", async () => {
+    await seedConversation();
+    await assertFails(uploadBytes(ref(verified(BOB), newChatPhoto()), PHOTO, JPEG));
+  });
+
+  test("a photo can only be uploaded at the path its message names", async () => {
+    const storage = verified(BOB);
+    const textMessage = await seedMessage(BOB, { fields: { text: "Hi" } });
+    await assertFails(uploadBytes(ref(storage, textMessage), PHOTO, JPEG));
+    const elsewhere = await seedMessage(BOB, { fields: { imagePath: chatPhoto("m0") } });
+    await assertFails(uploadBytes(ref(storage, elsewhere), PHOTO, JPEG));
+  });
+
+  test("a sent photo cannot be replaced or deleted", async () => {
+    const photo = await seedMessage(BOB);
+    await seed(photo);
+    await assertFails(uploadBytes(ref(verified(BOB), photo), PHOTO, JPEG));
+    await assertFails(deleteObject(ref(verified(BOB), photo)));
+    await assertFails(deleteObject(ref(verified(ALICE), photo)));
+  });
+
+  test("a chat photo must be a JPEG under 10 MB", async () => {
+    const storage = verified(BOB);
+    for (const contentType of ["text/plain", "image/png", "image/gif", "image/svg+xml"]) {
+      await assertFails(uploadBytes(ref(storage, await seedMessage(BOB)), PHOTO, { contentType }));
+    }
+    const big = new Uint8Array(8 * MB);
+    await assertSucceeds(uploadBytes(ref(storage, await seedMessage(BOB)), big, JPEG));
+    const tooBig = new Uint8Array(10 * MB);
+    await assertFails(uploadBytes(ref(storage, await seedMessage(BOB)), tooBig, JPEG));
+  });
+
+  // Message m0 names each path, so only the file name pattern can refuse it.
+  test("a chat photo is named <messageId>.jpg", async () => {
+    const storage = verified(BOB);
+    for (const name of ["m0.png", "m0", "m0.jpg.png", "m0.v2.jpg", ".jpg", "m0/0.jpg"]) {
+      const path = `${CHAT_FOLDER}/${name}`;
+      await seedMessage(BOB, { messageId: "m0", fields: { imagePath: path } });
+      await assertFails(uploadBytes(ref(storage, path), PHOTO, JPEG));
+    }
+  });
+
+  test("a participant cannot list a conversation's photos", async () => {
+    await seedConversation();
+    await seed(newChatPhoto());
+    await assertFails(listAll(ref(verified(BOB), CHAT_FOLDER)));
   });
 });
