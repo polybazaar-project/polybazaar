@@ -2,8 +2,10 @@
 // Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar.booking.viewmodel
 
+import androidx.lifecycle.ViewModelStore
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.FakeBookingRepository
+import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import java.time.LocalDate
@@ -158,5 +160,90 @@ class BookingViewModelTest {
     assertFalse(viewModel.uiState.value.isQueued)
     assertEquals(null, viewModel.uiState.value.error)
     assertTrue(repository.requestJob?.isCancelled == true)
+  }
+
+  @Test
+  fun loadRenterBookings_exposesLoadingAndResults() = runTest {
+    val expected = listOf(booking.copy(id = "booking-id"))
+    val gate = CompletableDeferred<Unit>()
+    repository.renterBookings = expected
+    repository.pendingLoad = gate
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.loadRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+
+    assertTrue(viewModel.uiState.value.isLoadingBookings)
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(expected, viewModel.uiState.value.bookings)
+    assertFalse(viewModel.uiState.value.isLoadingBookings)
+  }
+
+  @Test
+  fun loadRenterBookings_exposesFailures() = runTest {
+    repository.loadFailure = AppException(AppError.NETWORK)
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.loadRenterBookings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertFalse(viewModel.uiState.value.isLoadingBookings)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun cancelBooking_preventsDuplicatesAndUpdatesBookingOnSuccess() = runTest {
+    repository.renterBookings = listOf(booking.copy(id = "booking-id"))
+    val viewModel = BookingViewModel(repository)
+    viewModel.loadRenterBookings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.cancelBooking("booking-id")
+    testDispatcher.scheduler.runCurrent()
+    viewModel.cancelBooking("booking-id")
+
+    assertEquals(1, repository.cancellationCount)
+    assertTrue("booking-id" in viewModel.uiState.value.cancellingBookingIds)
+
+    repository.cancelWriteSuccess?.invoke()
+
+    assertTrue(viewModel.uiState.value.cancellingBookingIds.isEmpty())
+    assertEquals(BookingStatus.CANCELLED, viewModel.uiState.value.bookings.single().status)
+  }
+
+  @Test
+  fun cancelBooking_exposesWriteFailureAndAllowsRetry() = runTest {
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.cancelBooking("booking-id")
+    testDispatcher.scheduler.runCurrent()
+    repository.cancelWriteFailure?.invoke(AppException(AppError.NETWORK))
+
+    assertTrue(viewModel.uiState.value.cancellingBookingIds.isEmpty())
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    viewModel.cancelBooking("booking-id")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(2, repository.cancellationCount)
+  }
+
+  @Test
+  fun cancelBooking_exposesLateWriteFailureAfterViewModelIsCleared() = runTest {
+    val viewModel = BookingViewModel(repository)
+    val viewModelStore = ViewModelStore()
+    viewModelStore.put("booking", viewModel)
+
+    viewModel.cancelBooking("booking-id")
+    testDispatcher.scheduler.runCurrent()
+    assertTrue("booking-id" in viewModel.uiState.value.cancellingBookingIds)
+
+    viewModelStore.clear()
+    repository.cancelWriteFailure?.invoke(AppException(AppError.NETWORK))
+
+    assertTrue(viewModel.uiState.value.cancellingBookingIds.isEmpty())
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
   }
 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingRepository
+import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import kotlinx.coroutines.CancellationException
@@ -18,6 +19,9 @@ data class BookingUiState(
     val isSubmitting: Boolean = false,
     /** True after local queuing; it does not mean the server confirmed or lender accepted it. */
     val isQueued: Boolean = false,
+    val bookings: List<Booking> = emptyList(),
+    val isLoadingBookings: Boolean = false,
+    val cancellingBookingIds: Set<String> = emptySet(),
     val error: AppError? = null,
 )
 
@@ -57,5 +61,64 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
   /** Marks the queued submission as handled, allowing the user to request another booking. */
   fun acknowledgeQueuedBooking() {
     _uiState.update { it.copy(isQueued = false) }
+  }
+
+  /** Loads bookings made by the signed-in renter. */
+  fun loadRenterBookings() {
+    if (_uiState.value.isLoadingBookings) return
+    _uiState.update { it.copy(isLoadingBookings = true, error = null) }
+    viewModelScope.launch {
+      try {
+        val bookings = bookingRepository.getBookingsForRenter()
+        _uiState.update { it.copy(bookings = bookings, isLoadingBookings = false) }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) {
+          _uiState.update { it.copy(isLoadingBookings = false) }
+          throw exception
+        }
+        _uiState.update { it.copy(isLoadingBookings = false, error = exception.toAppError()) }
+      }
+    }
+  }
+
+  /** Queues one cancellation at a time per booking and waits for server acceptance or rejection. */
+  fun cancelBooking(id: String) {
+    val state = _uiState.value
+    if (id in state.cancellingBookingIds) return
+    if (state.bookings.any { it.id == id && it.status == BookingStatus.CANCELLED }) return
+    _uiState.update {
+      it.copy(cancellingBookingIds = it.cancellingBookingIds + id, error = null)
+    }
+    viewModelScope.launch {
+      try {
+        bookingRepository.cancelBooking(
+            id = id,
+            onWriteFailure = { exception ->
+              _uiState.update {
+                it.copy(
+                    cancellingBookingIds = it.cancellingBookingIds - id,
+                    error = exception.toAppError(),
+                )
+              }
+            },
+            onWriteSuccess = {
+              _uiState.update {
+                it.copy(
+                    bookings =
+                        it.bookings.map { booking ->
+                          if (booking.id == id) booking.copy(status = BookingStatus.CANCELLED)
+                          else booking
+                        },
+                    cancellingBookingIds = it.cancellingBookingIds - id,
+                )
+              }
+            },
+        )
+      } catch (exception: Exception) {
+        _uiState.update { it.copy(cancellingBookingIds = it.cancellingBookingIds - id) }
+        if (exception is CancellationException) throw exception
+        _uiState.update { it.copy(error = exception.toAppError()) }
+      }
+    }
   }
 }

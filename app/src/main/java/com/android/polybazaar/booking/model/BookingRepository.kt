@@ -15,4 +15,17 @@ interface BookingRepository {
 
   /** Returns bookings for this listing owned by the signed-in lender. */
   suspend fun getBookingsForListing(listingId: String): List<Booking>
+
+  /** Returns bookings made by the signed-in renter. */
+  suspend fun getBookingsForRenter(): List<Booking>
+
+  /**
+   * Queues a cancellation. A stale status or offline write failure may arrive after local queuing
+   * through [onWriteFailure]. [onWriteSuccess] runs after the server accepts the cancellation.
+   */
+  suspend fun cancelBooking(
+      id: String,
+      onWriteFailure: (Exception) -> Unit = {},
+      onWriteSuccess: () -> Unit = {},
+  )
 }

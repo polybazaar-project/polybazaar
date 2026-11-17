@@ -19,6 +19,12 @@ class FakeBookingRepository : BookingRepository {
   var immediateWriteFailure: Exception? = null
   var writeFailure: ((Exception) -> Unit)? = null
   var requestJob: Job? = null
+  var renterBookings: List<Booking> = emptyList()
+  var pendingLoad: CompletableDeferred<Unit>? = null
+  var loadFailure: Exception? = null
+  var cancellationCount = 0
+  var cancelWriteFailure: ((Exception) -> Unit)? = null
+  var cancelWriteSuccess: (() -> Unit)? = null
 
   override suspend fun requestBooking(booking: Booking, onWriteFailure: (Exception) -> Unit) {
     requestJob = currentCoroutineContext()[Job]
@@ -31,4 +37,20 @@ class FakeBookingRepository : BookingRepository {
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> = emptyList()
+
+  override suspend fun getBookingsForRenter(): List<Booking> {
+    pendingLoad?.await()
+    loadFailure?.let { throw it }
+    return renterBookings
+  }
+
+  override suspend fun cancelBooking(
+      id: String,
+      onWriteFailure: (Exception) -> Unit,
+      onWriteSuccess: () -> Unit,
+  ) {
+    cancellationCount++
+    cancelWriteFailure = onWriteFailure
+    cancelWriteSuccess = onWriteSuccess
+  }
 }

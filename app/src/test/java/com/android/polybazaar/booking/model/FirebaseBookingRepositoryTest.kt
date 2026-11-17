@@ -36,6 +36,7 @@ class FirebaseBookingRepositoryTest {
   private val document = mock<DocumentReference>()
   private val listingQuery = mock<Query>()
   private val lenderQuery = mock<Query>()
+  private val renterQuery = mock<Query>()
   private val snapshot = mock<QuerySnapshot>()
   private val stored = mock<DocumentSnapshot>()
   private val repository = FirebaseBookingRepository(firestore, auth)
@@ -57,6 +58,8 @@ class FirebaseBookingRepositoryTest {
     whenever(collection.document()).thenReturn(document)
     whenever(collection.whereEqualTo("listingId", "listing")).thenReturn(listingQuery)
     whenever(listingQuery.whereEqualTo("lenderUid", "lender")).thenReturn(lenderQuery)
+    whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(renterQuery)
+    whenever(collection.document("booking-id")).thenReturn(document)
   }
 
   @Test
@@ -167,5 +170,90 @@ class FirebaseBookingRepositoryTest {
         FirebaseFirestoreException.Code.UNAUTHENTICATED,
         (error as FirebaseFirestoreException).code,
     )
+  }
+
+  @Test
+  fun getBookingsForRenterQueriesAuthenticatedRenterAndDecodesBookings() = runTest {
+    whenever(renterQuery.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn("renter")
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getLong("startDate")).thenReturn(booking.startDate.toEpochDay())
+    whenever(stored.getLong("endDate")).thenReturn(booking.endDate.toEpochDay())
+    whenever(stored.getString("status")).thenReturn("REQUESTED")
+    whenever(stored.id).thenReturn("booking-id")
+
+    assertEquals(
+        listOf(booking.copy(renterUid = "renter", id = "booking-id")),
+        repository.getBookingsForRenter(),
+    )
+    verify(collection).whereEqualTo("renterUid", "renter")
+  }
+
+  @Test
+  fun getBookingsForRenterRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val error = runCatching { repository.getBookingsForRenter() }.exceptionOrNull()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (error as FirebaseFirestoreException).code,
+    )
+  }
+
+  @Test
+  fun cancelBookingQueuesOfflineWriteWithoutWaitingForServer() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
+
+    withTimeout(1_000) { repository.cancelBooking("booking-id") }
+
+    assertTrue(!pendingWrite.task.isComplete)
+    verify(document).update("status", "CANCELLED")
+  }
+
+  @Test
+  fun cancelBookingReportsLaterStaleOrOfflineWriteFailures() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
+    var reportedFailure: Exception? = null
+    val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+    var reportedToCaller: Exception? = null
+
+    repository.cancelBooking("booking-id") { reportedToCaller = it }
+    val failure = IllegalStateException("Write rejected")
+    pendingWrite.setException(failure)
+
+    assertSame(failure, reportedFailure)
+    assertSame(failure, reportedToCaller)
+  }
+
+  @Test
+  fun cancelBookingReportsServerAcceptance() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
+    var succeeded = false
+
+    repository.cancelBooking("booking-id", onWriteSuccess = { succeeded = true })
+    pendingWrite.setResult(null)
+
+    assertTrue(succeeded)
+  }
+
+  @Test
+  fun cancelBookingRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val error = runCatching { repository.cancelBooking("booking-id") }.exceptionOrNull()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (error as FirebaseFirestoreException).code,
+    )
+    verify(document, never()).update(any<String>(), any())
   }
 }
