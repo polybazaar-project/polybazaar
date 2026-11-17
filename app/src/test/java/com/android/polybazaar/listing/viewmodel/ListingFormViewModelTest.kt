@@ -17,6 +17,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingType
+import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
@@ -28,6 +29,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -1020,6 +1022,8 @@ class ListingFormViewModelTest {
       }
       return Result.success(requireNotNull(storedListing) { "Set a stored listing to edit" })
     }
+
+    override fun observeListing(listingId: String): Flow<ObservedListing> = error("Not used here")
 
     override suspend fun updateListing(listing: Listing): Listing {
       updatedListings += listing

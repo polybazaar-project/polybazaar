@@ -11,11 +11,16 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageReference
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
@@ -133,6 +138,35 @@ class FirebaseListingRepository(
       Result.failure(e)
     }
   }
+
+  override fun observeListing(listingId: String): Flow<ObservedListing> = callbackFlow {
+    val listener =
+        firestore
+            .collection(LISTINGS_COLLECTION)
+            .document(listingId)
+            // The server confirming that an uncached listing is missing only changes the
+            // snapshot's metadata, which the default listener does not report.
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+              when {
+                error != null -> close(error)
+                snapshot == null -> close(IllegalStateException("Listing snapshot was null"))
+                // Firestore raises this offline, and online too when it has cached results
+                // for the listing; only the server decides that it is deleted.
+                !snapshot.exists() && snapshot.metadata.isFromCache ->
+                    trySend(ObservedListing.NotCached)
+                // A malformed listing reads as a missing one, as in getListing.
+                else ->
+                    trySend(
+                        snapshot.takeIf { it.exists() }?.toListing()?.let(ObservedListing::Found)
+                            ?: ObservedListing.Missing
+                    )
+              }
+            }
+
+    awaitClose { listener.remove() }
+  }
+      // Metadata changes alone, such as a pending write being confirmed, repeat the same value.
+      .distinctUntilChanged()
 
   override suspend fun getMyListings(): Result<List<Listing>> {
     // A Firestore UNAUTHENTICATED error, so toAppError() reports it like an expired session.
