@@ -10,6 +10,7 @@ import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -93,5 +94,22 @@ class FusedLocationRepositoryTest {
     assertTrue(tokens.firstValue.isCancellationRequested)
     // The cancellation propagates instead of coming back as a failure to show.
     assertNull(result)
+  }
+
+  @Test
+  fun noFixWithinTenSeconds_fails_andCancelsTheRequest() = runTest {
+    val tokens = argumentCaptor<CancellationToken>()
+    // Play Services still searching (indoors, offline): the task never completes.
+    whenever(client.getCurrentLocation(any<Int>(), tokens.capture()))
+        .thenReturn(TaskCompletionSource<Location?>().task)
+
+    var result: Result<Coordinates>? = null
+    launch { result = repository.currentLocation() }
+    advanceTimeBy(9_999)
+    assertNull(result)
+    advanceTimeBy(2)
+
+    assertTrue(result!!.isFailure)
+    assertTrue(tokens.firstValue.isCancellationRequested)
   }
 }
