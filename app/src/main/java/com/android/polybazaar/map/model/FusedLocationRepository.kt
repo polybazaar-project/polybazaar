@@ -36,7 +36,9 @@ class FusedLocationRepository(private val client: FusedLocationProviderClient) :
               ?: return Result.failure(IllegalStateException("No location available"))
       Result.success(Coordinates(location.latitude, location.longitude))
     } catch (e: SecurityException) {
-      // The permission was refused or revoked: the caller offers the campus choice instead.
+      // Same result as the catch below, but lint's MissingPermission check only accepts a call to
+      // getCurrentLocation that handles SecurityException explicitly: removing this branch fails
+      // the build. Here the permission was refused or revoked, so the caller offers a campus.
       Result.failure(e)
     } catch (e: Exception) {
       // Cancellation means the caller is gone and must propagate.
