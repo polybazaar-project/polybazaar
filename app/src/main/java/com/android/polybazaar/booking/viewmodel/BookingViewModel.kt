@@ -81,37 +81,38 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
     }
   }
 
-  /** Queues one cancellation at a time per booking and waits for server acceptance or rejection. */
+  /**
+   * Queues a cancellation and shows the booking as cancelled at once, also offline. If the server
+   * later rejects the write, the booking returns to its previous status and the error is exposed.
+   * [BookingUiState.cancellingBookingIds] holds the booking only until the write is queued.
+   */
   fun cancelBooking(id: String) {
-    val state = _uiState.value
-    if (id in state.cancellingBookingIds) return
-    if (state.bookings.any { it.id == id && it.status == BookingStatus.CANCELLED }) return
+    val previousStatus = _uiState.value.bookings.firstOrNull { it.id == id }?.status
+    if (id in _uiState.value.cancellingBookingIds || previousStatus == BookingStatus.CANCELLED) {
+      return
+    }
     _uiState.update { it.copy(cancellingBookingIds = it.cancellingBookingIds + id, error = null) }
     viewModelScope.launch {
+      var rejected = false
       try {
-        bookingRepository.cancelBooking(
-            id = id,
-            onWriteFailure = { exception ->
-              _uiState.update {
-                it.copy(
-                    cancellingBookingIds = it.cancellingBookingIds - id,
-                    error = exception.toAppError(),
-                )
-              }
-            },
-            onWriteSuccess = {
-              _uiState.update {
-                it.copy(
-                    bookings =
-                        it.bookings.map { booking ->
-                          if (booking.id == id) booking.copy(status = BookingStatus.CANCELLED)
-                          else booking
-                        },
-                    cancellingBookingIds = it.cancellingBookingIds - id,
-                )
-              }
-            },
-        )
+        bookingRepository.cancelBooking(id) { exception ->
+          rejected = true
+          _uiState.update {
+            it.copy(
+                bookings = it.bookings.withStatus(id, previousStatus),
+                cancellingBookingIds = it.cancellingBookingIds - id,
+                error = exception.toAppError(),
+            )
+          }
+        }
+        if (!rejected) {
+          _uiState.update {
+            it.copy(
+                bookings = it.bookings.withStatus(id, BookingStatus.CANCELLED),
+                cancellingBookingIds = it.cancellingBookingIds - id,
+            )
+          }
+        }
       } catch (exception: Exception) {
         _uiState.update { it.copy(cancellingBookingIds = it.cancellingBookingIds - id) }
         if (exception is CancellationException) throw exception
@@ -119,4 +120,7 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
       }
     }
   }
+
+  private fun List<Booking>.withStatus(id: String, status: BookingStatus?): List<Booking> =
+      if (status == null) this else map { if (it.id == id) it.copy(status = status) else it }
 }

@@ -487,7 +487,7 @@ describe("listings", () => {
       await seed("bookings/b1", booking());
       const ref = doc(verified(BOB), "bookings/b1");
 
-      await assertFails(updateDoc(ref, { status: "CANCELLED", startDate: 21001 }));
+      await assertFails(updateDoc(ref, { status: "CANCELLED", days: [day0] }));
       await assertFails(updateDoc(ref, { status: "CANCELLED", extra: true }));
     });
   });

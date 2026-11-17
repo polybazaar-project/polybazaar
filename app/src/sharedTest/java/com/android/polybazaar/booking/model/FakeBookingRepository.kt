@@ -25,8 +25,9 @@ class FakeBookingRepository : BookingRepository {
   var loadCount = 0
   var cancellationCount = 0
   var cancelFailure: Exception? = null
+  var pendingCancel: CompletableDeferred<Unit>? = null
   var cancelWriteFailure: ((Exception) -> Unit)? = null
-  var cancelWriteSuccess: (() -> Unit)? = null
+  var immediateCancelWriteFailure: Exception? = null
 
   override suspend fun requestBooking(booking: Booking, onWriteFailure: (Exception) -> Unit) {
     requestJob = currentCoroutineContext()[Job]
@@ -47,14 +48,11 @@ class FakeBookingRepository : BookingRepository {
     return renterBookings
   }
 
-  override suspend fun cancelBooking(
-      id: String,
-      onWriteFailure: (Exception) -> Unit,
-      onWriteSuccess: () -> Unit,
-  ) {
+  override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
     cancellationCount++
     cancelWriteFailure = onWriteFailure
-    cancelWriteSuccess = onWriteSuccess
+    pendingCancel?.await()
+    immediateCancelWriteFailure?.let(onWriteFailure)
     cancelFailure?.let { throw it }
   }
 }

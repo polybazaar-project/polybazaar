@@ -194,8 +194,9 @@ class BookingViewModelTest {
   }
 
   @Test
-  fun cancelBooking_preventsDuplicatesAndUpdatesBookingOnSuccess() = runTest {
+  fun cancelBooking_showsCancelledOnceQueuedAndPreventsDuplicates() = runTest {
     repository.renterBookings = listOf(booking.copy(id = "booking-id"))
+    repository.pendingCancel = CompletableDeferred()
     val viewModel = BookingViewModel(repository)
     viewModel.loadRenterBookings()
     testDispatcher.scheduler.advanceUntilIdle()
@@ -207,27 +208,49 @@ class BookingViewModelTest {
     assertEquals(1, repository.cancellationCount)
     assertTrue("booking-id" in viewModel.uiState.value.cancellingBookingIds)
 
-    repository.cancelWriteSuccess?.invoke()
+    repository.pendingCancel?.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertTrue(viewModel.uiState.value.cancellingBookingIds.isEmpty())
     assertEquals(BookingStatus.CANCELLED, viewModel.uiState.value.bookings.single().status)
   }
 
   @Test
-  fun cancelBooking_exposesWriteFailureAndAllowsRetry() = runTest {
+  fun cancelBooking_restoresStatusAndExposesErrorWhenWriteIsRejectedLater() = runTest {
+    repository.renterBookings = listOf(booking.copy(id = "booking-id"))
     val viewModel = BookingViewModel(repository)
-
+    viewModel.loadRenterBookings()
+    testDispatcher.scheduler.advanceUntilIdle()
     viewModel.cancelBooking("booking-id")
-    testDispatcher.scheduler.runCurrent()
-    repository.cancelWriteFailure?.invoke(AppException(AppError.NETWORK))
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(BookingStatus.CANCELLED, viewModel.uiState.value.bookings.single().status)
 
+    repository.cancelWriteFailure?.invoke(AppException(AppError.PERMISSION_DENIED))
+
+    assertEquals(BookingStatus.REQUESTED, viewModel.uiState.value.bookings.single().status)
+    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.error)
     assertTrue(viewModel.uiState.value.cancellingBookingIds.isEmpty())
-    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
 
     viewModel.cancelBooking("booking-id")
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(2, repository.cancellationCount)
+  }
+
+  @Test
+  fun cancelBooking_keepsStatusWhenWriteFailsBeforeReturning() = runTest {
+    repository.renterBookings = listOf(booking.copy(id = "booking-id"))
+    repository.immediateCancelWriteFailure = AppException(AppError.NETWORK)
+    val viewModel = BookingViewModel(repository)
+    viewModel.loadRenterBookings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.cancelBooking("booking-id")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(BookingStatus.REQUESTED, viewModel.uiState.value.bookings.single().status)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    assertTrue(viewModel.uiState.value.cancellingBookingIds.isEmpty())
   }
 
   @Test
@@ -237,8 +260,7 @@ class BookingViewModelTest {
     viewModelStore.put("booking", viewModel)
 
     viewModel.cancelBooking("booking-id")
-    testDispatcher.scheduler.runCurrent()
-    assertTrue("booking-id" in viewModel.uiState.value.cancellingBookingIds)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     viewModelStore.clear()
     repository.cancelWriteFailure?.invoke(AppException(AppError.NETWORK))
@@ -296,8 +318,7 @@ class BookingViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     viewModel.cancelBooking("booking-id")
-    testDispatcher.scheduler.runCurrent()
-    repository.cancelWriteSuccess?.invoke()
+    testDispatcher.scheduler.advanceUntilIdle()
 
     val bookings = viewModel.uiState.value.bookings
     assertEquals(BookingStatus.CANCELLED, bookings.first { it.id == "booking-id" }.status)

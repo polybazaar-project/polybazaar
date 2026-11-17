@@ -20,12 +20,11 @@ interface BookingRepository {
   suspend fun getBookingsForRenter(): List<Booking>
 
   /**
-   * Queues a cancellation. A stale status or offline write failure may arrive after local queuing
-   * through [onWriteFailure]. [onWriteSuccess] runs after the server accepts the cancellation.
+   * Queues a cancellation without waiting for server confirmation; offline, the write stays queued
+   * until the connection returns. If the server later rejects it, for example because the booking
+   * is no longer requested or confirmed, the failure reaches [onWriteFailure].
+   *
+   * @param onWriteFailure receives a write failure that arrives after local queuing.
    */
-  suspend fun cancelBooking(
-      id: String,
-      onWriteFailure: (Exception) -> Unit = {},
-      onWriteSuccess: () -> Unit = {},
-  )
+  suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit = {})
 }

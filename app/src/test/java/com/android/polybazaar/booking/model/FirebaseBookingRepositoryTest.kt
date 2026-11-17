@@ -219,8 +219,7 @@ class FirebaseBookingRepositoryTest {
     whenever(stored.getString("listingId")).thenReturn(booking.listingId)
     whenever(stored.getString("renterUid")).thenReturn("renter")
     whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
-    whenever(stored.getLong("startDate")).thenReturn(booking.startDate.toEpochDay())
-    whenever(stored.getLong("endDate")).thenReturn(booking.endDate.toEpochDay())
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
     whenever(stored.getString("status")).thenReturn("REQUESTED")
     whenever(stored.id).thenReturn("booking-id")
 
@@ -256,7 +255,7 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
-  fun cancelBookingReportsLaterStaleOrOfflineWriteFailures() = runTest {
+  fun cancelBookingReportsLaterRejectedWrite() = runTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
@@ -272,30 +271,17 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
-  fun cancelBookingReportsServerAcceptance() = runTest {
+  fun cancelBookingLogsRejectedWriteWhenCallerPassesNoCallback() = runTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
-    var succeeded = false
-
-    repository.cancelBooking("booking-id", onWriteSuccess = { succeeded = true })
-    pendingWrite.setResult(null)
-
-    assertTrue(succeeded)
-  }
-
-  @Test
-  fun cancelBookingWithDefaultCallbacksHandlesFailureAndSuccess() = runTest {
-    val failedWrite = TaskCompletionSource<Void>()
-    val acceptedWrite = TaskCompletionSource<Void>()
-    whenever(document.update("status", "CANCELLED"))
-        .thenReturn(failedWrite.task, acceptedWrite.task)
+    var logged: Exception? = null
+    val repository = FirebaseBookingRepository(firestore, auth) { logged = it }
 
     repository.cancelBooking("booking-id")
-    repository.cancelBooking("booking-id")
-    failedWrite.setException(IllegalStateException("Write rejected"))
-    acceptedWrite.setResult(null)
+    val failure = IllegalStateException("Write rejected")
+    pendingWrite.setException(failure)
 
-    assertTrue(failedWrite.task.isComplete && acceptedWrite.task.isSuccessful)
+    assertSame(failure, logged)
   }
 
   @Test

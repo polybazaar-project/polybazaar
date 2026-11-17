@@ -85,11 +85,7 @@ class FirebaseBookingRepository(
         .map { it.toBooking() }
   }
 
-  override suspend fun cancelBooking(
-      id: String,
-      onWriteFailure: (Exception) -> Unit,
-      onWriteSuccess: () -> Unit,
-  ) {
+  override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
     if (auth.currentUser == null) {
       throw FirebaseFirestoreException(
           "Sign in to cancel a booking",
@@ -104,7 +100,6 @@ class FirebaseBookingRepository(
           logWriteFailure(it)
           onWriteFailure(it)
         }
-        .addOnSuccessListener(Executor { it.run() }) { onWriteSuccess() }
   }
 
   private fun DocumentSnapshot.toBooking(): Booking {
