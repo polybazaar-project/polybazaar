@@ -5,6 +5,7 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -17,6 +18,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 class FusedLocationRepository(private val client: FusedLocationProviderClient) :
     LocationRepository {
 
+  // await(CancellationTokenSource), which cancels Play Services' request with the caller, is
+  // marked experimental in kotlinx-coroutines-play-services.
+  @OptIn(ExperimentalCoroutinesApi::class)
   override suspend fun currentLocation(): Result<Coordinates> {
     // Cancelled with the caller (for example the map screen closing), so Play Services stops
     // looking for a fix nobody waits for.
