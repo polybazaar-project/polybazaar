@@ -8,6 +8,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import java.time.DateTimeException
 import java.time.LocalDate
 import java.util.concurrent.Executor
 import kotlinx.coroutines.tasks.await
@@ -76,9 +77,13 @@ class FirebaseBookingRepository(
           (get(DAYS) as? List<*>)?.takeIf { it.isNotEmpty() }
               ?: throw IllegalStateException("Booking $id is missing $DAYS")
       return epochDays.mapTo(mutableSetOf()) {
-        LocalDate.ofEpochDay(
-            (it as? Long) ?: throw IllegalStateException("Booking $id has an invalid day: $it")
-        )
+        val epochDay =
+            it as? Long ?: throw IllegalStateException("Booking $id has an invalid day: $it")
+        try {
+          LocalDate.ofEpochDay(epochDay)
+        } catch (e: DateTimeException) {
+          throw IllegalStateException("Booking $id has an invalid day: $it", e)
+        }
       }
     }
 

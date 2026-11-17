@@ -190,6 +190,12 @@ class FirebaseBookingRepositoryTest {
         runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
             is IllegalStateException
     )
+    // Out of LocalDate's range: ofEpochDay throws DateTimeException, rethrown as above.
+    whenever(stored.get("days")).thenReturn(listOf(Long.MAX_VALUE))
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
   }
 
   @Test

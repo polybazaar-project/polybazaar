@@ -103,7 +103,8 @@ service cloud.firestore {
             && listing.paused == false
             && data.renterUid != data.lenderUid
             // The days booked, as LocalDate epoch days. They need not follow each other. Every one
-            // must be on offer, once: so there are at most as many as the listing offers (366).
+            // must be on offer, once: hasAll plus no duplicates bounds the size by the listing's
+            // availableDates, which are at most 366.
             && data.days is list && data.days.size() > 0
             && data.days.toSet().size() == data.days.size()
             && 'availableDates' in listing
