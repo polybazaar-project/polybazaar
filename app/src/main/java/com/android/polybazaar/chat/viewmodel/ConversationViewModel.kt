@@ -13,10 +13,12 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -100,6 +102,7 @@ class ConversationViewModel(
   @Volatile private var conversationKnown = false
 
   // The fields below are only touched on the main thread.
+  private var listingJob: Job? = null
   private var listingSettled = false
   private var listingFailed = false
   private var conversationSettled = false
@@ -222,7 +225,9 @@ class ConversationViewModel(
   /** Follows the listing, so that pausing, resuming or deleting it updates the screen. */
   private fun observeListing() {
     listingFailed = false
-    viewModelScope.launch {
+    // A retry may restart an observation that is still open, waiting for the server.
+    listingJob?.cancel()
+    listingJob = viewModelScope.launch {
       listingRepository
           .observeListing(listingId)
           // catch never sees a cancellation, so closing the screen is not shown as an error.
@@ -232,20 +237,45 @@ class ConversationViewModel(
             _uiState.update { it.copy(loadError = exception.toAppError()) }
             updateLoading()
           }
-          .collect { listing ->
-            loaded =
-                when {
-                  // The listing observed before, if any, keeps the header's title.
-                  listing == null -> loaded.copy(status = ConversationListingStatus.DELETED)
-                  listing.isPaused -> LoadedListing(listing, ConversationListingStatus.PAUSED)
-                  else -> LoadedListing(listing, ConversationListingStatus.ACTIVE)
-                }
-            listingSettled = true
-            _uiState.update { it.derived() }
-            updateLoading()
-            observeOtherUser()
+          .collect { observed ->
+            when (observed) {
+              ObservedListing.NotCached -> onListingNotCached()
+              is ObservedListing.Found -> onListingAnswered(observed.listing)
+              ObservedListing.Missing -> onListingAnswered(null)
+            }
           }
     }
+  }
+
+  /**
+   * Offline with the listing missing from the cache. A listing already known stays as it is; an
+   * unknown one shows the network error, which the server's answer clears when it arrives.
+   */
+  private fun onListingNotCached() {
+    if (loaded.status == null) {
+      listingFailed = true
+      _uiState.update { it.copy(loadError = AppError.NETWORK) }
+    }
+    listingSettled = true
+    updateLoading()
+  }
+
+  /** The listing as it is now, or null when it is deleted or malformed. */
+  private fun onListingAnswered(listing: Listing?) {
+    loaded =
+        when {
+          // The listing observed before, if any, keeps the header's title.
+          listing == null -> loaded.copy(status = ConversationListingStatus.DELETED)
+          listing.isPaused -> LoadedListing(listing, ConversationListingStatus.PAUSED)
+          else -> LoadedListing(listing, ConversationListingStatus.ACTIVE)
+        }
+    listingSettled = true
+    // The error stays while the conversation or the messages still need a retry.
+    val clearError = listingFailed && !conversationFailed && !messagesFailed
+    listingFailed = false
+    _uiState.update { (if (clearError) it.copy(loadError = null) else it).derived() }
+    updateLoading()
+    observeOtherUser()
   }
 
   private fun observeConversation() {

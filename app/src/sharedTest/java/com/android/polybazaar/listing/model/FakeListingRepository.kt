@@ -21,11 +21,14 @@ import kotlinx.coroutines.flow.flow
  * except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these
  * calls waiting until the test completes it, to look at one in progress.
  *
- * [observeListing] follows the listing in both lists, emitting null while neither has it, like the
- * real repository for a missing listing. Changing either list emits again, and setting [failure]
- * makes every active and new collection fail, like Firestore ending a listener with an error. A
- * [gate] set before a collection starts holds back its first emission. [observeListingCalls] counts
- * the collections started.
+ * [observeListing] follows the listing in both lists, emitting `Missing` while neither has it, like
+ * the real repository once the server says it does not exist. Changing either list emits again, and
+ * setting [failure] makes every active and new collection fail, like Firestore ending a listener
+ * with an error. While [notCached] is set, every active and new collection emits `NotCached`, for
+ * every listing, whether the lists have it or not, like the real repository when only the cache
+ * answers; clearing it emits each listing's state again, like the server answering. A [gate] set
+ * before a collection starts holds back its first emission. [observeListingCalls] counts the
+ * collections started.
  *
  * [loadListingImage] answers from [images], or empty bytes for a path it does not have, fails with
  * [imageFailure] when it is set, waits for [imageGate] when it is set, and records each path in
@@ -40,6 +43,7 @@ class FakeListingRepository(
   private val allListingsFlow = MutableStateFlow(allListings)
   private val myListingsFlow = MutableStateFlow(myListings)
   private val failureFlow = MutableStateFlow<Exception?>(null)
+  private val notCachedFlow = MutableStateFlow(false)
 
   var allListings: List<Listing>
     get() = allListingsFlow.value
@@ -57,6 +61,12 @@ class FakeListingRepository(
     get() = failureFlow.value
     set(value) {
       failureFlow.value = value
+    }
+
+  var notCached: Boolean
+    get() = notCachedFlow.value
+    set(value) {
+      notCachedFlow.value = value
     }
 
   var gate: CompletableDeferred<Unit>? = null
@@ -126,15 +136,21 @@ class FakeListingRepository(
     }
   }
 
-  override fun observeListing(listingId: String): Flow<Listing?> {
+  override fun observeListing(listingId: String): Flow<ObservedListing> {
     observeListingCalls++
     val gate = gate
     return flow {
       gate?.await()
       emitAll(
-          combine(allListingsFlow, myListingsFlow, failureFlow) { all, mine, failure ->
+          combine(allListingsFlow, myListingsFlow, failureFlow, notCachedFlow) {
+              all,
+              mine,
+              failure,
+              notCached ->
             failure?.let { throw it }
-            (all + mine).firstOrNull { it.listingId == listingId }
+            if (notCached) return@combine ObservedListing.NotCached
+            (all + mine).firstOrNull { it.listingId == listingId }?.let(ObservedListing::Found)
+                ?: ObservedListing.Missing
           }
       )
     }

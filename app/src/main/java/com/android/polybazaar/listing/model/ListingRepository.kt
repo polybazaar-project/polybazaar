@@ -46,12 +46,17 @@ interface ListingRepository {
 
   /**
    * Follows the listing with this id, for the conversation screen: emits it again whenever it
-   * changes, and null while it does not exist or is malformed.
+   * changes, as [ObservedListing.Found], or [ObservedListing.Missing] while the server says it does
+   * not exist or it is malformed.
+   *
+   * Offline, a listing already seen comes from the local cache. One the cache does not have is
+   * [ObservedListing.NotCached], and the flow keeps going, so the server's answer follows once it
+   * can reach the device.
    *
    * The flow fails when Firestore cannot answer or the security rules deny the read; the caller
    * maps the failure with `toAppError()`.
    */
-  fun observeListing(listingId: String): Flow<Listing?>
+  fun observeListing(listingId: String): Flow<ObservedListing>
 
   /**
    * Saves the signed-in owner's changes to an existing [listing], identified by its

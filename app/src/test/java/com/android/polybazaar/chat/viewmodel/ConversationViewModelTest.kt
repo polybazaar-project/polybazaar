@@ -23,6 +23,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -641,6 +642,158 @@ class ConversationViewModelTest {
     listings.gate!!.complete(Unit)
     advance()
     assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun listingNotCachedWhileOffline_stopsLoadingWithANetworkError_andSendIsOff() {
+    givenConversation(messages = arrayOf(hello))
+    listings.notCached = true
+    val viewModel = loadedViewModel()
+
+    viewModel.onDraftChange("Hello")
+
+    val state = viewModel.uiState.value
+    assertFalse(state.isLoading)
+    assertEquals(AppError.NETWORK, state.loadError)
+    assertNull(state.listingStatus)
+    assertFalse(state.canSend)
+    assertEquals(listOf(hello), state.messages)
+  }
+
+  @Test
+  fun retry_afterTheListingWasNotCached_replacesTheOpenObservation() {
+    listings.notCached = true
+    val viewModel = loadedViewModel()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+
+    val reload = CompletableDeferred<Unit>()
+    listings.gate = reload
+    viewModel.retry()
+    advance()
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertNull(viewModel.uiState.value.loadError)
+
+    // Only the restarted observation, still held back, may answer now.
+    listings.notCached = false
+    advance()
+    assertNull(viewModel.uiState.value.listingStatus)
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    reload.complete(Unit)
+    advance()
+    val state = viewModel.uiState.value
+    assertEquals(ConversationListingStatus.ACTIVE, state.listingStatus)
+    assertNull(state.loadError)
+    assertFalse(state.isLoading)
+    assertEquals(2, listings.observeListingCalls)
+    assertEquals(1, chat.observeConversationCalls)
+    assertEquals(1, chat.observeMessagesCalls)
+  }
+
+  @Test
+  fun retry_whileTheListingIsStillNotCached_showsTheNetworkErrorAgain() {
+    givenConversation(messages = arrayOf(hello))
+    listings.notCached = true
+    val viewModel = loadedViewModel()
+
+    viewModel.retry()
+    advance()
+
+    val state = viewModel.uiState.value
+    assertEquals(AppError.NETWORK, state.loadError)
+    assertFalse(state.isLoading)
+    assertNull(state.listingStatus)
+    assertEquals(2, listings.observeListingCalls)
+  }
+
+  @Test
+  fun listingNotCached_thenTheServerAnswers_clearsTheErrorAndShowsTheStatus() {
+    givenConversation(messages = arrayOf(hello))
+    listings.allListings = listOf(listing.copy(isPaused = true))
+    listings.notCached = true
+    val viewModel = loadedViewModel()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+
+    listings.notCached = false
+    advance()
+
+    val state = viewModel.uiState.value
+    assertNull(state.loadError)
+    assertEquals(ConversationListingStatus.PAUSED, state.listingStatus)
+    assertFalse(state.isLoading)
+    assertEquals(1, listings.observeListingCalls)
+  }
+
+  @Test
+  fun listingNotCached_thenTheServerSaysItIsDeleted_clearsTheError() {
+    givenConversation(messages = arrayOf(hello))
+    listings.notCached = true
+    val viewModel = loadedViewModel()
+
+    listings.allListings = emptyList()
+    listings.notCached = false
+    advance()
+
+    val state = viewModel.uiState.value
+    assertNull(state.loadError)
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
+    assertEquals("Bosch drill", state.listingTitle)
+  }
+
+  @Test
+  fun listingAnsweringAfterNotCached_keepsTheErrorWhileTheMessagesStillFail() {
+    givenConversation(messages = arrayOf(hello))
+    listings.notCached = true
+    chat.messagesFailure.value = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    val viewModel = loadedViewModel()
+
+    listings.notCached = false
+    advance()
+    assertEquals(ConversationListingStatus.ACTIVE, viewModel.uiState.value.listingStatus)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.loadError)
+
+    chat.messagesFailure.value = null
+    viewModel.retry()
+    advance()
+    assertNull(viewModel.uiState.value.loadError)
+    assertEquals(1, listings.observeListingCalls)
+    assertEquals(2, chat.observeMessagesCalls)
+  }
+
+  @Test
+  fun listingAnsweringAfterNotCached_keepsTheErrorWhileTheConversationStillFails() {
+    chat.myConversations.value =
+        Result.failure(firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED))
+    listings.notCached = true
+    val viewModel = loadedViewModel()
+
+    listings.notCached = false
+    advance()
+    assertEquals(ConversationListingStatus.ACTIVE, viewModel.uiState.value.listingStatus)
+    assertNotNull(viewModel.uiState.value.loadError)
+
+    givenConversation()
+    viewModel.retry()
+    advance()
+    assertNull(viewModel.uiState.value.loadError)
+    assertEquals(2, chat.observeConversationCalls)
+    assertEquals(1, listings.observeListingCalls)
+  }
+
+  @Test
+  fun listingNotCached_onceTheListingIsKnown_keepsItWithoutAnError() {
+    givenConversation(messages = arrayOf(hello))
+    val viewModel = loadedViewModel()
+    viewModel.onDraftChange("Hello")
+
+    listings.notCached = true
+    advance()
+
+    val state = viewModel.uiState.value
+    assertNull(state.loadError)
+    assertEquals(ConversationListingStatus.ACTIVE, state.listingStatus)
+    assertFalse(state.isLoading)
+    assertTrue(state.canSend)
   }
 
   @Test

@@ -16,6 +16,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingType
+import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
@@ -1021,7 +1022,7 @@ class ListingFormViewModelTest {
       return Result.success(requireNotNull(storedListing) { "Set a stored listing to edit" })
     }
 
-    override fun observeListing(listingId: String): Flow<Listing?> = error("Not used here")
+    override fun observeListing(listingId: String): Flow<ObservedListing> = error("Not used here")
 
     override suspend fun updateListing(listing: Listing): Listing {
       updatedListings += listing
