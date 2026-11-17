@@ -10,6 +10,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
@@ -17,14 +18,18 @@ import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -965,5 +970,204 @@ class ConversationViewModelTest {
     viewModel.setVisible(true)
 
     assertEquals(listOf(unreadReply.id), chat.markedRead)
+  }
+
+  @Test
+  fun listing_isExposed_andKeptAfterItIsDeleted() {
+    val viewModel = loadedViewModel()
+    assertEquals(listing, viewModel.uiState.value.listing)
+
+    listings.allListings = emptyList()
+    advance()
+
+    val state = viewModel.uiState.value
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
+    assertEquals(listing, state.listing)
+  }
+
+  @Test
+  fun listing_deletedBeforeTheScreenOpened_isNull() {
+    listings = FakeListingRepository()
+    givenConversation(messages = arrayOf(hello))
+
+    val state = loadedViewModel().uiState.value
+
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
+    assertNull(state.listing)
+    assertNull(state.listingPhoto)
+    assertEquals(0, listings.loadedImagePaths.size)
+  }
+
+  @Test
+  fun isRenter_tellsTheRenterFromTheLender() {
+    assertTrue(viewModel(renter.uid).uiState.value.isRenter)
+    assertFalse(viewModel(lender.uid).uiState.value.isRenter)
+  }
+
+  @Test
+  fun listingPhoto_isDownloadedOnce_andAgainOnlyWhenTheFirstPathChanges() {
+    val first = byteArrayOf(1)
+    val replaced = byteArrayOf(3)
+    listings.images["drill/1"] = first
+    listings.images["drill/3"] = replaced
+    listings.allListings = listOf(listing.copy(imagePaths = listOf("drill/1", "drill/2")))
+    val viewModel = loadedViewModel()
+    assertSame(first, viewModel.uiState.value.listingPhoto)
+
+    listings.allListings =
+        listOf(listing.copy(title = "Bosch drill and bits", imagePaths = listOf("drill/1")))
+    advance()
+    assertEquals(listOf("drill/1"), listings.loadedImagePaths)
+    assertSame(first, viewModel.uiState.value.listingPhoto)
+
+    listings.allListings = listOf(listing.copy(imagePaths = listOf("drill/3")))
+    advance()
+    assertEquals(listOf("drill/1", "drill/3"), listings.loadedImagePaths)
+    assertSame(replaced, viewModel.uiState.value.listingPhoto)
+  }
+
+  @Test
+  fun listingPhoto_isKeptAfterTheListingIsDeleted_andDroppedWhenTheListingLosesItsPhotos() {
+    val photo = byteArrayOf(1)
+    listings.images["drill/1"] = photo
+    listings.allListings = listOf(listing.copy(imagePaths = listOf("drill/1")))
+    val viewModel = loadedViewModel()
+
+    listings.allListings = emptyList()
+    advance()
+    assertSame(photo, viewModel.uiState.value.listingPhoto)
+    assertEquals(listOf("drill/1"), listings.loadedImagePaths)
+
+    listings.allListings = listOf(listing)
+    advance()
+    assertNull(viewModel.uiState.value.listingPhoto)
+  }
+
+  @Test
+  fun listingPhoto_failedDownload_isMissingWithoutError_andNotRetriedForTheSamePath() {
+    listings.imageFailure = UnknownHostException("offline")
+    listings.allListings = listOf(listing.copy(imagePaths = listOf("drill/1")))
+    givenConversation(messages = arrayOf(hello))
+    val viewModel = loadedViewModel()
+
+    listings.allListings = listOf(listing.copy(title = "Renamed", imagePaths = listOf("drill/1")))
+    advance()
+
+    val state = viewModel.uiState.value
+    assertNull(state.listingPhoto)
+    assertNull(state.loadError)
+    assertEquals(listOf(hello), state.messages)
+    assertEquals(listOf("drill/1"), listings.loadedImagePaths)
+  }
+
+  @Test
+  fun listingPhoto_aStaleDownloadFinishingAfterANewerPath_doesNotReplaceTheNewerPhoto() {
+    val stale = byteArrayOf(1)
+    val current = byteArrayOf(3)
+    listings.images["drill/3"] = current
+    val staleGate = CompletableDeferred<Unit>()
+    // The old path's download ignores its cancellation, like a Storage call that can't be stopped,
+    // so only the ViewModel's own check keeps its photo out.
+    val repository =
+        object : ListingRepository by listings {
+          override suspend fun loadListingImage(imagePath: String): ByteArray =
+              if (imagePath == "drill/1") {
+                withContext(NonCancellable) { staleGate.await() }
+                stale
+              } else listings.loadListingImage(imagePath)
+        }
+    listings.allListings = listOf(listing.copy(imagePaths = listOf("drill/1")))
+    val viewModel =
+        ConversationViewModel(
+            listing.listingId!!,
+            renter.uid,
+            renter.uid,
+            chat,
+            profiles,
+            repository,
+        )
+    advance()
+
+    listings.allListings = listOf(listing.copy(imagePaths = listOf("drill/3")))
+    advance()
+    assertSame(current, viewModel.uiState.value.listingPhoto)
+
+    staleGate.complete(Unit)
+    advance()
+    assertSame(current, viewModel.uiState.value.listingPhoto)
+  }
+
+  @Test
+  fun otherUserPhoto_isDownloadedOnce() {
+    profiles =
+        FakeProfileRepository(
+            listOf(lender.copy(photoPath = "profiles/lender"), renter).associateBy { it.uid }
+        )
+    givenConversation(messages = arrayOf(hello))
+
+    val state = loadedViewModel().uiState.value
+
+    assertNotNull(state.otherUserPhoto)
+    assertEquals(mapOf("profiles/lender" to 1), profiles.photoLoads)
+  }
+
+  @Test
+  fun otherUserPhoto_failedDownload_isMissingWithoutError() {
+    profiles =
+        FakeProfileRepository(
+            listOf(lender.copy(photoPath = "profiles/lender"), renter).associateBy { it.uid }
+        )
+    profiles.failingPhotoPaths += "profiles/lender"
+
+    val state = loadedViewModel().uiState.value
+
+    assertEquals(lender.copy(photoPath = "profiles/lender"), state.otherUser)
+    assertNull(state.otherUserPhoto)
+    assertNull(state.loadError)
+  }
+
+  @Test
+  fun otherUserWithoutAPhoto_downloadsNothing() {
+    val state = loadedViewModel().uiState.value
+
+    assertEquals(lender, state.otherUser)
+    assertNull(state.otherUserPhoto)
+    assertTrue(profiles.photoLoads.isEmpty())
+  }
+
+  @Test
+  fun otherUserPhoto_isNotDownloadedAgainWhenTheProfileChangesWithTheSamePath() {
+    val withPhoto = lender.copy(photoPath = "profiles/lender")
+    profiles = FakeProfileRepository(listOf(withPhoto, renter).associateBy { it.uid })
+    val viewModel = loadedViewModel()
+    val photo = viewModel.uiState.value.otherUserPhoto
+
+    profiles.users = listOf(withPhoto.copy(bio = "Tools for rent"), renter).associateBy { it.uid }
+    advance()
+
+    assertEquals("Tools for rent", viewModel.uiState.value.otherUser?.bio)
+    assertSame(photo, viewModel.uiState.value.otherUserPhoto)
+    assertEquals(mapOf("profiles/lender" to 1), profiles.photoLoads)
+  }
+
+  @Test
+  fun otherUserPhoto_isReplacedWhenThePathChanges_andClearedWhenThePhotoIsRemoved() {
+    val withPhoto = lender.copy(photoPath = "profiles/lender")
+    profiles = FakeProfileRepository(listOf(withPhoto, renter).associateBy { it.uid })
+    val viewModel = loadedViewModel()
+    val old = viewModel.uiState.value.otherUserPhoto
+    assertNotNull(old)
+
+    profiles.users =
+        listOf(withPhoto.copy(photoPath = "profiles/lender-2"), renter).associateBy { it.uid }
+    advance()
+    val new = viewModel.uiState.value.otherUserPhoto
+    assertNotNull(new)
+    assertNotSame(old, new)
+    assertEquals(mapOf("profiles/lender" to 1, "profiles/lender-2" to 1), profiles.photoLoads)
+
+    profiles.users = listOf(lender, renter).associateBy { it.uid }
+    advance()
+    assertNull(viewModel.uiState.value.otherUserPhoto)
   }
 }
