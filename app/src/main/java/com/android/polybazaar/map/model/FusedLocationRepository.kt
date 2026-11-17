@@ -33,7 +33,7 @@ class FusedLocationRepository(private val client: FusedLocationProviderClient) :
                 .await(cancellation)
           }
               // Null when the time ran out, location is turned off, or no fix could be obtained.
-              ?: throw IllegalStateException("No location available")
+              ?: return Result.failure(IllegalStateException("No location available"))
       Result.success(Coordinates(location.latitude, location.longitude))
     } catch (e: SecurityException) {
       // The permission was refused or revoked: the caller offers the campus choice instead.
