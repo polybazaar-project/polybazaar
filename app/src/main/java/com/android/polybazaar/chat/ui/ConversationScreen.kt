@@ -1,6 +1,11 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,21 +25,33 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -66,6 +83,9 @@ import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.ui.CameraPermissionDialog
+import com.android.polybazaar.listing.ui.loadPhotoPreview
+import com.android.polybazaar.listing.ui.rememberPhotoCamera
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -88,6 +108,12 @@ object ConversationScreenTags {
   const val SEND_BUTTON = "conversation_send_button"
   const val SEND_ERROR = "conversation_send_error"
   const val LENGTH_COUNTER = "conversation_length_counter"
+  const val PHOTO_BUTTON = "conversation_photo_button"
+  const val PHOTO_MENU = "conversation_photo_menu"
+  const val TAKE_PHOTO = "conversation_take_photo"
+  const val CHOOSE_PHOTO = "conversation_choose_photo"
+  const val ATTACHED_PHOTO = "conversation_attached_photo"
+  const val REMOVE_ATTACHED_PHOTO = "conversation_remove_attached_photo"
 
   /** Tag of the bubble of the signed-in user's message with [id]. */
   fun myMessage(id: String) = "conversation_my_message_$id"
@@ -142,6 +168,16 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
     viewModel.setVisible(true)
     onStopOrDispose { viewModel.setVisible(false) }
   }
+  val galleryPicker =
+      rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.attachPhoto(uri)
+      }
+  // The ViewModel keeps the photo file, so it survives the activity being recreated meanwhile.
+  val camera =
+      rememberPhotoCamera(
+          startTakingPhoto = { _ -> viewModel.startTakingPhoto() },
+          finishTakingPhoto = viewModel::finishTakingPhoto,
+      )
   ConversationContent(
       uiState = uiState,
       onBack = onBack,
@@ -149,7 +185,17 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
       onSend = viewModel::send,
       onRetry = viewModel::retry,
       onDismissSendError = viewModel::dismissSendError,
+      onTakePhoto = camera::takePhoto,
+      onChoosePhoto = {
+        galleryPicker.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+      },
+      onRemoveAttachedPhoto = viewModel::removeAttachedPhoto,
   )
+  if (camera.showPermissionExplanation) {
+    CameraPermissionDialog(onDismiss = camera::dismissPermissionExplanation)
+  }
 }
 
 /**
@@ -165,6 +211,9 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  * @param onRetry called when the user taps Retry after a load failed.
  * @param onDismissSendError called before [onDraftChange] when the user edits the draft while a
  *   send error shows.
+ * @param onTakePhoto called when the user picks "Take photo" in the photo menu.
+ * @param onChoosePhoto called when the user picks "Choose from gallery" in the photo menu.
+ * @param onRemoveAttachedPhoto called when the user taps ✕ on the attached photo.
  * @param zone time zone of the message times.
  */
 @Composable
@@ -175,6 +224,9 @@ fun ConversationContent(
     onSend: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissSendError: () -> Unit = {},
+    onTakePhoto: () -> Unit = {},
+    onChoosePhoto: () -> Unit = {},
+    onRemoveAttachedPhoto: () -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
   val body = conversationBody(uiState)
@@ -183,7 +235,11 @@ fun ConversationContent(
   // canSend decides when Send works.
   val composerOpen = !deleted
   val placeholder =
-      if (deleted) R.string.conversation_placeholder_closed else R.string.conversation_placeholder
+      when {
+        deleted -> R.string.conversation_placeholder_closed
+        uiState.attachedPhoto != null -> R.string.conversation_placeholder_caption
+        else -> R.string.conversation_placeholder
+      }
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -218,6 +274,14 @@ fun ConversationContent(
           onDraftChange(text)
         },
         onSend = onSend,
+        photo =
+            ComposerPhoto(
+                attached = uiState.attachedPhoto,
+                canAttach = uiState.canAttachPhoto,
+                onTake = onTakePhoto,
+                onChoose = onChoosePhoto,
+                onRemove = onRemoveAttachedPhoto,
+            ),
     )
   }
 }
@@ -530,8 +594,21 @@ private fun MessageBubble(
 }
 
 /**
- * The message field and Send, with why the last send failed under them and, once the draft is too
- * long, a counter that explains why Send is disabled. The text is kept as typed.
+ * The composer's photo: the one attached, whether one can be attached, and what the user does with
+ * it.
+ */
+private class ComposerPhoto(
+    val attached: Uri?,
+    val canAttach: Boolean,
+    val onTake: () -> Unit,
+    val onChoose: () -> Unit,
+    val onRemove: () -> Unit,
+)
+
+/**
+ * The photo button, the message field and Send, with the attached photo above them, and under them
+ * why the last send failed and, once the draft is too long, a counter that explains why Send is
+ * disabled. The text is kept as typed.
  *
  * @param open whether the user can type; Send also needs [canSend].
  */
@@ -544,6 +621,7 @@ private fun Composer(
     sendError: AppError?,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
+    photo: ComposerPhoto,
 ) {
   val length = ChatRules.countedLength(draft)
   val tooLong = open && length > ChatRules.MAX_MESSAGE_LENGTH
@@ -563,10 +641,12 @@ private fun Composer(
               .padding(horizontal = PageMargin, vertical = 10.dp),
       verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
+    photo.attached?.let { AttachedPhoto(photo = it, onRemove = photo.onRemove) }
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
+      PhotoButton(enabled = photo.canAttach, onTake = photo.onTake, onChoose = photo.onChoose)
       MessageField(
           value = draft,
           onValueChange = onDraftChange,
@@ -624,6 +704,145 @@ private fun Composer(
       }
     }
   }
+}
+
+/** The camera button left of the field, opening a menu to take a photo or choose one. */
+@Composable
+private fun PhotoButton(enabled: Boolean, onTake: () -> Unit, onChoose: () -> Unit) {
+  var menuOpen by remember { mutableStateOf(false) }
+  val shape = RoundedCornerShape(14.dp)
+  Box {
+    IconButton(
+        onClick = { menuOpen = true },
+        enabled = enabled,
+        modifier =
+            Modifier.size(48.dp)
+                .border(1.dp, AuthColors.Outline, shape)
+                .testTag(ConversationScreenTags.PHOTO_BUTTON),
+    ) {
+      Icon(
+          painter = painterResource(R.drawable.ic_camera),
+          contentDescription = stringResource(R.string.conversation_photo_button),
+          tint = if (enabled) AuthColors.TextPrimary else AuthColors.TextSecondary,
+          modifier = Modifier.size(20.dp),
+      )
+    }
+    DropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = { menuOpen = false },
+        containerColor = AuthColors.CardBackground,
+        modifier = Modifier.testTag(ConversationScreenTags.PHOTO_MENU),
+    ) {
+      PhotoMenuItem(
+          text = stringResource(R.string.conversation_take_photo),
+          icon = R.drawable.ic_camera,
+          tag = ConversationScreenTags.TAKE_PHOTO,
+          onClick = {
+            menuOpen = false
+            onTake()
+          },
+      )
+      PhotoMenuItem(
+          text = stringResource(R.string.conversation_choose_photo),
+          icon = R.drawable.ic_image,
+          tag = ConversationScreenTags.CHOOSE_PHOTO,
+          onClick = {
+            menuOpen = false
+            onChoose()
+          },
+      )
+    }
+  }
+}
+
+@Composable
+private fun PhotoMenuItem(text: String, icon: Int, tag: String, onClick: () -> Unit) {
+  DropdownMenuItem(
+      text = { Text(text = text, color = AuthColors.TextPrimary, fontSize = 14.sp) },
+      // Decorative: the text says what the item does.
+      leadingIcon = {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = AuthColors.TextPrimary,
+            modifier = Modifier.size(20.dp),
+        )
+      },
+      onClick = onClick,
+      modifier = Modifier.testTag(tag),
+  )
+}
+
+/** The photo attached to the draft, as a thumbnail with ✕ in its corner to remove it. */
+@Composable
+private fun AttachedPhoto(photo: Uri, onRemove: () -> Unit) {
+  val shape = RoundedCornerShape(12.dp)
+  val description = stringResource(R.string.conversation_attached_photo)
+  // The thumbnail with room around it for ✕, which overlaps its top-right corner.
+  Box(modifier = Modifier.size(80.dp)) {
+    PhotoOrPlaceholder(
+        photo = rememberLocalPhoto(photo),
+        description = description,
+        modifier =
+            Modifier.align(Alignment.BottomStart)
+                .size(64.dp)
+                .clip(shape)
+                .testTag(ConversationScreenTags.ATTACHED_PHOTO),
+    )
+    IconButton(
+        onClick = onRemove,
+        modifier =
+            Modifier.align(Alignment.TopEnd)
+                .size(32.dp)
+                .testTag(ConversationScreenTags.REMOVE_ATTACHED_PHOTO),
+    ) {
+      Box(
+          modifier =
+              Modifier.size(20.dp)
+                  .background(AuthColors.TextPrimary.copy(alpha = 0.7f), CircleShape),
+          contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_close),
+            contentDescription = stringResource(R.string.conversation_remove_attached_photo),
+            tint = AuthColors.CardBackground,
+            modifier = Modifier.size(12.dp),
+        )
+      }
+    }
+  }
+}
+
+/** [photo] filling its bounds, or a plain placeholder of the same size until it is decoded. */
+@Composable
+private fun PhotoOrPlaceholder(photo: ImageBitmap?, description: String, modifier: Modifier) {
+  if (photo != null) {
+    Image(
+        bitmap = photo,
+        contentDescription = description,
+        contentScale = ContentScale.Crop,
+        modifier = modifier,
+    )
+  } else {
+    Box(
+        modifier =
+            modifier.background(AuthColors.Outline).semantics { contentDescription = description }
+    )
+  }
+}
+
+/**
+ * A photo on the device, decoded off the main thread and scaled down, or null while it decodes or
+ * when it cannot be read.
+ */
+@Composable
+private fun rememberLocalPhoto(photo: Uri): ImageBitmap? {
+  val contentResolver = LocalContext.current.contentResolver
+  val bitmap by
+      produceState<ImageBitmap?>(initialValue = null, photo) {
+        value = loadPhotoPreview(contentResolver, photo)
+      }
+  return bitmap
 }
 
 /** A field styled like LabeledField's, that grows up to five lines as the message gets longer. */
