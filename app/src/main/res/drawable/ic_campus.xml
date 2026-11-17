@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
-<!-- "landmark" icon of the campus chooser and pill (Figma "Map — Choose your campus"). -->
+<!-- "building" icon of the campus chooser, its buttons and the campus pill (Figma "Map — Choose your campus"). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="22dp"
     android:height="22dp"
@@ -11,5 +11,5 @@
       android:strokeWidth="2"
       android:strokeLineCap="round"
       android:strokeLineJoin="round"
-      android:pathData="M3,22h18M6,18v-7M10,18v-7M14,18v-7M18,18v-7M11.12,2.198a2,2 0,0 1,1.76 0.006l7.866,3.847c0.476,0.233 0.31,0.949 -0.22,0.949H3.474c-0.53,0 -0.695,-0.716 -0.22,-0.949z" />
+      android:pathData="M6,4a2,2 0,0 1,2 -2h8a2,2 0,0 1,2 2v18H6zM2,14a2,2 0,0 1,2 -2h2v10H4a2,2 0,0 1,-2 -2zM18,9h2a2,2 0,0 1,2 2v9a2,2 0,0 1,-2 2h-2M10,6h4M10,10h4M10,14h4M10,18h4" />
 </vector>
