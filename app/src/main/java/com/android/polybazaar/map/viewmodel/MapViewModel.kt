@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.map.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.error.model.toAppError
@@ -28,10 +29,13 @@ sealed interface MapCentre {
   data class OnCampus(val campus: Campus) : MapCentre
 
   /**
-   * The renter has to pick a campus: they refused the permission, or their location couldn't be
-   * read (turned off, no fix offline).
+   * The renter has to pick a campus: they refused the permission, their location couldn't be read
+   * (turned off, no fix offline), or they asked to change campus.
+   *
+   * @property current the campus picked earlier this session, which the chooser shows as selected
+   *   and goes back to on Cancel, or null when there is none.
    */
-  data object NeedsChoice : MapCentre
+  data class NeedsChoice(val current: Campus? = null) : MapCentre
 }
 
 /**
@@ -45,37 +49,85 @@ data class MapUiState(val centre: MapCentre = MapCentre.Undecided)
  * Centres the map on the renter's approximate location, or on a campus they pick when they don't
  * share it (#340). The screen asks Android for the permission and reports the answer with
  * [onPermissionResult]; this ViewModel never sees the permission itself.
+ *
+ * @param savedStateHandle remembers the campus picked for the session: across tab switches, and
+ *   when Android kills the app in the background. Pass `createSavedStateHandle()` from the factory.
  */
-class MapViewModel(private val locationRepository: LocationRepository) : ViewModel() {
+class MapViewModel(
+    private val locationRepository: LocationRepository,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+) : ViewModel() {
 
   private val _uiState = MutableStateFlow(MapUiState())
   val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
 
+  /** The campus picked earlier this session, or null. An unknown saved name reads as none. */
+  private val chosenCampus: Campus?
+    get() =
+        savedStateHandle.get<String>(CHOSEN_CAMPUS)?.let { name ->
+          Campus.entries.firstOrNull { it.name == name }
+        }
+
+  /** Where to centre without the renter's location: their campus if picked, else ask for one. */
+  private fun campusOrChoice(): MapCentre =
+      chosenCampus?.let { MapCentre.OnCampus(it) } ?: MapCentre.NeedsChoice()
+
   /**
    * Called by the screen with the location permission's answer, also when it was already granted.
-   * Granted, the approximate location is read; refused, the renter has to pick a campus.
+   * Granted, the approximate location is read; refused, the map goes to the campus picked earlier
+   * this session, or the renter has to pick one.
    */
   fun onPermissionResult(granted: Boolean) {
     // A second answer while the location is read (a recomposition, a quick resume) would start a
     // second read whose late answer could overwrite the first.
     if (_uiState.value.centre == MapCentre.Locating) return
     if (!granted) {
-      _uiState.update { it.copy(centre = MapCentre.NeedsChoice) }
+      _uiState.update { it.copy(centre = campusOrChoice()) }
       return
     }
     _uiState.update { it.copy(centre = MapCentre.Locating) }
     viewModelScope.launch {
       locationRepository
           .currentLocation()
-          .onSuccess { coordinates ->
-            _uiState.update { it.copy(centre = MapCentre.Located(coordinates)) }
-          }
+          .onSuccess { coordinates -> showIfStillLocating(MapCentre.Located(coordinates)) }
           .onFailure { exception ->
             // Only for the log: toAppError() logs exceptions it does not recognise. A location that
             // can't be read is expected (turned off, offline), so the renter just picks a campus.
             exception.toAppError()
-            _uiState.update { it.copy(centre = MapCentre.NeedsChoice) }
+            showIfStillLocating(campusOrChoice())
           }
     }
+  }
+
+  /** Centres the map on [campus] and remembers it for the session. */
+  fun chooseCampus(campus: Campus) {
+    savedStateHandle[CHOSEN_CAMPUS] = campus.name
+    _uiState.update { it.copy(centre = MapCentre.OnCampus(campus)) }
+  }
+
+  /** Opens the campus chooser again ("Change"), with the current campus selected. */
+  fun changeCampus() {
+    _uiState.update { it.copy(centre = MapCentre.NeedsChoice(current = chosenCampus)) }
+  }
+
+  /**
+   * Closes the chooser opened with [changeCampus] without changing campus. Ignored when there is no
+   * campus to go back to: the map needs a centre, so the renter has to pick one.
+   */
+  fun cancelCampusChoice() {
+    val campus = chosenCampus ?: return
+    _uiState.update {
+      if (it.centre is MapCentre.NeedsChoice) it.copy(centre = MapCentre.OnCampus(campus)) else it
+    }
+  }
+
+  /** Shows [centre] unless the renter picked a campus while the location was read. */
+  private fun showIfStillLocating(centre: MapCentre) {
+    _uiState.update { if (it.centre == MapCentre.Locating) it.copy(centre = centre) else it }
+  }
+
+  private companion object {
+    /** SavedStateHandle key of the campus picked this session, stored by its enum name. */
+    const val CHOSEN_CAMPUS = "map_chosen_campus"
   }
 }
