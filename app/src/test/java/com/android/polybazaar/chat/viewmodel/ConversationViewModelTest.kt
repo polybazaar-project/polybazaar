@@ -110,7 +110,7 @@ class ConversationViewModelTest {
 
     val viewModel = viewModel()
 
-    assertEquals(ConversationUiState(myUid = renter.uid), viewModel.uiState.value)
+    assertEquals(ConversationUiState(myUid = renter.uid, isRenter = true), viewModel.uiState.value)
     advance()
     val state = viewModel.uiState.value
     assertFalse(state.isLoading)
