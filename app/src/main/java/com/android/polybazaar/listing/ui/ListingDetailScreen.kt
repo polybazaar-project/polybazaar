@@ -102,6 +102,8 @@ object ListingDetailScreenTags {
   const val PHOTOS = "listing_detail_photos"
   const val PHOTO = "listing_detail_photo"
   const val PHOTO_COUNTER = "listing_detail_photo_counter"
+  const val FULL_SCREEN_PHOTOS = "listing_detail_full_screen_photos"
+  const val FULL_SCREEN_CLOSE = "listing_detail_full_screen_close"
   const val PAUSED_BADGE = "listing_detail_paused_badge"
   const val PAUSED_NOTICE = "listing_detail_paused_notice"
   const val OWNER_ACTION_ERROR = "listing_detail_owner_action_error"
