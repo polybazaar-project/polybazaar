@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -69,6 +70,7 @@ import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
@@ -447,6 +449,9 @@ fun AppNavHost(
           // The route requires both, so they are always there.
           val listingId = entry.arguments!!.getString(Routes.LISTING_ID)!!
           val renterUid = entry.arguments!!.getString(Routes.RENTER_UID)!!
+          val appContext = LocalContext.current.applicationContext
+          val chatPhotoStorage =
+              remember(appContext) { FilePhotoStorage(appContext, FilePhotoStorage.CHAT_FORM) }
           // Scoped to this entry: each conversation opened gets its own ViewModel.
           val conversationViewModel: ConversationViewModel =
               viewModel(
@@ -460,6 +465,7 @@ fun AppNavHost(
                               chatRepository = chatRepository,
                               profileRepository = profileRepository,
                               listingRepository = listingRepository,
+                              photoStorage = chatPhotoStorage,
                           )
                         }
                       }

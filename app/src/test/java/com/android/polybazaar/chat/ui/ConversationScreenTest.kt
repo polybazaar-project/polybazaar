@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.ui
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,8 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import java.net.UnknownHostException
 import java.time.Instant
@@ -196,6 +199,7 @@ class ConversationScreenTest {
             chatRepository = chat,
             profileRepository = FakeProfileRepository(mapOf(james.uid to james)),
             listingRepository = listings,
+            photoStorage = NoPhotoStorage,
         )
     composeTestRule.setContent {
       CompositionLocalProvider(
@@ -829,5 +833,14 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.SEND_ERROR).assertDoesNotExist()
     node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft("Is it free on Saturday?!"))
+  }
+
+  /** No test of the screen takes a photo yet. */
+  private object NoPhotoStorage : PhotoStorage {
+    override fun newPhoto(): TakenPhoto? = null
+
+    override fun delete(photo: Uri) = Unit
+
+    override fun deleteAllExcept(keep: List<Uri>) = Unit
   }
 }

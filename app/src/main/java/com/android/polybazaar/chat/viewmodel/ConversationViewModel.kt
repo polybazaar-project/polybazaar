@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.User
@@ -14,6 +15,7 @@ import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ObservedListing
+import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
@@ -45,8 +47,11 @@ enum class ConversationListingStatus {
  *   null until it is known.
  * @property otherUser profile of the other participant, or null while it loads, after a failure, or
  *   when they have no profile.
- * @property draft the message being typed.
- * @property canSend whether the draft can be sent now.
+ * @property draft the message being typed, or the caption of [attachedPhoto] when there is one.
+ * @property attachedPhoto the photo picked or taken to send with the draft as its caption, if any.
+ * @property canAttachPhoto whether a photo can be attached: only once the conversation exists,
+ *   since a photo cannot be its first message, and while the listing is known and not deleted.
+ * @property canSend whether the draft, or the attached photo with its caption, can be sent now.
  * @property firstMessageBlockedByPause true when the renter has no conversation yet and the listing
  *   is paused: the rules refuse a first message until it is active again. False while the
  *   conversation loads and after it failed to load, when whether it exists is unknown.
@@ -64,6 +69,8 @@ data class ConversationUiState(
     val listingStatus: ConversationListingStatus? = null,
     val otherUser: User? = null,
     val draft: String = "",
+    val attachedPhoto: Uri? = null,
+    val canAttachPhoto: Boolean = false,
     val canSend: Boolean = false,
     val firstMessageBlockedByPause: Boolean = false,
     val isLoading: Boolean = true,
@@ -81,6 +88,9 @@ private data class LoadedListing(
  * Shows and sends the messages between the renter [renterUid] and the owner of the listing
  * [listingId], as seen by [myUid], the signed-in user.
  *
+ * [photoStorage] keeps the photos taken with the camera until they are sent; photos picked from the
+ * gallery belong to the user and are never deleted.
+ *
  * The lender must only be routed here for a conversation that already exists: until then the
  * security rules refuse them the conversation and its messages, which shows as a load error.
  */
@@ -91,6 +101,7 @@ class ConversationViewModel(
     private val chatRepository: ChatRepository,
     private val profileRepository: ProfileRepository,
     private val listingRepository: ListingRepository,
+    private val photoStorage: PhotoStorage,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ConversationUiState(myUid = myUid))
@@ -113,6 +124,10 @@ class ConversationViewModel(
   private var sendInFlight = false
   private var lastMarkedReadAt: Instant? = null
   private var isVisible = false
+  // The photo the camera app is taking, until it closes.
+  private var photoBeingTaken: Uri? = null
+  // Photos taken with the camera and not deleted yet, so gallery photos are never deleted.
+  private val takenPhotos = mutableSetOf<Uri>()
 
   init {
     observeListing()
@@ -136,12 +151,59 @@ class ConversationViewModel(
   }
 
   /**
+   * Attaches [photo], picked from the gallery, replacing the photo attached before. Ignored when a
+   * photo cannot be attached.
+   */
+  fun attachPhoto(photo: Uri) {
+    if (!_uiState.value.canAttachPhoto) return
+    replaceAttachedPhoto(photo)
+  }
+
+  /**
+   * Prepares a photo for the camera app to take and returns where it should write it, or null when
+   * a photo cannot be attached or the file cannot be created. Call [finishTakingPhoto] once the
+   * camera app closes.
+   */
+  fun startTakingPhoto(): Uri? {
+    if (!_uiState.value.canAttachPhoto) return null
+    // A second tap before the camera app opened replaces the first photo, which stays empty.
+    photoBeingTaken?.let(photoStorage::delete)
+    photoBeingTaken = null
+    val photo = photoStorage.newPhoto() ?: return null
+    photoBeingTaken = photo.uri
+    return photo.cameraUri
+  }
+
+  /**
+   * Attaches the photo the camera app took, or deletes its empty file if [saved] is false or a
+   * photo can no longer be attached.
+   */
+  fun finishTakingPhoto(saved: Boolean) {
+    val photo = photoBeingTaken ?: return
+    photoBeingTaken = null
+    if (!saved || !_uiState.value.canAttachPhoto) {
+      photoStorage.delete(photo)
+      return
+    }
+    takenPhotos += photo
+    replaceAttachedPhoto(photo)
+  }
+
+  /** Removes the attached photo, deleting it if it was taken with the camera. */
+  fun removeAttachedPhoto() {
+    val photo = _uiState.value.attachedPhoto ?: return
+    _uiState.update { it.copy(attachedPhoto = null).derived() }
+    deleteIfTaken(photo)
+  }
+
+  /**
    * Queues the draft as a message: the first one creates the conversation, later ones reply in it.
    * Ignored when it cannot be sent or while the previous send call is still running.
    */
   fun send() {
     val state = _uiState.value
-    if (!state.canSend || sendInFlight) return
+    // Sending the attached photo is not supported yet: Send stays a no-op until it is.
+    if (!state.canSend || sendInFlight || state.attachedPhoto != null) return
     // Before the conversation has loaded, a renter's message is sent as a first one: the merge
     // write becomes an update when the conversation exists, and the rules accept it.
     val target = state.conversation ?: firstConversation() ?: return
@@ -191,6 +253,17 @@ class ConversationViewModel(
 
   fun dismissSendError() {
     _uiState.update { it.copy(sendError = null) }
+  }
+
+  private fun replaceAttachedPhoto(photo: Uri) {
+    val replaced = _uiState.value.attachedPhoto
+    _uiState.update { it.copy(attachedPhoto = photo).derived() }
+    if (replaced != null && replaced != photo) deleteIfTaken(replaced)
+  }
+
+  /** Deletes [photo] if it was taken with the camera; a gallery photo is left alone. */
+  private fun deleteIfTaken(photo: Uri) {
+    if (takenPhotos.remove(photo)) photoStorage.delete(photo)
   }
 
   /**
@@ -361,20 +434,28 @@ class ConversationViewModel(
   }
 
   /**
-   * This state with the fields that derive from the observed listing, the conversation and the
-   * draft recomputed.
+   * This state with the fields that derive from the observed listing, the conversation, the draft
+   * and the attached photo recomputed.
    */
   private fun ConversationUiState.derived(): ConversationUiState {
     val (listing, status) = loaded
+    val listingOpen = status != null && status != ConversationListingStatus.DELETED
+    val canAttach = listingOpen && conversation != null
     val sendable =
-        ChatRules.isSendable(draft) &&
-            status != null &&
-            status != ConversationListingStatus.DELETED &&
-            (conversation != null ||
-                (status == ConversationListingStatus.ACTIVE && firstConversation(listing) != null))
+        if (attachedPhoto != null) {
+          // A photo can be sent alone: a blank caption is no caption.
+          canAttach && (draft.isBlank() || ChatRules.isSendable(draft))
+        } else {
+          ChatRules.isSendable(draft) &&
+              listingOpen &&
+              (conversation != null ||
+                  (status == ConversationListingStatus.ACTIVE &&
+                      firstConversation(listing) != null))
+        }
     return copy(
         listingTitle = listing?.title ?: conversation?.listingTitle,
         listingStatus = status,
+        canAttachPhoto = canAttach,
         canSend = sendable,
         firstMessageBlockedByPause =
             status == ConversationListingStatus.PAUSED &&

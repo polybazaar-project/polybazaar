@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.viewmodel
 
+import android.net.Uri
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.ChatRules
@@ -10,6 +11,8 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
@@ -36,6 +39,7 @@ class ConversationViewModelTest {
   private lateinit var chat: FakeChatRepository
   private lateinit var profiles: FakeProfileRepository
   private lateinit var listings: FakeListingRepository
+  private lateinit var photoStorage: FakePhotoStorage
 
   private val lender = User(uid = "lender", email = "", username = "Lena")
   private val renter = User(uid = "renter", email = "", username = "Remi")
@@ -69,6 +73,7 @@ class ConversationViewModelTest {
     chat = FakeChatRepository()
     profiles = FakeProfileRepository(listOf(lender, renter).associateBy { it.uid })
     listings = FakeListingRepository(allListings = listOf(listing))
+    photoStorage = FakePhotoStorage()
   }
 
   @After
@@ -80,7 +85,15 @@ class ConversationViewModelTest {
 
   /** Creates the ViewModel for the drill conversation, seen by [myUid], without running it. */
   private fun viewModel(myUid: String = renter.uid) =
-      ConversationViewModel(listing.listingId!!, renter.uid, myUid, chat, profiles, listings)
+      ConversationViewModel(
+          listing.listingId!!,
+          renter.uid,
+          myUid,
+          chat,
+          profiles,
+          listings,
+          photoStorage,
+      )
 
   /** Creates the ViewModel and lets its loads finish. */
   private fun loadedViewModel(myUid: String = renter.uid) = viewModel(myUid).also { advance() }
@@ -965,5 +978,18 @@ class ConversationViewModelTest {
     viewModel.setVisible(true)
 
     assertEquals(listOf(unreadReply.id), chat.markedRead)
+  }
+
+  /** Records the photos deleted; it cannot create one, which no test needs yet. */
+  private class FakePhotoStorage : PhotoStorage {
+    val deleted = mutableListOf<Uri>()
+
+    override fun newPhoto(): TakenPhoto? = null
+
+    override fun delete(photo: Uri) {
+      deleted += photo
+    }
+
+    override fun deleteAllExcept(keep: List<Uri>) = Unit
   }
 }
