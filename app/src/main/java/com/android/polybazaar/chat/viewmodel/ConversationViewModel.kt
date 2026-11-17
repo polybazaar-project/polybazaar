@@ -35,6 +35,28 @@ enum class ConversationListingStatus {
   DELETED,
 }
 
+/** Where a photo being sent is. */
+enum class PendingPhotoStatus {
+  UPLOADING,
+  FAILED,
+}
+
+/**
+ * A photo the user sent that is not in the conversation yet: still uploading, or failed.
+ *
+ * @property messageId the ID of its message, kept so a retry reuses the photo already uploaded.
+ * @property photo the photo on the device.
+ * @property caption the trimmed caption, or null for a photo alone.
+ * @property error why it failed, when [status] is [PendingPhotoStatus.FAILED].
+ */
+data class PendingPhoto(
+    val messageId: String,
+    val photo: Uri,
+    val caption: String?,
+    val status: PendingPhotoStatus,
+    val error: AppError? = null,
+)
+
 /**
  * State of the conversation screen.
  *
@@ -55,6 +77,7 @@ enum class ConversationListingStatus {
  * @property firstMessageBlockedByPause true when the renter has no conversation yet and the listing
  *   is paused: the rules refuse a first message until it is active again. False while the
  *   conversation loads and after it failed to load, when whether it exists is unknown.
+ * @property pendingPhotos the photos sent that are not in [messages] yet, oldest first.
  * @property isLoading true until the listing, the conversation and the messages have each been
  *   loaded or failed, and again while a retry reloads any of them.
  * @property loadError why the conversation could not be loaded; the screen offers Retry. What is
@@ -73,6 +96,7 @@ data class ConversationUiState(
     val canAttachPhoto: Boolean = false,
     val canSend: Boolean = false,
     val firstMessageBlockedByPause: Boolean = false,
+    val pendingPhotos: List<PendingPhoto> = emptyList(),
     val isLoading: Boolean = true,
     val loadError: AppError? = null,
     val sendError: AppError? = null,
@@ -198,12 +222,18 @@ class ConversationViewModel(
 
   /**
    * Queues the draft as a message: the first one creates the conversation, later ones reply in it.
-   * Ignored when it cannot be sent or while the previous send call is still running.
+   * With a photo attached, sends the photo with the draft as its caption instead. Ignored when it
+   * cannot be sent or while the previous text send call is still running.
    */
   fun send() {
     val state = _uiState.value
-    // Sending the attached photo is not supported yet: Send stays a no-op until it is.
-    if (!state.canSend || sendInFlight || state.attachedPhoto != null) return
+    if (!state.canSend) return
+    val photo = state.attachedPhoto
+    if (photo != null) {
+      sendPhoto(state, photo)
+      return
+    }
+    if (sendInFlight) return
     // Before the conversation has loaded, a renter's message is sent as a first one: the merge
     // write becomes an update when the conversation exists, and the rules accept it.
     val target = state.conversation ?: firstConversation() ?: return
@@ -251,6 +281,68 @@ class ConversationViewModel(
     if (messages) observeMessages()
   }
 
+  /**
+   * Sends the attached [photo] with the draft as its caption. Both are cleared at once, so a second
+   * tap on Send finds nothing to send, and the photo shows as uploading until it is sent.
+   */
+  private fun sendPhoto(state: ConversationUiState, photo: Uri) {
+    // canSend only allows a photo once the conversation exists.
+    val conversation = state.conversation ?: return
+    val pending =
+        PendingPhoto(
+            messageId = chatRepository.newMessageId(conversation.id),
+            photo = photo,
+            caption = state.draft.trim().ifEmpty { null },
+            status = PendingPhotoStatus.UPLOADING,
+        )
+    _uiState.update {
+      it.copy(draft = "", attachedPhoto = null, pendingPhotos = it.pendingPhotos + pending)
+          .derived()
+    }
+    upload(conversation, pending)
+  }
+
+  /** Sends [pending], then removes it once its message is queued, or marks it failed. */
+  private fun upload(conversation: Conversation, pending: PendingPhoto) {
+    viewModelScope.launch {
+      val rejected = AtomicBoolean(false)
+      try {
+        chatRepository.sendPhoto(
+            conversation,
+            pending.messageId,
+            pending.photo,
+            pending.caption,
+        ) { exception ->
+          rejected.set(true)
+          onPhotoWriteFailure(pending, exception)
+        }
+        // Checked inside update so a rejection racing with this removal cannot be lost.
+        _uiState.update {
+          if (rejected.get()) it
+          else it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(pending) })
+        }
+        // The upload is done: a retry after a late rejection reuses the uploaded file, not this
+        // one.
+        deleteIfTaken(pending.photo)
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        val error = exception.toAppError()
+        _uiState.update { it.withPendingPhoto(pending.failed(error)) }
+        reloadListingAfter(error)
+      }
+    }
+  }
+
+  /**
+   * Shows [pending] as failed again after the server rejected its message. Runs on any thread and
+   * must not throw: Firestore may call it from a background thread.
+   */
+  private fun onPhotoWriteFailure(pending: PendingPhoto, exception: Exception) {
+    val error = exception.toAppError()
+    _uiState.update { it.withPendingPhoto(pending.failed(error)) }
+    reloadListingAfter(error)
+  }
+
   fun dismissSendError() {
     _uiState.update { it.copy(sendError = null) }
   }
@@ -259,6 +351,25 @@ class ConversationViewModel(
     val replaced = _uiState.value.attachedPhoto
     _uiState.update { it.copy(attachedPhoto = photo).derived() }
     if (replaced != null && replaced != photo) deleteIfTaken(replaced)
+  }
+
+  private fun PendingPhoto.isSameAs(other: PendingPhoto) = messageId == other.messageId
+
+  private fun PendingPhoto.failed(error: AppError) =
+      copy(status = PendingPhotoStatus.FAILED, error = error)
+
+  /**
+   * This state with [photo] in place of the pending photo with its message ID, or added after the
+   * others when it was already removed, as after a late rejection.
+   */
+  private fun ConversationUiState.withPendingPhoto(photo: PendingPhoto): ConversationUiState {
+    val photos =
+        if (pendingPhotos.any { it.isSameAs(photo) }) {
+          pendingPhotos.map { if (it.isSameAs(photo)) photo else it }
+        } else {
+          pendingPhotos + photo
+        }
+    return copy(pendingPhotos = photos)
   }
 
   /** Deletes [photo] if it was taken with the camera; a gallery photo is left alone. */
