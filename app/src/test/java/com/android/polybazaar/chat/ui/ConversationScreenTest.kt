@@ -1055,7 +1055,7 @@ class ConversationScreenTest {
     setContent(loaded.copy(messages = listOf(myPhoto)))
 
     node(ConversationScreenTags.myMessage("m3"))
-        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_loading))
         .assertTextEquals("Here it is", "You · 09:16")
     val photo = photoNode("m3").getBoundsInRoot()
     val caption = text("Here it is").getBoundsInRoot()
@@ -1067,7 +1067,7 @@ class ConversationScreenTest {
     setContent(loaded.copy(messages = listOf(theirPhoto)))
 
     node(ConversationScreenTags.theirMessage("m4"))
-        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_loading))
         .assertTextEquals("james · 09:16")
     photoNode("m4").assertIsDisplayed()
   }
@@ -1125,6 +1125,9 @@ class ConversationScreenTest {
 
     waitForRedPhoto("m4")
     photoNode("m4").assertHeightIsEqualTo(200.dp)
+    // Loaded: no longer "loading" for TalkBack.
+    node(ConversationScreenTags.theirMessage("m4"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
     assertEquals(emptyList<String>(), loads)
   }
 

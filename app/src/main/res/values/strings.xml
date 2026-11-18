@@ -99,6 +99,7 @@
     <string name="conversation_attached_photo">Attached photo</string>
     <string name="conversation_remove_attached_photo">Remove photo</string>
     <string name="conversation_photo">Photo</string>
+    <string name="conversation_photo_loading">Photo, loading</string>
     <string name="conversation_photo_load_failed_retry">Couldn’t load the photo · Tap to retry</string>
     <string name="conversation_photo_load_failed">Couldn’t load the photo</string>
     <string name="conversation_photo_sending">Sending…</string>

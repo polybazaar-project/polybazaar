@@ -774,6 +774,8 @@ private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
     if (!photo.pending && !photo.downloaded && photo.loadError == null) photo.load()
   }
   val description = stringResource(R.string.conversation_photo)
+  // Not the same as the photo's, so TalkBack users can tell it is not there yet.
+  val loadingDescription = stringResource(R.string.conversation_photo_loading)
   val shape = RoundedCornerShape(10.dp)
   val current = photo.decoded
   val loadError = photo.loadError
@@ -802,7 +804,7 @@ private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
         Box(
             modifier =
                 modifier.background(AuthColors.Outline).semantics {
-                  contentDescription = description
+                  contentDescription = loadingDescription
                 },
             contentAlignment = Alignment.Center,
         ) {
