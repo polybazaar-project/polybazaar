@@ -36,9 +36,9 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 
 /**
- * @param photoTimeout how long sending a photo (its message, then its upload) or loading one may
- *   take before it fails with NETWORK, rather than the Storage SDK retrying for minutes while
- *   offline.
+ * @param photoTimeout how long sending a photo (its message, its upload, then marking it uploaded)
+ *   or loading one may take before it fails with NETWORK, rather than the Storage SDK retrying for
+ *   minutes while offline.
  */
 class FirebaseChatRepository(
     private val photoCompressor: PhotoCompressor,

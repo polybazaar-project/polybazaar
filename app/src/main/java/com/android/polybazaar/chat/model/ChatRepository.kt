@@ -30,20 +30,26 @@ interface ChatRepository {
   fun newMessageId(conversationId: String): String
 
   /**
-   * Sends a photo message from the signed-in participant, and returns once the server has both the
-   * message and the photo, so it needs a connection. Storage only accepts the photo once its
-   * message is on the server, so the message and the conversation update are written first, then
-   * the photo is compressed and uploaded. Until the upload ends, the other participant may see the
-   * message before its photo can be downloaded.
+   * Sends a photo message from the signed-in participant, and returns once the server has the
+   * message and the photo, so it needs a connection. The photo is compressed first. Storage only
+   * accepts the photo once its message is on the server, so the message and the conversation update
+   * are written next, with [ChatMessage.photoPending] true; then the photo is uploaded, and the
+   * message is marked as no longer pending. Until then, the other participant sees the message with
+   * its photo pending, which can't be downloaded yet.
    *
    * Throws when signed out (UNAUTHENTICATED), when offline or when the send takes too long (an
-   * error that maps to NETWORK with toAppError), when the server rejects the message (a Firestore
+   * error that maps to NETWORK with toAppError), when the server rejects a write (a Firestore
    * error) or the upload (a Storage error), when the photo can't be read, as when it was deleted or
    * is not an image (an AppException with NOT_FOUND), and IllegalArgumentException when the user is
    * not a participant, when the conversation has no message yet (a photo cannot open a
-   * conversation), or when the caption is not sendable. Signed out, offline, for an unreadable
-   * photo, or for an IllegalArgumentException, nothing is written. After a failed upload the
-   * message stays: retrying with the same [messageId] only uploads the photo.
+   * conversation), or when the caption is not sendable.
+   *
+   * Signed out, offline when the send starts, for an unreadable photo, or for an
+   * IllegalArgumentException, nothing is written. Any other failure can leave the message written,
+   * or queued on this device to be written once the connection is back, with its photo pending.
+   * Keep the [messageId] after a failure and retry with it: a retry waits for a queued message
+   * rather than writing it again, uploads the photo only if it is not stored yet, and marks it
+   * uploaded. A message whose send is never retried, as when the app is closed, stays pending.
    *
    * @param conversation the conversation from [observeConversation].
    * @param messageId from [newMessageId]; pass the same one to retry a failed send.
