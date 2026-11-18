@@ -823,6 +823,15 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendPhotoRetryWithMessageOnServerDoesNotWaitForOtherWrites() = runTest {
+    messageAlreadyOnServer()
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(firestore, never()).waitForPendingWrites()
+  }
+
+  @Test
   fun sendPhotoRetryAfterQueuedMessageWaitsForItInsteadOfRewritingIt() = runTest {
     val written = TaskCompletionSource<Void>()
     // A server read includes this device's queued write: the message looks written already.
@@ -850,6 +859,23 @@ class FirebaseChatRepositoryTest {
 
     verify(batch).commit()
     verify(photoRef).putBytes(eq(compressedPhoto), any())
+  }
+
+  @Test
+  fun sendPhotoRetryAfterQueuedMarkWaitsForItInsteadOfMarkingAgain() = runTest {
+    // The photo was uploaded and its mark queued, then the send timed out.
+    messageQueuedOnDevice(
+        Tasks.forResult(null),
+        queued = messageSnapshot(exists = true, pending = false, queued = true),
+        then = messageSnapshot(exists = true, pending = false),
+    )
+    whenever(photoRef.metadata).thenReturn(Tasks.forResult(mock<StorageMetadata>()))
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(firestore).waitForPendingWrites()
+    verify(photoMessageRef, never()).update(any<String>(), any())
+    verify(photoRef, never()).putBytes(any(), any())
   }
 
   @Test
