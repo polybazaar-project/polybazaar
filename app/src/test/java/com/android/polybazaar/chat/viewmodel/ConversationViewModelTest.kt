@@ -1026,6 +1026,31 @@ class ConversationViewModelTest {
   }
 
   @Test
+  fun send_aPhotoWhileATextSendIsInFlight_doesNothing_soTheTextIsNotSentAgainAsItsCaption() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.onDraftChange("Hello")
+    viewModel.send()
+    advance()
+
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+    assertEquals(emptyList<FakeChatRepository.SentPhoto>(), chat.sentPhotos)
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+
+    chat.gate!!.complete(Unit)
+    advance()
+    viewModel.send()
+    advance()
+    assertEquals(
+        listOf(FakeChatRepository.SentPhoto(conversation, "m1", galleryPhoto, null)),
+        chat.sentPhotos,
+    )
+    assertEquals(listOf(conversation to "Hello"), chat.sentMessages)
+  }
+
+  @Test
   fun attachPhoto_beforeTheConversationExists_isIgnored() {
     val viewModel = loadedViewModel()
 

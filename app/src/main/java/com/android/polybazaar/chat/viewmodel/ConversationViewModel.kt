@@ -239,13 +239,14 @@ class ConversationViewModel(
    */
   fun send() {
     val state = _uiState.value
-    if (!state.canSend) return
+    // Also for a photo: until the text sent before returns, the draft still holds it, and the photo
+    // would send it again as its caption.
+    if (!state.canSend || sendInFlight) return
     val photo = state.attachedPhoto
     if (photo != null) {
       sendPhoto(state, photo)
       return
     }
-    if (sendInFlight) return
     // Before the conversation has loaded, a renter's message is sent as a first one: the merge
     // write becomes an update when the conversation exists, and the rules accept it.
     val target = state.conversation ?: firstConversation() ?: return
