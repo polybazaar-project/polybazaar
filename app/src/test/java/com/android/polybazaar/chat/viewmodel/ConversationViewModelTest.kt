@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.viewmodel
 
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
@@ -91,8 +92,14 @@ class ConversationViewModelTest {
 
   private fun advance() = testDispatcher.scheduler.advanceUntilIdle()
 
-  /** Creates the ViewModel for the drill conversation, seen by [myUid], without running it. */
-  private fun viewModel(myUid: String = renter.uid) =
+  /**
+   * Creates the ViewModel for the drill conversation, seen by [myUid], without running it.
+   * [savedState] is what Android restores after it killed the app.
+   */
+  private fun viewModel(
+      myUid: String = renter.uid,
+      savedState: SavedStateHandle = SavedStateHandle(),
+  ) =
       ConversationViewModel(
           listing.listingId!!,
           renter.uid,
@@ -101,6 +108,7 @@ class ConversationViewModelTest {
           profiles,
           listings,
           photoStorage,
+          savedState,
       )
 
   /** Creates the ViewModel and lets its loads finish. */
@@ -1129,6 +1137,41 @@ class ConversationViewModelTest {
     assertEquals(taken.cameraUri, cameraUri)
     assertEquals(taken.uri, viewModel.uiState.value.attachedPhoto)
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  /** The state Android saves for this ViewModel, as restored into a new process. */
+  private fun SavedStateHandle.restored() = SavedStateHandle(keys().associateWith { get<Any>(it) })
+
+  @Test
+  fun takePhoto_afterAndroidKilledTheApp_attachesItToTheNewViewModel() {
+    val savedState = SavedStateHandle()
+    givenConversation()
+    viewModel(savedState = savedState).also { advance() }.startTakingPhoto()
+    val taken = photoStorage.taken.single().uri
+
+    // The camera result reaches the new process before the conversation has loaded again.
+    val restarted = viewModel(savedState = savedState.restored())
+    restarted.finishTakingPhoto(saved = true)
+    advance()
+
+    assertEquals(taken, restarted.uiState.value.attachedPhoto)
+    assertTrue(restarted.uiState.value.canSend)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun takePhoto_cancelledAfterAndroidKilledTheApp_deletesTheFile() {
+    val savedState = SavedStateHandle()
+    givenConversation()
+    viewModel(savedState = savedState).also { advance() }.startTakingPhoto()
+    val taken = photoStorage.taken.single().uri
+
+    val restarted = viewModel(savedState = savedState.restored())
+    restarted.finishTakingPhoto(saved = false)
+    advance()
+
+    assertNull(restarted.uiState.value.attachedPhoto)
+    assertEquals(listOf(taken), photoStorage.deleted)
   }
 
   @Test

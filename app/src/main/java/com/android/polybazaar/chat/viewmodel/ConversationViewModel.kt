@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.viewmodel
 
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.User
@@ -127,6 +128,10 @@ private data class LoadedListing(
  * [photoStorage] keeps the photos taken with the camera until they are sent; photos picked from the
  * gallery belong to the user and are never deleted.
  *
+ * [savedStateHandle] keeps the photo the camera app is taking when Android kills the app, which can
+ * happen while the camera app is in front. Pass `createSavedStateHandle()` from the factory: a
+ * handle made by hand is not saved by Android.
+ *
  * The lender must only be routed here for a conversation that already exists: until then the
  * security rules refuse them the conversation and its messages, which shows as a load error.
  */
@@ -138,6 +143,7 @@ class ConversationViewModel(
     private val profileRepository: ProfileRepository,
     private val listingRepository: ListingRepository,
     private val photoStorage: PhotoStorage,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ConversationUiState(myUid = myUid))
@@ -160,8 +166,14 @@ class ConversationViewModel(
   private var sendInFlight = false
   private var lastMarkedReadAt: Instant? = null
   private var isVisible = false
-  // The photo the camera app is taking, until it closes.
-  private var photoBeingTaken: Uri? = null
+  // The photo the camera app is taking, until it closes. Saved, so that it is still attached when
+  // the camera app returns to an app that Android killed meanwhile.
+  private var photoBeingTaken: Uri?
+    get() = savedStateHandle[PHOTO_BEING_TAKEN]
+    set(value) {
+      savedStateHandle[PHOTO_BEING_TAKEN] = value
+    }
+
   // Photos taken with the camera and not deleted yet, so gallery photos are never deleted.
   private val takenPhotos = mutableSetOf<Uri>()
 
@@ -621,5 +633,9 @@ class ConversationViewModel(
                 conversation == null &&
                 conversationKnown,
     )
+  }
+
+  private companion object {
+    const val PHOTO_BEING_TAKEN = "photoBeingTaken"
   }
 }

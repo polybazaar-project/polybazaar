@@ -466,6 +466,7 @@ fun AppNavHost(
                               profileRepository = profileRepository,
                               listingRepository = listingRepository,
                               photoStorage = chatPhotoStorage,
+                              savedStateHandle = createSavedStateHandle(),
                           )
                         }
                       }

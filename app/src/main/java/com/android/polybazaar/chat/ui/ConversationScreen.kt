@@ -192,7 +192,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
       rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.attachPhoto(uri)
       }
-  // The ViewModel keeps the photo file, so it survives the activity being recreated meanwhile.
+  // The ViewModel keeps the photo file in its saved state, so it survives the activity being
+  // recreated meanwhile, and Android killing the app while the camera app is in front.
   val camera =
       rememberPhotoCamera(
           startTakingPhoto = { _ -> viewModel.startTakingPhoto() },

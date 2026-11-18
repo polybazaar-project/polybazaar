@@ -46,6 +46,7 @@ import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -230,6 +231,7 @@ class ConversationScreenTest {
             profileRepository = FakeProfileRepository(mapOf(james.uid to james)),
             listingRepository = listings,
             photoStorage = photoStorage,
+            savedStateHandle = SavedStateHandle(),
         )
     val launcherOwner =
         object : ActivityResultRegistryOwner {
