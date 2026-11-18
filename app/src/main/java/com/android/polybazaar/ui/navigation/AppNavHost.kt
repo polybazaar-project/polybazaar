@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -409,7 +410,9 @@ fun AppNavHost(
           BookingRequestScreen(
               viewModel = requestViewModel,
               bookingViewModel = bookingViewModel,
-              onBack = { navController.popBackStack() },
+              // The screen stays tappable while it leaves: a second tap on back or "Done" would
+              // also pop the listing detail.
+              onBack = dropUnlessResumed { navController.popBackStack() },
           )
         }
         composable(

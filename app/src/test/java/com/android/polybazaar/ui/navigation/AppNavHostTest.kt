@@ -1066,6 +1066,49 @@ class AppNavHostTest {
     assertOnListingDetail("Bosch drill set")
   }
 
+  /** Taps [tag] twice, the second time while the screen is still leaving after the first tap. */
+  private fun doubleTap(tag: String) {
+    composeTestRule.mainClock.autoAdvance = false
+    composeTestRule.onNodeWithTag(tag).performClick()
+    composeTestRule.mainClock.advanceTimeBy(100)
+    composeTestRule.onNodeWithTag(tag).performClick()
+    composeTestRule.mainClock.autoAdvance = true
+  }
+
+  @Test
+  fun bookingRequestBack_tappedTwice_returnsToTheListingDetail() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+    chooseDatesOn("Bosch drill set")
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.SCREEN).assertIsDisplayed()
+
+    doubleTap(BookingRequestScreenTags.BACK_BUTTON)
+
+    assertOnListingDetail("Bosch drill set")
+    assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "drill")
+  }
+
+  @Test
+  fun bookingRequestDone_tappedTwice_returnsToTheListingDetail() {
+    val today = LocalDate.now()
+    listingRepository.allListings = listOf(gracesDrill.copy(availableDates = setOf(today)))
+    setContent(FakeAuthRepository(currentUser = user))
+    chooseDatesOn("Bosch drill set")
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.DATES_FIELD).performClick()
+    composeTestRule.onNodeWithTag(AvailabilityCalendarTags.day(today)).performClick()
+    composeTestRule.onNodeWithTag(AvailabilityCalendarSheetTags.DONE_BUTTON).performClick()
+    composeTestRule
+        .onNodeWithTag(BookingRequestScreenTags.SUBMIT_BUTTON)
+        .performScrollTo()
+        .performClick()
+    composeTestRule.onNodeWithTag(BookingRequestScreenTags.SENT_MESSAGE).assertIsDisplayed()
+
+    doubleTap(BookingRequestScreenTags.DONE_BUTTON)
+
+    assertOnListingDetail("Bosch drill set")
+    assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "drill")
+  }
+
   @Test
   fun bookingRequestRoute_keepsAListingIdWithReservedCharacters() {
     listingRepository.allListings = listOf(gracesDrill.copy(listingId = "a/b?c d"))
