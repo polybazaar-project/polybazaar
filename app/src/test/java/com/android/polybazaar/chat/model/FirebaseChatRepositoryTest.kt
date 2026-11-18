@@ -128,17 +128,9 @@ class FirebaseChatRepositoryTest {
     whenever(messages.document(PHOTO_ID)).thenReturn(photoMessageRef)
     whenever(photoMessageRef.id).thenReturn(PHOTO_ID)
     // By default the photo's message is not on the server yet, as for a first try.
-    val notWritten = mock<DocumentSnapshot>()
-    whenever(notWritten.exists()).thenReturn(false)
+    val notWritten = messageSnapshot(exists = false)
     whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(notWritten))
     whenever(photoMessageRef.update("photoPending", false)).thenReturn(Tasks.forResult(null))
-    // Nor in this device's cache: no write of it is queued.
-    val notCached =
-        FirebaseFirestoreException(
-            "Failed to get document from cache.",
-            FirebaseFirestoreException.Code.UNAVAILABLE,
-        )
-    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forException(notCached))
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child(PHOTO_PATH)).thenReturn(photoRef)
     val notUploaded = storageException(StorageException.ERROR_OBJECT_NOT_FOUND)
@@ -833,12 +825,13 @@ class FirebaseChatRepositoryTest {
   @Test
   fun sendPhotoRetryAfterQueuedMessageWaitsForItInsteadOfRewritingIt() = runTest {
     val written = TaskCompletionSource<Void>()
-    messageQueuedOnDevice(written.task)
+    // A server read includes this device's queued write: the message looks written already.
+    messageQueuedOnDevice(written.task, then = messageSnapshot(exists = true, pending = true))
     val sending = async { repository.sendPhoto(replied, PHOTO_ID, photo) }
     runCurrent()
 
+    // storage.rules would refuse the upload until the server has the message.
     verify(photoRef, never()).putBytes(any(), any())
-    messageAlreadyOnServer()
     written.setResult(null)
     sending.await()
 
@@ -851,38 +844,12 @@ class FirebaseChatRepositoryTest {
   @Test
   fun sendPhotoRetryAfterQueuedMessageWasRefusedWritesItAgain() = runTest {
     // The queued write ended, but the server refused it: the message is still not there.
-    messageQueuedOnDevice(Tasks.forResult(null))
+    messageQueuedOnDevice(Tasks.forResult(null), then = messageSnapshot(exists = false))
 
     repository.sendPhoto(replied, PHOTO_ID, photo)
 
     verify(batch).commit()
     verify(photoRef).putBytes(eq(compressedPhoto), any())
-  }
-
-  @Test
-  fun sendPhotoCachedMessageWithoutQueuedWriteDoesNotWait() = runTest {
-    val cached = mock<DocumentSnapshot>()
-    val metadata = mock<SnapshotMetadata>()
-    whenever(metadata.hasPendingWrites()).thenReturn(false)
-    whenever(cached.metadata).thenReturn(metadata)
-    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forResult(cached))
-
-    repository.sendPhoto(replied, PHOTO_ID, photo)
-
-    verify(firestore, never()).waitForPendingWrites()
-    verify(batch).commit()
-  }
-
-  @Test
-  fun sendPhotoRethrowsOtherCacheReadFailuresWithoutWriting() = runTest {
-    val failure =
-        FirebaseFirestoreException("Internal error.", FirebaseFirestoreException.Code.INTERNAL)
-    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forException(failure))
-
-    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
-
-    assertSame(failure, error)
-    verify(firestore, never()).batch()
   }
 
   @Test
@@ -1452,26 +1419,44 @@ class FirebaseChatRepositoryTest {
       )
 
   /**
+   * The photo's message as a server read returns it: missing unless it [exists], with [pending] as
+   * its photoPending, and [queued] when this device has a write of it the server does not have yet.
+   */
+  private fun messageSnapshot(
+      exists: Boolean,
+      pending: Boolean? = null,
+      queued: Boolean = false,
+  ): DocumentSnapshot {
+    val metadata = mock<SnapshotMetadata>()
+    whenever(metadata.hasPendingWrites()).thenReturn(queued)
+    return mock<DocumentSnapshot>().also {
+      whenever(it.exists()).thenReturn(exists)
+      whenever(it.getBoolean("photoPending")).thenReturn(pending)
+      whenever(it.metadata).thenReturn(metadata)
+    }
+  }
+
+  /**
    * Puts the photo's message on the server, as after a send whose upload failed. With [pending]
    * false its photo was already marked uploaded; null is a message from before the flag existed.
    */
   private fun messageAlreadyOnServer(pending: Boolean? = true) {
-    val written = mock<DocumentSnapshot>()
-    whenever(written.exists()).thenReturn(true)
-    whenever(written.getBoolean("photoPending")).thenReturn(pending)
+    val written = messageSnapshot(exists = true, pending = pending)
     whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(written))
   }
 
   /**
    * Leaves a write of the photo's message queued on this device, as after a send that timed out
-   * while writing it. [written] ends once this device's queued writes have reached the server.
+   * while writing it: the first server read returns [queued], which includes it. [written] ends
+   * once this device's queued writes have reached the server; reads after that return [then].
    */
-  private fun messageQueuedOnDevice(written: Task<Void>) {
-    val cached = mock<DocumentSnapshot>()
-    val metadata = mock<SnapshotMetadata>()
-    whenever(metadata.hasPendingWrites()).thenReturn(true)
-    whenever(cached.metadata).thenReturn(metadata)
-    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forResult(cached))
+  private fun messageQueuedOnDevice(
+      written: Task<Void>,
+      queued: DocumentSnapshot = messageSnapshot(exists = true, pending = true, queued = true),
+      then: DocumentSnapshot = messageSnapshot(exists = true, pending = true),
+  ) {
+    whenever(photoMessageRef.get(Source.SERVER))
+        .thenReturn(Tasks.forResult(queued), Tasks.forResult(then))
     whenever(firestore.waitForPendingWrites()).thenReturn(written)
   }
 
