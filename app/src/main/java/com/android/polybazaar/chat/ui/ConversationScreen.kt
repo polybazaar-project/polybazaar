@@ -183,6 +183,9 @@ private val BubblePhotoHeight = 200.dp
 /** Longest side, in pixels, a message photo is decoded at: sharp across a bubble. */
 private const val BUBBLE_PHOTO_MAX_SIZE = 1024
 
+/** Download errors a retry can't fix: the photo is gone, or the rules refuse it. */
+private val PermanentPhotoErrors = setOf(AppError.NOT_FOUND, AppError.PERMISSION_DENIED)
+
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
@@ -580,7 +583,7 @@ private fun MessageList(
                   MessagePhoto(
                       downloaded = path in uiState.messagePhotos,
                       decoded = decodedPhotos[path] ?: DecodedPhoto.Loading,
-                      failed = path in uiState.photoLoadErrors,
+                      loadError = uiState.photoLoadErrors[path],
                       pending = message.photoPending,
                       load = { photoActions.load(path) },
                   )
@@ -624,13 +627,13 @@ private fun LoadErrorRow(text: String, onRetry: () -> Unit) {
 
 /**
  * The photo of a message: [downloaded] once its bytes arrived, [decoded] from them above the list
- * ([DecodedPhoto.Loading] until then); [failed] when the download failed; [pending] while its
+ * ([DecodedPhoto.Loading] until then); [loadError] why the download failed; [pending] while its
  * sender is still uploading it, so it can't be downloaded yet. [load] asks for it.
  */
 private class MessagePhoto(
     val downloaded: Boolean,
     val decoded: DecodedPhoto,
-    val failed: Boolean,
+    val loadError: AppError?,
     val pending: Boolean,
     val load: () -> Unit,
 )
@@ -760,19 +763,20 @@ private sealed interface DecodedPhoto {
 
 /**
  * The photo of a message, asked for when the bubble first shows, or once its sender has uploaded
- * it: a placeholder of the same size while it uploads, downloads and decodes, and one that offers
- * to try again when it could not be loaded.
+ * it: a placeholder of the same size while it uploads, downloads and decodes, and one that says it
+ * could not be loaded, offering to try again when that may help.
  */
 @Composable
 private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
   // Not asked again on its own after a failure: only when the user taps to retry.
   LaunchedEffect(messageId, photo.pending) {
-    if (!photo.pending && !photo.downloaded && !photo.failed) photo.load()
+    if (!photo.pending && !photo.downloaded && photo.loadError == null) photo.load()
   }
   val description = stringResource(R.string.conversation_photo)
   val shape = RoundedCornerShape(10.dp)
   val current = photo.decoded
-  val downloadFailed = photo.failed && current !is DecodedPhoto.Shown
+  val loadError = photo.loadError
+  val downloadFailed = loadError != null && current !is DecodedPhoto.Shown
   // One tag per state: of two test tags on a node, only the first counts.
   val tag =
       if (downloadFailed) ConversationScreenTags.photoLoadError(messageId)
@@ -786,9 +790,13 @@ private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
             contentScale = ContentScale.Crop,
             modifier = modifier,
         )
-    // Undecodable bytes would fail again, so only a failed download offers to retry.
-    photo.failed || current is DecodedPhoto.Failed ->
-        PhotoLoadError(onRetry = photo.load.takeIf { photo.failed }, modifier = modifier)
+    // Undecodable bytes, or a photo missing or refused, would fail again: only another failed
+    // download offers to retry.
+    loadError != null || current is DecodedPhoto.Failed ->
+        PhotoLoadError(
+            onRetry = photo.load.takeIf { loadError != null && loadError !in PermanentPhotoErrors },
+            modifier = modifier,
+        )
     else ->
         Box(
             modifier =

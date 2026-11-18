@@ -23,6 +23,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -1194,6 +1195,33 @@ class ConversationScreenTest {
 
     text(string(R.string.conversation_photo_load_failed_retry)).assertIsDisplayed()
     assertEquals(listOf(theirPhoto.imagePath), loads)
+  }
+
+  @Test
+  fun photoMissingOrRefused_saysItCouldNotLoad_withoutOfferingARetry() {
+    val loads = mutableListOf<String>()
+    var error by mutableStateOf(AppError.NOT_FOUND)
+    composeTestRule.setContent {
+      ConversationContent(
+          uiState =
+              loaded.copy(
+                  messages = listOf(theirPhoto),
+                  photoLoadErrors = mapOf(theirPhoto.imagePath!! to error),
+              ),
+          zone = ZoneOffset.UTC,
+          onLoadPhoto = { loads += it },
+      )
+    }
+
+    for (permanent in listOf(AppError.NOT_FOUND, AppError.PERMISSION_DENIED)) {
+      error = permanent
+      composeTestRule
+          .onNodeWithTag(ConversationScreenTags.photoLoadError("m4"), useUnmergedTree = true)
+          .assertHasNoClickAction()
+      text(string(R.string.conversation_photo_load_failed)).assertIsDisplayed()
+      text(string(R.string.conversation_photo_load_failed_retry)).assertDoesNotExist()
+    }
+    assertEquals(emptyList<String>(), loads)
   }
 
   @Test
