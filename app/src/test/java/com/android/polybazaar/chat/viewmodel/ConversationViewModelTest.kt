@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.ChatMessage
+import com.android.polybazaar.chat.model.ChatRepository
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
@@ -24,6 +25,7 @@ import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
 import java.time.Instant
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +35,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -53,6 +56,7 @@ class ConversationViewModelTest {
   private lateinit var profiles: FakeProfileRepository
   private lateinit var listings: FakeListingRepository
   private lateinit var photoStorage: FakePhotoStorage
+  private lateinit var downloads: CountingDownloads
 
   private val lender = User(uid = "lender", email = "", username = "Lena")
   private val renter = User(uid = "renter", email = "", username = "Remi")
@@ -108,7 +112,7 @@ class ConversationViewModelTest {
           listing.listingId!!,
           renter.uid,
           myUid,
-          chat,
+          CountingDownloads(chat).also { downloads = it },
           profiles,
           listings,
           photoStorage,
@@ -1751,6 +1755,173 @@ class ConversationViewModelTest {
 
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
     assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+  }
+
+  private val photoPath = "chats/drill_renter/m1.jpg"
+  private val photoBytes = byteArrayOf(1, 2, 3)
+  private val missing = AppException(AppError.NOT_FOUND)
+
+  /** Remi's photo message "m1", the id the fake gives the next photo sent. */
+  private val photoMessage =
+      ChatMessage("m1", renter.uid, "", Instant.ofEpochSecond(300), imagePath = photoPath)
+
+  /** Runs what is due now without moving the virtual clock. */
+  private fun runCurrent() = testDispatcher.scheduler.runCurrent()
+
+  private fun advanceBy(millis: Long) {
+    testDispatcher.scheduler.advanceTimeBy(millis)
+    runCurrent()
+  }
+
+  /** The photo is in Storage now. */
+  private fun uploaded() {
+    chat.photoLoadFailure = null
+    chat.photos[photoPath] = photoBytes
+  }
+
+  @Test
+  fun loadPhoto_putsTheBytesInMessagePhotos() {
+    uploaded()
+    val viewModel = inConversation()
+
+    viewModel.loadPhoto(photoPath)
+    advance()
+
+    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
+    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
+  }
+
+  @Test
+  fun loadPhoto_twiceWhileDownloading_downloadsOnce() {
+    uploaded()
+    val viewModel = inConversation()
+
+    viewModel.loadPhoto(photoPath)
+    viewModel.loadPhoto(photoPath)
+    advance()
+
+    assertEquals(listOf(photoPath), downloads.loads)
+  }
+
+  @Test
+  fun loadPhoto_onceDownloaded_doesNotDownloadAgain() {
+    uploaded()
+    val viewModel = inConversation()
+    viewModel.loadPhoto(photoPath)
+    advance()
+
+    viewModel.loadPhoto(photoPath)
+    advance()
+
+    assertEquals(listOf(photoPath), downloads.loads)
+  }
+
+  @Test
+  fun loadPhoto_failing_recordsTheErrorAtOnce_withoutWaiting() {
+    chat.photoLoadFailure = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    val viewModel = inConversation()
+
+    viewModel.loadPhoto(photoPath)
+    runCurrent()
+
+    assertEquals(mapOf(photoPath to AppError.NETWORK), viewModel.uiState.value.photoLoadErrors)
+    assertEquals(1, downloads.loads.size)
+  }
+
+  @Test
+  fun loadPhoto_afterAFailure_clearsTheErrorAndDownloadsAgain() {
+    chat.photoLoadFailure = firestoreError(FirebaseFirestoreException.Code.UNAVAILABLE)
+    val viewModel = inConversation()
+    viewModel.loadPhoto(photoPath)
+    advance()
+    uploaded()
+
+    viewModel.loadPhoto(photoPath)
+    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
+    advance()
+
+    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
+  }
+
+  @Test
+  fun loadPhoto_notFoundYet_staysLoading_andArrivesOnALaterTry() {
+    chat.photoLoadFailure = missing
+    val viewModel = inConversation()
+    viewModel.loadPhoto(photoPath)
+    runCurrent()
+    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
+    assertEquals(emptyMap<String, ByteArray>(), viewModel.uiState.value.messagePhotos)
+
+    uploaded()
+    advanceBy(999)
+    assertEquals(1, downloads.loads.size)
+    advanceBy(1)
+
+    assertEquals(2, downloads.loads.size)
+    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
+  }
+
+  @Test
+  fun loadPhoto_stillNotFound_recordsTheErrorOnlyAfterTheLastWait() {
+    chat.photoLoadFailure = missing
+    val viewModel = inConversation()
+    viewModel.loadPhoto(photoPath)
+    runCurrent()
+
+    // 1 + 2 + 4 + 8 + 15 s.
+    val allWaits = 30.seconds.inWholeMilliseconds
+    advanceBy(allWaits - 1)
+    assertEquals(5, downloads.loads.size)
+    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
+    advanceBy(1)
+
+    assertEquals(6, downloads.loads.size)
+    assertEquals(mapOf(photoPath to AppError.NOT_FOUND), viewModel.uiState.value.photoLoadErrors)
+  }
+
+  @Test
+  fun myPhotoSent_wakesADownloadWaitingForIt() {
+    givenConversation(messages = arrayOf(photoMessage))
+    chat.photoLoadFailure = missing
+    val viewModel = loadedViewModel()
+    viewModel.loadPhoto(photoPath)
+    runCurrent()
+    viewModel.attachPhoto(galleryPhoto)
+
+    uploaded()
+    viewModel.send()
+    runCurrent()
+
+    assertEquals(2, downloads.loads.size)
+    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
+  }
+
+  @Test
+  fun myPhotoSent_restartsADownloadThatGaveUp() {
+    givenConversation(messages = arrayOf(photoMessage))
+    chat.photoLoadFailure = missing
+    val viewModel = loadedViewModel()
+    viewModel.loadPhoto(photoPath)
+    advance()
+    assertEquals(AppError.NOT_FOUND, viewModel.uiState.value.photoLoadErrors[photoPath])
+    viewModel.attachPhoto(galleryPhoto)
+
+    uploaded()
+    viewModel.send()
+    runCurrent()
+
+    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
+    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
+  }
+
+  /** Delegates to [FakeChatRepository] and records each photo download, by path, in [loads]. */
+  private class CountingDownloads(private val fake: FakeChatRepository) : ChatRepository by fake {
+    val loads = mutableListOf<String>()
+
+    override suspend fun loadMessagePhoto(imagePath: String): ByteArray {
+      loads += imagePath
+      return fake.loadMessagePhoto(imagePath)
+    }
   }
 
   /**
