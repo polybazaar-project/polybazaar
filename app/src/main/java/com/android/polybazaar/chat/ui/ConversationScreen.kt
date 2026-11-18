@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -23,15 +24,22 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -71,6 +79,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 object ConversationScreenTags {
   const val SCREEN = "conversation_screen"
@@ -88,6 +97,7 @@ object ConversationScreenTags {
   const val SEND_BUTTON = "conversation_send_button"
   const val SEND_ERROR = "conversation_send_error"
   const val LENGTH_COUNTER = "conversation_length_counter"
+  const val NEW_MESSAGE_HINT = "conversation_new_message_hint"
 
   /** Tag of the bubble of the signed-in user's message with [id]. */
   fun myMessage(id: String) = "conversation_my_message_$id"
@@ -408,34 +418,94 @@ private fun EmptyState(
 }
 
 /**
- * The messages, oldest at the top, with the load error and Retry above them when a reload failed.
+ * The messages, oldest at the top, with the load error and Retry above them when a reload failed,
+ * and a hint over the bottom while a message has arrived below the view.
  */
 @Composable
 private fun MessageList(uiState: ConversationUiState, zone: ZoneId, onRetry: () -> Unit) {
   val messages = uiState.messages
+  val newest = messages.lastOrNull()
   val listState = rememberLazyListState()
-  // The list keeps its place by key, so a new message would arrive below the view without this.
-  LaunchedEffect(messages.lastOrNull()?.id) { listState.scrollToItem(0) }
+  val scope = rememberCoroutineScope()
+  // The newest message already followed or hinted at, and whether one is waiting below the view.
+  // Saved across recreation, as the list's position is.
+  var previousNewestId by rememberSaveable { mutableStateOf<String?>(null) }
+  var newestUnseen by rememberSaveable { mutableStateOf(false) }
+  // The list keeps its place by key, so a new message arrives below the view unless this follows
+  // it. One from the other participant is followed only when the previous newest's bottom edge is
+  // on screen: then the user is reading the end of the conversation. Looked up by key, it is found
+  // whether or not the new one is laid out yet.
+  // requestScrollToItem takes no scroll lock, so a finger on the list cannot cancel the follow.
+  LaunchedEffect(newest?.id) {
+    val previous = previousNewestId
+    if (newest == null || newest.id == previous) return@LaunchedEffect
+    val layout = listState.layoutInfo
+    val follow =
+        previous == null ||
+            newest.senderUid == uiState.myUid ||
+            layout.visibleItemsInfo.any {
+              it.key == previous && it.offset >= layout.viewportStartOffset
+            }
+    previousNewestId = newest.id
+    if (follow) listState.requestScrollToItem(0) else newestUnseen = true
+  }
+  // In the reversed list the newest message is item 0, first from the bottom. The hint goes only
+  // once that is in view, so a tap whose scroll is cut short leaves it up.
+  LaunchedEffect(listState) {
+    snapshotFlow { newestUnseen && listState.firstVisibleItemIndex == 0 }
+        .collect { seen -> if (seen) newestUnseen = false }
+  }
   Column(modifier = Modifier.fillMaxSize()) {
     uiState.loadError?.let { LoadErrorRow(text = it.message(), onRetry = onRetry) }
-    // Laid out from the bottom, newest first, so the newest message stays in view, footer
-    // included, however long it is and whatever shrinks the list.
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.weight(1f).fillMaxWidth().testTag(ConversationScreenTags.MESSAGE_LIST),
-        contentPadding = PaddingValues(horizontal = PageMargin, vertical = 12.dp),
-        reverseLayout = true,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      items(messages.asReversed(), key = { it.id }) { message ->
-        MessageBubble(
-            message = message,
-            isMine = message.senderUid == uiState.myUid,
-            otherUsername = uiState.otherUser?.username,
-            zone = zone,
+    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+      // Laid out from the bottom, newest first, so the newest message stays in view, footer
+      // included, however long it is and whatever shrinks the list.
+      LazyColumn(
+          state = listState,
+          modifier = Modifier.fillMaxSize().testTag(ConversationScreenTags.MESSAGE_LIST),
+          contentPadding = PaddingValues(horizontal = PageMargin, vertical = 12.dp),
+          reverseLayout = true,
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        items(messages.asReversed(), key = { it.id }) { message ->
+          MessageBubble(
+              message = message,
+              isMine = message.senderUid == uiState.myUid,
+              otherUsername = uiState.otherUser?.username,
+              zone = zone,
+          )
+        }
+      }
+      if (newestUnseen) {
+        NewMessageHint(
+            onClick = { scope.launch { listState.animateScrollToItem(0) } },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
         )
       }
     }
+  }
+}
+
+/** Says a message arrived below the view; tapping it scrolls down to the newest message. */
+@Composable
+private fun NewMessageHint(onClick: () -> Unit, modifier: Modifier = Modifier) {
+  OutlinedButton(
+      onClick = onClick,
+      modifier =
+          modifier
+              // Announced when it appears: TalkBack's focus is on the older message being read.
+              .semantics { liveRegion = LiveRegionMode.Polite }
+              .testTag(ConversationScreenTags.NEW_MESSAGE_HINT),
+      shape = RoundedCornerShape(20.dp),
+      border = BorderStroke(1.dp, AuthColors.Outline),
+      colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
+  ) {
+    Text(
+        text = stringResource(R.string.conversation_new_message),
+        color = AuthColors.Accent,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
   }
 }
 
