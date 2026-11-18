@@ -1010,6 +1010,19 @@ class ConversationScreenTest {
       PendingPhoto("m5", galleryPhoto, "And the shelf", status, error)
 
   @Test
+  fun pendingPhoto_whoseMessageArrived_showsOnce() {
+    setContent(
+        loaded.copy(
+            messages = loaded.messages + photoMessage("m5", "renter", caption = "And the shelf"),
+            pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING)),
+        )
+    )
+
+    node(ConversationScreenTags.pendingPhoto("m5")).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m5")).assertDoesNotExist()
+  }
+
+  @Test
   fun uploadingPhoto_saysSending_withoutRetryOrRemove() {
     setContent(loaded.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING))))
 

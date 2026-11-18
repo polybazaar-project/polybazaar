@@ -77,7 +77,8 @@ data class PendingPhoto(
  * @property firstMessageBlockedByPause true when the renter has no conversation yet and the listing
  *   is paused: the rules refuse a first message until it is active again. False while the
  *   conversation loads and after it failed to load, when whether it exists is unknown.
- * @property pendingPhotos the photos sent that are not in [messages] yet, oldest first.
+ * @property pendingPhotos the photos sent that are still uploading or failed, oldest first. Their
+ *   message may already be in [messages], since it is written before the photo is uploaded.
  * @property isLoading true until the listing, the conversation and the messages have each been
  *   loaded or failed, and again while a retry reloads any of them.
  * @property loadError why the conversation could not be loaded; the screen offers Retry. What is
@@ -100,7 +101,18 @@ data class ConversationUiState(
     val isLoading: Boolean = true,
     val loadError: AppError? = null,
     val sendError: AppError? = null,
-)
+) {
+  /**
+   * The [messages] to show: those of [pendingPhotos] are left out, as their pending bubble already
+   * shows them, so a photo shows once while it uploads or after it failed.
+   */
+  val shownMessages: List<ChatMessage> =
+      if (pendingPhotos.isEmpty()) messages
+      else {
+        val pendingIds = pendingPhotos.mapTo(HashSet()) { it.messageId }
+        messages.filterNot { it.id in pendingIds }
+      }
+}
 
 /** The listing as last observed, kept in one reference so other threads never see half of it. */
 private data class LoadedListing(

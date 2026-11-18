@@ -520,7 +520,7 @@ private fun MessageList(
     onRetry: () -> Unit,
     photoActions: PhotoActions,
 ) {
-  val messages = uiState.messages
+  val messages = uiState.shownMessages
   val pendingPhotos = uiState.pendingPhotos
   val listState = rememberLazyListState()
   // The list keeps its place by key, so a new message or photo would arrive below the view without

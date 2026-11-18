@@ -1304,6 +1304,26 @@ class ConversationViewModelTest {
   }
 
   @Test
+  fun sendPhoto_hidesItsMessageUntilSent_soThePhotoShowsOnce() {
+    val viewModel = inConversation()
+    val sent = ChatMessage("m1", renter.uid, "", Instant.ofEpochSecond(300), imagePath = "chats/m1")
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    // The message reaches the conversation before its photo is uploaded.
+    chat.messages.value = mapOf(conversation.id to listOf(sent))
+    advance()
+    assertEquals(listOf(sent), viewModel.uiState.value.messages)
+    assertEquals(emptyList<ChatMessage>(), viewModel.uiState.value.shownMessages)
+
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(listOf(sent), viewModel.uiState.value.shownMessages)
+  }
+
+  @Test
   fun sendPhoto_tappedTwice_sendsOnce() {
     val viewModel = inConversation()
     viewModel.attachPhoto(galleryPhoto)
