@@ -97,6 +97,9 @@ class FirebaseChatRepository(
               }
             }
             ?.trim()
+    // First, so a photo that can't be compressed sends nothing. Outside the timeout, which is for
+    // the network: a large photo compressing slowly must not be reported as offline.
+    val compressed = photoCompressor.compress(photo)
     val path = photoPath(conversation.id, messageId)
     val messageRef = conversationDocument(conversation.id).collection(MESSAGES).document(messageId)
     val photoRef = storage.reference.child(path)
@@ -129,7 +132,7 @@ class FirebaseChatRepository(
             throw e
           }
         }
-        if (!exists(photoRef)) upload(photoRef, photo)
+        if (!exists(photoRef)) upload(photoRef, compressed)
       }
     } catch (e: TimeoutCancellationException) {
       // A CancellationException, which callers would take for their own cancellation and ignore.
@@ -304,9 +307,9 @@ class FirebaseChatRepository(
         false
       }
 
-  /** Uploads the compressed [photo] to [ref], and cancels the upload if the caller is cancelled. */
-  private suspend fun upload(ref: StorageReference, photo: Uri) {
-    val task = ref.putBytes(photoCompressor.compress(photo), PhotoStorage.JPEG_METADATA)
+  /** Uploads the [jpeg] bytes to [ref], and cancels the upload if the caller is cancelled. */
+  private suspend fun upload(ref: StorageReference, jpeg: ByteArray) {
+    val task = ref.putBytes(jpeg, PhotoStorage.JPEG_METADATA)
     try {
       task.await()
     } catch (e: CancellationException) {

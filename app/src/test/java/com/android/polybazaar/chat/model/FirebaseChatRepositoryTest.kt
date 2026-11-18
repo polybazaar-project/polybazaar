@@ -35,6 +35,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -634,7 +635,7 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
-  fun sendPhotoCompressionFailureUploadsNothing() = runTest {
+  fun sendPhotoCompressionFailureWritesAndUploadsNothing() = runTest {
     val repository =
         FirebaseChatRepository(
             { throw IllegalStateException("Unreadable photo") },
@@ -648,7 +649,27 @@ class FirebaseChatRepositoryTest {
     // Not assertSame: coroutine stack-trace recovery may rethrow a copy of it.
     assertTrue(error is IllegalStateException)
     assertEquals("Unreadable photo", error?.message)
-    verify(photoRef, never()).putBytes(any(), any())
+    verify(photoMessageRef, never()).get(any<Source>())
+    verifyNothingSent()
+  }
+
+  @Test
+  fun sendPhotoSlowCompressionDoesNotCountAgainstTheTimeout() = runTest {
+    val repository =
+        FirebaseChatRepository(
+            {
+              delay(10.seconds)
+              compressedPhoto
+            },
+            firestore,
+            auth,
+            storage,
+            photoSendTimeout = 5.seconds,
+        )
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(photoRef).putBytes(eq(compressedPhoto), any())
   }
 
   @Test
@@ -656,21 +677,9 @@ class FirebaseChatRepositoryTest {
     messageAlreadyOnServer()
     val stored = mock<StorageMetadata>()
     whenever(photoRef.metadata).thenReturn(Tasks.forResult(stored))
-    var compressions = 0
-    val repository =
-        FirebaseChatRepository(
-            {
-              compressions++
-              compressedPhoto
-            },
-            firestore,
-            auth,
-            storage,
-        )
 
     repository.sendPhoto(replied, PHOTO_ID, photo, caption = "The drill bits")
 
-    assertEquals(0, compressions)
     verify(photoRef, never()).putBytes(any(), any())
     verify(firestore, never()).batch()
   }
