@@ -2,10 +2,12 @@
 package com.android.polybazaar.chat.ui
 
 import android.content.Context
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -13,6 +15,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
@@ -22,6 +25,7 @@ import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -29,6 +33,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -159,6 +165,38 @@ class ConversationScreenTest {
         "Spans $top..$bottom px, outside the list at $list",
         top >= list.top && bottom <= list.bottom,
     )
+  }
+
+  /** When [manyMessages] were sent. */
+  private val manyStart = Instant.parse("2026-11-11T08:00:00Z")
+
+  /** More messages than fit on the screen, oldest first: the renter's are the even ones. */
+  private val manyMessages =
+      List(50) {
+        ChatMessage("m$it", if (it % 2 == 0) "renter" else james.uid, "Message $it", manyStart)
+      }
+
+  /**
+   * Shows [messages], through [restoration] when given, and returns how to make a new one arrive
+   * after them.
+   */
+  private fun showManyMessages(
+      messages: List<ChatMessage> = manyMessages,
+      restoration: StateRestorationTester? = null,
+  ): (ChatMessage) -> Unit {
+    var uiState by mutableStateOf(loaded.copy(messages = messages))
+    val content: @Composable () -> Unit = {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC)
+    }
+    if (restoration != null) restoration.setContent(content)
+    else composeTestRule.setContent(content)
+    return { message -> uiState = uiState.copy(messages = uiState.messages + message) }
+  }
+
+  /** Scrolls up to the oldest of [manyMessages], the last item of the list. */
+  private fun scrollToTheOldest() {
+    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(manyMessages.lastIndex)
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
   }
 
   /** Every text of the empty state. */
@@ -399,23 +437,149 @@ class ConversationScreenTest {
 
   @Test
   fun manyMessages_openOnTheLatest_andFollowANewOne() {
-    val start = Instant.parse("2026-11-11T08:00:00Z")
-    val many =
-        List(50) {
-          ChatMessage("m$it", if (it % 2 == 0) "renter" else james.uid, "Message $it", start)
-        }
-    var uiState by mutableStateOf(loaded.copy(messages = many))
-    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
+    val arrive = showManyMessages()
 
     assertFullyInTheList(node(ConversationScreenTags.theirMessage("m49")))
     node(ConversationScreenTags.myMessage("m0")).assertIsNotDisplayed()
 
-    uiState = uiState.copy(messages = many + ChatMessage("m50", "renter", "On my way", start))
+    arrive(ChatMessage("m50", "renter", "On my way", manyStart))
 
     assertFullyInTheList(node(ConversationScreenTags.myMessage("m50")))
     // The oldest message was only out of view: the list holds it last, newest first.
     node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(50)
     node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  @Test
+  fun theirNewMessageWhileTheLatestIsInView_isFollowed_withoutTheHint() {
+    val arrive = showManyMessages()
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun theirNewMessagesWhileReadingOlderOnes_keepThePlace_andShowTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    composeTestRule.waitForIdle()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+    arrive(ChatMessage("m51", james.uid, "At ten", manyStart))
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.theirMessage("m50")).assertIsNotDisplayed()
+    node(ConversationScreenTags.theirMessage("m51")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT)
+        .assertIsDisplayed()
+        .assertTextEquals(string(R.string.conversation_new_message))
+        .assertHasClickAction()
+        .assert(isPoliteLiveRegion())
+  }
+
+  @Test
+  fun theirNewMessageDuringADragAtTheLatest_isFollowedOnceTheFingerLifts() {
+    val arrive = showManyMessages()
+    // Past the touch slop, so the finger holds the list's scroll while it stays down.
+    node(ConversationScreenTags.MESSAGE_LIST).performTouchInput {
+      down(center)
+      moveBy(Offset(0f, viewConfiguration.touchSlop + 5f))
+      moveBy(Offset(0f, 5f))
+    }
+    node(ConversationScreenTags.theirMessage("m49")).assertIsDisplayed()
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    composeTestRule.waitForIdle()
+    // Held still before lifting, so the list does not fling.
+    composeTestRule.mainClock.advanceTimeBy(500)
+    node(ConversationScreenTags.MESSAGE_LIST).performTouchInput { up() }
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  // Real text heights, and a window shorter than the long message, so its start and its end are
+  // not in view together.
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Config(qualifiers = "w360dp-h480dp")
+  fun theirNewMessageWhileReadingTheStartOfALongNewestOne_keepsThePlace_andShowsTheHint() {
+    // The longest message the rules allow.
+    val long =
+        ChatMessage(
+            "m49",
+            james.uid,
+            "word ".repeat(ChatRules.MAX_MESSAGE_LENGTH / "word ".length),
+            manyStart,
+        )
+    val arrive = showManyMessages(manyMessages.dropLast(1) + long)
+    node(ConversationScreenTags.MESSAGE_LIST).performTouchInput {
+      swipe(Offset(centerX, top + 20f), Offset(centerX, top + 220f), durationMillis = 2000)
+    }
+    val list = node(ConversationScreenTags.MESSAGE_LIST).fetchSemanticsNode().boundsInRoot
+    val reading = node(ConversationScreenTags.theirMessage("m49")).fetchSemanticsNode()
+    val readingTop = reading.positionInRoot.y
+    assertTrue("Its end is in view", readingTop + reading.size.height > list.bottom)
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+
+    val after = node(ConversationScreenTags.theirMessage("m49")).fetchSemanticsNode()
+    assertEquals(readingTop, after.positionInRoot.y, 0.5f)
+    node(ConversationScreenTags.theirMessage("m50")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+  }
+
+  @Test
+  fun recreatedWhileTheHintShows_keepsTheHintAndThePlace() {
+    val restoration = StateRestorationTester(composeTestRule)
+    val arrive = showManyMessages(restoration = restoration)
+    scrollToTheOldest()
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+
+    restoration.emulateSavedInstanceStateRestore()
+
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  @Test
+  fun tappingTheHint_showsTheNewMessage_andHidesTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).performClick()
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun scrollingDownToTheNewMessage_hidesTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+
+    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(0)
+
+    node(ConversationScreenTags.theirMessage("m50")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun myNewMessageWhileReadingOlderOnes_isFollowed_withoutTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+
+    arrive(ChatMessage("m50", "renter", "On my way", manyStart))
+
+    assertFullyInTheList(node(ConversationScreenTags.myMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
   }
 
   @Test
