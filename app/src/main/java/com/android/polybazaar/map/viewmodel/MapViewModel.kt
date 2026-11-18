@@ -4,7 +4,6 @@ package com.android.polybazaar.map.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.LocationRepository
@@ -92,12 +91,9 @@ class MapViewModel(
       locationRepository
           .currentLocation()
           .onSuccess { coordinates -> showIfStillLocating(MapCentre.Located(coordinates)) }
-          .onFailure { exception ->
-            // Only for the log: toAppError() logs exceptions it does not recognise. A location that
-            // can't be read is expected (turned off, offline), so the renter just picks a campus.
-            exception.toAppError()
-            showIfStillLocating(campusOrChoice())
-          }
+          // A location that can't be read is expected (turned off, offline), so it is not logged:
+          // the renter just gets their campus, or picks one.
+          .onFailure { showIfStillLocating(campusOrChoice()) }
     }
   }
 
