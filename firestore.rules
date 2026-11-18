@@ -122,7 +122,12 @@ service cloud.firestore {
       allow read: if isVerified()
           && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid);
       allow create: if isVerified() && validBooking(request.resource.data);
-      allow update, delete: if false;
+      allow update: if isVerified()
+          && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid)
+          && resource.data.status in ['REQUESTED', 'CONFIRMED']
+          && request.resource.data.status == 'CANCELLED'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      allow delete: if false;
     }
 
     // One conversation per listing and renter. It is created and bumped only in the same batch as a

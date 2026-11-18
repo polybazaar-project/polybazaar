@@ -17,7 +17,7 @@ class FirebaseBookingRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val logWriteFailure: (Exception) -> Unit = {
-      Log.e("BookingRepository", "Booking request failed", it)
+      Log.e("BookingRepository", "Booking write failed", it)
     },
 ) : BookingRepository {
 
@@ -67,6 +67,39 @@ class FirebaseBookingRepository(
         .await()
         .documents
         .map { it.toBooking() }
+  }
+
+  override suspend fun getBookingsForRenter(): List<Booking> {
+    val uid =
+        auth.currentUser?.uid
+            ?: throw FirebaseFirestoreException(
+                "Sign in to read bookings",
+                FirebaseFirestoreException.Code.UNAUTHENTICATED,
+            )
+    return firestore
+        .collection("bookings")
+        .whereEqualTo("renterUid", uid)
+        .get()
+        .await()
+        .documents
+        .map { it.toBooking() }
+  }
+
+  override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
+    if (auth.currentUser == null) {
+      throw FirebaseFirestoreException(
+          "Sign in to cancel a booking",
+          FirebaseFirestoreException.Code.UNAUTHENTICATED,
+      )
+    }
+    firestore
+        .collection("bookings")
+        .document(id)
+        .update("status", BookingStatus.CANCELLED.name)
+        .addOnFailureListener(Executor { it.run() }) {
+          logWriteFailure(it)
+          onWriteFailure(it)
+        }
   }
 
   private fun DocumentSnapshot.toBooking(): Booking {
