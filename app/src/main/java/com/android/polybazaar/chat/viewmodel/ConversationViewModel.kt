@@ -17,6 +17,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.network.ConnectivityObserver
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
@@ -27,6 +28,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -142,6 +145,9 @@ private data class LoadedListing(
  * [photoUploadScope]. Once the screen is closed, an upload that ends deletes its photo if it was
  * taken with the camera, whether it was sent or not, as nothing can retry it any more.
  *
+ * [connectivity] tells when the device is back online, to send again the photos that failed for
+ * want of a connection while the screen is open.
+ *
  * The lender must only be routed here for a conversation that already exists: until then the
  * security rules refuse them the conversation and its messages, which shows as a load error.
  */
@@ -155,6 +161,7 @@ class ConversationViewModel(
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
     private val uploadScope: CoroutineScope,
+    private val connectivity: ConnectivityObserver,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ConversationUiState(myUid = myUid))
@@ -197,6 +204,28 @@ class ConversationViewModel(
     observeConversation()
     observeMessages()
     observeOtherUser()
+    retryPhotosWhenOnline()
+  }
+
+  /**
+   * Each time the device comes back online, sends again the photos that failed with
+   * [AppError.NETWORK]. Other failures, such as a refusal, would fail again, so they wait for the
+   * user's Retry.
+   */
+  private fun retryPhotosWhenOnline() {
+    viewModelScope.launch {
+      connectivity
+          .observeOnline()
+          .distinctUntilChanged()
+          .filter { online -> online }
+          // Without it, the user can still tap Retry; toAppError() logs unrecognised failures.
+          .catch { exception -> exception.toAppError() }
+          .collect {
+            _uiState.value.pendingPhotos
+                .filter { it.status == PendingPhotoStatus.FAILED && it.error == AppError.NETWORK }
+                .forEach { retryPhoto(it.messageId) }
+          }
+    }
   }
 
   /**

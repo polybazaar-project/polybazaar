@@ -21,6 +21,7 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.TakenPhoto
+import com.android.polybazaar.network.FakeConnectivityObserver
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
@@ -55,6 +56,7 @@ class ConversationViewModelTest {
   private lateinit var profiles: FakeProfileRepository
   private lateinit var listings: FakeListingRepository
   private lateinit var photoStorage: FakePhotoStorage
+  private lateinit var connectivity: FakeConnectivityObserver
   private lateinit var downloads: CountingDownloads
 
   private val lender = User(uid = "lender", email = "", username = "Lena")
@@ -90,6 +92,7 @@ class ConversationViewModelTest {
     profiles = FakeProfileRepository(listOf(lender, renter).associateBy { it.uid })
     listings = FakeListingRepository(allListings = listOf(listing))
     photoStorage = FakePhotoStorage()
+    connectivity = FakeConnectivityObserver()
   }
 
   @After
@@ -117,6 +120,7 @@ class ConversationViewModelTest {
           photoStorage,
           savedState,
           uploadScope,
+          connectivity,
       )
 
   /** Creates the ViewModel and lets its loads finish. */
