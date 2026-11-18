@@ -483,6 +483,16 @@ describe("listings", () => {
       await assertFails(deleteDoc(doc(verified(BOB), "bookings/requested")));
     });
 
+    test("a finished booking cannot be cancelled", async () => {
+      const today = Math.floor(Date.now() / 86_400_000);
+      await seed("bookings/finished", booking({ days: [today - 5, today - 3] }));
+      await seed("bookings/ends-today", booking({ days: [today - 2, today] }));
+
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/finished"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(ALICE), "bookings/finished"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(BOB), "bookings/ends-today"), { status: "CANCELLED" }));
+    });
+
     test("cancellation cannot change fields other than status", async () => {
       await seed("bookings/b1", booking());
       const ref = doc(verified(BOB), "bookings/b1");

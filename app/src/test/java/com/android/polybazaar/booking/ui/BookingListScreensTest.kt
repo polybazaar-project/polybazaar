@@ -3,6 +3,7 @@ package com.android.polybazaar.booking.ui
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,7 +33,7 @@ class BookingListScreensTest {
           listingId = "listing",
           renterUid = "renter",
           lenderUid = "lender",
-          days = setOf(LocalDate.of(2026, 11, 13)),
+          days = setOf(LocalDate.now().plusDays(5)),
           status = status,
           id = id,
       )
@@ -42,6 +43,7 @@ class BookingListScreensTest {
       onBack: () -> Unit = {},
       onRetry: () -> Unit = {},
       onCancel: (String) -> Unit = {},
+      showRenter: Boolean = false,
   ) {
     composeTestRule.setContent {
       BookingListContent(
@@ -50,8 +52,82 @@ class BookingListScreensTest {
           onBack = onBack,
           onRetry = onRetry,
           onCancel = onCancel,
+          showRenter = showRenter,
       )
     }
+  }
+
+  @Test
+  fun finishedBooking_hasNoCancelButton() {
+    val finished = booking("a").copy(days = setOf(LocalDate.now().minusDays(1)))
+    show(BookingUiState(bookings = listOf(finished)))
+
+    statuses().assertCountEquals(1)
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.CANCEL_BUTTON).assertCountEquals(0)
+  }
+
+  @Test
+  fun renterScreen_namesBookingsAfterTheirListing() {
+    show(
+        BookingUiState(
+            bookings = listOf(booking("a")),
+            listingTitles = mapOf("listing" to "Bosch drill set"),
+            renterNames = mapOf("renter" to "James Richard"),
+        )
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.LABEL).assertTextEquals("Bosch drill set")
+  }
+
+  @Test
+  fun lenderScreen_namesBookingsAfterTheirRenter() {
+    show(
+        BookingUiState(
+            bookings = listOf(booking("a")),
+            listingTitles = mapOf("listing" to "Bosch drill set"),
+            renterNames = mapOf("renter" to "James Richard"),
+        ),
+        showRenter = true,
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.LABEL).assertTextEquals("James Richard")
+  }
+
+  @Test
+  fun bookingWithoutKnownName_isListedWithoutLabel() {
+    show(BookingUiState(bookings = listOf(booking("a"))))
+
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.LABEL).assertCountEquals(0)
+  }
+
+  @Test
+  fun retryAfterRefusedCancellation_cancelsAgainInsteadOfReloading() {
+    val cancelled = mutableListOf<String>()
+    var reloads = 0
+    show(
+        BookingUiState(
+            bookings = listOf(booking("a")),
+            failedCancelId = "a",
+            error = AppError.PERMISSION_DENIED,
+        ),
+        onRetry = { reloads++ },
+        onCancel = { cancelled += it },
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+
+    assertEquals(listOf("a"), cancelled)
+    assertEquals(0, reloads)
+  }
+
+  @Test
+  fun retryAfterLoadError_reloads() {
+    var reloads = 0
+    show(BookingUiState(error = AppError.NETWORK), onRetry = { reloads++ })
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+
+    assertEquals(1, reloads)
   }
 
   private fun statuses() = composeTestRule.onAllNodesWithTag(BookingListScreenTags.STATUS)
@@ -124,8 +200,9 @@ class BookingListScreensTest {
       )
     }
     composeTestRule.waitUntil { viewModel.uiState.value.error != null }
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
     repository.loadFailure = null
+    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+
     composeTestRule.waitUntil { viewModel.uiState.value.bookings.isNotEmpty() }
     assertEquals(2, repository.loadCount)
 

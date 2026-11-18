@@ -411,7 +411,12 @@ fun AppNavHost(
               )
           val bookingViewModel: BookingViewModel =
               viewModel(
-                  factory = viewModelFactory { initializer { BookingViewModel(bookingRepository) } }
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      }
               )
           BookingRequestScreen(
               viewModel = requestViewModel,
@@ -426,7 +431,11 @@ fun AppNavHost(
               viewModel(
                   key = "renter_bookings",
                   factory =
-                      viewModelFactory { initializer { BookingViewModel(bookingRepository) } },
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      },
               )
           RenterBookingsScreen(
               viewModel = bookingViewModel,
@@ -442,7 +451,11 @@ fun AppNavHost(
               viewModel(
                   key = "lender_bookings_$listingId",
                   factory =
-                      viewModelFactory { initializer { BookingViewModel(bookingRepository) } },
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      },
               )
           LenderBookingsScreen(
               listingId = listingId,

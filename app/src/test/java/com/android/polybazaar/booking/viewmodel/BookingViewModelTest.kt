@@ -4,11 +4,16 @@
 package com.android.polybazaar.booking.viewmodel
 
 import androidx.lifecycle.ViewModelStore
+import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.profile.model.FakeProfileRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -182,6 +187,68 @@ class BookingViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
     assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isLoadingBookings)
+  }
+
+  @Test
+  fun loadRenterBookings_sortsByEarliestDayAndNamesListings() = runTest {
+    val drill =
+        ItemListing(
+            category = ListingCategory.ITEM_TOOLS,
+            price = 8.0,
+            title = "Bosch drill set",
+            description = "Cordless drill.",
+            refundValue = 120.0,
+            maxRentalDays = 3,
+            listingId = "listing",
+            ownerUid = "lender",
+        )
+    val later = booking.copy(id = "later", days = setOf(LocalDate.of(2026, 12, 20)))
+    val earlier =
+        booking.copy(id = "earlier", listingId = "gone", days = setOf(LocalDate.of(2026, 12, 2)))
+    repository.renterBookings = listOf(later, earlier)
+    val viewModel =
+        BookingViewModel(repository, listingRepository = FakeListingRepository(listOf(drill)))
+
+    viewModel.loadRenterBookings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("earlier", "later"), viewModel.uiState.value.bookings.map { it.id })
+    assertEquals(mapOf("listing" to "Bosch drill set"), viewModel.uiState.value.listingTitles)
+  }
+
+  @Test
+  fun loadListingBookings_namesRentersAndSkipsUnreadableProfiles() = runTest {
+    val james = User(uid = "renter", email = "j@epfl.ch", username = "James Richard")
+    val profiles = FakeProfileRepository(mapOf("renter" to james)).apply { failingUids += "other" }
+    repository.listingBookings =
+        listOf(booking.copy(id = "a"), booking.copy(id = "b", renterUid = "other"))
+    val viewModel = BookingViewModel(repository, profileRepository = profiles)
+
+    viewModel.loadListingBookings("listing")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(mapOf("renter" to "James Richard"), viewModel.uiState.value.renterNames)
+    assertEquals(2, viewModel.uiState.value.bookings.size)
+    assertEquals(null, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun cancelBooking_remembersTheRefusedBookingForRetryUntilTheNextAction() = runTest {
+    repository.renterBookings = listOf(booking.copy(id = "a"))
+    val viewModel = BookingViewModel(repository)
+    viewModel.loadRenterBookings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    repository.cancelFailure = AppException(AppError.PERMISSION_DENIED)
+    viewModel.cancelBooking("a")
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals("a", viewModel.uiState.value.failedCancelId)
+
+    repository.cancelFailure = null
+    viewModel.cancelBooking("a")
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(null, viewModel.uiState.value.failedCancelId)
+    assertEquals(BookingStatus.CANCELLED, viewModel.uiState.value.bookings.single().status)
   }
 
   @Test

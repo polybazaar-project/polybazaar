@@ -35,6 +35,7 @@ import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
+import com.android.polybazaar.booking.model.isFinished
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.error.ui.message
@@ -50,6 +51,7 @@ object BookingListScreenTags {
   const val STATUS = "booking_list_status"
   const val CANCEL_BUTTON = "booking_list_cancel_button"
   const val CANCELLING = "booking_list_cancelling"
+  const val LABEL = "booking_list_label"
 }
 
 /** The renter's own bookings, loaded by [viewModel], each cancellable while still active. */
@@ -77,13 +79,18 @@ fun LenderBookingsScreen(listingId: String, viewModel: BookingViewModel, onBack:
       onBack = onBack,
       onRetry = { viewModel.loadListingBookings(listingId) },
       onCancel = viewModel::cancelBooking,
+      showRenter = true,
   )
 }
 
 /**
  * Loading, error with Retry, empty and list states of bookings. A cancelled booking stays listed as
  * cancelled; a booking whose cancellation is being queued shows "Cancelling…". An error from a
- * cancellation the server rejected shows above the list, which keeps the restored booking.
+ * cancellation the server rejected shows above the list, which keeps the restored booking; its
+ * Retry cancels that booking again instead of reloading. A booking whose days are all before
+ * [today] is history and cannot be cancelled.
+ *
+ * @param showRenter names each booking after its renter (the lender's view) instead of its listing.
  */
 @Composable
 fun BookingListContent(
@@ -92,6 +99,8 @@ fun BookingListContent(
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onCancel: (String) -> Unit,
+    showRenter: Boolean = false,
+    today: LocalDate = LocalDate.now(),
 ) {
   Column(
       modifier =
@@ -125,7 +134,7 @@ fun BookingListContent(
             modifier = Modifier.weight(1f).testTag(BookingListScreenTags.ERROR_MESSAGE),
         )
         TextButton(
-            onClick = onRetry,
+            onClick = { uiState.failedCancelId?.let(onCancel) ?: onRetry() },
             modifier = Modifier.testTag(BookingListScreenTags.RETRY_BUTTON),
         ) {
           Text(
@@ -160,7 +169,12 @@ fun BookingListContent(
             items(uiState.bookings, key = { it.id }) { booking ->
               BookingRow(
                   booking = booking,
+                  label =
+                      if (showRenter) uiState.renterNames[booking.renterUid]
+                      else uiState.listingTitles[booking.listingId],
                   isCancelling = booking.id in uiState.cancellingBookingIds,
+                  canCancel =
+                      booking.status != BookingStatus.CANCELLED && !booking.isFinished(today),
                   onCancel = { onCancel(booking.id) },
               )
             }
@@ -170,17 +184,32 @@ fun BookingListContent(
 }
 
 @Composable
-private fun BookingRow(booking: Booking, isCancelling: Boolean, onCancel: () -> Unit) {
+private fun BookingRow(
+    booking: Booking,
+    label: String?,
+    isCancelling: Boolean,
+    canCancel: Boolean,
+    onCancel: () -> Unit,
+) {
   Row(
       modifier = Modifier.fillMaxWidth().background(AuthColors.CardBackground).padding(14.dp),
       verticalAlignment = Alignment.CenterVertically,
   ) {
     Column(modifier = Modifier.weight(1f)) {
+      if (label != null) {
+        Text(
+            text = label,
+            color = AuthColors.TextPrimary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            modifier = Modifier.testTag(BookingListScreenTags.LABEL),
+        )
+      }
       Text(
           text = formatRuns(groupIntoRuns(booking.days)),
           color = AuthColors.TextPrimary,
-          fontWeight = FontWeight.Bold,
-          fontSize = 15.sp,
+          fontWeight = if (label == null) FontWeight.Bold else FontWeight.Normal,
+          fontSize = if (label == null) 15.sp else 13.sp,
       )
       Text(
           text = stringResource(booking.status.labelRes),
@@ -199,7 +228,7 @@ private fun BookingRow(booking: Booking, isCancelling: Boolean, onCancel: () -> 
               fontSize = 13.sp,
               modifier = Modifier.testTag(BookingListScreenTags.CANCELLING),
           )
-      booking.status != BookingStatus.CANCELLED ->
+      canCancel ->
           TextButton(
               onClick = onCancel,
               modifier = Modifier.testTag(BookingListScreenTags.CANCEL_BUTTON),

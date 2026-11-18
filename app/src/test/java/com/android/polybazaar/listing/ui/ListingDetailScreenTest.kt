@@ -435,7 +435,7 @@ class ListingDetailScreenTest {
         .assertTextEquals(context.getString(R.string.listing_detail_owner_reassurance))
     node(ListingDetailScreenTags.EDIT_BUTTON).assertWidthIsEqualTo(166.dp).performClick()
     assertEquals(listOf("drill"), edited)
-    node(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).performScrollTo().performClick()
+    node(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).performClick()
     assertEquals(listOf("drill"), openedBookings)
   }
 
