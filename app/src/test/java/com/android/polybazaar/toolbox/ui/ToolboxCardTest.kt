@@ -37,6 +37,7 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.testing.hasClickLabel
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
+import com.android.polybazaar.ui.theme.PolyBazaarTheme
 import java.net.UnknownHostException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -193,6 +194,27 @@ class ToolboxCardTest {
     val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
     rows[0].assert(hasText("Bosch drill set")).assert(hasText(paused))
     rows[1].assert(hasText("Math tutoring")).assert(!hasText(paused))
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Measures the text for real, so heights are real.
+  fun pausedRow_isAsTallAsAnActiveRow() {
+    val listings = listOf((myListings[0] as ItemListing).copy(isPaused = true), myListings[1])
+    // The app's theme, since its line height is what sets the title's height.
+    composeTestRule.setContent {
+      PolyBazaarTheme(dynamicColor = false) {
+        ToolboxContent(
+            uiState = ToolboxUiState(listings = listings),
+            onRetry = {},
+            onTypeSelected = {},
+        )
+      }
+    }
+
+    val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
+    val paused = rows[0].getUnclippedBoundsInRoot()
+    val active = rows[1].getUnclippedBoundsInRoot()
+    assertEquals(active.bottom - active.top, paused.bottom - paused.top)
   }
 
   @Test

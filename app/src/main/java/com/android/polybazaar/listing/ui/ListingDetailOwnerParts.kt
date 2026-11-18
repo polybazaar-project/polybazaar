@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
@@ -187,9 +188,11 @@ internal fun DeleteListingDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
  * rows too.
  *
  * @param modifier for the screen's own test tag, for example.
+ * @param verticalPadding inside the pill. The Toolbox passes 0.dp so a paused row is as tall as an
+ *   active one: the badge's line is then as tall as the title's.
  */
 @Composable
-internal fun PausedBadge(modifier: Modifier = Modifier) {
+internal fun PausedBadge(modifier: Modifier = Modifier, verticalPadding: Dp = 7.dp) {
   Text(
       text = stringResource(R.string.listing_detail_paused).uppercase(),
       color = PausedBadgeText,
@@ -199,7 +202,7 @@ internal fun PausedBadge(modifier: Modifier = Modifier) {
       modifier =
           modifier
               .background(AuthColors.AccentContainer, CircleShape)
-              .padding(horizontal = 10.dp, vertical = 7.dp),
+              .padding(horizontal = 10.dp, vertical = verticalPadding),
   )
 }
 

@@ -270,7 +270,10 @@ private fun ToolboxListingRow(listing: Listing, onClick: (() -> Unit)?) {
           modifier = Modifier.weight(1f, fill = false),
       )
       // Paused listings are hidden from everyone else, so the owner needs to see which ones are.
-      if (listing.isPaused) PausedBadge(Modifier.testTag(ToolboxCardTags.PAUSED_BADGE))
+      if (listing.isPaused) {
+        // No vertical padding, so a paused row is as tall as an active one.
+        PausedBadge(Modifier.testTag(ToolboxCardTags.PAUSED_BADGE), verticalPadding = 0.dp)
+      }
     }
     Row {
       Text(
