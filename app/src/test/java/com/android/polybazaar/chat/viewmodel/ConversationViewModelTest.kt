@@ -1786,6 +1786,25 @@ class ConversationViewModelTest {
   }
 
   @Test
+  fun backOnline_leavesAPhotoStillSendingAlone() {
+    connectivity.online.value = false
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    connectivity.online.value = true
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(
+        listOf(PendingPhotoStatus.UPLOADING),
+        viewModel.uiState.value.pendingPhotos.map { it.status },
+    )
+  }
+
+  @Test
   fun stillOffline_sendsNothingAgain() {
     connectivity.online.value = false
     val viewModel = failedPhotoSend(offline)
