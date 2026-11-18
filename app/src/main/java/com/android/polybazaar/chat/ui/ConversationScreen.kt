@@ -742,12 +742,13 @@ private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
       }
   val description = stringResource(R.string.conversation_photo)
   val shape = RoundedCornerShape(10.dp)
-  val modifier =
-      Modifier.fillMaxWidth()
-          .height(BubblePhotoHeight)
-          .clip(shape)
-          .testTag(ConversationScreenTags.messagePhoto(messageId))
   val current = decoded
+  val downloadFailed = photo.failed && current !is DecodedPhoto.Shown
+  // One tag per state: of two test tags on a node, only the first counts.
+  val tag =
+      if (downloadFailed) ConversationScreenTags.photoLoadError(messageId)
+      else ConversationScreenTags.messagePhoto(messageId)
+  val modifier = Modifier.fillMaxWidth().height(BubblePhotoHeight).clip(shape).testTag(tag)
   when {
     current is DecodedPhoto.Shown ->
         Image(
@@ -758,15 +759,7 @@ private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
         )
     // Undecodable bytes would fail again, so only a failed download offers to retry.
     photo.failed || current is DecodedPhoto.Failed ->
-        PhotoLoadError(
-            onRetry = photo.load.takeIf { photo.failed },
-            modifier =
-                modifier.then(
-                    if (photo.failed)
-                        Modifier.testTag(ConversationScreenTags.photoLoadError(messageId))
-                    else Modifier
-                ),
-        )
+        PhotoLoadError(onRetry = photo.load.takeIf { photo.failed }, modifier = modifier)
     else ->
         Box(
             modifier =
