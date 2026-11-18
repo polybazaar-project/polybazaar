@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar.ui.navigation
 
 import androidx.activity.compose.BackHandler
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -54,6 +56,10 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreen
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
+import com.android.polybazaar.booking.model.BookingRepository
+import com.android.polybazaar.booking.ui.BookingRequestScreen
+import com.android.polybazaar.booking.viewmodel.BookingRequestViewModel
+import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.chat.model.ChatRepository
@@ -103,6 +109,7 @@ object AppNavHostTags {
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
  * @param chatRepository gives the Conversations screen the signed-in user's conversations.
+ * @param bookingRepository sends the booking requests made from a listing's "Choose dates".
  * @param photoStorage keeps the photos of the listing being created.
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
@@ -116,6 +123,7 @@ fun AppNavHost(
     photoStorage: PhotoStorage,
     editPhotoStorage: PhotoStorage,
     chatRepository: ChatRepository,
+    bookingRepository: BookingRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -367,7 +375,44 @@ fun AppNavHost(
                           }
                         }
                       },
+                      // Only a renter sees "Choose dates"; the owner has "Edit listing" there.
+                      onChooseDates = {
+                        navController.navigate(Routes.bookingRequest(listingId)) {
+                          launchSingleTop = true
+                        }
+                      },
                   ),
+          )
+        }
+        composable(
+            route = Routes.BOOKING_REQUEST,
+            arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
+        ) { entry ->
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          // Both scoped to this entry: each request opened starts without days or a sent request.
+          val requestViewModel: BookingRequestViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingRequestViewModel(
+                              listingId = listingId,
+                              listingRepository = listingRepository,
+                              authRepository = authRepository,
+                          )
+                        }
+                      }
+              )
+          val bookingViewModel: BookingViewModel =
+              viewModel(
+                  factory = viewModelFactory { initializer { BookingViewModel(bookingRepository) } }
+              )
+          BookingRequestScreen(
+              viewModel = requestViewModel,
+              bookingViewModel = bookingViewModel,
+              // The screen stays tappable while it leaves: a second tap on back or "Done" would
+              // also pop the listing detail.
+              onBack = dropUnlessResumed { navController.popBackStack() },
           )
         }
         composable(
@@ -571,6 +616,7 @@ private val signedInRoutes =
         Routes.LENDER_PROFILE,
         Routes.INBOX,
         Routes.CONVERSATION,
+        Routes.BOOKING_REQUEST,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,

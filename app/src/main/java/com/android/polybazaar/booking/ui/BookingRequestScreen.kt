@@ -114,10 +114,9 @@ fun BookingRequestScreen(
               onRetry = viewModel::loadListing,
               onSelectionChange = viewModel::updateSelection,
               onRequest = { uiState.booking?.let(bookingViewModel::requestBooking) },
-              onDone = {
-                bookingViewModel.acknowledgeQueuedBooking()
-                onBack()
-              },
+              // The request stays marked as sent: the screen is still shown while it leaves, and
+              // the form coming back could be sent a second time.
+              onDone = onBack,
           ),
   )
 }

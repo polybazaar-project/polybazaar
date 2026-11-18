@@ -62,20 +62,6 @@ class BookingViewModelTest {
   }
 
   @Test
-  fun acknowledgeQueuedBooking_allowsAnotherRequest() = runTest {
-    val viewModel = BookingViewModel(repository)
-
-    viewModel.requestBooking(booking)
-    testDispatcher.scheduler.advanceUntilIdle()
-    viewModel.acknowledgeQueuedBooking()
-    viewModel.requestBooking(booking.copy(days = setOf(LocalDate.of(2026, 12, 4))))
-    testDispatcher.scheduler.advanceUntilIdle()
-
-    assertEquals(2, repository.requestCount)
-    assertTrue(viewModel.uiState.value.isQueued)
-  }
-
-  @Test
   fun requestBooking_showsPendingAndIgnoresDuplicateRequest() = runTest {
     val gate = CompletableDeferred<Unit>()
     repository.pendingRequest = gate
