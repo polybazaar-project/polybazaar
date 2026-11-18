@@ -122,7 +122,14 @@ class FirebaseChatRepository(
       // Read from the server: offline it fails at once with UNAVAILABLE, rather than queuing a
       // message that would reach the server later without its photo. A retry finds the message
       // already written, and only uploads.
-      val onServer = messageRef.get(Source.SERVER).await()
+      var onServer = messageRef.get(Source.SERVER).await()
+      // After a send that timed out while writing, the write can still be queued on this device and
+      // reach the server later. Writing the message again would then count as an update, which the
+      // rules refuse, so wait for the queued write instead.
+      if (!onServer.exists() && hasQueuedWrite(messageRef)) {
+        firestore.waitForPendingWrites().await()
+        onServer = messageRef.get(Source.SERVER).await()
+      }
       // A new message's photo is pending until it is uploaded and marked so below.
       val pending = !onServer.exists() || onServer.getBoolean(PHOTO_PENDING) == true
       if (!onServer.exists()) {
@@ -291,6 +298,16 @@ class FirebaseChatRepository(
                 messageFields,
         )
   }
+
+  /** Whether this device has a write to [ref] that the server has not confirmed yet. */
+  private suspend fun hasQueuedWrite(ref: DocumentReference): Boolean =
+      try {
+        ref.get(Source.CACHE).await().metadata.hasPendingWrites()
+      } catch (e: FirebaseFirestoreException) {
+        // UNAVAILABLE: the document is not in the cache, so nothing is queued for it.
+        if (e.code != FirebaseFirestoreException.Code.UNAVAILABLE) throw e
+        false
+      }
 
   /** Waits for the server to confirm a write; a rejection is logged, then thrown. */
   private suspend fun Task<Void>.awaitLoggingFailure() {

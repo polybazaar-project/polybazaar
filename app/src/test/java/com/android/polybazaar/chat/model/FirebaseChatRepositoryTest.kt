@@ -130,6 +130,13 @@ class FirebaseChatRepositoryTest {
     whenever(notWritten.exists()).thenReturn(false)
     whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(notWritten))
     whenever(photoMessageRef.update("photoPending", false)).thenReturn(Tasks.forResult(null))
+    // Nor in this device's cache: no write of it is queued.
+    val notCached =
+        FirebaseFirestoreException(
+            "Failed to get document from cache.",
+            FirebaseFirestoreException.Code.UNAVAILABLE,
+        )
+    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forException(notCached))
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child(PHOTO_PATH)).thenReturn(photoRef)
     val notUploaded = storageException(StorageException.ERROR_OBJECT_NOT_FOUND)
