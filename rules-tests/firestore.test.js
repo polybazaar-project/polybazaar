@@ -11,6 +11,7 @@ import {
   initializeTestEnvironment,
 } from "@firebase/rules-unit-testing";
 import {
+  arrayRemove,
   collection,
   deleteDoc,
   deleteField,
@@ -489,6 +490,69 @@ describe("listings", () => {
 
       await assertFails(updateDoc(ref, { status: "CANCELLED", days: [day0] }));
       await assertFails(updateDoc(ref, { status: "CANCELLED", extra: true }));
+    });
+
+    /** Accepting as the app does: confirm, take the days off the listing, cancel the overlapping. */
+    function accept(db, bookingId, bookedDays, cancelledIds = []) {
+      const batch = writeBatch(db);
+      batch.update(doc(db, `bookings/${bookingId}`), { status: "CONFIRMED" });
+      cancelledIds.forEach((id) => batch.update(doc(db, `bookings/${id}`), { status: "CANCELLED" }));
+      batch.update(doc(db, "listings/l1"), { availableDates: arrayRemove(...bookedDays) });
+      return batch.commit();
+    }
+
+    test("the lender accepts a request and cancels the requests that share its days", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 5)));
+      await seed("bookings/b1", booking({ days: [day0, day0 + 1] }));
+      await seed("bookings/b2", booking({ renterUid: EVE, days: [day0 + 1, day0 + 2] }));
+      await seed("bookings/b3", booking({ renterUid: EVE, days: [day0 + 4] }));
+      const db = verified(ALICE);
+
+      await assertSucceeds(accept(db, "b1", [day0, day0 + 1], ["b2"]));
+
+      const status = async (id) => (await getDoc(doc(db, `bookings/${id}`))).data().status;
+      assert.equal(await status("b1"), "CONFIRMED");
+      assert.equal(await status("b2"), "CANCELLED");
+      assert.equal(await status("b3"), "REQUESTED");
+      const listing = (await getDoc(doc(db, "listings/l1"))).data();
+      assert.deepEqual(listing.availableDates, days(day0 + 2, day0 + 5));
+      // The accepted days can no longer be requested; the others still can.
+      await assertFails(setDoc(doc(verified(BOB), "bookings/b4"), booking({ days: [day0 + 1] })));
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b5"), booking({ days: [day0 + 2] })));
+    });
+
+    test("a request is only confirmed when the same write takes all its days off the listing", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 5)));
+      await seed("bookings/b1", booking({ days: [day0, day0 + 1] }));
+      const db = verified(ALICE);
+      await assertFails(updateDoc(doc(db, "bookings/b1"), { status: "CONFIRMED" }));
+      await assertFails(accept(db, "b1", [day0]));
+      await assertSucceeds(accept(db, "b1", [day0, day0 + 1]));
+    });
+
+    test("two requests sharing a day cannot both be accepted", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 5)));
+      await seed("bookings/b1", booking({ days: [day0, day0 + 1] }));
+      await seed("bookings/b2", booking({ renterUid: EVE, days: [day0 + 1, day0 + 2] }));
+      const db = verified(ALICE);
+      await assertSucceeds(accept(db, "b1", [day0, day0 + 1]));
+      // day0 + 1 is no longer offered, even though day0 + 2 still is.
+      await assertFails(accept(db, "b2", [day0 + 1, day0 + 2]));
+    });
+
+    test("only the verified lender accepts, and only a request still waiting", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 5)));
+      await seed("bookings/b1", booking({ days: [day0] }));
+      // Their days are still offered: only their status stops them being accepted.
+      await seed("bookings/confirmed", booking({ status: "CONFIRMED", days: [day0 + 3] }));
+      await seed("bookings/cancelled", booking({ status: "CANCELLED", days: [day0 + 4] }));
+
+      await assertFails(accept(verified(BOB), "b1", [day0]));
+      await assertFails(accept(verified(EVE), "b1", [day0]));
+      await assertFails(accept(unverified(ALICE), "b1", [day0]));
+      await assertFails(accept(verified(ALICE), "confirmed", [day0 + 3]));
+      await assertFails(accept(verified(ALICE), "cancelled", [day0 + 4]));
+      await assertSucceeds(accept(verified(ALICE), "b1", [day0]));
     });
   });
 

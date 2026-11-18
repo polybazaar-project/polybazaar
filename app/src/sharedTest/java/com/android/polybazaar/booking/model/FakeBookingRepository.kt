@@ -1,5 +1,6 @@
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
 import kotlinx.coroutines.CompletableDeferred
@@ -40,6 +41,9 @@ class FakeBookingRepository : BookingRepository {
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> = emptyList()
+
+  /** Does nothing: no test answers a booking request yet. */
+  override suspend fun acceptBooking(booking: Booking) = Unit
 
   override suspend fun getBookingsForRenter(): List<Booking> {
     loadCount++

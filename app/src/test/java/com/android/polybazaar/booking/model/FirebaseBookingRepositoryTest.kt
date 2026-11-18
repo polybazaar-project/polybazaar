@@ -10,20 +10,25 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.WriteBatch
 import java.time.LocalDate
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -296,5 +301,132 @@ class FirebaseBookingRepositoryTest {
         (error as FirebaseFirestoreException).code,
     )
     verify(document, never()).update(any<String>(), any())
+  }
+
+  /** A stored booking of the lender on "listing", as the query returns it. */
+  private fun storedBooking(id: String, days: List<Int>, status: BookingStatus): DocumentSnapshot {
+    val document = mock<DocumentSnapshot>()
+    whenever(document.id).thenReturn(id)
+    whenever(document.getString("listingId")).thenReturn("listing")
+    whenever(document.getString("renterUid")).thenReturn("renter-$id")
+    whenever(document.getString("lenderUid")).thenReturn("lender")
+    whenever(document.get("days")).thenReturn(days.map { LocalDate.of(2026, 12, it).toEpochDay() })
+    whenever(document.getString("status")).thenReturn(status.name)
+    return document
+  }
+
+  /** The signed-in lender, their bookings on "listing", and a batch that commits. */
+  private fun givenLenderWith(vararg documents: DocumentSnapshot): WriteBatch {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
+    whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(snapshot.documents).thenReturn(documents.toList())
+    val batch = mock<WriteBatch>()
+    whenever(firestore.batch()).thenReturn(batch)
+    whenever(batch.commit()).thenReturn(Tasks.forResult(null))
+    return batch
+  }
+
+  @Test
+  fun acceptBookingConfirmsIt_takesItsDaysOff_andCancelsTheRequestsSharingADay() = runTest {
+    val batch =
+        givenLenderWith(
+            storedBooking("accepted", listOf(1, 2), BookingStatus.REQUESTED),
+            storedBooking("overlapping", listOf(2, 3), BookingStatus.REQUESTED),
+            storedBooking("elsewhere", listOf(5), BookingStatus.REQUESTED),
+            storedBooking("answered", listOf(1), BookingStatus.CANCELLED),
+        )
+    val bookingDocuments =
+        listOf("accepted", "overlapping", "elsewhere", "answered").associateWith {
+          mock<DocumentReference>().also { reference ->
+            whenever(collection.document(it)).thenReturn(reference)
+          }
+        }
+    val listings = mock<CollectionReference>()
+    val listing = mock<DocumentReference>()
+    whenever(firestore.collection("listings")).thenReturn(listings)
+    whenever(listings.document("listing")).thenReturn(listing)
+    val accepted =
+        Booking(
+            listingId = "listing",
+            renterUid = "renter-accepted",
+            lenderUid = "lender",
+            days = setOf(LocalDate.of(2026, 12, 2), LocalDate.of(2026, 12, 1)),
+            id = "accepted",
+        )
+
+    repository.acceptBooking(accepted)
+
+    val removed = argumentCaptor<Any>()
+    inOrder(batch) {
+      verify(batch).update(bookingDocuments.getValue("accepted"), "status", "CONFIRMED")
+      verify(batch).update(bookingDocuments.getValue("overlapping"), "status", "CANCELLED")
+      verify(batch).update(eq(listing), eq("availableDates"), removed.capture())
+      verify(batch).commit()
+    }
+    // FieldValue has no equals: its elements are read instead, the stored epoch days.
+    assertEquals(
+        listOf(LocalDate.of(2026, 12, 1).toEpochDay(), LocalDate.of(2026, 12, 2).toEpochDay()),
+        arrayRemoveElements(removed.firstValue as FieldValue).map { it as Long }.sorted(),
+    )
+    verify(batch, never()).update(eq(bookingDocuments.getValue("elsewhere")), any<String>(), any())
+    verify(batch, never()).update(eq(bookingDocuments.getValue("answered")), any<String>(), any())
+  }
+
+  /** The elements of an arrayRemove, which the SDK keeps package-private. */
+  private fun arrayRemoveElements(value: FieldValue): List<*> =
+      value.javaClass.getDeclaredMethod("getElements").apply { isAccessible = true }.invoke(value)
+          as List<*>
+
+  @Test
+  fun acceptBookingFailsWhenTheWriteIsRefused() = runTest {
+    val batch = givenLenderWith(storedBooking("accepted", listOf(1), BookingStatus.REQUESTED))
+    whenever(collection.document("accepted")).thenReturn(document)
+    whenever(firestore.collection("listings")).thenReturn(mock())
+    val refused =
+        FirebaseFirestoreException("refused", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    whenever(batch.commit()).thenReturn(Tasks.forException(refused))
+    val accepted =
+        Booking(
+            "listing",
+            "renter-accepted",
+            "lender",
+            setOf(LocalDate.of(2026, 12, 1)),
+            id = "accepted",
+        )
+
+    assertSame(refused, runCatching { repository.acceptBooking(accepted) }.exceptionOrNull())
+  }
+
+  @Test
+  fun acceptBookingNeedsASignedInUser_andAStoredRequest() = runTest {
+    val request = booking.copy(id = "b1")
+    whenever(auth.currentUser).thenReturn(null)
+    val signedOut = runCatching { repository.acceptBooking(request) }.exceptionOrNull()
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (signedOut as FirebaseFirestoreException).code,
+    )
+
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
+    assertTrue(
+        runCatching { repository.acceptBooking(booking) }.exceptionOrNull()
+            is IllegalArgumentException
+    )
+    assertTrue(
+        runCatching { repository.acceptBooking(request.copy(status = BookingStatus.CONFIRMED)) }
+            .exceptionOrNull() is IllegalArgumentException
+    )
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun overlapsIsTrueOnlyWhenTheBookingsShareADay() {
+    val other = booking.copy(days = setOf(LocalDate.of(2027, 1, 2), LocalDate.of(2027, 1, 5)))
+    assertTrue(booking.overlaps(other))
+    assertFalse(booking.overlaps(other.copy(days = setOf(LocalDate.of(2027, 1, 1)))))
   }
 }

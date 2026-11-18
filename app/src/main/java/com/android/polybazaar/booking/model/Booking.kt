@@ -30,3 +30,6 @@ data class Booking(
     val status: BookingStatus = BookingStatus.REQUESTED,
     val id: String = "",
 )
+
+/** Whether this booking and [other] share at least one day. */
+fun Booking.overlaps(other: Booking): Boolean = days.any { it in other.days }
