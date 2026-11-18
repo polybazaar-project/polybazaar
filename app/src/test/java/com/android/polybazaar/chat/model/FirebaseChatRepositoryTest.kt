@@ -60,6 +60,7 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
@@ -803,6 +804,40 @@ class FirebaseChatRepositoryTest {
 
     assertSame(failure, logged)
     assertSame(failure, error)
+  }
+
+  @Test
+  fun sendPhotoRefusedMarkCountsAsDoneWhenTheServerShowsThePhotoUploaded() = runTest {
+    // A mark that timed out still reached the server, so this second one is refused.
+    val refused =
+        FirebaseFirestoreException(
+            "Missing or insufficient permissions.",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
+    whenever(photoMessageRef.update("photoPending", false)).thenReturn(Tasks.forException(refused))
+    val notWritten = messageSnapshot(exists = false)
+    val uploaded = messageSnapshot(exists = true, pending = false)
+    whenever(photoMessageRef.get(Source.SERVER))
+        .thenReturn(Tasks.forResult(notWritten), Tasks.forResult(uploaded))
+    var logged: Exception? = null
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { logged = it }
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    assertNull(logged)
+  }
+
+  @Test
+  fun sendPhotoOtherMarkFailureIsThrownWithoutReadingTheMessageAgain() = runTest {
+    val failure =
+        FirebaseFirestoreException("Internal error.", FirebaseFirestoreException.Code.INTERNAL)
+    whenever(photoMessageRef.update("photoPending", false)).thenReturn(Tasks.forException(failure))
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertSame(failure, error)
+    verify(photoMessageRef, times(1)).get(Source.SERVER)
   }
 
   @Test
