@@ -1760,6 +1760,59 @@ class ConversationViewModelTest {
     assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
   }
 
+  @Test
+  fun backOnline_sendsANetworkFailureAgainWithTheSameId() {
+    connectivity.online.value = false
+    val viewModel = failedPhotoSend(offline)
+    chat.sendFailure = null
+
+    connectivity.online.value = true
+    advance()
+
+    assertEquals(listOf("m1", "m1"), chat.sentPhotos.map { it.messageId })
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun backOnline_leavesARefusedPhotoForTheUsersRetry() {
+    connectivity.online.value = false
+    val viewModel = failedPhotoSend(refused)
+
+    connectivity.online.value = true
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.pendingPhotos.single().error)
+  }
+
+  @Test
+  fun stillOffline_sendsNothingAgain() {
+    connectivity.online.value = false
+    val viewModel = failedPhotoSend(offline)
+
+    connectivity.online.value = false
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(PendingPhotoStatus.FAILED, viewModel.uiState.value.pendingPhotos.single().status)
+  }
+
+  @Test
+  fun backOnlineAgain_afterASecondNetworkFailure_sendsItAgain() {
+    connectivity.online.value = false
+    failedPhotoSend(offline)
+    connectivity.online.value = true
+    advance()
+    assertEquals(2, chat.sentPhotos.size)
+
+    connectivity.online.value = false
+    advance()
+    connectivity.online.value = true
+    advance()
+
+    assertEquals(listOf("m1", "m1", "m1"), chat.sentPhotos.map { it.messageId })
+  }
+
   private val photoPath = "chats/drill_renter/m1.jpg"
   private val photoBytes = byteArrayOf(1, 2, 3)
   private val missing = AppException(AppError.NOT_FOUND)
