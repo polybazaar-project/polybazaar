@@ -1,5 +1,6 @@
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.viewmodel
 
 import com.android.polybazaar.booking.model.Booking
@@ -57,20 +58,6 @@ class BookingViewModelTest {
 
     assertEquals(booking, repository.requestedBooking)
     assertEquals(BookingUiState(isQueued = true), viewModel.uiState.value)
-  }
-
-  @Test
-  fun acknowledgeQueuedBooking_allowsAnotherRequest() = runTest {
-    val viewModel = BookingViewModel(repository)
-
-    viewModel.requestBooking(booking)
-    testDispatcher.scheduler.advanceUntilIdle()
-    viewModel.acknowledgeQueuedBooking()
-    viewModel.requestBooking(booking.copy(startDate = LocalDate.of(2026, 12, 4)))
-    testDispatcher.scheduler.advanceUntilIdle()
-
-    assertEquals(2, repository.requestCount)
-    assertTrue(viewModel.uiState.value.isQueued)
   }
 
   @Test

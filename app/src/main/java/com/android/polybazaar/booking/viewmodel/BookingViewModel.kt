@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.viewmodel
 
 import androidx.lifecycle.ViewModel
@@ -52,10 +53,5 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
         _uiState.update { it.copy(isSubmitting = false, error = exception.toAppError()) }
       }
     }
-  }
-
-  /** Marks the queued submission as handled, allowing the user to request another booking. */
-  fun acknowledgeQueuedBooking() {
-    _uiState.update { it.copy(isQueued = false) }
   }
 }
