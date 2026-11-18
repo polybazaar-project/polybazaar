@@ -1259,7 +1259,7 @@ internal fun ConversationPhotosPreview() {
                   listOf(
                       PendingPhoto(
                           messageId = "3",
-                          photo = Uri.parse("content://media/photo/3"),
+                          photo = Uri.parse("file:///preview/photo_3.jpg"),
                           caption = "And the shelf I mean",
                           status = PendingPhotoStatus.FAILED,
                           error = AppError.NETWORK,

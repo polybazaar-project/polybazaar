@@ -748,6 +748,17 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun photosPreview_showsTheirPhotoLoadingAndMyFailedPhoto() {
+    composeTestRule.setContent { ConversationPhotosPreview() }
+
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.messagePhoto("2"), useUnmergedTree = true)
+        .assertExists()
+    node(ConversationScreenTags.pendingPhoto("3")).assertExists()
+    node(ConversationScreenTags.retryPhoto("3")).assertExists()
+  }
+
+  @Test
   fun conversationBody_prefersTheMessages_thenTheError_thenLoading_elseEmpty() {
     fun body(messages: Boolean, error: Boolean, loading: Boolean) =
         conversationBody(
