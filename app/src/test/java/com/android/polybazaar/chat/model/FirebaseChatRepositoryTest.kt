@@ -129,6 +129,7 @@ class FirebaseChatRepositoryTest {
     val notWritten = mock<DocumentSnapshot>()
     whenever(notWritten.exists()).thenReturn(false)
     whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(notWritten))
+    whenever(photoMessageRef.update("photoPending", false)).thenReturn(Tasks.forResult(null))
     whenever(storage.reference).thenReturn(storageRoot)
     whenever(storageRoot.child(PHOTO_PATH)).thenReturn(photoRef)
     val notUploaded = storageException(StorageException.ERROR_OBJECT_NOT_FOUND)
@@ -457,6 +458,7 @@ class FirebaseChatRepositoryTest {
                 "senderUid" to "renter",
                 "sentAt" to FieldValue.serverTimestamp(),
                 "imagePath" to PHOTO_PATH,
+                "photoPending" to true,
             ),
     )
   }
@@ -472,6 +474,7 @@ class FirebaseChatRepositoryTest {
                 "senderUid" to "renter",
                 "sentAt" to FieldValue.serverTimestamp(),
                 "imagePath" to PHOTO_PATH,
+                "photoPending" to true,
                 "text" to "The drill bits",
             ),
     )
@@ -488,6 +491,7 @@ class FirebaseChatRepositoryTest {
                 "senderUid" to "renter",
                 "sentAt" to FieldValue.serverTimestamp(),
                 "imagePath" to PHOTO_PATH,
+                "photoPending" to true,
             ),
     )
   }
@@ -1268,6 +1272,7 @@ class FirebaseChatRepositoryTest {
   private fun messageAlreadyOnServer() {
     val written = mock<DocumentSnapshot>()
     whenever(written.exists()).thenReturn(true)
+    whenever(written.getBoolean("photoPending")).thenReturn(true)
     whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(written))
   }
 

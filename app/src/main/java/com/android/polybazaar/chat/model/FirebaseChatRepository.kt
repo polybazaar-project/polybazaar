@@ -7,6 +7,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.photo.PhotoCompressor
 import com.android.polybazaar.photo.PhotoStorage
+import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
@@ -121,7 +122,10 @@ class FirebaseChatRepository(
       // Read from the server: offline it fails at once with UNAVAILABLE, rather than queuing a
       // message that would reach the server later without its photo. A retry finds the message
       // already written, and only uploads.
-      if (!messageRef.get(Source.SERVER).await().exists()) {
+      val onServer = messageRef.get(Source.SERVER).await()
+      // A new message's photo is pending until it is uploaded and marked so below.
+      val pending = !onServer.exists() || onServer.getBoolean(PHOTO_PENDING) == true
+      if (!onServer.exists()) {
         val batch =
             messageBatch(
                 conversation,
@@ -132,17 +136,16 @@ class FirebaseChatRepository(
                 messageFields =
                     buildMap {
                       put("imagePath", path)
+                      put(PHOTO_PENDING, true)
                       trimmedCaption?.let { put("text", it) }
                     },
             )
-        try {
-          batch.commit().await()
-        } catch (e: FirebaseFirestoreException) {
-          logWriteFailure(e)
-          throw e
-        }
+        batch.commit().awaitLoggingFailure()
       }
       if (!exists(photoRef)) upload(photoRef, compressed)
+      // Tells the other participant the photo can be downloaded. The rules allow this only once,
+      // so a retry after it reached the server skips it.
+      if (pending) messageRef.update(PHOTO_PENDING, false).awaitLoggingFailure()
     }
   }
 
@@ -289,6 +292,16 @@ class FirebaseChatRepository(
         )
   }
 
+  /** Waits for the server to confirm a write; a rejection is logged, then thrown. */
+  private suspend fun Task<Void>.awaitLoggingFailure() {
+    try {
+      await()
+    } catch (e: FirebaseFirestoreException) {
+      logWriteFailure(e)
+      throw e
+    }
+  }
+
   private suspend fun currentListingTitle(listingId: String): String {
     val listing = firestore.collection(LISTINGS).document(listingId).get().await()
     return listing.takeIf { it.exists() }?.getString("title")
@@ -386,7 +399,7 @@ class FirebaseChatRepository(
         sentAt = instant("sentAt") ?: throw missing("sentAt"),
         imagePath = imagePath,
         // Photos sent before the flag existed have none, and were uploaded.
-        photoPending = getBoolean("photoPending") ?: false,
+        photoPending = getBoolean(PHOTO_PENDING) ?: false,
     )
   }
 
@@ -394,5 +407,6 @@ class FirebaseChatRepository(
     const val CONVERSATIONS = "conversations"
     const val MESSAGES = "messages"
     const val LISTINGS = "listings"
+    const val PHOTO_PENDING = "photoPending"
   }
 }
