@@ -125,6 +125,9 @@ service cloud.firestore {
       allow update: if isVerified()
           && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid)
           && resource.data.status in ['REQUESTED', 'CONFIRMED']
+          // A finished booking is history. The app stores the days earliest first, so the last
+          // one decides; it must not be before today by server time.
+          && resource.data.days[resource.data.days.size() - 1] >= request.time.toMillis() / 86400000
           && request.resource.data.status == 'CANCELLED'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
       allow delete: if false;

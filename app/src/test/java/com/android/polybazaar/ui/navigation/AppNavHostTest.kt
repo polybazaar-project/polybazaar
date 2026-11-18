@@ -28,6 +28,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -64,6 +65,7 @@ import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.ui.AvailabilityCalendarSheetTags
 import com.android.polybazaar.booking.ui.AvailabilityCalendarTags
+import com.android.polybazaar.booking.ui.BookingListScreenTags
 import com.android.polybazaar.booking.ui.BookingRequestScreenTags
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.ChatMessage
@@ -1028,6 +1030,57 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BookingRequestScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(BookingRequestScreenTags.LISTING_TITLE).assertTextEquals(title)
     assertCurrentRoute(Routes.BOOKING_REQUEST, Routes.LISTING_ID, listingId)
+  }
+
+  @Test
+  fun profileMyBookings_opensRenterBookings_andBackReturnsToProfile() {
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+
+    composeTestRule
+        .onNodeWithTag(ProfileScreenTags.MY_BOOKINGS_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.EMPTY).assertIsDisplayed()
+    assertEquals(Routes.RENTER_BOOKINGS, navController.currentBackStackEntry?.destination?.route)
+    assertBottomBarHidden()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
+  fun listingOwner_bookingRequestsOpensBookingsForThatListing() {
+    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    bookingRepository.listingBookings =
+        listOf(
+            Booking(
+                listingId = "drill",
+                renterUid = "uid-renter",
+                lenderUid = user.uid,
+                days = setOf(LocalDate.of(2026, 11, 13)),
+                id = "booking",
+            )
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).performClick()
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithTag(BookingListScreenTags.STATUS)
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    composeTestRule.onNodeWithTag(BookingListScreenTags.SCREEN).assertIsDisplayed()
+    assertCurrentRoute(Routes.LENDER_BOOKINGS, Routes.LISTING_ID, "drill")
+    assertBottomBarHidden()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
+    assertOnListingDetail("Bosch drill set")
   }
 
   @Test
