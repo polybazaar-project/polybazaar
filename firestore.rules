@@ -278,7 +278,12 @@ service cloud.firestore {
 
         allow update: if isVerified() && isPhotoUploaded();
 
-        allow delete: if false;
+        // The sender can take back a photo message whose photo never arrived: the app's Remove after
+        // a failed send. Once photoPending is false the photo is delivered and the message stays. A
+        // text never has photoPending, so it cannot be deleted.
+        allow delete: if isVerified()
+            && resource.data.senderUid == request.auth.uid
+            && resource.data.get('photoPending', false) == true;
       }
     }
 

@@ -28,7 +28,8 @@ import kotlinx.coroutines.flow.map
  *
  * [sendPhoto] records every call in [sentPhotos], then waits for [gate] and throws [sendFailure]
  * like [sendMessage]; it has no later rejection, since a photo send waits for the server.
- * [newMessageId] returns "m1", "m2", … in call order.
+ * [newMessageId] returns "m1", "m2", … in call order. [deletePhotoMessage] records every call in
+ * [deletedPhotoMessages] and removes the message from [messages].
  *
  * [loadMessagePhoto] returns the bytes stored in [photos] for the path, and throws
  * [photoLoadFailure] if set, or when the path is not in [photos].
@@ -65,6 +66,9 @@ class FakeChatRepository(
 
   /** The calls to [sendPhoto], in order. */
   val sentPhotos = mutableListOf<SentPhoto>()
+
+  /** The calls to [deletePhotoMessage], as (conversation id, message id), in order. */
+  val deletedPhotoMessages = mutableListOf<Pair<String, String>>()
 
   /** The photos [loadMessagePhoto] returns, by Storage path. */
   val photos = mutableMapOf<String, ByteArray>()
@@ -110,6 +114,13 @@ class FakeChatRepository(
     sentPhotos += SentPhoto(conversation, messageId, photo, caption)
     gate?.await()
     sendFailure?.let { throw it }
+  }
+
+  override fun deletePhotoMessage(conversationId: String, messageId: String) {
+    deletedPhotoMessages += conversationId to messageId
+    val conversationMessages = messages.value[conversationId] ?: return
+    messages.value =
+        messages.value + (conversationId to conversationMessages.filterNot { it.id == messageId })
   }
 
   override suspend fun loadMessagePhoto(imagePath: String): ByteArray {

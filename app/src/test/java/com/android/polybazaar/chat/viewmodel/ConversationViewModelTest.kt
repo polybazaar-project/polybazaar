@@ -1,22 +1,34 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.viewmodel
 
+import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -28,14 +40,19 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(AndroidJUnit4::class)
 class ConversationViewModelTest {
 
   private val testDispatcher = StandardTestDispatcher()
+  // Outlives the ViewModels, like photoUploadScope.
+  private val uploadScope = CoroutineScope(SupervisorJob() + testDispatcher)
   private lateinit var chat: FakeChatRepository
   private lateinit var profiles: FakeProfileRepository
   private lateinit var listings: FakeListingRepository
+  private lateinit var photoStorage: FakePhotoStorage
 
   private val lender = User(uid = "lender", email = "", username = "Lena")
   private val renter = User(uid = "renter", email = "", username = "Remi")
@@ -69,6 +86,7 @@ class ConversationViewModelTest {
     chat = FakeChatRepository()
     profiles = FakeProfileRepository(listOf(lender, renter).associateBy { it.uid })
     listings = FakeListingRepository(allListings = listOf(listing))
+    photoStorage = FakePhotoStorage()
   }
 
   @After
@@ -78,9 +96,25 @@ class ConversationViewModelTest {
 
   private fun advance() = testDispatcher.scheduler.advanceUntilIdle()
 
-  /** Creates the ViewModel for the drill conversation, seen by [myUid], without running it. */
-  private fun viewModel(myUid: String = renter.uid) =
-      ConversationViewModel(listing.listingId!!, renter.uid, myUid, chat, profiles, listings)
+  /**
+   * Creates the ViewModel for the drill conversation, seen by [myUid], without running it.
+   * [savedState] is what Android restores after it killed the app.
+   */
+  private fun viewModel(
+      myUid: String = renter.uid,
+      savedState: SavedStateHandle = SavedStateHandle(),
+  ) =
+      ConversationViewModel(
+          listing.listingId!!,
+          renter.uid,
+          myUid,
+          chat,
+          profiles,
+          listings,
+          photoStorage,
+          savedState,
+          uploadScope,
+      )
 
   /** Creates the ViewModel and lets its loads finish. */
   private fun loadedViewModel(myUid: String = renter.uid) = viewModel(myUid).also { advance() }
@@ -965,5 +999,783 @@ class ConversationViewModelTest {
     viewModel.setVisible(true)
 
     assertEquals(listOf(unreadReply.id), chat.markedRead)
+  }
+
+  // Photos
+
+  private val galleryPhoto = Uri.parse("content://media/picker/1")
+  private val otherGalleryPhoto = Uri.parse("content://media/picker/2")
+
+  /** Creates the ViewModel on the existing drill conversation and lets it load. */
+  private fun inConversation(myUid: String = renter.uid): ConversationViewModel {
+    givenConversation()
+    return loadedViewModel(myUid)
+  }
+
+  /** Takes a photo with the camera and attaches it; returns its file. */
+  private fun ConversationViewModel.takePhoto(): Uri {
+    assertNotNull(startTakingPhoto())
+    finishTakingPhoto(saved = true)
+    return photoStorage.taken.last().uri
+  }
+
+  /** Closes the screen: clears the ViewModel the way its ViewModelStore does. */
+  private fun ConversationViewModel.close() {
+    val store = ViewModelStore()
+    val factory = viewModelFactory { initializer { this@close } }
+    ViewModelProvider.create(store, factory)[ConversationViewModel::class]
+    store.clear()
+  }
+
+  @Test
+  fun attachPhoto_fromTheGallery_attachesIt_andItCanBeSentWithoutACaption() {
+    val viewModel = inConversation()
+    assertTrue(viewModel.uiState.value.canAttachPhoto)
+
+    viewModel.attachPhoto(galleryPhoto)
+
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+    assertTrue(viewModel.uiState.value.canSend)
+  }
+
+  @Test
+  fun send_aPhotoWhileATextSendIsInFlight_doesNothing_soTheTextIsNotSentAgainAsItsCaption() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.onDraftChange("Hello")
+    viewModel.send()
+    advance()
+
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+    assertEquals(emptyList<FakeChatRepository.SentPhoto>(), chat.sentPhotos)
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+
+    chat.gate!!.complete(Unit)
+    advance()
+    viewModel.send()
+    advance()
+    assertEquals(
+        listOf(FakeChatRepository.SentPhoto(conversation, "m1", galleryPhoto, null)),
+        chat.sentPhotos,
+    )
+    assertEquals(listOf(conversation to "Hello"), chat.sentMessages)
+  }
+
+  @Test
+  fun attachPhoto_beforeTheConversationExists_isIgnored() {
+    val viewModel = loadedViewModel()
+
+    viewModel.attachPhoto(galleryPhoto)
+
+    assertFalse(viewModel.uiState.value.canAttachPhoto)
+    assertNull(viewModel.uiState.value.attachedPhoto)
+    assertFalse(viewModel.uiState.value.canSend)
+  }
+
+  @Test
+  fun attachPhoto_toADeletedListing_isIgnored() {
+    listings.allListings = emptyList()
+    val viewModel = inConversation()
+
+    viewModel.attachPhoto(galleryPhoto)
+
+    assertFalse(viewModel.uiState.value.canAttachPhoto)
+    assertNull(viewModel.uiState.value.attachedPhoto)
+  }
+
+  @Test
+  fun attachPhoto_whileTheScreenLoads_attachesIt_andItCanBeSentOnceTheConversationIsKnown() {
+    listings.gate = CompletableDeferred()
+    val viewModel = inConversation()
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    viewModel.attachPhoto(galleryPhoto)
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+    assertFalse(viewModel.uiState.value.canSend)
+
+    listings.gate!!.complete(Unit)
+    advance()
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+    assertTrue(viewModel.uiState.value.canSend)
+  }
+
+  @Test
+  fun attachPhoto_whileTheScreenLoads_staysUnsendableWhenTheConversationTurnsOutMissing() {
+    chat.conversationGate = CompletableDeferred()
+    val viewModel = loadedViewModel()
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    viewModel.attachPhoto(galleryPhoto)
+    chat.conversationGate!!.complete(Unit)
+    advance()
+
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertFalse(viewModel.uiState.value.canAttachPhoto)
+    assertFalse(viewModel.uiState.value.canSend)
+    // Still shown, so the user can remove it.
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+  }
+
+  @Test
+  fun attachPhoto_whileTheScreenLoads_toADeletedListing_isIgnored() {
+    listings.allListings = emptyList()
+    chat.conversationGate = CompletableDeferred()
+    val viewModel = loadedViewModel()
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertEquals(ConversationListingStatus.DELETED, viewModel.uiState.value.listingStatus)
+
+    viewModel.attachPhoto(galleryPhoto)
+
+    assertNull(viewModel.uiState.value.attachedPhoto)
+  }
+
+  @Test
+  fun takePhoto_saved_attachesTheTakenFile() {
+    val viewModel = inConversation()
+
+    val cameraUri = viewModel.startTakingPhoto()
+    viewModel.finishTakingPhoto(saved = true)
+
+    val taken = photoStorage.taken.single()
+    assertEquals(taken.cameraUri, cameraUri)
+    assertEquals(taken.uri, viewModel.uiState.value.attachedPhoto)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  /** The state Android saves for this ViewModel, as restored into a new process. */
+  private fun SavedStateHandle.restored() = SavedStateHandle(keys().associateWith { get<Any>(it) })
+
+  @Test
+  fun takePhoto_afterAndroidKilledTheApp_attachesItToTheNewViewModel() {
+    val savedState = SavedStateHandle()
+    givenConversation()
+    viewModel(savedState = savedState).also { advance() }.startTakingPhoto()
+    val taken = photoStorage.taken.single().uri
+
+    // The camera result reaches the new process before the conversation has loaded again.
+    val restarted = viewModel(savedState = savedState.restored())
+    restarted.finishTakingPhoto(saved = true)
+    advance()
+
+    assertEquals(taken, restarted.uiState.value.attachedPhoto)
+    assertTrue(restarted.uiState.value.canSend)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun takePhoto_cancelledAfterAndroidKilledTheApp_deletesTheFile() {
+    val savedState = SavedStateHandle()
+    givenConversation()
+    viewModel(savedState = savedState).also { advance() }.startTakingPhoto()
+    val taken = photoStorage.taken.single().uri
+
+    val restarted = viewModel(savedState = savedState.restored())
+    restarted.finishTakingPhoto(saved = false)
+    advance()
+
+    assertNull(restarted.uiState.value.attachedPhoto)
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun takePhoto_cancelled_deletesTheFile_andAttachesNothing() {
+    val viewModel = inConversation()
+
+    viewModel.startTakingPhoto()
+    viewModel.finishTakingPhoto(saved = false)
+
+    assertNull(viewModel.uiState.value.attachedPhoto)
+    assertEquals(listOf(photoStorage.taken.single().uri), photoStorage.deleted)
+  }
+
+  @Test
+  fun startTakingPhoto_againBeforeTheCameraCloses_deletesTheFirstFile() {
+    val viewModel = inConversation()
+
+    viewModel.startTakingPhoto()
+    viewModel.startTakingPhoto()
+    viewModel.finishTakingPhoto(saved = true)
+
+    val (first, second) = photoStorage.taken
+    assertEquals(listOf(first.uri), photoStorage.deleted)
+    assertEquals(second.uri, viewModel.uiState.value.attachedPhoto)
+  }
+
+  @Test
+  fun startTakingPhoto_beforeTheConversationExists_returnsNullAndCreatesNoFile() {
+    val viewModel = loadedViewModel()
+
+    assertNull(viewModel.startTakingPhoto())
+    assertEquals(emptyList<TakenPhoto>(), photoStorage.taken)
+  }
+
+  @Test
+  fun startTakingPhoto_whenTheFileCannotBeCreated_returnsNull() {
+    photoStorage.full = true
+    val viewModel = inConversation()
+
+    assertNull(viewModel.startTakingPhoto())
+    viewModel.finishTakingPhoto(saved = true)
+
+    assertNull(viewModel.uiState.value.attachedPhoto)
+  }
+
+  @Test
+  fun finishTakingPhoto_withoutAPhotoBeingTaken_doesNothing() {
+    val viewModel = inConversation()
+
+    viewModel.finishTakingPhoto(saved = true)
+
+    assertNull(viewModel.uiState.value.attachedPhoto)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun finishTakingPhoto_onceAPhotoCanNoLongerBeAttached_deletesIt() {
+    val viewModel = inConversation()
+    viewModel.startTakingPhoto()
+
+    chat.myConversations.value = Result.success(emptyList())
+    advance()
+    viewModel.finishTakingPhoto(saved = true)
+
+    assertNull(viewModel.uiState.value.attachedPhoto)
+    assertEquals(listOf(photoStorage.taken.single().uri), photoStorage.deleted)
+  }
+
+  @Test
+  fun attachingAnotherPhoto_replacesATakenOne_andDeletesIt() {
+    val viewModel = inConversation()
+    val taken = viewModel.takePhoto()
+
+    viewModel.attachPhoto(galleryPhoto)
+
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun attachingAnotherPhoto_replacesAGalleryOne_withoutDeletingIt() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.attachPhoto(otherGalleryPhoto)
+
+    assertEquals(otherGalleryPhoto, viewModel.uiState.value.attachedPhoto)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun attachingTheSamePhotoAgain_keepsIt() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.attachPhoto(galleryPhoto)
+
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+  }
+
+  @Test
+  fun removeAttachedPhoto_deletesATakenPhoto() {
+    val viewModel = inConversation()
+    val taken = viewModel.takePhoto()
+
+    viewModel.removeAttachedPhoto()
+
+    assertNull(viewModel.uiState.value.attachedPhoto)
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun removeAttachedPhoto_keepsAGalleryPhoto() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.removeAttachedPhoto()
+
+    assertNull(viewModel.uiState.value.attachedPhoto)
+    assertFalse(viewModel.uiState.value.canSend)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun canSend_withAPhoto_acceptsNoCaptionOrAValidOne_butNotATooLongOne() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    fun canSend(caption: String): Boolean {
+      viewModel.onDraftChange(caption)
+      return viewModel.uiState.value.canSend
+    }
+
+    assertTrue(canSend(""))
+    assertTrue(canSend("   "))
+    assertTrue(canSend("Here it is"))
+    assertTrue(canSend("a".repeat(ChatRules.MAX_MESSAGE_LENGTH)))
+    assertFalse(canSend("a".repeat(ChatRules.MAX_MESSAGE_LENGTH + 1)))
+  }
+
+  @Test
+  fun closing_whileTheCameraIsOpen_deletesThePhotoBeingTaken() {
+    val viewModel = inConversation()
+    viewModel.startTakingPhoto()
+
+    viewModel.close()
+
+    assertEquals(listOf(photoStorage.taken.single().uri), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun closing_deletesTheAttachedTakenPhoto() {
+    val viewModel = inConversation()
+    val taken = viewModel.takePhoto()
+
+    viewModel.close()
+
+    assertEquals(listOf(taken), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun closing_keepsAnAttachedGalleryPhoto() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.close()
+
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun sendPhoto_sendsTheConversationAFreshIdThePhotoAndTheTrimmedCaption() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.onDraftChange("  Here it is  ")
+
+    viewModel.send()
+    advance()
+
+    assertEquals(
+        listOf(FakeChatRepository.SentPhoto(conversation, "m1", galleryPhoto, "Here it is")),
+        chat.sentPhotos,
+    )
+    assertEquals(emptyList<Pair<Conversation, String>>(), chat.sentMessages)
+  }
+
+  @Test
+  fun sendPhoto_withABlankCaption_sendsNoCaption() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.onDraftChange("   ")
+
+    viewModel.send()
+    advance()
+
+    assertNull(chat.sentPhotos.single().caption)
+  }
+
+  @Test
+  fun sendPhoto_clearsTheAttachmentAndTheDraftAtOnce() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.onDraftChange("Here it is")
+
+    viewModel.send()
+
+    val state = viewModel.uiState.value
+    assertNull(state.attachedPhoto)
+    assertEquals("", state.draft)
+    assertFalse(state.canSend)
+    assertEquals(
+        listOf(PendingPhoto("m1", galleryPhoto, "Here it is", PendingPhotoStatus.UPLOADING)),
+        state.pendingPhotos,
+    )
+  }
+
+  @Test
+  fun sendPhoto_staysUploadingUntilTheSendReturns_thenIsRemoved() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+    assertEquals(
+        listOf(PendingPhotoStatus.UPLOADING),
+        viewModel.uiState.value.pendingPhotos.map { it.status },
+    )
+
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun sendPhoto_hidesItsMessageUntilSent_soThePhotoShowsOnce() {
+    val viewModel = inConversation()
+    val sent = ChatMessage("m1", renter.uid, "", Instant.ofEpochSecond(300), imagePath = "chats/m1")
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    // The message reaches the conversation before its photo is uploaded.
+    chat.messages.value = mapOf(conversation.id to listOf(sent))
+    advance()
+    assertEquals(listOf(sent), viewModel.uiState.value.messages)
+    assertEquals(emptyList<ChatMessage>(), viewModel.uiState.value.shownMessages)
+
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(listOf(sent), viewModel.uiState.value.shownMessages)
+  }
+
+  @Test
+  fun sendPhoto_tappedTwice_sendsOnce() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.send()
+    viewModel.send()
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+  }
+
+  @Test
+  fun sendPhoto_whileAnotherUploads_sendsBothWithTheirOwnIds() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    viewModel.attachPhoto(otherGalleryPhoto)
+    viewModel.send()
+    advance()
+
+    assertEquals(listOf("m1", "m2"), chat.sentPhotos.map { it.messageId })
+    assertEquals(
+        listOf(galleryPhoto, otherGalleryPhoto),
+        viewModel.uiState.value.pendingPhotos.map { it.photo },
+    )
+  }
+
+  @Test
+  fun sentTakenPhoto_isDeletedOnceSent() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun sentGalleryPhoto_isNotDeleted() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.send()
+    advance()
+
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun send_withoutAPhoto_stillSendsTheText() {
+    val viewModel = inConversation()
+    viewModel.onDraftChange("Hello")
+
+    viewModel.send()
+    advance()
+
+    assertEquals(listOf(conversation to "Hello"), chat.sentMessages)
+    assertEquals(emptyList<FakeChatRepository.SentPhoto>(), chat.sentPhotos)
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun closing_whileAPhotoUploads_letsItFinish_thenDeletesItsPhoto() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    val sending = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+    val attached = viewModel.takePhoto()
+
+    viewModel.close()
+    // The attached photo is deleted at once; the one uploading is still being read.
+    assertEquals(listOf(attached), photoStorage.deleted)
+
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(listOf(attached, sending), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun closing_whileAPhotoUploads_deletesItsPhotoAndItsMessageWhenItFails() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    val sending = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+
+    chat.sendFailure = offline
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(listOf(sending), photoStorage.deleted)
+    // No one can retry it any more, so it must not stay pending for the other participant.
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun closing_whileAGalleryPhotoUploads_neverDeletesIt() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  private val offline = AppException(AppError.NETWORK)
+  private val refused = firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
+
+  /** Attaches the gallery photo and sends it, failing with [failure]; returns the ViewModel. */
+  private fun failedPhotoSend(failure: Exception): ConversationViewModel {
+    val viewModel = inConversation()
+    chat.sendFailure = failure
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+    return viewModel
+  }
+
+  @Test
+  fun sendPhoto_offline_failsWithNetwork() {
+    val viewModel = failedPhotoSend(offline)
+
+    assertEquals(
+        listOf(PendingPhoto("m1", galleryPhoto, null, PendingPhotoStatus.FAILED, AppError.NETWORK)),
+        viewModel.uiState.value.pendingPhotos,
+    )
+    assertNull(viewModel.uiState.value.sendError)
+  }
+
+  @Test
+  fun sendPhoto_refused_failsWithPermissionDenied() {
+    val viewModel = failedPhotoSend(refused)
+
+    val pending = viewModel.uiState.value.pendingPhotos.single()
+    assertEquals(PendingPhotoStatus.FAILED, pending.status)
+    assertEquals(AppError.PERMISSION_DENIED, pending.error)
+  }
+
+  @Test
+  fun sendPhoto_toADeletedListing_failsAndTheDeletionStopsAttachingPhotos() {
+    val viewModel = inConversation()
+    listings.allListings = emptyList()
+    chat.sendFailure = firestoreError(FirebaseFirestoreException.Code.NOT_FOUND)
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.send()
+    advance()
+
+    val state = viewModel.uiState.value
+    assertEquals(AppError.NOT_FOUND, state.pendingPhotos.single().error)
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
+    assertFalse(state.canAttachPhoto)
+  }
+
+  @Test
+  fun retryPhoto_sendsAgainWithTheSameMessageId_andRemovesItOnceSent() {
+    val viewModel = failedPhotoSend(offline)
+    chat.sendFailure = null
+    chat.gate = CompletableDeferred()
+
+    viewModel.retryPhoto("m1")
+    advance()
+    val retried = viewModel.uiState.value.pendingPhotos.single()
+    assertEquals(PendingPhotoStatus.UPLOADING, retried.status)
+    assertNull(retried.error)
+
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(listOf("m1", "m1"), chat.sentPhotos.map { it.messageId })
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun retryPhoto_failingAgain_isFailedAgainWithTheNewError() {
+    val viewModel = failedPhotoSend(offline)
+    chat.sendFailure = refused
+
+    viewModel.retryPhoto("m1")
+    advance()
+
+    val pending = viewModel.uiState.value.pendingPhotos.single()
+    assertEquals(PendingPhotoStatus.FAILED, pending.status)
+    assertEquals(AppError.PERMISSION_DENIED, pending.error)
+  }
+
+  @Test
+  fun retryPhoto_whileItUploads_doesNotSendItTwice() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    viewModel.retryPhoto("m1")
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+  }
+
+  @Test
+  fun retryPhoto_ofAnUnknownId_doesNothing() {
+    val viewModel = failedPhotoSend(offline)
+
+    viewModel.retryPhoto("m9")
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(PendingPhotoStatus.FAILED, viewModel.uiState.value.pendingPhotos.single().status)
+  }
+
+  @Test
+  fun discardPhoto_removesAFailedTakenPhoto_andDeletesItsFile() {
+    val viewModel = inConversation()
+    chat.sendFailure = offline
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.discardPhoto("m1")
+
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun discardPhoto_removesAFailedGalleryPhoto_withoutDeletingIt() {
+    val viewModel = failedPhotoSend(offline)
+
+    viewModel.discardPhoto("m1")
+
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun discardPhoto_deletesItsMessage_soTheOtherParticipantNoLongerSeesIt() {
+    val viewModel = failedPhotoSend(refused)
+    // The message was written before the upload failed.
+    val written =
+        ChatMessage(
+            "m1",
+            renter.uid,
+            "",
+            Instant.ofEpochSecond(300),
+            imagePath = "conversations/${conversation.id}/m1.jpg",
+            photoPending = true,
+        )
+    chat.messages.value = mapOf(conversation.id to listOf(hi, written))
+    advance()
+
+    viewModel.discardPhoto("m1")
+    advance()
+
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+    assertEquals(listOf(hi), viewModel.uiState.value.messages)
+    assertEquals(listOf(hi), viewModel.uiState.value.shownMessages)
+  }
+
+  @Test
+  fun discardPhoto_whileItUploads_isIgnored() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    viewModel.discardPhoto("m1")
+
+    assertEquals(
+        listOf(PendingPhotoStatus.UPLOADING),
+        viewModel.uiState.value.pendingPhotos.map { it.status },
+    )
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun closing_withAFailedTakenPhoto_deletesItAndItsMessage() {
+    val viewModel = inConversation()
+    chat.sendFailure = offline
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+
+    assertEquals(listOf(taken), photoStorage.deleted)
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun closing_withAFailedGalleryPhoto_deletesItsMessage_butNotThePhoto() {
+    val viewModel = failedPhotoSend(refused)
+
+    viewModel.close()
+
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+  }
+
+  /**
+   * Creates photos like the camera folder: "taken_0", "taken_1", … in [taken], or none while
+   * [full]. Records the photos deleted.
+   */
+  private class FakePhotoStorage : PhotoStorage {
+    var full = false
+    val taken = mutableListOf<TakenPhoto>()
+    val deleted = mutableListOf<Uri>()
+
+    override fun newPhoto(): TakenPhoto? {
+      if (full) return null
+      val index = taken.size
+      return TakenPhoto(
+              uri = Uri.parse("file:///chat/taken_$index.jpg"),
+              cameraUri = Uri.parse("content://camera/taken_$index.jpg"),
+          )
+          .also(taken::add)
+    }
+
+    override fun delete(photo: Uri) {
+      deleted += photo
+    }
+
+    override fun deleteAllExcept(keep: List<Uri>) = Unit
   }
 }

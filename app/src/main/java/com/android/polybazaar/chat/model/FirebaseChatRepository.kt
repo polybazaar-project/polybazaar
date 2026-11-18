@@ -161,6 +161,15 @@ class FirebaseChatRepository(
     storage.reference.child(imagePath).getBytes(PhotoStorage.MAX_PHOTO_BYTES).await()
   }
 
+  override fun deletePhotoMessage(conversationId: String, messageId: String) {
+    // Not awaited, like markRead: the delete is queued offline and the listener sees it at once.
+    conversationDocument(conversationId)
+        .collection(MESSAGES)
+        .document(messageId)
+        .delete()
+        .addOnFailureListener(Executor { it.run() }) { logWriteFailure(it) }
+  }
+
   override fun markRead(conversationId: String) {
     val uid = auth.currentUser?.uid ?: return
     // Not awaited, like sendMessage: the write is queued offline and the listener sees it at once.

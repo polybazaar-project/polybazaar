@@ -92,6 +92,16 @@
     <string name="conversation_placeholder">Write a message…</string>
     <string name="conversation_placeholder_closed">Conversation closed</string>
     <string name="conversation_send">Send</string>
+    <string name="conversation_placeholder_caption">Add a caption…</string>
+    <string name="conversation_photo_button">Add a photo</string>
+    <string name="conversation_take_photo">Take photo</string>
+    <string name="conversation_choose_photo">Choose from gallery</string>
+    <string name="conversation_attached_photo">Attached photo</string>
+    <string name="conversation_remove_attached_photo">Remove photo</string>
+    <string name="conversation_photo">Photo</string>
+    <string name="conversation_photo_sending">Sending…</string>
+    <string name="conversation_photo_not_sent">Not sent. %1$s</string>
+    <string name="conversation_photo_remove">Remove</string>
     <string name="conversation_length_counter">%1$d/%2$d</string>
     <plurals name="conversation_length_too_long">
         <item quantity="one">Message too long: at most %d character</item>
