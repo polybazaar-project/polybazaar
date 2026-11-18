@@ -354,8 +354,8 @@ class ConversationViewModel(
         // A refusal from a pause or deletion of the listing also reaches its observation, which
         // then stops new photos from being attached.
         _uiState.update { it.withPendingPhoto(pending.failed(exception.toAppError())) }
-        // Closed: no one can retry it.
-        if (cleared) deleteIfTaken(pending.photo)
+        // Closed: no one can retry it, so it is removed as by Remove.
+        if (cleared) abandon(pending)
       }
     }
   }
@@ -385,8 +385,7 @@ class ConversationViewModel(
     _uiState.update {
       it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(failed) })
     }
-    chatRepository.deletePhotoMessage(conversationId(listingId, renterUid), messageId)
-    deleteIfTaken(failed.photo)
+    abandon(failed)
   }
 
   fun dismissSendError() {
@@ -395,17 +394,28 @@ class ConversationViewModel(
 
   /**
    * Deletes the photos taken with the camera that were not sent: the one being taken, the attached
-   * one and the failed ones. Gallery photos are left alone. The uploads under way keep running in
-   * [uploadScope] and delete their photo when they end.
+   * one and the failed ones. Gallery photos are left alone. A failed photo can no longer be
+   * retried, so it is removed as by [discardPhoto], deleting its message too: it would otherwise
+   * stay pending for the other participant. The uploads under way keep running in [uploadScope]
+   * and, when they end, delete their photo, and their message too if they failed.
    */
   override fun onCleared() {
     cleared = true
     photoBeingTaken?.let(photoStorage::delete)
+    val pending = _uiState.value.pendingPhotos
+    pending.filter { it.status == PendingPhotoStatus.FAILED }.forEach(::abandon)
     val uploading =
-        _uiState.value.pendingPhotos
-            .filter { it.status == PendingPhotoStatus.UPLOADING }
-            .mapTo(HashSet()) { it.photo }
+        pending.filter { it.status == PendingPhotoStatus.UPLOADING }.mapTo(HashSet()) { it.photo }
     takenPhotos.filterNot { it in uploading }.forEach(::deleteIfTaken)
+  }
+
+  /**
+   * Gives up on [photo], which failed: deletes its message, which may be on the server with its
+   * photo pending, and its file if it was taken with the camera.
+   */
+  private fun abandon(photo: PendingPhoto) {
+    chatRepository.deletePhotoMessage(conversationId(listingId, renterUid), photo.messageId)
+    deleteIfTaken(photo.photo)
   }
 
   private fun replaceAttachedPhoto(photo: Uri) {

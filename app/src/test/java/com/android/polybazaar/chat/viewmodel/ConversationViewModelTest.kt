@@ -1325,6 +1325,7 @@ class ConversationViewModelTest {
     viewModel.close()
 
     assertEquals(listOf(photoStorage.taken.single().uri), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
   }
 
   @Test
@@ -1335,6 +1336,7 @@ class ConversationViewModelTest {
     viewModel.close()
 
     assertEquals(listOf(taken), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
   }
 
   @Test
@@ -1345,6 +1347,7 @@ class ConversationViewModelTest {
     viewModel.close()
 
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
   }
 
   @Test
@@ -1516,10 +1519,11 @@ class ConversationViewModelTest {
     advance()
     assertEquals(1, chat.sentPhotos.size)
     assertEquals(listOf(attached, sending), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
   }
 
   @Test
-  fun closing_whileAPhotoUploads_deletesItsPhotoWhenItFails() {
+  fun closing_whileAPhotoUploads_deletesItsPhotoAndItsMessageWhenItFails() {
     val viewModel = inConversation()
     chat.gate = CompletableDeferred()
     val sending = viewModel.takePhoto()
@@ -1528,11 +1532,14 @@ class ConversationViewModelTest {
 
     viewModel.close()
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
 
     chat.sendFailure = offline
     chat.gate!!.complete(Unit)
     advance()
     assertEquals(listOf(sending), photoStorage.deleted)
+    // No one can retry it any more, so it must not stay pending for the other participant.
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
   }
 
   @Test
@@ -1549,6 +1556,7 @@ class ConversationViewModelTest {
 
     assertEquals(1, chat.sentPhotos.size)
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
   }
 
   private val offline = AppException(AppError.NETWORK)
@@ -1722,7 +1730,7 @@ class ConversationViewModelTest {
   }
 
   @Test
-  fun closing_withAFailedTakenPhoto_deletesIt() {
+  fun closing_withAFailedTakenPhoto_deletesItAndItsMessage() {
     val viewModel = inConversation()
     chat.sendFailure = offline
     val taken = viewModel.takePhoto()
@@ -1732,6 +1740,17 @@ class ConversationViewModelTest {
     viewModel.close()
 
     assertEquals(listOf(taken), photoStorage.deleted)
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun closing_withAFailedGalleryPhoto_deletesItsMessage_butNotThePhoto() {
+    val viewModel = failedPhotoSend(refused)
+
+    viewModel.close()
+
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
   }
 
   /**
