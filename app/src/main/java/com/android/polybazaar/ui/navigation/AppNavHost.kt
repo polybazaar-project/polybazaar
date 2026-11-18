@@ -68,6 +68,7 @@ import com.android.polybazaar.chat.ui.ConversationScreen
 import com.android.polybazaar.chat.ui.InboxScreen
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
+import com.android.polybazaar.chat.viewmodel.photoUploadScope
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -467,6 +468,7 @@ fun AppNavHost(
                               listingRepository = listingRepository,
                               photoStorage = chatPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
+                              uploadScope = photoUploadScope,
                           )
                         }
                       }

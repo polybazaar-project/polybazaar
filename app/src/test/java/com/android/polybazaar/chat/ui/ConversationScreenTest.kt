@@ -76,6 +76,9 @@ import java.net.UnknownHostException
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -232,6 +235,7 @@ class ConversationScreenTest {
             listingRepository = listings,
             photoStorage = photoStorage,
             savedStateHandle = SavedStateHandle(),
+            uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
         )
     val launcherOwner =
         object : ActivityResultRegistryOwner {

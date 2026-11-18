@@ -21,6 +21,7 @@ import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -132,6 +133,10 @@ private data class LoadedListing(
  * happen while the camera app is in front. Pass `createSavedStateHandle()` from the factory: a
  * handle made by hand is not saved by Android.
  *
+ * [uploadScope] runs the photo uploads, so that closing the screen does not cancel them: pass
+ * [photoUploadScope]. Once the screen is closed, an upload that ends deletes its photo if it was
+ * taken with the camera, whether it was sent or not, as nothing can retry it any more.
+ *
  * The lender must only be routed here for a conversation that already exists: until then the
  * security rules refuse them the conversation and its messages, which shows as a load error.
  */
@@ -144,6 +149,7 @@ class ConversationViewModel(
     private val listingRepository: ListingRepository,
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
+    private val uploadScope: CoroutineScope,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ConversationUiState(myUid = myUid))
@@ -166,6 +172,8 @@ class ConversationViewModel(
   private var sendInFlight = false
   private var lastMarkedReadAt: Instant? = null
   private var isVisible = false
+  // Whether the screen is closed, so an upload that fails afterwards deletes its photo.
+  private var cleared = false
   // The photo the camera app is taking, until it closes. Saved, so that it is still attached when
   // the camera app returns to an app that Android killed meanwhile.
   private var photoBeingTaken: Uri?
@@ -333,7 +341,7 @@ class ConversationViewModel(
    * Sends [pending], then removes it once the server has its message and photo, or marks it failed.
    */
   private fun upload(conversation: Conversation, pending: PendingPhoto) {
-    viewModelScope.launch {
+    uploadScope.launch {
       try {
         chatRepository.sendPhoto(conversation, pending.messageId, pending.photo, pending.caption)
         _uiState.update {
@@ -346,6 +354,8 @@ class ConversationViewModel(
         // A refusal from a pause or deletion of the listing also reaches its observation, which
         // then stops new photos from being attached.
         _uiState.update { it.withPendingPhoto(pending.failed(exception.toAppError())) }
+        // Closed: no one can retry it.
+        if (cleared) deleteIfTaken(pending.photo)
       }
     }
   }
@@ -382,15 +392,17 @@ class ConversationViewModel(
 
   /**
    * Deletes the photos taken with the camera that were not sent: the one being taken, the attached
-   * one and the failed ones. Gallery photos are left alone.
+   * one and the failed ones. Gallery photos are left alone. The uploads under way keep running in
+   * [uploadScope] and delete their photo when they end.
    */
   override fun onCleared() {
+    cleared = true
     photoBeingTaken?.let(photoStorage::delete)
-    // Closing the screen cancels the uploads under way, but compressing a photo is not cancelled
-    // mid-read, so their files are kept rather than deleted under it. They stay in the chat folder.
-    if (_uiState.value.pendingPhotos.any { it.status == PendingPhotoStatus.UPLOADING }) return
-    takenPhotos.forEach(photoStorage::delete)
-    takenPhotos.clear()
+    val uploading =
+        _uiState.value.pendingPhotos
+            .filter { it.status == PendingPhotoStatus.UPLOADING }
+            .mapTo(HashSet()) { it.photo }
+    takenPhotos.filterNot { it in uploading }.forEach(::deleteIfTaken)
   }
 
   private fun replaceAttachedPhoto(photo: Uri) {

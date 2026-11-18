@@ -25,8 +25,10 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -45,6 +47,8 @@ import org.junit.runner.RunWith
 class ConversationViewModelTest {
 
   private val testDispatcher = StandardTestDispatcher()
+  // Outlives the ViewModels, like photoUploadScope.
+  private val uploadScope = CoroutineScope(SupervisorJob() + testDispatcher)
   private lateinit var chat: FakeChatRepository
   private lateinit var profiles: FakeProfileRepository
   private lateinit var listings: FakeListingRepository
@@ -109,6 +113,7 @@ class ConversationViewModelTest {
           listings,
           photoStorage,
           savedState,
+          uploadScope,
       )
 
   /** Creates the ViewModel and lets its loads finish. */
@@ -1495,16 +1500,54 @@ class ConversationViewModelTest {
   }
 
   @Test
-  fun closing_whileAPhotoUploads_keepsTheTakenPhotos() {
+  fun closing_whileAPhotoUploads_letsItFinish_thenDeletesItsPhoto() {
     val viewModel = inConversation()
     chat.gate = CompletableDeferred()
-    viewModel.takePhoto()
+    val sending = viewModel.takePhoto()
     viewModel.send()
     advance()
-    viewModel.takePhoto()
+    val attached = viewModel.takePhoto()
 
     viewModel.close()
+    // The attached photo is deleted at once; the one uploading is still being read.
+    assertEquals(listOf(attached), photoStorage.deleted)
 
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(listOf(attached, sending), photoStorage.deleted)
+  }
+
+  @Test
+  fun closing_whileAPhotoUploads_deletesItsPhotoWhenItFails() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    val sending = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+
+    chat.sendFailure = offline
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(listOf(sending), photoStorage.deleted)
+  }
+
+  @Test
+  fun closing_whileAGalleryPhotoUploads_neverDeletesIt() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
   }
 
