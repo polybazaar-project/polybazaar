@@ -6,6 +6,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.photo.PhotoCompressor
+import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.Timestamp
@@ -23,6 +24,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.storage.FirebaseStorage
@@ -822,6 +824,83 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendPhotoFirstTryDoesNotWaitForOtherWrites() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(firestore, never()).waitForPendingWrites()
+  }
+
+  @Test
+  fun sendPhotoRetryAfterQueuedMessageWaitsForItInsteadOfRewritingIt() = runTest {
+    val written = TaskCompletionSource<Void>()
+    messageQueuedOnDevice(written.task)
+    val sending = async { repository.sendPhoto(replied, PHOTO_ID, photo) }
+    runCurrent()
+
+    verify(photoRef, never()).putBytes(any(), any())
+    messageAlreadyOnServer()
+    written.setResult(null)
+    sending.await()
+
+    // Writing it again would be an update once the queued write lands, which the rules refuse.
+    verify(firestore, never()).batch()
+    verify(photoRef).putBytes(eq(compressedPhoto), any())
+    verify(photoMessageRef).update("photoPending", false)
+  }
+
+  @Test
+  fun sendPhotoRetryAfterQueuedMessageWasRefusedWritesItAgain() = runTest {
+    // The queued write ended, but the server refused it: the message is still not there.
+    messageQueuedOnDevice(Tasks.forResult(null))
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(batch).commit()
+    verify(photoRef).putBytes(eq(compressedPhoto), any())
+  }
+
+  @Test
+  fun sendPhotoCachedMessageWithoutQueuedWriteDoesNotWait() = runTest {
+    val cached = mock<DocumentSnapshot>()
+    val metadata = mock<SnapshotMetadata>()
+    whenever(metadata.hasPendingWrites()).thenReturn(false)
+    whenever(cached.metadata).thenReturn(metadata)
+    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forResult(cached))
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(firestore, never()).waitForPendingWrites()
+    verify(batch).commit()
+  }
+
+  @Test
+  fun sendPhotoRethrowsOtherCacheReadFailuresWithoutWriting() = runTest {
+    val failure =
+        FirebaseFirestoreException("Internal error.", FirebaseFirestoreException.Code.INTERNAL)
+    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forException(failure))
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertSame(failure, error)
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun sendPhotoQueuedMessageNeverSentFailsWithNetworkAfterTimeout() = runTest {
+    messageQueuedOnDevice(TaskCompletionSource<Void>().task)
+
+    val error = runCatching {
+      shortTimeoutRepository().sendPhoto(replied, PHOTO_ID, photo)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NETWORK, (error as AppException).error)
+    assertEquals(5_000L, testScheduler.currentTime)
+    verify(firestore, never()).batch()
+    verify(photoRef, never()).putBytes(any(), any())
+  }
+
+  @Test
   fun sendPhotoUploadsOnlyAfterCheckingNoPhotoIsStored() = runTest {
     repository.sendPhoto(replied, PHOTO_ID, photo)
 
@@ -1381,6 +1460,19 @@ class FirebaseChatRepositoryTest {
     whenever(written.exists()).thenReturn(true)
     whenever(written.getBoolean("photoPending")).thenReturn(pending)
     whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(written))
+  }
+
+  /**
+   * Leaves a write of the photo's message queued on this device, as after a send that timed out
+   * while writing it. [written] ends once this device's queued writes have reached the server.
+   */
+  private fun messageQueuedOnDevice(written: Task<Void>) {
+    val cached = mock<DocumentSnapshot>()
+    val metadata = mock<SnapshotMetadata>()
+    whenever(metadata.hasPendingWrites()).thenReturn(true)
+    whenever(cached.metadata).thenReturn(metadata)
+    whenever(photoMessageRef.get(Source.CACHE)).thenReturn(Tasks.forResult(cached))
+    whenever(firestore.waitForPendingWrites()).thenReturn(written)
   }
 
   /** Makes the photo upload end with [failure]. */
