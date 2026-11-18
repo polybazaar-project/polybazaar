@@ -60,12 +60,19 @@ class BookingViewModel(private val bookingRepository: BookingRepository) : ViewM
   }
 
   /** Loads bookings made by the signed-in renter. */
-  fun loadRenterBookings() {
+  fun loadRenterBookings() = loadBookings { bookingRepository.getBookingsForRenter() }
+
+  /** Loads the bookings of [listingId] for the signed-in lender. */
+  fun loadListingBookings(listingId: String) = loadBookings {
+    bookingRepository.getBookingsForListing(listingId)
+  }
+
+  private fun loadBookings(load: suspend () -> List<Booking>) {
     if (_uiState.value.isLoadingBookings) return
     _uiState.update { it.copy(isLoadingBookings = true, error = null) }
     viewModelScope.launch {
       try {
-        val bookings = bookingRepository.getBookingsForRenter()
+        val bookings = load()
         _uiState.update { it.copy(bookings = bookings, isLoadingBookings = false) }
       } catch (exception: Exception) {
         if (exception is CancellationException) {

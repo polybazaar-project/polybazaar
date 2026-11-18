@@ -168,6 +168,23 @@ class BookingViewModelTest {
   }
 
   @Test
+  fun loadListingBookings_exposesResultsAndFailures() = runTest {
+    val expected = listOf(booking.copy(id = "booking-id"))
+    repository.listingBookings = expected
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.loadListingBookings("listing")
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(expected, viewModel.uiState.value.bookings)
+
+    repository.loadFailure = AppException(AppError.PERMISSION_DENIED)
+    viewModel.loadListingBookings("listing")
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isLoadingBookings)
+  }
+
+  @Test
   fun loadRenterBookings_exposesFailures() = runTest {
     repository.loadFailure = AppException(AppError.NETWORK)
     val viewModel = BookingViewModel(repository)
