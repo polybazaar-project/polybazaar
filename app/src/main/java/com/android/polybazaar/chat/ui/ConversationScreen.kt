@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +90,7 @@ import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.ui.CameraPermissionDialog
+import com.android.polybazaar.listing.ui.decodePhotoPreview
 import com.android.polybazaar.listing.ui.loadPhotoPreview
 import com.android.polybazaar.listing.ui.rememberPhotoCamera
 import java.time.Instant
@@ -125,6 +127,12 @@ object ConversationScreenTags {
 
   /** Tag of the bubble of the other participant's message with [id]. */
   fun theirMessage(id: String) = "conversation_their_message_$id"
+
+  /** Tag of the photo of the message with [id], or of its placeholder while it loads. */
+  fun messagePhoto(id: String) = "conversation_message_photo_$id"
+
+  /** Tag of the placeholder of the message with [id] whose photo failed to load; tap to retry. */
+  fun photoLoadError(id: String) = "conversation_photo_load_error_$id"
 
   /** Tag of the bubble of the photo being sent, or that failed, with message ID [id]. */
   fun pendingPhoto(id: String) = "conversation_pending_photo_$id"
@@ -170,6 +178,9 @@ private val MaxBubbleWidth = 300.dp
  */
 private val BubblePhotoHeight = 200.dp
 
+/** Longest side, in pixels, a message photo is decoded at: sharp across a bubble. */
+private const val BUBBLE_PHOTO_MAX_SIZE = 1024
+
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
@@ -213,6 +224,7 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
         )
       },
       onRemoveAttachedPhoto = viewModel::removeAttachedPhoto,
+      onLoadPhoto = viewModel::loadPhoto,
       onRetryPhoto = viewModel::retryPhoto,
       onDiscardPhoto = viewModel::discardPhoto,
   )
@@ -237,6 +249,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  * @param onTakePhoto called when the user picks "Take photo" in the photo menu.
  * @param onChoosePhoto called when the user picks "Choose from gallery" in the photo menu.
  * @param onRemoveAttachedPhoto called when the user taps ✕ on the attached photo.
+ * @param onLoadPhoto called with a message's imagePath when its bubble shows and the photo is
+ *   neither downloaded nor failed, and when the user taps a photo that failed to load.
  * @param onRetryPhoto called with the message ID of a failed photo when the user taps Retry.
  * @param onDiscardPhoto called with the message ID of a failed photo when the user taps Remove.
  * @param zone time zone of the message times.
@@ -252,6 +266,7 @@ fun ConversationContent(
     onTakePhoto: () -> Unit = {},
     onChoosePhoto: () -> Unit = {},
     onRemoveAttachedPhoto: () -> Unit = {},
+    onLoadPhoto: (String) -> Unit = {},
     onRetryPhoto: (String) -> Unit = {},
     onDiscardPhoto: (String) -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
@@ -292,7 +307,7 @@ fun ConversationContent(
                 uiState = uiState,
                 zone = zone,
                 onRetry = onRetry,
-                photoActions = PhotoActions(onRetryPhoto, onDiscardPhoto),
+                photoActions = PhotoActions(onLoadPhoto, onRetryPhoto, onDiscardPhoto),
             )
       }
     }
@@ -504,8 +519,9 @@ private fun EmptyState(
   }
 }
 
-/** What the user can do with the photos being sent. */
+/** What the user can do with the photos in the conversation. */
 private class PhotoActions(
+    val load: (path: String) -> Unit,
     val retry: (messageId: String) -> Unit,
     val discard: (messageId: String) -> Unit,
 )
@@ -554,6 +570,14 @@ private fun MessageList(
             isMine = message.senderUid == uiState.myUid,
             otherUsername = uiState.otherUser?.username,
             zone = zone,
+            photo =
+                message.imagePath?.let { path ->
+                  MessagePhoto(
+                      bytes = uiState.messagePhotos[path],
+                      failed = path in uiState.photoLoadErrors,
+                      load = { photoActions.load(path) },
+                  )
+                },
         )
       }
     }
@@ -592,8 +616,15 @@ private fun LoadErrorRow(text: String, onRetry: () -> Unit) {
 }
 
 /**
- * One message: the user's own at the end of the row, the other participant's at the start. The
- * footer says who sent it and when, or only when while the other participant's profile is unknown.
+ * The photo of a message: its downloaded [bytes], or null until they arrive; [failed] when the
+ * download failed. [load] asks for it.
+ */
+private class MessagePhoto(val bytes: ByteArray?, val failed: Boolean, val load: () -> Unit)
+
+/**
+ * One message: the user's own at the end of the row, the other participant's at the start. A photo
+ * message shows its photo, then its caption if any. The footer says who sent it and when, or only
+ * when while the other participant's profile is unknown.
  */
 @Composable
 private fun MessageBubble(
@@ -601,6 +632,7 @@ private fun MessageBubble(
     isMine: Boolean,
     otherUsername: String?,
     zone: ZoneId,
+    photo: MessagePhoto?,
 ) {
   val time = message.sentAt.atZone(zone).format(TimeFormat)
   val footer =
@@ -615,14 +647,19 @@ private fun MessageBubble(
       tag =
           if (isMine) ConversationScreenTags.myMessage(message.id)
           else ConversationScreenTags.theirMessage(message.id),
-      fixedWidth = false,
+      // A photo bubble takes its full width at once, so it does not grow when the photo arrives.
+      fixedWidth = photo != null,
   ) {
-    Text(
-        text = message.text,
-        color = AuthColors.TextPrimary,
-        fontSize = 14.sp,
-        lineHeight = 19.sp,
-    )
+    photo?.let { BubblePhoto(messageId = message.id, photo = it) }
+    // A photo alone has no text.
+    if (message.text.isNotEmpty()) {
+      Text(
+          text = message.text,
+          color = AuthColors.TextPrimary,
+          fontSize = 14.sp,
+          lineHeight = 19.sp,
+      )
+    }
     BubbleFooter(text = footer)
   }
 }
@@ -674,6 +711,109 @@ private fun ColumnScope.BubbleFooter(text: String) {
       fontSize = 11.sp,
       modifier = Modifier.align(Alignment.End),
   )
+}
+
+/** A message photo after it is decoded, or why it is not shown. */
+private sealed interface DecodedPhoto {
+  data object Loading : DecodedPhoto
+
+  data object Failed : DecodedPhoto
+
+  class Shown(val bitmap: ImageBitmap) : DecodedPhoto
+}
+
+/**
+ * The photo of a message, asked for when the bubble first shows: a placeholder of the same size
+ * while it downloads and decodes, and one that offers to try again when it could not be loaded.
+ */
+@Composable
+private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
+  // Not asked again on its own after a failure: only when the user taps to retry.
+  LaunchedEffect(messageId) { if (photo.bytes == null && !photo.failed) photo.load() }
+  val decoded by
+      produceState<DecodedPhoto>(initialValue = DecodedPhoto.Loading, photo.bytes) {
+        val bytes = photo.bytes
+        value =
+            if (bytes == null) DecodedPhoto.Loading
+            else
+                decodePhotoPreview(bytes, maxSize = BUBBLE_PHOTO_MAX_SIZE)?.let {
+                  DecodedPhoto.Shown(it)
+                } ?: DecodedPhoto.Failed
+      }
+  val description = stringResource(R.string.conversation_photo)
+  val shape = RoundedCornerShape(10.dp)
+  val modifier =
+      Modifier.fillMaxWidth()
+          .height(BubblePhotoHeight)
+          .clip(shape)
+          .testTag(ConversationScreenTags.messagePhoto(messageId))
+  val current = decoded
+  when {
+    current is DecodedPhoto.Shown ->
+        Image(
+            bitmap = current.bitmap,
+            contentDescription = description,
+            contentScale = ContentScale.Crop,
+            modifier = modifier,
+        )
+    // Undecodable bytes would fail again, so only a failed download offers to retry.
+    photo.failed || current is DecodedPhoto.Failed ->
+        PhotoLoadError(
+            onRetry = photo.load.takeIf { photo.failed },
+            modifier =
+                modifier.then(
+                    if (photo.failed)
+                        Modifier.testTag(ConversationScreenTags.photoLoadError(messageId))
+                    else Modifier
+                ),
+        )
+    else ->
+        Box(
+            modifier =
+                modifier.background(AuthColors.Outline).semantics {
+                  contentDescription = description
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+          CircularProgressIndicator(
+              color = AuthColors.TextSecondary,
+              strokeWidth = 2.dp,
+              modifier = Modifier.size(20.dp),
+          )
+        }
+  }
+}
+
+/** A photo that could not be loaded, with "tap to retry" when [onRetry] is given. */
+@Composable
+private fun PhotoLoadError(onRetry: (() -> Unit)?, modifier: Modifier) {
+  Column(
+      modifier =
+          modifier
+              .background(AuthColors.Outline)
+              .then(if (onRetry != null) Modifier.clickable(onClick = onRetry) else Modifier)
+              .padding(12.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+  ) {
+    // Decorative: the text under it says what happened.
+    Icon(
+        painter = painterResource(R.drawable.ic_image),
+        contentDescription = null,
+        tint = AuthColors.TextSecondary,
+        modifier = Modifier.size(20.dp),
+    )
+    Text(
+        text =
+            stringResource(
+                if (onRetry != null) R.string.conversation_photo_load_failed_retry
+                else R.string.conversation_photo_load_failed
+            ),
+        color = AuthColors.TextSecondary,
+        fontSize = 11.sp,
+        textAlign = TextAlign.Center,
+    )
+  }
 }
 
 /**
@@ -1073,6 +1213,54 @@ internal fun ConversationContentPreview() {
               listingTitle = "Bosch drill set",
               listingStatus = ConversationListingStatus.PAUSED,
               otherUser = User(uid = "lender", email = "", username = "james"),
+              isLoading = false,
+          ),
+      zone = ZoneOffset.UTC,
+  )
+}
+
+/** A photo from the other participant still loading, and one of mine that failed to send. */
+@Preview(showBackground = true, widthDp = 412, heightDp = 917)
+@Composable
+internal fun ConversationPhotosPreview() {
+  val start = Instant.parse("2026-05-04T09:12:00Z")
+  ConversationContent(
+      uiState =
+          ConversationUiState(
+              myUid = "renter",
+              messages =
+                  listOf(
+                      ChatMessage("1", "renter", "Could you send a photo of the drill?", start),
+                      ChatMessage(
+                          "2",
+                          "lender",
+                          "Here it is, with both batteries.",
+                          start.plusSeconds(120),
+                          imagePath = "conversations/drill_renter/2.jpg",
+                      ),
+                  ),
+              conversation =
+                  Conversation(
+                      listingId = "drill",
+                      listingTitle = "Bosch drill set",
+                      renterUid = "renter",
+                      lenderUid = "lender",
+                      lastMessageAt = start.plusSeconds(120),
+                  ),
+              listingTitle = "Bosch drill set",
+              listingStatus = ConversationListingStatus.ACTIVE,
+              otherUser = User(uid = "lender", email = "", username = "james"),
+              canAttachPhoto = true,
+              pendingPhotos =
+                  listOf(
+                      PendingPhoto(
+                          messageId = "3",
+                          photo = Uri.parse("content://media/photo/3"),
+                          caption = "And the shelf I mean",
+                          status = PendingPhotoStatus.FAILED,
+                          error = AppError.NETWORK,
+                      )
+                  ),
               isLoading = false,
           ),
       zone = ZoneOffset.UTC,
