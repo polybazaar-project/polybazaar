@@ -418,12 +418,12 @@ class ListingDetailScreenTest {
   @Test
   fun owner_seesEditListing_insteadOfTheRenterActions() {
     val edited = mutableListOf<String>()
-    val openedBookings = mutableListOf<String>()
+    val openedRequests = mutableListOf<String>()
     setContent(
         ownerState(),
         ListingDetailActions(
             onEdit = { edited += it },
-            onOpenBookings = { openedBookings += it },
+            onOpenRequests = { openedRequests += it },
         ),
     )
 
@@ -436,7 +436,7 @@ class ListingDetailScreenTest {
     node(ListingDetailScreenTags.EDIT_BUTTON).assertWidthIsEqualTo(166.dp).performClick()
     assertEquals(listOf("drill"), edited)
     node(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).performClick()
-    assertEquals(listOf("drill"), openedBookings)
+    assertEquals(listOf("drill"), openedRequests)
   }
 
   @Test
@@ -447,11 +447,25 @@ class ListingDetailScreenTest {
   }
 
   @Test
+  fun owner_opensTheBookingRequests_evenWhilePaused() {
+    val opened = mutableListOf<String>()
+    setContent(
+        ownerState(drill.copy(isPaused = true)),
+        ListingDetailActions(onOpenRequests = { opened += it }),
+    )
+
+    node(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).performClick()
+
+    assertEquals(listOf("drill"), opened)
+  }
+
+  @Test
   fun renter_seesNoOwnerMenuOrEdit() {
     setContent(ListingDetailUiState(listing = drill, lender = lender, canContactLender = true))
 
     node(ListingDetailScreenTags.OWNER_MENU_BUTTON).assertDoesNotExist()
     node(ListingDetailScreenTags.EDIT_BUTTON).assertDoesNotExist()
+    node(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).assertDoesNotExist()
     node(ListingDetailScreenTags.BOOKING_NOTE)
         .assertTextEquals(context.getString(R.string.listing_detail_reassurance))
   }

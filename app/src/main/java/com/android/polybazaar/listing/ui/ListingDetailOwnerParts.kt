@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -181,6 +183,38 @@ internal fun DeleteListingDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
         }
       },
   )
+}
+
+/**
+ * Opens the requests renters made on the listing, where the owner accepts the ones they want.
+ * Styled like the renter's "Message lender".
+ */
+@Composable
+internal fun BookingRequestsButton(onClick: () -> Unit) {
+  OutlinedButton(
+      onClick = onClick,
+      modifier = Modifier.fillMaxWidth().testTag(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON),
+      shape = RoundedCornerShape(10.dp),
+      border = BorderStroke(1.dp, AuthColors.Outline),
+      colors =
+          ButtonDefaults.outlinedButtonColors(
+              containerColor = AuthColors.CardBackground,
+              contentColor = AuthColors.Accent,
+          ),
+  ) {
+    // Decorative: the text says what the button does.
+    Icon(
+        painter = painterResource(R.drawable.ic_calendar),
+        contentDescription = null,
+        modifier = Modifier.size(17.dp),
+    )
+    Text(
+        text = stringResource(R.string.listing_detail_booking_requests),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 8.dp),
+    )
+  }
 }
 
 /**

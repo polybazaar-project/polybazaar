@@ -297,4 +297,24 @@
     <string name="bookings_status_requested">Requested</string>
     <string name="bookings_status_confirmed">Confirmed</string>
     <string name="bookings_status_cancelled">Cancelled</string>
+
+    <!-- Booking requests received by a lender -->
+    <string name="listing_detail_booking_requests">Booking requests</string>
+    <string name="received_requests_title">Booking requests</string>
+    <string name="received_requests_empty">No one has requested this listing yet.</string>
+    <string name="received_requests_waiting">Waiting for your answer</string>
+    <string name="received_requests_accepted">Accepted</string>
+    <string name="received_requests_unknown_renter">A renter</string>
+    <plurals name="received_requests_day_count">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <string name="received_requests_accept">Accept</string>
+    <string name="received_requests_cancel">Cancel</string>
+    <string name="received_requests_confirm_title">Accept this request?</string>
+    <string name="received_requests_confirm_text">%1$s gets %2$s. No one else can request these days.</string>
+    <plurals name="received_requests_confirm_cancels">
+        <item quantity="one">%1$d other request for these days will be cancelled.</item>
+        <item quantity="other">%1$d other requests for these days will be cancelled.</item>
+    </plurals>
 </resources>
