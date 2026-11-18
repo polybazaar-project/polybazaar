@@ -693,7 +693,7 @@ class FirebaseChatRepositoryTest {
             firestore,
             auth,
             storage,
-            photoSendTimeout = 5.seconds,
+            photoTimeout = 5.seconds,
         )
 
     repository.sendPhoto(replied, PHOTO_ID, photo)
@@ -814,6 +814,20 @@ class FirebaseChatRepositoryTest {
 
     assertSame(failure, error)
     assertEquals(AppError.PERMISSION_DENIED, error?.toAppError())
+  }
+
+  @Test
+  fun loadMessagePhotoWithNoAnswerFailsWithNetworkAfterTimeout() = runTest {
+    whenever(photoRef.getBytes(any())).thenReturn(TaskCompletionSource<ByteArray>().task)
+
+    val error = runCatching {
+      shortTimeoutRepository().loadMessagePhoto(PHOTO_PATH)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NETWORK, (error as AppException).error)
+    assertTrue(error.cause is TimeoutCancellationException)
+    assertEquals(5_000L, testScheduler.currentTime)
   }
 
   @Test
@@ -1218,7 +1232,7 @@ class FirebaseChatRepositoryTest {
           firestore,
           auth,
           storage,
-          photoSendTimeout = 5.seconds,
+          photoTimeout = 5.seconds,
       )
 
   /** Puts the photo's message on the server, as after a send whose upload failed. */

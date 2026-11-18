@@ -35,15 +35,16 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 
 /**
- * @param photoSendTimeout how long sending a photo (its message, then its upload) may take before
- *   it fails with NETWORK, rather than the Storage SDK retrying for minutes while offline.
+ * @param photoTimeout how long sending a photo (its message, then its upload) or loading one may
+ *   take before it fails with NETWORK, rather than the Storage SDK retrying for minutes while
+ *   offline.
  */
 class FirebaseChatRepository(
     private val photoCompressor: PhotoCompressor,
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
-    private val photoSendTimeout: Duration = 30.seconds,
+    private val photoTimeout: Duration = 30.seconds,
     private val logWriteFailure: (Exception) -> Unit = {
       Log.e("ChatRepository", "Chat write failed", it)
     },
@@ -116,42 +117,38 @@ class FirebaseChatRepository(
     // storage.rules only accept the upload once the server has the message that names the photo,
     // so the message is written and confirmed first. Offline, the Storage SDK keeps retrying for
     // minutes, so the user is told sooner that the photo was not sent.
-    try {
-      withTimeout(photoSendTimeout) {
-        // Read from the server: offline it fails at once with UNAVAILABLE, rather than queuing a
-        // message that would reach the server later without its photo. A retry finds the message
-        // already written, and only uploads.
-        if (!messageRef.get(Source.SERVER).await().exists()) {
-          val batch =
-              messageBatch(
-                  conversation,
-                  messageRef,
-                  senderUid,
-                  // A photo alone previews as an empty text.
-                  preview = trimmedCaption ?: "",
-                  messageFields =
-                      buildMap {
-                        put("imagePath", path)
-                        trimmedCaption?.let { put("text", it) }
-                      },
-              )
-          try {
-            batch.commit().await()
-          } catch (e: FirebaseFirestoreException) {
-            logWriteFailure(e)
-            throw e
-          }
+    withNetworkTimeout {
+      // Read from the server: offline it fails at once with UNAVAILABLE, rather than queuing a
+      // message that would reach the server later without its photo. A retry finds the message
+      // already written, and only uploads.
+      if (!messageRef.get(Source.SERVER).await().exists()) {
+        val batch =
+            messageBatch(
+                conversation,
+                messageRef,
+                senderUid,
+                // A photo alone previews as an empty text.
+                preview = trimmedCaption ?: "",
+                messageFields =
+                    buildMap {
+                      put("imagePath", path)
+                      trimmedCaption?.let { put("text", it) }
+                    },
+            )
+        try {
+          batch.commit().await()
+        } catch (e: FirebaseFirestoreException) {
+          logWriteFailure(e)
+          throw e
         }
-        if (!exists(photoRef)) upload(photoRef, compressed)
       }
-    } catch (e: TimeoutCancellationException) {
-      // A CancellationException, which callers would take for their own cancellation and ignore.
-      throw AppException(AppError.NETWORK, e)
+      if (!exists(photoRef)) upload(photoRef, compressed)
     }
   }
 
-  override suspend fun loadMessagePhoto(imagePath: String): ByteArray =
-      storage.reference.child(imagePath).getBytes(PhotoStorage.MAX_PHOTO_BYTES).await()
+  override suspend fun loadMessagePhoto(imagePath: String): ByteArray = withNetworkTimeout {
+    storage.reference.child(imagePath).getBytes(PhotoStorage.MAX_PHOTO_BYTES).await()
+  }
 
   override fun markRead(conversationId: String) {
     val uid = auth.currentUser?.uid ?: return
@@ -315,6 +312,18 @@ class FirebaseChatRepository(
       } catch (e: StorageException) {
         if (e.errorCode != StorageException.ERROR_OBJECT_NOT_FOUND) throw e
         false
+      }
+
+  /**
+   * Runs [block], and fails with NETWORK if it takes longer than [photoTimeout], as offline when
+   * the Storage SDK keeps retrying.
+   */
+  private suspend fun <T> withNetworkTimeout(block: suspend () -> T): T =
+      try {
+        withTimeout(photoTimeout) { block() }
+      } catch (e: TimeoutCancellationException) {
+        // A CancellationException, which callers would take for their own cancellation and ignore.
+        throw AppException(AppError.NETWORK, e)
       }
 
   /** Uploads the [jpeg] bytes to [ref], and cancels the upload if the caller is cancelled. */

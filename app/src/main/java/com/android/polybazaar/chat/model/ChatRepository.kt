@@ -59,8 +59,9 @@ interface ChatRepository {
 
   /**
    * Downloads the photo of a message, from its [ChatMessage.imagePath], as the signed-in user.
-   * Fails with PERMISSION_DENIED for a user who is not a participant of the conversation, and with
-   * a Storage error to map with toAppError otherwise.
+   * Fails with PERMISSION_DENIED for a user who is not a participant of the conversation, with an
+   * AppException with NETWORK when it takes too long, as offline, and with a Storage error to map
+   * with toAppError otherwise.
    */
   suspend fun loadMessagePhoto(imagePath: String): ByteArray
 
