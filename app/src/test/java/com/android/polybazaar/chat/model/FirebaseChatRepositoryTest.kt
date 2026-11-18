@@ -1098,6 +1098,35 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun observeMessagesMapsPhotoStillUploadingAsPending() = runTest {
+    val path = "conversations/listing_renter/m1.jpg"
+
+    val observed =
+        observeOnlyMessage(message("m1", "lender", null, 1_700_000_000, path, photoPending = true))
+
+    assertTrue(observed.photoPending)
+  }
+
+  @Test
+  fun observeMessagesMapsUploadedPhotoAsNotPending() = runTest {
+    val path = "conversations/listing_renter/m1.jpg"
+
+    val observed =
+        observeOnlyMessage(message("m1", "lender", null, 1_700_000_000, path, photoPending = false))
+
+    assertFalse(observed.photoPending)
+  }
+
+  @Test
+  fun observeMessagesMapsPhotoWithoutPendingFieldAsNotPending() = runTest {
+    val path = "conversations/listing_renter/m1.jpg"
+
+    val observed = observeOnlyMessage(message("m1", "lender", null, 1_700_000_000, path))
+
+    assertFalse(observed.photoPending)
+  }
+
+  @Test
   fun observeMessagesMapsTextMessageWithoutPhoto() = runTest {
     val observed = observeOnlyMessage(message("m1", "renter", "Hi", 1_700_000_000))
 
@@ -1274,12 +1303,14 @@ class FirebaseChatRepositoryTest {
       text: String?,
       sentAt: Long,
       imagePath: String? = null,
+      photoPending: Boolean? = null,
   ) =
       mock<DocumentSnapshot>().also {
         whenever(it.id).thenReturn(id)
         whenever(it.getString("senderUid")).thenReturn(senderUid)
         whenever(it.getString("text")).thenReturn(text)
         whenever(it.getString("imagePath")).thenReturn(imagePath)
+        whenever(it.getBoolean("photoPending")).thenReturn(photoPending)
         whenever(timestampOf(it, "sentAt")).thenReturn(Timestamp(sentAt, 0))
       }
 
