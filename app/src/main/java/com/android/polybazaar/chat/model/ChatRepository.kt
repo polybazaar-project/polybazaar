@@ -38,11 +38,12 @@ interface ChatRepository {
    *
    * Throws when signed out (UNAUTHENTICATED), when offline or when the send takes too long (an
    * error that maps to NETWORK with toAppError), when the server rejects the message (a Firestore
-   * error) or the upload (a Storage error), and IllegalArgumentException when the user is not a
-   * participant, when the conversation has no message yet (a photo cannot open a conversation), or
-   * when the caption is not sendable. Signed out, offline, or for an IllegalArgumentException,
-   * nothing is written. After a failed upload the message stays: retrying with the same [messageId]
-   * only uploads the photo.
+   * error) or the upload (a Storage error), when the photo can't be read, as when it was deleted or
+   * is not an image (an AppException with NOT_FOUND), and IllegalArgumentException when the user is
+   * not a participant, when the conversation has no message yet (a photo cannot open a
+   * conversation), or when the caption is not sendable. Signed out, offline, for an unreadable
+   * photo, or for an IllegalArgumentException, nothing is written. After a failed upload the
+   * message stays: retrying with the same [messageId] only uploads the photo.
    *
    * @param conversation the conversation from [observeConversation].
    * @param messageId from [newMessageId]; pass the same one to retry a failed send.

@@ -30,6 +30,7 @@ import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
+import java.io.FileNotFoundException
 import java.time.Instant
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
@@ -654,6 +655,34 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendPhotoUnreadablePhotoIsNotFoundAndSendsNothing() = runTest {
+    val failure = FileNotFoundException("Deleted photo")
+
+    val error = runCatching {
+      compressorFailing(failure).sendPhoto(replied, PHOTO_ID, photo)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NOT_FOUND, (error as AppException).error)
+    assertSame(failure, error.cause)
+    verifyNothingSent()
+  }
+
+  @Test
+  fun sendPhotoWithoutPermissionToReadThePhotoIsNotFoundAndSendsNothing() = runTest {
+    val failure = SecurityException("Permission revoked")
+
+    val error = runCatching {
+      compressorFailing(failure).sendPhoto(replied, PHOTO_ID, photo)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NOT_FOUND, (error as AppException).error)
+    assertSame(failure, error.cause)
+    verifyNothingSent()
+  }
+
+  @Test
   fun sendPhotoSlowCompressionDoesNotCountAgainstTheTimeout() = runTest {
     val repository =
         FirebaseChatRepository(
@@ -1179,6 +1208,9 @@ class FirebaseChatRepositoryTest {
     verifyNoInteractions(storage)
     verify(firestore, never()).batch()
   }
+
+  private fun compressorFailing(failure: Exception) =
+      FirebaseChatRepository({ throw failure }, firestore, auth, storage)
 
   private fun shortTimeoutRepository() =
       FirebaseChatRepository(

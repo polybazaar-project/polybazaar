@@ -21,6 +21,7 @@ import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageReference
+import java.io.IOException
 import java.time.Instant
 import java.util.concurrent.Executor
 import kotlin.time.Duration
@@ -99,7 +100,16 @@ class FirebaseChatRepository(
             ?.trim()
     // First, so a photo that can't be compressed sends nothing. Outside the timeout, which is for
     // the network: a large photo compressing slowly must not be reported as offline.
-    val compressed = photoCompressor.compress(photo)
+    val compressed =
+        try {
+          photoCompressor.compress(photo)
+        } catch (e: IOException) {
+          // Deleted, on storage that's gone, or not an image.
+          throw AppException(AppError.NOT_FOUND, e)
+        } catch (e: SecurityException) {
+          // The app lost its permission to read the photo.
+          throw AppException(AppError.NOT_FOUND, e)
+        }
     val path = photoPath(conversation.id, messageId)
     val messageRef = conversationDocument(conversation.id).collection(MESSAGES).document(messageId)
     val photoRef = storage.reference.child(path)
