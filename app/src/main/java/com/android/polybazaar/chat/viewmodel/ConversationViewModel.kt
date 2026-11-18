@@ -81,6 +81,9 @@ data class PendingPhoto(
  *   conversation loads and after it failed to load, when whether it exists is unknown.
  * @property pendingPhotos the photos sent that are still uploading or failed, oldest first. Their
  *   message may already be in [messages], since it is written before the photo is uploaded.
+ * @property messagePhotos the photos of [messages] downloaded so far, by [ChatMessage.imagePath].
+ * @property photoLoadErrors why the photo at each path could not be downloaded;
+ *   [ConversationViewModel.loadPhoto] tries again.
  * @property isLoading true until the listing, the conversation and the messages have each been
  *   loaded or failed, and again while a retry reloads any of them.
  * @property loadError why the conversation could not be loaded; the screen offers Retry. What is
@@ -100,6 +103,8 @@ data class ConversationUiState(
     val canSend: Boolean = false,
     val firstMessageBlockedByPause: Boolean = false,
     val pendingPhotos: List<PendingPhoto> = emptyList(),
+    val messagePhotos: Map<String, ByteArray> = emptyMap(),
+    val photoLoadErrors: Map<String, AppError> = emptyMap(),
     val isLoading: Boolean = true,
     val loadError: AppError? = null,
     val sendError: AppError? = null,
@@ -184,6 +189,8 @@ class ConversationViewModel(
 
   // Photos taken with the camera and not deleted yet, so gallery photos are never deleted.
   private val takenPhotos = mutableSetOf<Uri>()
+  // The message photos being downloaded, so that no photo is downloaded twice at once.
+  private val photosDownloading = mutableSetOf<String>()
 
   init {
     observeListing()
@@ -386,6 +393,32 @@ class ConversationViewModel(
       it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(failed) })
     }
     abandon(failed)
+  }
+
+  /**
+   * Downloads the photo of a message at [path], its [ChatMessage.imagePath], unless it is already
+   * downloaded or downloading. A message's photo never changes, so it is downloaded once. Ignored
+   * while the message's photo is still pending ([ChatMessage.photoPending]): it is not in Storage
+   * yet, so call it again once the message says it is uploaded. After a failure, calling it again
+   * clears the error and tries again.
+   */
+  fun loadPhoto(path: String) {
+    val state = _uiState.value
+    if (state.messages.any { it.imagePath == path && it.photoPending }) return
+    if (path in state.messagePhotos || !photosDownloading.add(path)) return
+    _uiState.update { it.copy(photoLoadErrors = it.photoLoadErrors - path) }
+    viewModelScope.launch {
+      try {
+        val photo = chatRepository.loadMessagePhoto(path)
+        _uiState.update { it.copy(messagePhotos = it.messagePhotos + (path to photo)) }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        val error = exception.toAppError()
+        _uiState.update { it.copy(photoLoadErrors = it.photoLoadErrors + (path to error)) }
+      } finally {
+        photosDownloading.remove(path)
+      }
+    }
   }
 
   fun dismissSendError() {

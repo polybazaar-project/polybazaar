@@ -17,12 +17,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
@@ -33,6 +37,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -134,6 +139,7 @@ class ConversationScreenTest {
       onTakePhoto: () -> Unit = {},
       onChoosePhoto: () -> Unit = {},
       onRemoveAttachedPhoto: () -> Unit = {},
+      onLoadPhoto: (String) -> Unit = {},
       onRetryPhoto: (String) -> Unit = {},
       onDiscardPhoto: (String) -> Unit = {},
   ) {
@@ -148,6 +154,7 @@ class ConversationScreenTest {
           onTakePhoto = onTakePhoto,
           onChoosePhoto = onChoosePhoto,
           onRemoveAttachedPhoto = onRemoveAttachedPhoto,
+          onLoadPhoto = onLoadPhoto,
           onRetryPhoto = onRetryPhoto,
           onDiscardPhoto = onDiscardPhoto,
           zone = ZoneOffset.UTC,
@@ -744,6 +751,17 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun photosPreview_showsTheirPhotoLoadingAndMyFailedPhoto() {
+    composeTestRule.setContent { ConversationPhotosPreview() }
+
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.messagePhoto("2"), useUnmergedTree = true)
+        .assertExists()
+    node(ConversationScreenTags.pendingPhoto("3")).assertExists()
+    node(ConversationScreenTags.retryPhoto("3")).assertExists()
+  }
+
+  @Test
   fun conversationBody_prefersTheMessages_thenTheError_thenLoading_elseEmpty() {
     fun body(messages: Boolean, error: Boolean, loading: Boolean) =
         conversationBody(
@@ -1004,7 +1022,7 @@ class ConversationScreenTest {
     assertEquals(1, sends)
   }
 
-  // Photos being sent
+  // Photo bubbles
 
   private val photoTime = Instant.parse("2026-11-11T09:16:00Z")
 
@@ -1012,8 +1030,211 @@ class ConversationScreenTest {
   private fun photoMessage(id: String, senderUid: String, caption: String = "") =
       ChatMessage(id, senderUid, caption, photoTime, imagePath = "conversations/drill_renter/$id")
 
+  private val myPhoto = photoMessage("m3", "renter", caption = "Here it is")
+  private val theirPhoto = photoMessage("m4", james.uid)
+
   private fun pending(status: PendingPhotoStatus, error: AppError? = null) =
       PendingPhoto("m5", galleryPhoto, "And the shelf", status, error)
+
+  /** Waits until the photo of message [id] is drawn: [redPhoto] decoded, not the placeholder. */
+  private fun waitForRedPhoto(id: String) {
+    composeTestRule.waitUntil(5_000) {
+      val image =
+          composeTestRule
+              .onNodeWithTag(ConversationScreenTags.messagePhoto(id), useUnmergedTree = true)
+              .captureToImage()
+      image.toPixelMap()[image.width / 2, image.height / 2] == Color.Red
+    }
+  }
+
+  private fun photoNode(id: String) =
+      composeTestRule.onNodeWithTag(ConversationScreenTags.messagePhoto(id), useUnmergedTree = true)
+
+  @Test
+  fun myPhotoWithACaption_isOneTalkBackItem_photoThenCaptionThenFooter() {
+    setContent(loaded.copy(messages = listOf(myPhoto)))
+
+    node(ConversationScreenTags.myMessage("m3"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_loading))
+        .assertTextEquals("Here it is", "You · 09:16")
+    val photo = photoNode("m3").getBoundsInRoot()
+    val caption = text("Here it is").getBoundsInRoot()
+    assertTrue(photo.bottom <= caption.top)
+  }
+
+  @Test
+  fun theirPhotoWithoutACaption_showsOnlyThePhotoAndTheFooter() {
+    setContent(loaded.copy(messages = listOf(theirPhoto)))
+
+    node(ConversationScreenTags.theirMessage("m4"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_loading))
+        .assertTextEquals("james · 09:16")
+    photoNode("m4").assertIsDisplayed()
+  }
+
+  @Test
+  fun photoNotDownloaded_isAskedForOnce_withAFixedSizePlaceholder() {
+    val loads = mutableListOf<String>()
+    setContent(loaded.copy(messages = listOf(myPhoto, theirPhoto)), onLoadPhoto = { loads += it })
+
+    composeTestRule.waitForIdle()
+    assertEquals(listOf(theirPhoto.imagePath, myPhoto.imagePath), loads)
+    photoNode("m3").assertHeightIsEqualTo(200.dp)
+    node(ConversationScreenTags.photoLoadError("m3")).assertDoesNotExist()
+  }
+
+  @Test
+  fun pendingPhoto_showsTheLoadingPlaceholder_withoutBeingAskedFor() {
+    val loads = mutableListOf<String>()
+    val uploading = theirPhoto.copy(photoPending = true)
+    setContent(loaded.copy(messages = listOf(uploading)), onLoadPhoto = { loads += it })
+
+    composeTestRule.waitForIdle()
+    assertEquals(emptyList<String>(), loads)
+    photoNode("m4").assertHeightIsEqualTo(200.dp)
+    node(ConversationScreenTags.photoLoadError("m4")).assertDoesNotExist()
+  }
+
+  @Test
+  fun pendingPhoto_isAskedForOnceMarkedUploaded() {
+    val loads = mutableListOf<String>()
+    var state by
+        mutableStateOf(loaded.copy(messages = listOf(theirPhoto.copy(photoPending = true))))
+    composeTestRule.setContent {
+      ConversationContent(uiState = state, onLoadPhoto = { loads += it }, zone = ZoneOffset.UTC)
+    }
+    composeTestRule.waitForIdle()
+
+    state = state.copy(messages = listOf(theirPhoto))
+    composeTestRule.waitForIdle()
+
+    assertEquals(listOf(theirPhoto.imagePath), loads)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing.
+  fun downloadedPhoto_isShownAtTheSameSize_withoutAskingAgain() {
+    val loads = mutableListOf<String>()
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto),
+            messagePhotos = mapOf(theirPhoto.imagePath!! to redPhoto()),
+        ),
+        onLoadPhoto = { loads += it },
+    )
+
+    waitForRedPhoto("m4")
+    photoNode("m4").assertHeightIsEqualTo(200.dp)
+    // Loaded: no longer "loading" for TalkBack.
+    node(ConversationScreenTags.theirMessage("m4"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+    assertEquals(emptyList<String>(), loads)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing.
+  fun decodedPhoto_scrolledOutOfViewAndBack_isShownAtOnce() {
+    val later =
+        List(30) { ChatMessage("t$it", "renter", "Message $it", photoTime.plusSeconds(60L + it)) }
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto) + later,
+            messagePhotos = mapOf(theirPhoto.imagePath!! to redPhoto()),
+        )
+    )
+    val list = node(ConversationScreenTags.MESSAGE_LIST)
+    // Newest first: the photo is last.
+    list.performScrollToIndex(later.size)
+    waitForRedPhoto("m4")
+
+    list.performScrollToIndex(0)
+    photoNode("m4").assertDoesNotExist()
+    // Frozen clock: a photo decoded again would still show the placeholder.
+    composeTestRule.mainClock.autoAdvance = false
+    list.performScrollToIndex(later.size)
+
+    // Not decoded again: drawn in the first frame, without the placeholder.
+    val image = photoNode("m4").captureToImage()
+    assertEquals(Color.Red, image.toPixelMap()[image.width / 2, image.height / 2])
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // The legacy BitmapFactory "decodes" any bytes.
+  fun undecodablePhoto_saysItCouldNotLoad_withoutOfferingARetry() {
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto),
+            messagePhotos = mapOf(theirPhoto.imagePath!! to byteArrayOf(1, 2, 3)),
+        )
+    )
+
+    composeTestRule.waitUntil(5_000) {
+      composeTestRule
+          .onAllNodes(
+              hasText(string(R.string.conversation_photo_load_failed)),
+              useUnmergedTree = true,
+          )
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    node(ConversationScreenTags.photoLoadError("m4")).assertDoesNotExist()
+  }
+
+  @Test
+  fun photoThatFailedToDownload_offersARetry_andTappingAsksForItAgain() {
+    val loads = mutableListOf<String>()
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto),
+            photoLoadErrors = mapOf(theirPhoto.imagePath!! to AppError.NETWORK),
+        ),
+        onLoadPhoto = { loads += it },
+    )
+    composeTestRule.waitForIdle()
+    assertEquals(emptyList<String>(), loads)
+
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.photoLoadError("m4"), useUnmergedTree = true)
+        .assertHeightIsEqualTo(200.dp)
+        // Announced by TalkBack as a button that retries.
+        .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        .assert(
+            SemanticsMatcher("retries on click") {
+              it.config[SemanticsActions.OnClick].label == string(R.string.conversation_retry)
+            }
+        )
+        .performClick()
+
+    text(string(R.string.conversation_photo_load_failed_retry)).assertIsDisplayed()
+    assertEquals(listOf(theirPhoto.imagePath), loads)
+  }
+
+  @Test
+  fun photoMissingOrRefused_saysItCouldNotLoad_withoutOfferingARetry() {
+    val loads = mutableListOf<String>()
+    var error by mutableStateOf(AppError.NOT_FOUND)
+    composeTestRule.setContent {
+      ConversationContent(
+          uiState =
+              loaded.copy(
+                  messages = listOf(theirPhoto),
+                  photoLoadErrors = mapOf(theirPhoto.imagePath!! to error),
+              ),
+          zone = ZoneOffset.UTC,
+          onLoadPhoto = { loads += it },
+      )
+    }
+
+    for (permanent in listOf(AppError.NOT_FOUND, AppError.PERMISSION_DENIED)) {
+      error = permanent
+      composeTestRule
+          .onNodeWithTag(ConversationScreenTags.photoLoadError("m4"), useUnmergedTree = true)
+          .assertHasNoClickAction()
+      text(string(R.string.conversation_photo_load_failed)).assertIsDisplayed()
+      text(string(R.string.conversation_photo_load_failed_retry)).assertDoesNotExist()
+    }
+    assertEquals(emptyList<String>(), loads)
+  }
 
   @Test
   fun pendingPhoto_whoseMessageArrived_showsOnce() {
