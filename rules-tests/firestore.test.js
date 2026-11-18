@@ -1681,8 +1681,37 @@ describe("pending photos", () => {
     await assertFails(updateDoc(ref, { photoPending: deleteField() }));
   });
 
-  test("a pending photo message cannot be deleted", async () => {
+  test("the sender can delete their message while its photo is pending", async () => {
     await seedPhotoMessage();
+    await assertSucceeds(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("a pending photo with a caption can be deleted", async () => {
+    await seedPhotoMessage({ photoPending: true, text: "The drill bits" });
+    await assertSucceeds(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("only the sender can delete their pending photo message", async () => {
+    await seedPhotoMessage();
+    await assertFails(deleteDoc(doc(verified(ALICE), PATH)));
+    await assertFails(deleteDoc(doc(verified(EVE), PATH)));
+    await assertFails(deleteDoc(doc(unverified(BOB), PATH)));
+    await assertFails(deleteDoc(doc(signedOut(), PATH)));
+  });
+
+  test("a photo message cannot be deleted once its photo is uploaded", async () => {
+    await seedPhotoMessage({ photoPending: false });
     await assertFails(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("a photo sent before photoPending existed cannot be deleted", async () => {
+    await seedPhotoMessage({});
+    await assertFails(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  // The app's Remove also deletes a message that was never written; the rules refuse it.
+  test("a missing message cannot be deleted", async () => {
+    await seedConversation();
+    await assertFails(deleteDoc(doc(verified(BOB), `${CONVERSATION}/messages/m9`)));
   });
 });

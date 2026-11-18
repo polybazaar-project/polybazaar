@@ -1050,6 +1050,40 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun deletePhotoMessageDeletesTheMessageWithoutWaitingForTheServer() {
+    val pendingDelete = TaskCompletionSource<Void>()
+    whenever(photoMessageRef.delete()).thenReturn(pendingDelete.task)
+    var reportedFailure: Exception? = null
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
+
+    repository.deletePhotoMessage("listing_renter", PHOTO_ID)
+
+    verify(photoMessageRef).delete()
+    assertFalse(pendingDelete.task.isComplete)
+    assertNull(reportedFailure)
+  }
+
+  @Test
+  fun deletePhotoMessageLogsALaterRefusal() {
+    val pendingDelete = TaskCompletionSource<Void>()
+    whenever(photoMessageRef.delete()).thenReturn(pendingDelete.task)
+    var reportedFailure: Exception? = null
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { reportedFailure = it }
+
+    repository.deletePhotoMessage("listing_renter", PHOTO_ID)
+    val refused =
+        FirebaseFirestoreException(
+            "Missing or insufficient permissions",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
+    pendingDelete.setException(refused)
+
+    assertSame(refused, reportedFailure)
+  }
+
+  @Test
   fun markReadSetsOnlyMyReadTimeToServerTime() {
     whenever(conversationRef.update(any<FieldPath>(), any(), anyVararg()))
         .thenReturn(Tasks.forResult(null))

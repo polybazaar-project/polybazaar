@@ -64,6 +64,16 @@ interface ChatRepository {
   )
 
   /**
+   * Deletes the signed-in user's photo message with this ID, for a [sendPhoto] that failed and that
+   * they no longer want sent, so that it does not stay pending for the other participant. Like
+   * [markRead], the delete is queued without waiting for the server, so it works offline, and it
+   * never throws: a failure is only logged. The rules only let the sender delete a message whose
+   * photo is still pending, and refuse to delete one that was never written, which is then only
+   * logged. The conversation's preview of it stays until the next message.
+   */
+  fun deletePhotoMessage(conversationId: String, messageId: String)
+
+  /**
    * Downloads the photo of a message, from its [ChatMessage.imagePath], as the signed-in user.
    * Fails with PERMISSION_DENIED for a user who is not a participant of the conversation, with an
    * AppException with NETWORK when it takes too long, as offline, and with a Storage error to map

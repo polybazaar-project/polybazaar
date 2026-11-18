@@ -1681,6 +1681,30 @@ class ConversationViewModelTest {
   }
 
   @Test
+  fun discardPhoto_deletesItsMessage_soTheOtherParticipantNoLongerSeesIt() {
+    val viewModel = failedPhotoSend(refused)
+    // The message was written before the upload failed.
+    val written =
+        ChatMessage(
+            "m1",
+            renter.uid,
+            "",
+            Instant.ofEpochSecond(300),
+            imagePath = "conversations/${conversation.id}/m1.jpg",
+            photoPending = true,
+        )
+    chat.messages.value = mapOf(conversation.id to listOf(hi, written))
+    advance()
+
+    viewModel.discardPhoto("m1")
+    advance()
+
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+    assertEquals(listOf(hi), viewModel.uiState.value.messages)
+    assertEquals(listOf(hi), viewModel.uiState.value.shownMessages)
+  }
+
+  @Test
   fun discardPhoto_whileItUploads_isIgnored() {
     val viewModel = inConversation()
     chat.gate = CompletableDeferred()
@@ -1694,6 +1718,7 @@ class ConversationViewModelTest {
         listOf(PendingPhotoStatus.UPLOADING),
         viewModel.uiState.value.pendingPhotos.map { it.status },
     )
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
   }
 
   @Test

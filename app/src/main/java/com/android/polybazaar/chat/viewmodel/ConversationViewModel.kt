@@ -375,14 +375,17 @@ class ConversationViewModel(
   }
 
   /**
-   * Removes the failed photo of [messageId], deleting it if it was taken with the camera. Ignored
-   * unless it failed: an upload under way cannot be taken back.
+   * Removes the failed photo of [messageId], deleting it if it was taken with the camera, and
+   * deletes its message, which may already be on the server with its photo pending, so the other
+   * participant no longer sees it. Ignored unless it failed: an upload under way cannot be taken
+   * back.
    */
   fun discardPhoto(messageId: String) {
     val failed = _uiState.value.failedPhoto(messageId) ?: return
     _uiState.update {
       it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(failed) })
     }
+    chatRepository.deletePhotoMessage(conversationId(listingId, renterUid), messageId)
     deleteIfTaken(failed.photo)
   }
 
