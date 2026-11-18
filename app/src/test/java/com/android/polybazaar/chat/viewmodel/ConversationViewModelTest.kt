@@ -1427,21 +1427,19 @@ class ConversationViewModelTest {
         viewModel.uiState.value.pendingPhotos,
     )
     assertNull(viewModel.uiState.value.sendError)
-    assertEquals(1, listings.getListingCalls)
   }
 
   @Test
-  fun sendPhoto_refused_failsWithPermissionDenied_andReloadsTheListing() {
+  fun sendPhoto_refused_failsWithPermissionDenied() {
     val viewModel = failedPhotoSend(refused)
 
     val pending = viewModel.uiState.value.pendingPhotos.single()
     assertEquals(PendingPhotoStatus.FAILED, pending.status)
     assertEquals(AppError.PERMISSION_DENIED, pending.error)
-    assertEquals(2, listings.getListingCalls)
   }
 
   @Test
-  fun sendPhoto_toADeletedListing_reloadsItAndStopsAttachingPhotos() {
+  fun sendPhoto_toADeletedListing_failsAndTheDeletionStopsAttachingPhotos() {
     val viewModel = inConversation()
     listings.allListings = emptyList()
     chat.sendFailure = firestoreError(FirebaseFirestoreException.Code.NOT_FOUND)

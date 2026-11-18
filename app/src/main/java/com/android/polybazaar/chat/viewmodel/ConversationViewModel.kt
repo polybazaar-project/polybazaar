@@ -328,9 +328,9 @@ class ConversationViewModel(
         deleteIfTaken(pending.photo)
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
-        val error = exception.toAppError()
-        _uiState.update { it.withPendingPhoto(pending.failed(error)) }
-        reloadListingAfter(error)
+        // A refusal from a pause or deletion of the listing also reaches its observation, which
+        // then stops new photos from being attached.
+        _uiState.update { it.withPendingPhoto(pending.failed(exception.toAppError())) }
       }
     }
   }
