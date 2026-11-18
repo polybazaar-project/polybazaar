@@ -385,6 +385,8 @@ class FirebaseChatRepository(
         text = getString("text") ?: if (imagePath != null) "" else throw missing("text"),
         sentAt = instant("sentAt") ?: throw missing("sentAt"),
         imagePath = imagePath,
+        // Photos sent before the flag existed have none, and were uploaded.
+        photoPending = getBoolean("photoPending") ?: false,
     )
   }
 
