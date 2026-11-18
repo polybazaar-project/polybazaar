@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -81,6 +84,8 @@ import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
+import com.android.polybazaar.chat.viewmodel.PendingPhoto
+import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.ui.CameraPermissionDialog
@@ -120,6 +125,15 @@ object ConversationScreenTags {
 
   /** Tag of the bubble of the other participant's message with [id]. */
   fun theirMessage(id: String) = "conversation_their_message_$id"
+
+  /** Tag of the bubble of the photo being sent, or that failed, with message ID [id]. */
+  fun pendingPhoto(id: String) = "conversation_pending_photo_$id"
+
+  /** Tag of Retry on the failed photo with message ID [id]. */
+  fun retryPhoto(id: String) = "conversation_retry_photo_$id"
+
+  /** Tag of Remove on the failed photo with message ID [id]. */
+  fun discardPhoto(id: String) = "conversation_discard_photo_$id"
 }
 
 /** What the screen shows between the header and the composer, decided by [conversationBody]. */
@@ -149,6 +163,12 @@ private val PageMargin = 18.dp
 
 /** Widest a bubble gets, so a long message wraps instead of spanning the screen. */
 private val MaxBubbleWidth = 300.dp
+
+/**
+ * Height of a photo in its bubble, the same while it loads, so the list does not jump when it
+ * arrives.
+ */
+private val BubblePhotoHeight = 200.dp
 
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -192,6 +212,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
         )
       },
       onRemoveAttachedPhoto = viewModel::removeAttachedPhoto,
+      onRetryPhoto = viewModel::retryPhoto,
+      onDiscardPhoto = viewModel::discardPhoto,
   )
   if (camera.showPermissionExplanation) {
     CameraPermissionDialog(onDismiss = camera::dismissPermissionExplanation)
@@ -214,6 +236,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  * @param onTakePhoto called when the user picks "Take photo" in the photo menu.
  * @param onChoosePhoto called when the user picks "Choose from gallery" in the photo menu.
  * @param onRemoveAttachedPhoto called when the user taps ✕ on the attached photo.
+ * @param onRetryPhoto called with the message ID of a failed photo when the user taps Retry.
+ * @param onDiscardPhoto called with the message ID of a failed photo when the user taps Remove.
  * @param zone time zone of the message times.
  */
 @Composable
@@ -227,6 +251,8 @@ fun ConversationContent(
     onTakePhoto: () -> Unit = {},
     onChoosePhoto: () -> Unit = {},
     onRemoveAttachedPhoto: () -> Unit = {},
+    onRetryPhoto: (String) -> Unit = {},
+    onDiscardPhoto: (String) -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
   val body = conversationBody(uiState)
@@ -260,7 +286,13 @@ fun ConversationContent(
                 listingTitle = uiState.listingTitle,
                 listingStatus = uiState.listingStatus,
             )
-        ConversationBody.MESSAGES -> MessageList(uiState = uiState, zone = zone, onRetry = onRetry)
+        ConversationBody.MESSAGES ->
+            MessageList(
+                uiState = uiState,
+                zone = zone,
+                onRetry = onRetry,
+                photoActions = PhotoActions(onRetryPhoto, onDiscardPhoto),
+            )
       }
     }
     Composer(
@@ -471,15 +503,31 @@ private fun EmptyState(
   }
 }
 
+/** What the user can do with the photos being sent. */
+private class PhotoActions(
+    val retry: (messageId: String) -> Unit,
+    val discard: (messageId: String) -> Unit,
+)
+
 /**
- * The messages, oldest at the top, with the load error and Retry above them when a reload failed.
+ * The messages, oldest at the top, then the photos being sent, with the load error and Retry above
+ * them when a reload failed.
  */
 @Composable
-private fun MessageList(uiState: ConversationUiState, zone: ZoneId, onRetry: () -> Unit) {
+private fun MessageList(
+    uiState: ConversationUiState,
+    zone: ZoneId,
+    onRetry: () -> Unit,
+    photoActions: PhotoActions,
+) {
   val messages = uiState.messages
+  val pendingPhotos = uiState.pendingPhotos
   val listState = rememberLazyListState()
-  // The list keeps its place by key, so a new message would arrive below the view without this.
-  LaunchedEffect(messages.lastOrNull()?.id) { listState.scrollToItem(0) }
+  // The list keeps its place by key, so a new message or photo would arrive below the view without
+  // this.
+  LaunchedEffect(messages.lastOrNull()?.id, pendingPhotos.lastOrNull()?.messageId) {
+    listState.scrollToItem(0)
+  }
   Column(modifier = Modifier.fillMaxSize()) {
     uiState.loadError?.let { LoadErrorRow(text = it.message(), onRetry = onRetry) }
     // Laid out from the bottom, newest first, so the newest message stays in view, footer
@@ -491,6 +539,14 @@ private fun MessageList(uiState: ConversationUiState, zone: ZoneId, onRetry: () 
         reverseLayout = true,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+      // Prefixed: once sent, a photo's message arrives with the same ID.
+      items(pendingPhotos.asReversed(), key = { "pending_${it.messageId}" }) { pending ->
+        PendingPhotoBubble(
+            pending = pending,
+            onRetry = { photoActions.retry(pending.messageId) },
+            onDiscard = { photoActions.discard(pending.messageId) },
+        )
+      }
       items(messages.asReversed(), key = { it.id }) { message ->
         MessageBubble(
             message = message,
@@ -553,6 +609,37 @@ private fun MessageBubble(
             stringResource(R.string.conversation_their_message_footer, otherUsername, time)
         else -> time
       }
+  Bubble(
+      isMine = isMine,
+      tag =
+          if (isMine) ConversationScreenTags.myMessage(message.id)
+          else ConversationScreenTags.theirMessage(message.id),
+      fixedWidth = false,
+  ) {
+    Text(
+        text = message.text,
+        color = AuthColors.TextPrimary,
+        fontSize = 14.sp,
+        lineHeight = 19.sp,
+    )
+    BubbleFooter(text = footer)
+  }
+}
+
+/**
+ * A message bubble: the user's own at the end of the row, the other participant's at the start. One
+ * TalkBack item: its photo, its text, then who sent it and when.
+ *
+ * @param fixedWidth whether the bubble is always [MaxBubbleWidth] wide, as for a photo, rather than
+ *   as wide as its text.
+ */
+@Composable
+private fun Bubble(
+    isMine: Boolean,
+    tag: String,
+    fixedWidth: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
   val shape = RoundedCornerShape(16.dp)
   Box(
       modifier = Modifier.fillMaxWidth(),
@@ -560,14 +647,10 @@ private fun MessageBubble(
   ) {
     Column(
         modifier =
-            Modifier.widthIn(max = MaxBubbleWidth)
-                // One TalkBack item per message, the whole bubble: its text, then who sent it and
-                // when.
+            (if (fixedWidth) Modifier.width(MaxBubbleWidth)
+                else Modifier.widthIn(max = MaxBubbleWidth))
                 .semantics(mergeDescendants = true) {}
-                .testTag(
-                    if (isMine) ConversationScreenTags.myMessage(message.id)
-                    else ConversationScreenTags.theirMessage(message.id)
-                )
+                .testTag(tag)
                 .background(
                     if (isMine) AuthColors.AccentContainer else AuthColors.CardBackground,
                     shape,
@@ -577,18 +660,92 @@ private fun MessageBubble(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-      Text(
-          text = message.text,
-          color = AuthColors.TextPrimary,
-          fontSize = 14.sp,
-          lineHeight = 19.sp,
+      content()
+    }
+  }
+}
+
+@Composable
+private fun ColumnScope.BubbleFooter(text: String) {
+  Text(
+      text = text,
+      color = AuthColors.TextSecondary,
+      fontSize = 11.sp,
+      modifier = Modifier.align(Alignment.End),
+  )
+}
+
+/**
+ * A photo the user sent that is not in the conversation yet, as their own bubble: faded with a
+ * spinner while it uploads; faded with why it failed, Retry and Remove once it failed.
+ */
+@Composable
+private fun PendingPhotoBubble(pending: PendingPhoto, onRetry: () -> Unit, onDiscard: () -> Unit) {
+  val description = stringResource(R.string.conversation_photo)
+  val uploading = pending.status == PendingPhotoStatus.UPLOADING
+  Bubble(
+      isMine = true,
+      tag = ConversationScreenTags.pendingPhoto(pending.messageId),
+      fixedWidth = true,
+  ) {
+    Box(contentAlignment = Alignment.Center) {
+      // A taken photo is deleted once uploaded, so after a late rejection only the placeholder
+      // shows.
+      PhotoOrPlaceholder(
+          photo = rememberLocalPhoto(pending.photo),
+          description = description,
+          modifier =
+              Modifier.fillMaxWidth()
+                  .height(BubblePhotoHeight)
+                  .clip(RoundedCornerShape(10.dp))
+                  .alpha(0.6f),
       )
+      if (uploading) {
+        CircularProgressIndicator(
+            color = AuthColors.CardBackground,
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(24.dp),
+        )
+      }
+    }
+    pending.caption?.let {
+      Text(text = it, color = AuthColors.TextPrimary, fontSize = 14.sp, lineHeight = 19.sp)
+    }
+    if (uploading) {
+      BubbleFooter(text = stringResource(R.string.conversation_photo_sending))
+    } else {
       Text(
-          text = footer,
-          color = AuthColors.TextSecondary,
-          fontSize = 11.sp,
-          modifier = Modifier.align(Alignment.End),
+          text =
+              stringResource(
+                  R.string.conversation_photo_not_sent,
+                  (pending.error ?: AppError.UNKNOWN).message(),
+              ),
+          color = AuthColors.Danger,
+          fontSize = 12.sp,
+          // Announced when it fails: TalkBack's focus is elsewhere, on Send or the field.
+          modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
       )
+      Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        TextButton(
+            onClick = onRetry,
+            modifier = Modifier.testTag(ConversationScreenTags.retryPhoto(pending.messageId)),
+        ) {
+          Text(
+              text = stringResource(R.string.conversation_retry),
+              color = AuthColors.Accent,
+              fontWeight = FontWeight.SemiBold,
+          )
+        }
+        TextButton(
+            onClick = onDiscard,
+            modifier = Modifier.testTag(ConversationScreenTags.discardPhoto(pending.messageId)),
+        ) {
+          Text(
+              text = stringResource(R.string.conversation_photo_remove),
+              color = AuthColors.TextSecondary,
+          )
+        }
+      }
     }
   }
 }
