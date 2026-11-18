@@ -718,6 +718,103 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendPhotoMarksThePhotoUploadedOnlyAfterUploadingIt() = runTest {
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    val order = inOrder(batch, photoRef, photoMessageRef)
+    order.verify(batch).commit()
+    order.verify(photoRef).putBytes(any(), any())
+    order.verify(photoMessageRef).update("photoPending", false)
+  }
+
+  @Test
+  fun sendPhotoWaitsForTheServerToConfirmTheMarkBeforeReturning() = runTest {
+    val pendingMark = TaskCompletionSource<Void>()
+    whenever(photoMessageRef.update("photoPending", false)).thenReturn(pendingMark.task)
+    val sending = async { repository.sendPhoto(replied, PHOTO_ID, photo) }
+    runCurrent()
+
+    assertFalse(sending.isCompleted)
+    pendingMark.setResult(null)
+    sending.await()
+  }
+
+  @Test
+  fun sendPhotoRetryWithPhotoStoredButNotMarkedOnlyMarksIt() = runTest {
+    messageAlreadyOnServer()
+    whenever(photoRef.metadata).thenReturn(Tasks.forResult(mock<StorageMetadata>()))
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(firestore, never()).batch()
+    verify(photoRef, never()).putBytes(any(), any())
+    verify(photoMessageRef).update("photoPending", false)
+  }
+
+  @Test
+  fun sendPhotoRetryWithPhotoAlreadyMarkedUploadedWritesNothing() = runTest {
+    messageAlreadyOnServer(pending = false)
+    whenever(photoRef.metadata).thenReturn(Tasks.forResult(mock<StorageMetadata>()))
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    // The rules allow the mark only once.
+    verify(photoMessageRef, never()).update(any<String>(), any())
+    verify(firestore, never()).batch()
+  }
+
+  @Test
+  fun sendPhotoRetryForMessageWithoutPendingFieldDoesNotMarkIt() = runTest {
+    messageAlreadyOnServer(pending = null)
+    whenever(photoRef.metadata).thenReturn(Tasks.forResult(mock<StorageMetadata>()))
+
+    repository.sendPhoto(replied, PHOTO_ID, photo)
+
+    verify(photoMessageRef, never()).update(any<String>(), any())
+  }
+
+  @Test
+  fun sendPhotoFailedUploadLeavesThePhotoPending() = runTest {
+    failUpload(storageException(StorageException.ERROR_RETRY_LIMIT_EXCEEDED))
+
+    runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }
+
+    verify(photoMessageRef, never()).update(any<String>(), any())
+  }
+
+  @Test
+  fun sendPhotoRejectedMarkIsLoggedAndThrown() = runTest {
+    val failure =
+        FirebaseFirestoreException(
+            "Missing or insufficient permissions.",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
+    whenever(photoMessageRef.update("photoPending", false)).thenReturn(Tasks.forException(failure))
+    var logged: Exception? = null
+    val repository =
+        FirebaseChatRepository(photoCompressor, firestore, auth, storage) { logged = it }
+
+    val error = runCatching { repository.sendPhoto(replied, PHOTO_ID, photo) }.exceptionOrNull()
+
+    assertSame(failure, logged)
+    assertSame(failure, error)
+  }
+
+  @Test
+  fun sendPhotoMarkWithNoServerAnswerFailsWithNetworkAfterTimeout() = runTest {
+    whenever(photoMessageRef.update("photoPending", false))
+        .thenReturn(TaskCompletionSource<Void>().task)
+
+    val error = runCatching {
+      shortTimeoutRepository().sendPhoto(replied, PHOTO_ID, photo)
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.NETWORK, (error as AppException).error)
+    assertEquals(5_000L, testScheduler.currentTime)
+  }
+
+  @Test
   fun sendPhotoUploadsOnlyAfterCheckingNoPhotoIsStored() = runTest {
     repository.sendPhoto(replied, PHOTO_ID, photo)
 
@@ -1268,11 +1365,14 @@ class FirebaseChatRepositoryTest {
           photoTimeout = 5.seconds,
       )
 
-  /** Puts the photo's message on the server, as after a send whose upload failed. */
-  private fun messageAlreadyOnServer() {
+  /**
+   * Puts the photo's message on the server, as after a send whose upload failed. With [pending]
+   * false its photo was already marked uploaded; null is a message from before the flag existed.
+   */
+  private fun messageAlreadyOnServer(pending: Boolean? = true) {
     val written = mock<DocumentSnapshot>()
     whenever(written.exists()).thenReturn(true)
-    whenever(written.getBoolean("photoPending")).thenReturn(true)
+    whenever(written.getBoolean("photoPending")).thenReturn(pending)
     whenever(photoMessageRef.get(Source.SERVER)).thenReturn(Tasks.forResult(written))
   }
 
