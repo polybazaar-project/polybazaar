@@ -4,7 +4,6 @@ package com.android.polybazaar.map.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.LocationRepository
@@ -51,11 +50,13 @@ data class MapUiState(val centre: MapCentre = MapCentre.Undecided)
  * [onPermissionResult]; this ViewModel never sees the permission itself.
  *
  * @param savedStateHandle remembers the campus picked for the session: across tab switches, and
- *   when Android kills the app in the background. Pass `createSavedStateHandle()` from the factory.
+ *   when Android kills the app in the background. Pass `createSavedStateHandle()` from the factory;
+ *   it has no default, since a handle made by hand is not restored by Android (and its constructor
+ *   is meant for tests).
  */
 class MapViewModel(
     private val locationRepository: LocationRepository,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(MapUiState())
@@ -90,12 +91,9 @@ class MapViewModel(
       locationRepository
           .currentLocation()
           .onSuccess { coordinates -> showIfStillLocating(MapCentre.Located(coordinates)) }
-          .onFailure { exception ->
-            // Only for the log: toAppError() logs exceptions it does not recognise. A location that
-            // can't be read is expected (turned off, offline), so the renter just picks a campus.
-            exception.toAppError()
-            showIfStillLocating(campusOrChoice())
-          }
+          // A location that can't be read is expected (turned off, offline), so it is not logged:
+          // the renter just gets their campus, or picks one.
+          .onFailure { showIfStillLocating(campusOrChoice()) }
     }
   }
 
@@ -105,9 +103,20 @@ class MapViewModel(
     _uiState.update { it.copy(centre = MapCentre.OnCampus(campus)) }
   }
 
-  /** Opens the campus chooser again ("Change"), with the current campus selected. */
+  /**
+   * Opens the campus chooser again ("Change"), with the current campus selected. Only from a
+   * campus, where the map shows "Change" (Figma "Map — Centred on campus"): anywhere else, Cancel
+   * would have no campus to go back to and the renter would be stuck in the chooser.
+   */
   fun changeCampus() {
-    _uiState.update { it.copy(centre = MapCentre.NeedsChoice(current = chosenCampus)) }
+    _uiState.update {
+      val centre = it.centre
+      if (centre is MapCentre.OnCampus) {
+        it.copy(centre = MapCentre.NeedsChoice(current = centre.campus))
+      } else {
+        it
+      }
+    }
   }
 
   /**

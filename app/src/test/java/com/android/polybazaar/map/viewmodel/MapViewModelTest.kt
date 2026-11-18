@@ -164,6 +164,19 @@ class MapViewModelTest {
   }
 
   @Test
+  fun changeCampus_fromTheRenterLocation_doesNothing() {
+    // There is no campus to cancel back to, so opening the chooser would trap the renter in it.
+    val viewModel = viewModel()
+    viewModel.onPermissionResult(granted = true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.changeCampus()
+    viewModel.cancelCampusChoice()
+
+    assertEquals(MapCentre.Located(nearRolex), viewModel.centre())
+  }
+
+  @Test
   fun cancelWithoutACampus_keepsTheChooser() {
     val viewModel = viewModel()
     viewModel.onPermissionResult(granted = false)
