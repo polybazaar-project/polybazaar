@@ -1,12 +1,21 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.ui
 
+import android.Manifest
+import android.app.Application
 import android.content.Context
 import android.net.Uri
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -20,6 +29,7 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -32,6 +42,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -51,11 +62,15 @@ import com.android.polybazaar.chat.viewmodel.PendingPhoto
 import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.TakenPhoto
+import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.FakeProfileRepository
+import com.android.polybazaar.profile.ui.redPhoto
+import java.io.File
 import java.net.UnknownHostException
 import java.time.Instant
 import java.time.ZoneOffset
@@ -66,6 +81,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -202,6 +218,8 @@ class ConversationScreenTest {
       chat: FakeChatRepository,
       listings: FakeListingRepository = FakeListingRepository(allListings = listOf(drill)),
       lifecycleOwner: LifecycleOwner? = null,
+      photoStorage: PhotoStorage = NoPhotoStorage,
+      launchers: FakeLaunchers = FakeLaunchers(),
   ): ConversationViewModel {
     val viewModel =
         ConversationViewModel(
@@ -211,16 +229,42 @@ class ConversationScreenTest {
             chatRepository = chat,
             profileRepository = FakeProfileRepository(mapOf(james.uid to james)),
             listingRepository = listings,
-            photoStorage = NoPhotoStorage,
+            photoStorage = photoStorage,
         )
+    val launcherOwner =
+        object : ActivityResultRegistryOwner {
+          override val activityResultRegistry = launchers
+        }
     composeTestRule.setContent {
       CompositionLocalProvider(
-          LocalLifecycleOwner provides (lifecycleOwner ?: LocalLifecycleOwner.current)
+          LocalLifecycleOwner provides (lifecycleOwner ?: LocalLifecycleOwner.current),
+          // rememberLauncherForActivityResult reads its registry from this composition local.
+          LocalActivityResultRegistryOwner provides launcherOwner,
       ) {
         ConversationScreen(viewModel = viewModel, onBack = {})
       }
     }
     return viewModel
+  }
+
+  /**
+   * Stands in for the gallery, the camera app and the permission request: answers each launch at
+   * once with the next of [results] (a picked URI or null, or a Boolean for the camera and the
+   * permission), and records each contract launched in [launched].
+   */
+  private class FakeLaunchers : ActivityResultRegistry() {
+    val results = ArrayDeque<Any?>()
+    val launched = mutableListOf<ActivityResultContract<*, *>>()
+
+    override fun <I, O> onLaunch(
+        requestCode: Int,
+        contract: ActivityResultContract<I, O>,
+        input: I,
+        options: ActivityOptionsCompat?,
+    ) {
+      launched += contract
+      dispatchResult(requestCode, results.removeFirst())
+    }
   }
 
   /** A lifecycle a test moves by hand, to put the screen in the background and back. */
@@ -1006,6 +1050,79 @@ class ConversationScreenTest {
     val mine = node(ConversationScreenTags.myMessage("m1")).getBoundsInRoot()
     assertTrue(answer.bottom <= pending.top)
     assertEquals(mine.right.value, pending.right.value, 0.5f)
+  }
+
+  // The screen wires the photo menu to the gallery, the camera and the ViewModel.
+
+  /** A chat whose conversation exists, so a photo can be attached. */
+  private fun existingConversation() = FakeChatRepository(listOf(conversation))
+
+  private fun openPhotoMenuAndPick(tag: String) {
+    node(ConversationScreenTags.PHOTO_BUTTON).assertIsEnabled().performClick()
+    node(tag).performClick()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing of the thumbnail.
+  fun screen_choosingFromTheGallery_attachesThePickedPhoto_andShowsIt() {
+    val picked = File(context.cacheDir, "picked.png").apply { writeBytes(redPhoto()) }
+    val launchers = FakeLaunchers().apply { results.add(Uri.fromFile(picked)) }
+    val viewModel = showScreen(existingConversation(), launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.CHOOSE_PHOTO)
+
+    assertTrue(launchers.launched.single() is ActivityResultContracts.PickVisualMedia)
+    assertEquals(Uri.fromFile(picked), viewModel.uiState.value.attachedPhoto)
+    composeTestRule.waitUntil(5_000) {
+      val image =
+          composeTestRule
+              .onNodeWithTag(ConversationScreenTags.ATTACHED_PHOTO, useUnmergedTree = true)
+              .captureToImage()
+      image.toPixelMap()[image.width / 2, image.height / 2] == Color.Red
+    }
+  }
+
+  @Test
+  fun screen_closingTheGalleryWithoutAPhoto_attachesNothing() {
+    val launchers = FakeLaunchers().apply { results.add(null) }
+    val viewModel = showScreen(existingConversation(), launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.CHOOSE_PHOTO)
+
+    assertEquals(null, viewModel.uiState.value.attachedPhoto)
+    node(ConversationScreenTags.ATTACHED_PHOTO).assertDoesNotExist()
+  }
+
+  // The camera app leaves its file empty; native graphics fail to decode it cleanly.
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun screen_takingAPhoto_withPermission_attachesTheTakenFile() {
+    shadowOf(context as Application).grantPermissions(Manifest.permission.CAMERA)
+    val launchers = FakeLaunchers().apply { results.add(true) } // The camera app saved it.
+    val storage = FilePhotoStorage(context, FilePhotoStorage.CHAT_FORM)
+    val viewModel =
+        showScreen(existingConversation(), photoStorage = storage, launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.TAKE_PHOTO)
+
+    assertTrue(launchers.launched.single() is ActivityResultContracts.TakePicture)
+    val attached = viewModel.uiState.value.attachedPhoto
+    assertTrue(attached != null && File(attached.path!!).exists())
+    node(ConversationScreenTags.ATTACHED_PHOTO).assertIsDisplayed()
+  }
+
+  @Test
+  fun screen_refusingTheCamera_explainsWhy_andCancelClosesIt() {
+    val launchers = FakeLaunchers().apply { results.add(false) } // The user refuses.
+    val viewModel = showScreen(existingConversation(), launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.TAKE_PHOTO)
+
+    assertTrue(launchers.launched.single() is ActivityResultContracts.RequestPermission)
+    node(CreateListingScreenTags.CAMERA_PERMISSION_DIALOG).assertIsDisplayed()
+    node(CreateListingScreenTags.CAMERA_PERMISSION_CANCEL).performClick()
+    node(CreateListingScreenTags.CAMERA_PERMISSION_DIALOG).assertDoesNotExist()
+    assertEquals(null, viewModel.uiState.value.attachedPhoto)
   }
 
   /** No test of the screen takes a photo yet. */
