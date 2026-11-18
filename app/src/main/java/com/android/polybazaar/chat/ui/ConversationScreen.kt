@@ -44,6 +44,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -541,6 +543,8 @@ private fun MessageList(
   val messages = uiState.shownMessages
   val pendingPhotos = uiState.pendingPhotos
   val listState = rememberLazyListState()
+  // Decoded above the list: a bubble that scrolls out of view and back shows its photo at once.
+  val decodedPhotos = rememberDecodedPhotos(uiState.messagePhotos)
   // The list keeps its place by key, so a new message or photo would arrive below the view without
   // this.
   LaunchedEffect(messages.lastOrNull()?.id, pendingPhotos.lastOrNull()?.messageId) {
@@ -574,7 +578,8 @@ private fun MessageList(
             photo =
                 message.imagePath?.let { path ->
                   MessagePhoto(
-                      bytes = uiState.messagePhotos[path],
+                      downloaded = path in uiState.messagePhotos,
+                      decoded = decodedPhotos[path] ?: DecodedPhoto.Loading,
                       failed = path in uiState.photoLoadErrors,
                       pending = message.photoPending,
                       load = { photoActions.load(path) },
@@ -618,12 +623,13 @@ private fun LoadErrorRow(text: String, onRetry: () -> Unit) {
 }
 
 /**
- * The photo of a message: its downloaded [bytes], or null until they arrive; [failed] when the
- * download failed; [pending] while its sender is still uploading it, so it can't be downloaded yet.
- * [load] asks for it.
+ * The photo of a message: [downloaded] once its bytes arrived, [decoded] from them above the list
+ * ([DecodedPhoto.Loading] until then); [failed] when the download failed; [pending] while its
+ * sender is still uploading it, so it can't be downloaded yet. [load] asks for it.
  */
 private class MessagePhoto(
-    val bytes: ByteArray?,
+    val downloaded: Boolean,
+    val decoded: DecodedPhoto,
     val failed: Boolean,
     val pending: Boolean,
     val load: () -> Unit,
@@ -721,6 +727,28 @@ private fun ColumnScope.BubbleFooter(text: String) {
   )
 }
 
+/**
+ * [photos] decoded off the main thread, by path: each one once, and again only if its bytes change.
+ * A photo still decoding is absent.
+ */
+@Composable
+private fun rememberDecodedPhotos(photos: Map<String, ByteArray>): Map<String, DecodedPhoto> {
+  val decoded = remember { mutableStateMapOf<String, DecodedPhoto>() }
+  photos.forEach { (path, bytes) ->
+    // One effect per photo: a photo that finishes downloading starts its own decode, without
+    // restarting the ones already running.
+    key(path) {
+      LaunchedEffect(bytes) {
+        decoded[path] =
+            decodePhotoPreview(bytes, maxSize = BUBBLE_PHOTO_MAX_SIZE)?.let {
+              DecodedPhoto.Shown(it)
+            } ?: DecodedPhoto.Failed
+      }
+    }
+  }
+  return decoded
+}
+
 /** A message photo after it is decoded, or why it is not shown. */
 private sealed interface DecodedPhoto {
   data object Loading : DecodedPhoto
@@ -739,21 +767,11 @@ private sealed interface DecodedPhoto {
 private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
   // Not asked again on its own after a failure: only when the user taps to retry.
   LaunchedEffect(messageId, photo.pending) {
-    if (!photo.pending && photo.bytes == null && !photo.failed) photo.load()
+    if (!photo.pending && !photo.downloaded && !photo.failed) photo.load()
   }
-  val decoded by
-      produceState<DecodedPhoto>(initialValue = DecodedPhoto.Loading, photo.bytes) {
-        val bytes = photo.bytes
-        value =
-            if (bytes == null) DecodedPhoto.Loading
-            else
-                decodePhotoPreview(bytes, maxSize = BUBBLE_PHOTO_MAX_SIZE)?.let {
-                  DecodedPhoto.Shown(it)
-                } ?: DecodedPhoto.Failed
-      }
   val description = stringResource(R.string.conversation_photo)
   val shape = RoundedCornerShape(10.dp)
-  val current = decoded
+  val current = photo.decoded
   val downloadFailed = photo.failed && current !is DecodedPhoto.Shown
   // One tag per state: of two test tags on a node, only the first counts.
   val tag =

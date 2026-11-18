@@ -1126,6 +1126,33 @@ class ConversationScreenTest {
   }
 
   @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing.
+  fun decodedPhoto_scrolledOutOfViewAndBack_isShownAtOnce() {
+    val later =
+        List(30) { ChatMessage("t$it", "renter", "Message $it", photoTime.plusSeconds(60L + it)) }
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto) + later,
+            messagePhotos = mapOf(theirPhoto.imagePath!! to redPhoto()),
+        )
+    )
+    val list = node(ConversationScreenTags.MESSAGE_LIST)
+    // Newest first: the photo is last.
+    list.performScrollToIndex(later.size)
+    waitForRedPhoto("m4")
+
+    list.performScrollToIndex(0)
+    photoNode("m4").assertDoesNotExist()
+    // Frozen clock: a photo decoded again would still show the placeholder.
+    composeTestRule.mainClock.autoAdvance = false
+    list.performScrollToIndex(later.size)
+
+    // Not decoded again: drawn in the first frame, without the placeholder.
+    val image = photoNode("m4").captureToImage()
+    assertEquals(Color.Red, image.toPixelMap()[image.width / 2, image.height / 2])
+  }
+
+  @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE) // The legacy BitmapFactory "decodes" any bytes.
   fun undecodablePhoto_saysItCouldNotLoad_withoutOfferingARetry() {
     setContent(
