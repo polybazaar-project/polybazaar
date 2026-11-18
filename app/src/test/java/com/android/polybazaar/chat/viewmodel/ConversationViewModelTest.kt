@@ -13,6 +13,7 @@ import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
@@ -1382,6 +1383,166 @@ class ConversationViewModelTest {
     viewModel.close()
 
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  private val offline = AppException(AppError.NETWORK)
+  private val refused = firestoreError(FirebaseFirestoreException.Code.PERMISSION_DENIED)
+
+  /** Attaches the gallery photo and sends it, failing with [failure]; returns the ViewModel. */
+  private fun failedPhotoSend(failure: Exception): ConversationViewModel {
+    val viewModel = inConversation()
+    chat.sendFailure = failure
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+    return viewModel
+  }
+
+  @Test
+  fun sendPhoto_offline_failsWithNetwork() {
+    val viewModel = failedPhotoSend(offline)
+
+    assertEquals(
+        listOf(PendingPhoto("m1", galleryPhoto, null, PendingPhotoStatus.FAILED, AppError.NETWORK)),
+        viewModel.uiState.value.pendingPhotos,
+    )
+    assertNull(viewModel.uiState.value.sendError)
+    assertEquals(1, listings.getListingCalls)
+  }
+
+  @Test
+  fun sendPhoto_refused_failsWithPermissionDenied_andReloadsTheListing() {
+    val viewModel = failedPhotoSend(refused)
+
+    val pending = viewModel.uiState.value.pendingPhotos.single()
+    assertEquals(PendingPhotoStatus.FAILED, pending.status)
+    assertEquals(AppError.PERMISSION_DENIED, pending.error)
+    assertEquals(2, listings.getListingCalls)
+  }
+
+  @Test
+  fun sendPhoto_toADeletedListing_reloadsItAndStopsAttachingPhotos() {
+    val viewModel = inConversation()
+    listings.allListings = emptyList()
+    chat.sendFailure = firestoreError(FirebaseFirestoreException.Code.NOT_FOUND)
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.send()
+    advance()
+
+    val state = viewModel.uiState.value
+    assertEquals(AppError.NOT_FOUND, state.pendingPhotos.single().error)
+    assertEquals(ConversationListingStatus.DELETED, state.listingStatus)
+    assertFalse(state.canAttachPhoto)
+  }
+
+  @Test
+  fun retryPhoto_sendsAgainWithTheSameMessageId_andRemovesItOnceSent() {
+    val viewModel = failedPhotoSend(offline)
+    chat.sendFailure = null
+    chat.gate = CompletableDeferred()
+
+    viewModel.retryPhoto("m1")
+    advance()
+    val retried = viewModel.uiState.value.pendingPhotos.single()
+    assertEquals(PendingPhotoStatus.UPLOADING, retried.status)
+    assertNull(retried.error)
+
+    chat.gate!!.complete(Unit)
+    advance()
+    assertEquals(listOf("m1", "m1"), chat.sentPhotos.map { it.messageId })
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun retryPhoto_failingAgain_isFailedAgainWithTheNewError() {
+    val viewModel = failedPhotoSend(offline)
+    chat.sendFailure = refused
+
+    viewModel.retryPhoto("m1")
+    advance()
+
+    val pending = viewModel.uiState.value.pendingPhotos.single()
+    assertEquals(PendingPhotoStatus.FAILED, pending.status)
+    assertEquals(AppError.PERMISSION_DENIED, pending.error)
+  }
+
+  @Test
+  fun retryPhoto_whileItUploads_doesNotSendItTwice() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    viewModel.retryPhoto("m1")
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+  }
+
+  @Test
+  fun retryPhoto_ofAnUnknownId_doesNothing() {
+    val viewModel = failedPhotoSend(offline)
+
+    viewModel.retryPhoto("m9")
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(PendingPhotoStatus.FAILED, viewModel.uiState.value.pendingPhotos.single().status)
+  }
+
+  @Test
+  fun discardPhoto_removesAFailedTakenPhoto_andDeletesItsFile() {
+    val viewModel = inConversation()
+    chat.sendFailure = offline
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.discardPhoto("m1")
+
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun discardPhoto_removesAFailedGalleryPhoto_withoutDeletingIt() {
+    val viewModel = failedPhotoSend(offline)
+
+    viewModel.discardPhoto("m1")
+
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun discardPhoto_whileItUploads_isIgnored() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    viewModel.discardPhoto("m1")
+
+    assertEquals(
+        listOf(PendingPhotoStatus.UPLOADING),
+        viewModel.uiState.value.pendingPhotos.map { it.status },
+    )
+  }
+
+  @Test
+  fun closing_withAFailedTakenPhoto_deletesIt() {
+    val viewModel = inConversation()
+    chat.sendFailure = offline
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+
+    assertEquals(listOf(taken), photoStorage.deleted)
   }
 
   /**
