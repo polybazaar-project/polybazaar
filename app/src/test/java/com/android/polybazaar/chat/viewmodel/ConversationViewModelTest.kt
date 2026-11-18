@@ -1837,6 +1837,50 @@ class ConversationViewModelTest {
     assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
   }
 
+  @Test
+  fun loadPhoto_notFound_recordsTheErrorAtOnce() {
+    // Not pending, so it was uploaded: a missing photo will not arrive later.
+    chat.photoLoadFailure = missing
+    val viewModel = inConversation()
+
+    viewModel.loadPhoto(photoPath)
+    runCurrent()
+
+    assertEquals(mapOf(photoPath to AppError.NOT_FOUND), viewModel.uiState.value.photoLoadErrors)
+    assertEquals(1, downloads.loads.size)
+  }
+
+  @Test
+  fun loadPhoto_whileThePhotoIsPending_downloadsNothing() {
+    givenConversation(messages = arrayOf(photoMessage.copy(photoPending = true)))
+    uploaded()
+    val viewModel = loadedViewModel()
+
+    viewModel.loadPhoto(photoPath)
+    advance()
+
+    assertEquals(emptyList<String>(), downloads.loads)
+    assertEquals(emptyMap<String, ByteArray>(), viewModel.uiState.value.messagePhotos)
+    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
+  }
+
+  @Test
+  fun loadPhoto_onceThePhotoIsMarkedUploaded_downloadsIt() {
+    givenConversation(messages = arrayOf(photoMessage.copy(photoPending = true)))
+    uploaded()
+    val viewModel = loadedViewModel()
+    viewModel.loadPhoto(photoPath)
+    advance()
+
+    chat.messages.value = mapOf(conversation.id to listOf(photoMessage))
+    advance()
+    viewModel.loadPhoto(photoPath)
+    advance()
+
+    assertEquals(listOf(photoPath), downloads.loads)
+    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
+  }
+
   /** Delegates to [FakeChatRepository] and records each photo download, by path, in [loads]. */
   private class CountingDownloads(private val fake: FakeChatRepository) : ChatRepository by fake {
     val loads = mutableListOf<String>()

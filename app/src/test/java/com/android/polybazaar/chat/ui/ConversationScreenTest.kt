@@ -1070,6 +1070,34 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun pendingPhoto_showsTheLoadingPlaceholder_withoutBeingAskedFor() {
+    val loads = mutableListOf<String>()
+    val uploading = theirPhoto.copy(photoPending = true)
+    setContent(loaded.copy(messages = listOf(uploading)), onLoadPhoto = { loads += it })
+
+    composeTestRule.waitForIdle()
+    assertEquals(emptyList<String>(), loads)
+    photoNode("m4").assertHeightIsEqualTo(200.dp)
+    node(ConversationScreenTags.photoLoadError("m4")).assertDoesNotExist()
+  }
+
+  @Test
+  fun pendingPhoto_isAskedForOnceMarkedUploaded() {
+    val loads = mutableListOf<String>()
+    var state by
+        mutableStateOf(loaded.copy(messages = listOf(theirPhoto.copy(photoPending = true))))
+    composeTestRule.setContent {
+      ConversationContent(uiState = state, onLoadPhoto = { loads += it }, zone = ZoneOffset.UTC)
+    }
+    composeTestRule.waitForIdle()
+
+    state = state.copy(messages = listOf(theirPhoto))
+    composeTestRule.waitForIdle()
+
+    assertEquals(listOf(theirPhoto.imagePath), loads)
+  }
+
+  @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing.
   fun downloadedPhoto_isShownAtTheSameSize_withoutAskingAgain() {
     val loads = mutableListOf<String>()
