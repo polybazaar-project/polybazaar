@@ -47,6 +47,8 @@ import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
+import com.android.polybazaar.chat.viewmodel.PendingPhoto
+import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
@@ -950,6 +952,60 @@ class ConversationScreenTest {
     node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled().performClick()
 
     assertEquals(1, sends)
+  }
+
+  // Photos being sent
+
+  private val photoTime = Instant.parse("2026-11-11T09:16:00Z")
+
+  /** A photo message [id] from [senderUid], with [caption] as its text ("" for none). */
+  private fun photoMessage(id: String, senderUid: String, caption: String = "") =
+      ChatMessage(id, senderUid, caption, photoTime, imagePath = "conversations/drill_renter/$id")
+
+  private fun pending(status: PendingPhotoStatus, error: AppError? = null) =
+      PendingPhoto("m5", galleryPhoto, "And the shelf", status, error)
+
+  @Test
+  fun uploadingPhoto_saysSending_withoutRetryOrRemove() {
+    setContent(loaded.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING))))
+
+    node(ConversationScreenTags.pendingPhoto("m5"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertTextEquals("And the shelf", string(R.string.conversation_photo_sending))
+    node(ConversationScreenTags.retryPhoto("m5")).assertDoesNotExist()
+    node(ConversationScreenTags.discardPhoto("m5")).assertDoesNotExist()
+  }
+
+  @Test
+  fun failedPhoto_saysWhy_andOffersRetryAndRemove() {
+    val retried = mutableListOf<String>()
+    val discarded = mutableListOf<String>()
+    setContent(
+        loaded.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.FAILED, AppError.NETWORK))),
+        onRetryPhoto = { retried += it },
+        onDiscardPhoto = { discarded += it },
+    )
+
+    text(string(R.string.conversation_photo_not_sent, string(R.string.error_network)))
+        .assertIsDisplayed()
+        .assert(isPoliteLiveRegion())
+    text(string(R.string.conversation_photo_sending)).assertDoesNotExist()
+    node(ConversationScreenTags.retryPhoto("m5")).performClick()
+    node(ConversationScreenTags.discardPhoto("m5")).performClick()
+
+    assertEquals(listOf("m5"), retried)
+    assertEquals(listOf("m5"), discarded)
+  }
+
+  @Test
+  fun pendingPhotos_showBelowTheMessages_asMyOwnBubbles() {
+    setContent(loaded.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING))))
+
+    val pending = node(ConversationScreenTags.pendingPhoto("m5")).getBoundsInRoot()
+    val answer = node(ConversationScreenTags.theirMessage("m2")).getBoundsInRoot()
+    val mine = node(ConversationScreenTags.myMessage("m1")).getBoundsInRoot()
+    assertTrue(answer.bottom <= pending.top)
+    assertEquals(mine.right.value, pending.right.value, 0.5f)
   }
 
   /** No test of the screen takes a photo yet. */
