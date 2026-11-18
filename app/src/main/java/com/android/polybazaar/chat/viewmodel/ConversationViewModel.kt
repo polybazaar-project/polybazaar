@@ -20,26 +20,15 @@ import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-
-/**
- * How long to wait before each new try at a message photo that is not in Storage yet: a photo's
- * message reaches the conversation before the photo, which may still be uploading. About 30 s in
- * all, as long as a send may take before it gives up.
- */
-private val PhotoUploadWaits = listOf(1, 2, 4, 8, 15).map { it.seconds }
 
 /** What the listing a conversation is about has become. */
 enum class ConversationListingStatus {
@@ -202,8 +191,6 @@ class ConversationViewModel(
   private val takenPhotos = mutableSetOf<Uri>()
   // The message photos being downloaded, so that no photo is downloaded twice at once.
   private val photosDownloading = mutableSetOf<String>()
-  // The paths of the photos this device just finished sending, to stop waiting for them at once.
-  private val sentPhotoPaths = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
   init {
     observeListing()
@@ -369,7 +356,6 @@ class ConversationViewModel(
         }
         // Sent: nothing can fail any more, so the taken photo is no longer needed.
         deleteIfTaken(pending.photo)
-        showSentPhoto(pending.messageId)
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
         // A refusal from a pause or deletion of the listing also reaches its observation, which
@@ -411,16 +397,19 @@ class ConversationViewModel(
 
   /**
    * Downloads the photo of a message at [path], its [ChatMessage.imagePath], unless it is already
-   * downloaded or downloading. A message's photo never changes, so it is downloaded once. A photo
-   * not in Storage yet is still loading, not failed: it is tried again for a while, since it may
-   * still be uploading. After a failure, calling it again clears the error and tries again.
+   * downloaded or downloading. A message's photo never changes, so it is downloaded once. Ignored
+   * while the message's photo is still pending ([ChatMessage.photoPending]): it is not in Storage
+   * yet, so call it again once the message says it is uploaded. After a failure, calling it again
+   * clears the error and tries again.
    */
   fun loadPhoto(path: String) {
-    if (path in _uiState.value.messagePhotos || !photosDownloading.add(path)) return
+    val state = _uiState.value
+    if (state.messages.any { it.imagePath == path && it.photoPending }) return
+    if (path in state.messagePhotos || !photosDownloading.add(path)) return
     _uiState.update { it.copy(photoLoadErrors = it.photoLoadErrors - path) }
     viewModelScope.launch {
       try {
-        val photo = downloadOnceUploaded(path)
+        val photo = chatRepository.loadMessagePhoto(path)
         _uiState.update { it.copy(messagePhotos = it.messagePhotos + (path to photo)) }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
@@ -430,35 +419,6 @@ class ConversationViewModel(
         photosDownloading.remove(path)
       }
     }
-  }
-
-  /**
-   * Downloads the photo at [path]. While Storage answers NOT_FOUND, waits [PhotoUploadWaits] in
-   * turn and tries again, or at once when this device finishes sending that photo. Any other
-   * failure, or a photo still missing after the last wait, is thrown.
-   */
-  private suspend fun downloadOnceUploaded(path: String): ByteArray {
-    for (wait in PhotoUploadWaits) {
-      try {
-        return chatRepository.loadMessagePhoto(path)
-      } catch (exception: Exception) {
-        if (exception is CancellationException || exception.toAppError() != AppError.NOT_FOUND) {
-          throw exception
-        }
-      }
-      withTimeoutOrNull(wait) { sentPhotoPaths.first { it == path } }
-    }
-    return chatRepository.loadMessagePhoto(path)
-  }
-
-  /**
-   * Shows the photo of the message [messageId] this device just sent, now in Storage: a download
-   * waiting for it tries again at once, and one that already gave up starts again.
-   */
-  private fun showSentPhoto(messageId: String) {
-    val state = _uiState.value
-    val path = state.messages.firstOrNull { it.id == messageId }?.imagePath ?: return
-    if (path in state.photoLoadErrors) loadPhoto(path) else sentPhotoPaths.tryEmit(path)
   }
 
   fun dismissSendError() {

@@ -250,7 +250,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  * @param onChoosePhoto called when the user picks "Choose from gallery" in the photo menu.
  * @param onRemoveAttachedPhoto called when the user taps ✕ on the attached photo.
  * @param onLoadPhoto called with a message's imagePath when its bubble shows and the photo is
- *   neither downloaded nor failed, and when the user taps a photo that failed to load.
+ *   neither pending, downloaded nor failed, when a pending photo is marked uploaded, and when the
+ *   user taps a photo that failed to load.
  * @param onRetryPhoto called with the message ID of a failed photo when the user taps Retry.
  * @param onDiscardPhoto called with the message ID of a failed photo when the user taps Remove.
  * @param zone time zone of the message times.
@@ -575,6 +576,7 @@ private fun MessageList(
                   MessagePhoto(
                       bytes = uiState.messagePhotos[path],
                       failed = path in uiState.photoLoadErrors,
+                      pending = message.photoPending,
                       load = { photoActions.load(path) },
                   )
                 },
@@ -617,9 +619,15 @@ private fun LoadErrorRow(text: String, onRetry: () -> Unit) {
 
 /**
  * The photo of a message: its downloaded [bytes], or null until they arrive; [failed] when the
- * download failed. [load] asks for it.
+ * download failed; [pending] while its sender is still uploading it, so it can't be downloaded yet.
+ * [load] asks for it.
  */
-private class MessagePhoto(val bytes: ByteArray?, val failed: Boolean, val load: () -> Unit)
+private class MessagePhoto(
+    val bytes: ByteArray?,
+    val failed: Boolean,
+    val pending: Boolean,
+    val load: () -> Unit,
+)
 
 /**
  * One message: the user's own at the end of the row, the other participant's at the start. A photo
@@ -723,13 +731,16 @@ private sealed interface DecodedPhoto {
 }
 
 /**
- * The photo of a message, asked for when the bubble first shows: a placeholder of the same size
- * while it downloads and decodes, and one that offers to try again when it could not be loaded.
+ * The photo of a message, asked for when the bubble first shows, or once its sender has uploaded
+ * it: a placeholder of the same size while it uploads, downloads and decodes, and one that offers
+ * to try again when it could not be loaded.
  */
 @Composable
 private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
   // Not asked again on its own after a failure: only when the user taps to retry.
-  LaunchedEffect(messageId) { if (photo.bytes == null && !photo.failed) photo.load() }
+  LaunchedEffect(messageId, photo.pending) {
+    if (!photo.pending && photo.bytes == null && !photo.failed) photo.load()
+  }
   val decoded by
       produceState<DecodedPhoto>(initialValue = DecodedPhoto.Loading, photo.bytes) {
         val bytes = photo.bytes

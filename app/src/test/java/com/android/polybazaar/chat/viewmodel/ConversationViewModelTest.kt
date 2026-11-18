@@ -25,7 +25,6 @@ import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
 import java.time.Instant
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1768,11 +1767,6 @@ class ConversationViewModelTest {
   /** Runs what is due now without moving the virtual clock. */
   private fun runCurrent() = testDispatcher.scheduler.runCurrent()
 
-  private fun advanceBy(millis: Long) {
-    testDispatcher.scheduler.advanceTimeBy(millis)
-    runCurrent()
-  }
-
   /** The photo is in Storage now. */
   private fun uploaded() {
     chat.photoLoadFailure = null
@@ -1840,77 +1834,6 @@ class ConversationViewModelTest {
     assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
     advance()
 
-    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
-  }
-
-  @Test
-  fun loadPhoto_notFoundYet_staysLoading_andArrivesOnALaterTry() {
-    chat.photoLoadFailure = missing
-    val viewModel = inConversation()
-    viewModel.loadPhoto(photoPath)
-    runCurrent()
-    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
-    assertEquals(emptyMap<String, ByteArray>(), viewModel.uiState.value.messagePhotos)
-
-    uploaded()
-    advanceBy(999)
-    assertEquals(1, downloads.loads.size)
-    advanceBy(1)
-
-    assertEquals(2, downloads.loads.size)
-    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
-  }
-
-  @Test
-  fun loadPhoto_stillNotFound_recordsTheErrorOnlyAfterTheLastWait() {
-    chat.photoLoadFailure = missing
-    val viewModel = inConversation()
-    viewModel.loadPhoto(photoPath)
-    runCurrent()
-
-    // 1 + 2 + 4 + 8 + 15 s.
-    val allWaits = 30.seconds.inWholeMilliseconds
-    advanceBy(allWaits - 1)
-    assertEquals(5, downloads.loads.size)
-    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
-    advanceBy(1)
-
-    assertEquals(6, downloads.loads.size)
-    assertEquals(mapOf(photoPath to AppError.NOT_FOUND), viewModel.uiState.value.photoLoadErrors)
-  }
-
-  @Test
-  fun myPhotoSent_wakesADownloadWaitingForIt() {
-    givenConversation(messages = arrayOf(photoMessage))
-    chat.photoLoadFailure = missing
-    val viewModel = loadedViewModel()
-    viewModel.loadPhoto(photoPath)
-    runCurrent()
-    viewModel.attachPhoto(galleryPhoto)
-
-    uploaded()
-    viewModel.send()
-    runCurrent()
-
-    assertEquals(2, downloads.loads.size)
-    assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
-  }
-
-  @Test
-  fun myPhotoSent_restartsADownloadThatGaveUp() {
-    givenConversation(messages = arrayOf(photoMessage))
-    chat.photoLoadFailure = missing
-    val viewModel = loadedViewModel()
-    viewModel.loadPhoto(photoPath)
-    advance()
-    assertEquals(AppError.NOT_FOUND, viewModel.uiState.value.photoLoadErrors[photoPath])
-    viewModel.attachPhoto(galleryPhoto)
-
-    uploaded()
-    viewModel.send()
-    runCurrent()
-
-    assertEquals(emptyMap<String, AppError>(), viewModel.uiState.value.photoLoadErrors)
     assertArrayEquals(photoBytes, viewModel.uiState.value.messagePhotos[photoPath])
   }
 
