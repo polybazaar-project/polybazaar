@@ -44,7 +44,7 @@ enum class PendingPhotoStatus {
 /**
  * A photo the user sent that is not in the conversation yet: still uploading, or failed.
  *
- * @property messageId the ID of its message, kept so a retry reuses the photo already uploaded.
+ * @property messageId the ID of its message, kept so a retry reuses what is already on the server.
  * @property photo the photo on the device.
  * @property caption the trimmed caption, or null for a photo alone.
  * @property error why it failed, when [status] is [PendingPhotoStatus.FAILED].
@@ -302,27 +302,17 @@ class ConversationViewModel(
     upload(conversation, pending)
   }
 
-  /** Sends [pending], then removes it once its message is queued, or marks it failed. */
+  /**
+   * Sends [pending], then removes it once the server has its message and photo, or marks it failed.
+   */
   private fun upload(conversation: Conversation, pending: PendingPhoto) {
     viewModelScope.launch {
-      val rejected = AtomicBoolean(false)
       try {
-        chatRepository.sendPhoto(
-            conversation,
-            pending.messageId,
-            pending.photo,
-            pending.caption,
-        ) { exception ->
-          rejected.set(true)
-          onPhotoWriteFailure(pending, exception)
-        }
-        // Checked inside update so a rejection racing with this removal cannot be lost.
+        chatRepository.sendPhoto(conversation, pending.messageId, pending.photo, pending.caption)
         _uiState.update {
-          if (rejected.get()) it
-          else it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(pending) })
+          it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(pending) })
         }
-        // The upload is done: a retry after a late rejection reuses the uploaded file, not this
-        // one.
+        // Sent: nothing can fail any more, so the taken photo is no longer needed.
         deleteIfTaken(pending.photo)
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
@@ -334,9 +324,9 @@ class ConversationViewModel(
   }
 
   /**
-   * Sends the failed photo of [messageId] again, with the same message ID: the photo already
-   * uploaded is reused, and the rules refuse to overwrite it with another. Ignored unless it
-   * failed.
+   * Sends the failed photo of [messageId] again, with the same message ID: a message or photo
+   * already on the server is reused, since the rules refuse to write either twice. Ignored unless
+   * it failed.
    */
   fun retryPhoto(messageId: String) {
     val state = _uiState.value
@@ -357,16 +347,6 @@ class ConversationViewModel(
       it.copy(pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(failed) })
     }
     deleteIfTaken(failed.photo)
-  }
-
-  /**
-   * Shows [pending] as failed again after the server rejected its message. Runs on any thread and
-   * must not throw: Firestore may call it from a background thread.
-   */
-  private fun onPhotoWriteFailure(pending: PendingPhoto, exception: Exception) {
-    val error = exception.toAppError()
-    _uiState.update { it.withPendingPhoto(pending.failed(error)) }
-    reloadListingAfter(error)
   }
 
   fun dismissSendError() {

@@ -689,8 +689,7 @@ private fun PendingPhotoBubble(pending: PendingPhoto, onRetry: () -> Unit, onDis
       fixedWidth = true,
   ) {
     Box(contentAlignment = Alignment.Center) {
-      // A taken photo is deleted once uploaded, so after a late rejection only the placeholder
-      // shows.
+      // The placeholder shows when the photo on the device can no longer be read.
       PhotoOrPlaceholder(
           photo = rememberLocalPhoto(pending.photo),
           description = description,
