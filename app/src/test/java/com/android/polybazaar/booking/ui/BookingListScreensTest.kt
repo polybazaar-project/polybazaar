@@ -37,13 +37,18 @@ class BookingListScreensTest {
           id = id,
       )
 
-  private fun show(state: BookingUiState, onCancel: (String) -> Unit = {}) {
+  private fun show(
+      state: BookingUiState,
+      onBack: () -> Unit = {},
+      onRetry: () -> Unit = {},
+      onCancel: (String) -> Unit = {},
+  ) {
     composeTestRule.setContent {
       BookingListContent(
           title = "My bookings",
           uiState = state,
-          onBack = {},
-          onRetry = {},
+          onBack = onBack,
+          onRetry = onRetry,
           onCancel = onCancel,
       )
     }
@@ -89,6 +94,47 @@ class BookingListScreensTest {
 
     composeTestRule.onNodeWithTag(BookingListScreenTags.ERROR_MESSAGE).assertIsDisplayed()
     composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).assertIsDisplayed()
+  }
+
+  @Test
+  fun emptyBookings_showsEmptyMessageAndBackCallsCallback() {
+    var backs = 0
+    show(BookingUiState(), onBack = { backs++ })
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.EMPTY).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
+
+    assertEquals(1, backs)
+  }
+
+  @Test
+  fun lenderBookingsScreen_retriesLoadAndCancelsBooking() {
+    val repository =
+        FakeBookingRepository().apply {
+          loadFailure = AppException(AppError.NETWORK)
+          listingBookings = listOf(booking("a"))
+        }
+    val viewModel = BookingViewModel(repository)
+    var backs = 0
+    composeTestRule.setContent {
+      LenderBookingsScreen(
+          listingId = "listing",
+          viewModel = viewModel,
+          onBack = { backs++ },
+      )
+    }
+    composeTestRule.waitUntil { viewModel.uiState.value.error != null }
+    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+    repository.loadFailure = null
+    composeTestRule.waitUntil { viewModel.uiState.value.bookings.isNotEmpty() }
+    assertEquals(2, repository.loadCount)
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CANCEL_BUTTON).performClick()
+    composeTestRule.waitUntil {
+      viewModel.uiState.value.bookings.single().status == BookingStatus.CANCELLED
+    }
+    composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
+    assertEquals(1, backs)
   }
 
   @Test
