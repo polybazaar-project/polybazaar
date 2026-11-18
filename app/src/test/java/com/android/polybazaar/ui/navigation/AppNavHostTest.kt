@@ -1057,8 +1057,7 @@ class AppNavHostTest {
             listingId = "drill",
             renterUid = user.uid,
             lenderUid = "uid-grace",
-            startDate = today,
-            endDate = today,
+            days = setOf(today),
         ),
         bookingRepository.requestedBooking,
     )

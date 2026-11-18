@@ -3,6 +3,11 @@ package com.android.polybazaar.listing.model
 
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 
 /**
  * A [ListingRepository] for tests.
@@ -16,16 +21,54 @@ import kotlinx.coroutines.CompletableDeferred
  * except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these
  * calls waiting until the test completes it, to look at one in progress.
  *
+ * [observeListing] follows the listing in both lists, emitting `Missing` while neither has it, like
+ * the real repository once the server says it does not exist. Changing either list emits again, and
+ * setting [failure] makes every active and new collection fail, like Firestore ending a listener
+ * with an error. While [notCached] is set, every active and new collection emits `NotCached`, for
+ * every listing, whether the lists have it or not, like the real repository when only the cache
+ * answers; clearing it emits each listing's state again, like the server answering. A [gate] set
+ * before a collection starts holds back its first emission. [observeListingCalls] counts the
+ * collections started.
+ *
  * [loadListingImage] answers from [images], or empty bytes for a path it does not have, fails with
  * [imageFailure] when it is set, waits for [imageGate] when it is set, and records each path in
  * [loadedImagePaths].
  */
 class FakeListingRepository(
-    var allListings: List<Listing> = emptyList(),
-    var myListings: List<Listing> = emptyList(),
+    allListings: List<Listing> = emptyList(),
+    myListings: List<Listing> = emptyList(),
     private val ownerUid: String? = null,
 ) : ListingRepository {
-  var failure: Exception? = null
+  // Flows, so that observeListing sees every change a test or a write makes.
+  private val allListingsFlow = MutableStateFlow(allListings)
+  private val myListingsFlow = MutableStateFlow(myListings)
+  private val failureFlow = MutableStateFlow<Exception?>(null)
+  private val notCachedFlow = MutableStateFlow(false)
+
+  var allListings: List<Listing>
+    get() = allListingsFlow.value
+    set(value) {
+      allListingsFlow.value = value
+    }
+
+  var myListings: List<Listing>
+    get() = myListingsFlow.value
+    set(value) {
+      myListingsFlow.value = value
+    }
+
+  var failure: Exception?
+    get() = failureFlow.value
+    set(value) {
+      failureFlow.value = value
+    }
+
+  var notCached: Boolean
+    get() = notCachedFlow.value
+    set(value) {
+      notCachedFlow.value = value
+    }
+
   var gate: CompletableDeferred<Unit>? = null
   var getAllListingsCalls = 0
     private set
@@ -34,6 +77,9 @@ class FakeListingRepository(
     private set
 
   var getListingCalls = 0
+    private set
+
+  var observeListingCalls = 0
     private set
 
   /** The listings passed to [updateListing], in order. */
@@ -87,6 +133,26 @@ class FakeListingRepository(
               "Listing $listingId not found",
               FirebaseFirestoreException.Code.NOT_FOUND,
           )
+    }
+  }
+
+  override fun observeListing(listingId: String): Flow<ObservedListing> {
+    observeListingCalls++
+    val gate = gate
+    return flow {
+      gate?.await()
+      emitAll(
+          combine(allListingsFlow, myListingsFlow, failureFlow, notCachedFlow) {
+              all,
+              mine,
+              failure,
+              notCached ->
+            failure?.let { throw it }
+            if (notCached) return@combine ObservedListing.NotCached
+            (all + mine).firstOrNull { it.listingId == listingId }?.let(ObservedListing::Found)
+                ?: ObservedListing.Missing
+          }
+      )
     }
   }
 

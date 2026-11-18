@@ -32,8 +32,7 @@ class BookingViewModelTest {
           listingId = "listing",
           renterUid = "renter",
           lenderUid = "lender",
-          startDate = LocalDate.of(2026, 12, 1),
-          endDate = LocalDate.of(2026, 12, 3),
+          days = setOf(LocalDate.of(2026, 12, 1), LocalDate.of(2026, 12, 3)),
       )
 
   private lateinit var repository: FakeBookingRepository

@@ -328,15 +328,11 @@ describe("listings", () => {
   describe("bookings", () => {
     // First booked day, 30 days from now, so these tests never book a day in the past.
     const day0 = Math.floor(Date.now() / 86_400_000) + 30;
-    // Epoch-day bounds of java.time.LocalDate, the same as in validBooking.
-    const MIN_EPOCH_DAY = -365243219162;
-    const MAX_EPOCH_DAY = 365241780471;
     const booking = (overrides = {}) => ({
       listingId: "l1",
       renterUid: BOB,
       lenderUid: ALICE,
-      startDate: day0,
-      endDate: day0 + 2,
+      days: [day0, day0 + 1, day0 + 2],
       status: "REQUESTED",
       ...overrides,
     });
@@ -360,10 +356,24 @@ describe("listings", () => {
       await assertFails(setDoc(doc(db, "bookings/b3"), booking({ listingId: "missing" })));
     });
 
-    test("a booking cannot be longer than the listing's maximum rental", async () => {
-      await seed("listings/l1", offering(days(day0, day0 + 3), { type: "ITEM", maxRentalDays: 3 }));
-      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
-      await assertFails(setDoc(doc(verified(BOB), "bookings/b2"), booking({ startDate: day0, endDate: day0 + 3 })));
+    test("separate days can be booked together", async () => {
+      await seed("listings/l1", offering([day0, day0 + 3, ...days(day0 + 7, day0 + 9)]));
+      await assertSucceeds(
+        setDoc(doc(verified(BOB), "bookings/b1"), booking({ days: [day0, day0 + 3, day0 + 7, day0 + 8, day0 + 9] })),
+      );
+    });
+
+    test("every booked day counts towards the listing's maximum rental", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 9), { type: "ITEM", maxRentalDays: 3 }));
+      const db = verified(BOB);
+      await assertSucceeds(setDoc(doc(db, "bookings/b1"), booking({ days: [day0, day0 + 4, day0 + 9] })));
+      // Four separate days, none of them next to another, are still four days.
+      await assertFails(setDoc(doc(db, "bookings/b2"), booking({ days: [day0, day0 + 3, day0 + 6, day0 + 9] })));
+    });
+
+    test("a listing without maxRentalDays has no limit", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 9)));
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ days: days(day0, day0 + 9) })));
     });
 
     test("a paused listing cannot be booked", async () => {
@@ -378,40 +388,33 @@ describe("listings", () => {
       );
     });
 
-    test("bookings have valid dates, requested status and no extra fields", async () => {
+    test("bookings have valid days, requested status and no extra fields", async () => {
       const today = Math.floor(Date.now() / 86_400_000);
-      // Every day used below is offered, so each refusal comes from the date checks.
-      await seed(
-        "listings/l1",
-        offering([MIN_EPOCH_DAY - 1, today - 1, today, ...days(day0 - 1, day0 + 2), MAX_EPOCH_DAY + 1]),
-      );
+      // Every day used below is offered, so each refusal comes from the checks on the booking.
+      await seed("listings/l1", offering([today - 1, today, ...days(day0, day0 + 2)]));
       const db = verified(BOB);
-      await assertSucceeds(setDoc(doc(db, "bookings/same-day"), booking({ endDate: day0 })));
-      await assertFails(setDoc(doc(db, "bookings/b1"), booking({ endDate: day0 - 1 })));
-      await assertFails(setDoc(doc(db, "bookings/b2"), booking({ startDate: String(day0) })));
-      await assertFails(setDoc(doc(db, "bookings/b3"), booking({ endDate: MAX_EPOCH_DAY + 1 })));
-      await assertFails(setDoc(doc(db, "bookings/b4"), booking({ startDate: MIN_EPOCH_DAY - 1 })));
-      await assertFails(setDoc(doc(db, "bookings/b5"), booking({ status: "CONFIRMED" })));
-      await assertFails(setDoc(doc(db, "bookings/b6"), booking({ extra: true })));
-      await assertFails(setDoc(doc(db, "bookings/past"), booking({ startDate: today - 1, endDate: today })));
-      await assertSucceeds(setDoc(doc(db, "bookings/today"), booking({ startDate: today, endDate: today })));
+      await assertSucceeds(setDoc(doc(db, "bookings/one-day"), booking({ days: [day0] })));
+      await assertSucceeds(setDoc(doc(db, "bookings/today"), booking({ days: [today, day0] })));
+      await assertFails(setDoc(doc(db, "bookings/empty"), booking({ days: [] })));
+      await assertFails(setDoc(doc(db, "bookings/not-a-list"), booking({ days: day0 })));
+      await assertFails(setDoc(doc(db, "bookings/twice"), booking({ days: [day0, day0] })));
+      await assertFails(setDoc(doc(db, "bookings/string"), booking({ days: [String(day0)] })));
+      await assertFails(setDoc(doc(db, "bookings/past"), booking({ days: [today - 1, today] })));
+      const { days: _, ...withoutDays } = booking();
+      await assertFails(setDoc(doc(db, "bookings/missing"), withoutDays));
+      // The first and last day of earlier versions are no longer accepted.
+      await assertFails(setDoc(doc(db, "bookings/old-shape"), { ...withoutDays, startDate: day0, endDate: day0 }));
+      await assertFails(setDoc(doc(db, "bookings/status"), booking({ status: "CONFIRMED" })));
+      await assertFails(setDoc(doc(db, "bookings/extra"), booking({ extra: true })));
     });
 
-    test("a booking whose first and last days are offered is allowed", async () => {
-      await seed("listings/l1", offering(days(day0, day0 + 2)));
+    test("a booking with any day the listing does not offer is refused", async () => {
+      await seed("listings/l1", offering([day0, day0 + 2, day0 + 4]));
       const db = verified(BOB);
-      await assertSucceeds(setDoc(doc(db, "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
-      await assertSucceeds(setDoc(doc(db, "bookings/one-day"), booking({ startDate: day0 + 1, endDate: day0 + 1 })));
-    });
-
-    test("a booking whose first day is not offered is refused", async () => {
-      await seed("listings/l1", offering(days(day0 + 1, day0 + 2)));
-      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
-    });
-
-    test("a booking whose last day is not offered is refused", async () => {
-      await seed("listings/l1", offering(days(day0, day0 + 1)));
-      await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
+      await assertSucceeds(setDoc(doc(db, "bookings/b1"), booking({ days: [day0, day0 + 2, day0 + 4] })));
+      // A day in the middle, not only the first or last, is checked.
+      await assertFails(setDoc(doc(db, "bookings/b2"), booking({ days: [day0, day0 + 1, day0 + 2] })));
+      await assertFails(setDoc(doc(db, "bookings/b3"), booking({ days: [day0 + 1] })));
     });
 
     test("a listing without available days cannot be booked", async () => {
@@ -424,10 +427,12 @@ describe("listings", () => {
       await assertFails(setDoc(doc(verified(BOB), "bookings/b1"), booking()));
     });
 
-    test("only the first and last days are checked, so a gap in between is allowed", async () => {
-      // Known limit: rules cannot loop over the range. The renter's screen only offers available days.
-      await seed("listings/l1", offering([day0, day0 + 2]));
-      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ startDate: day0, endDate: day0 + 2 })));
+    test("only the first day is checked against today, so a later past day the listing offers is allowed", async () => {
+      // Known limit (#346): rules cannot loop over the days. The app sends them earliest first and
+      // never offers a past day.
+      const today = Math.floor(Date.now() / 86_400_000);
+      await seed("listings/l1", offering([today - 1, day0]));
+      await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b1"), booking({ days: [day0, today - 1] })));
     });
 
     test("verified lenders and renters can read their own bookings", async () => {
@@ -878,17 +883,20 @@ function newMessage(senderUid, overrides = {}) {
 /**
  * Commits what sending a message writes: a merge on the conversation, which creates it or only
  * updates it and names the new message, copies its text and sender and marks it read for the
- * sender, and that message, in one batch.
+ * sender, and that message, in one batch. `message` overrides fields of newMessage, or is a
+ * function of the new message's id that returns the whole message (see photoMessage).
  */
 function sendMessage(db, senderUid, { id = CONVERSATION_ID, conversation = {}, message = {} } = {}) {
   const messageRef = doc(collection(db, `conversations/${id}/messages`));
-  const sent = newMessage(senderUid, message);
+  const sent =
+    typeof message === "function" ? message(messageRef.id) : newMessage(senderUid, message);
   const batch = writeBatch(db);
   batch.set(
     doc(db, `conversations/${id}`),
     newConversation({
       lastMessageId: messageRef.id,
-      lastMessageText: sent.text,
+      // A photo-only message has no text, and its preview is ''.
+      lastMessageText: sent.text ?? "",
       lastMessageSenderUid: senderUid,
       lastReadAt: { [senderUid]: serverTimestamp() },
       ...conversation,
@@ -897,6 +905,26 @@ function sendMessage(db, senderUid, { id = CONVERSATION_ID, conversation = {}, m
   );
   batch.set(messageRef, sent);
   return batch.commit();
+}
+
+/** Where storage.rules keeps the photo of a message. */
+const photoPath = (conversationId, messageId) => `conversations/${conversationId}/${messageId}.jpg`;
+
+/**
+ * A photo message for sendMessage: no text unless it has a caption, and by default the photo at
+ * the message's own path in Bob's conversation. `imagePath` maps the message id to the stored path.
+ */
+function photoMessage(
+  senderUid,
+  { caption, imagePath = (messageId) => photoPath(CONVERSATION_ID, messageId), extra = {} } = {},
+) {
+  return (messageId) => ({
+    senderUid,
+    sentAt: serverTimestamp(),
+    imagePath: imagePath(messageId),
+    ...(caption === undefined ? {} : { text: caption }),
+    ...extra,
+  });
 }
 
 /** Seeds Alice's listing and a conversation Bob started earlier, with its message m1. */
@@ -1230,6 +1258,40 @@ describe("conversations", () => {
     await assertFails(sendMessage(verified(ALICE), ALICE, wrongText));
   });
 
+  test("a photo without text stores an empty preview", async () => {
+    await seedConversation();
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: photoMessage(BOB) }));
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE, { message: photoMessage(ALICE) }));
+    const stored = (await getDoc(doc(verified(BOB), CONVERSATION))).data();
+    assert.equal(stored.lastMessageText, "");
+    assert.equal(stored.lastMessageSenderUid, ALICE);
+  });
+
+  test("a photo without text cannot store a preview", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    for (const lastMessageText of ["Photo", " ", "Is it available on Saturday?"]) {
+      await assertFails(
+        sendMessage(db, BOB, { message: photoMessage(BOB), conversation: { lastMessageText } }),
+      );
+    }
+  });
+
+  test("a photo with a caption stores the caption as the preview", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const message = photoMessage(BOB, { caption: "The drill bits" });
+    await assertFails(sendMessage(db, BOB, { message, conversation: { lastMessageText: "" } }));
+    await assertSucceeds(sendMessage(db, BOB, { message }));
+    const stored = (await getDoc(doc(db, CONVERSATION))).data();
+    assert.equal(stored.lastMessageText, "The drill bits");
+  });
+
+  test("a text message cannot store the empty preview of a photo", async () => {
+    await seedConversation();
+    await assertFails(sendMessage(verified(BOB), BOB, { conversation: { lastMessageText: "" } }));
+  });
+
   test("a message must store its sender as the last sender", async () => {
     await seed("listings/l1", itemListing());
     await assertFails(
@@ -1422,6 +1484,87 @@ describe("messages", () => {
     await seedConversation();
     const ref = doc(verified(BOB), `${CONVERSATION}/messages/m1`);
     await assertFails(updateDoc(ref, { text: "Edited" }));
+    await assertFails(deleteDoc(ref));
+  });
+});
+
+describe("photo messages", () => {
+  test("the renter and the lender can send a photo without text", async () => {
+    await seedConversation();
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message: photoMessage(BOB) }));
+    await assertSucceeds(sendMessage(verified(ALICE), ALICE, { message: photoMessage(ALICE) }));
+  });
+
+  // The app sends a text first; a photo, even with a caption, comes after.
+  test("a photo cannot open a conversation", async () => {
+    await seed("listings/l1", itemListing());
+    const db = verified(BOB);
+    await assertFails(sendMessage(db, BOB, { message: photoMessage(BOB) }));
+    const captioned = photoMessage(BOB, { caption: "Is it available on Saturday?" });
+    await assertFails(sendMessage(db, BOB, { message: captioned }));
+    await assertSucceeds(sendMessage(db, BOB));
+  });
+
+  test("a photo can have a caption", async () => {
+    await seedConversation();
+    const message = photoMessage(BOB, { caption: "  The drill bits \n" });
+    await assertSucceeds(sendMessage(verified(BOB), BOB, { message }));
+  });
+
+  test("a caption follows the text rules", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const long = "x".repeat(1000);
+    await assertSucceeds(sendMessage(db, BOB, { message: photoMessage(BOB, { caption: long }) }));
+    for (const caption of ["", "   \n\t ", `${long}x`, 42]) {
+      await assertFails(sendMessage(db, BOB, { message: photoMessage(BOB, { caption }) }));
+    }
+  });
+
+  test("a message needs a text or a photo", async () => {
+    await seedConversation();
+    const nothing = () => ({ senderUid: BOB, sentAt: serverTimestamp() });
+    await assertFails(sendMessage(verified(BOB), BOB, { message: nothing }));
+  });
+
+  test("a photo is stored at its own conversation and message id", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    const wrongPaths = [
+      (messageId) => photoPath(`l2_${BOB}`, messageId),
+      () => photoPath(CONVERSATION_ID, "m1"),
+      (messageId) => `conversations/${CONVERSATION_ID}/${messageId}.png`,
+      (messageId) => `conversations/${CONVERSATION_ID}/${messageId}`,
+      (messageId) => `/${photoPath(CONVERSATION_ID, messageId)}`,
+    ];
+    for (const imagePath of wrongPaths) {
+      await assertFails(sendMessage(db, BOB, { message: photoMessage(BOB, { imagePath }) }));
+    }
+  });
+
+  test("a photo path is a string", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    for (const path of [42, null, [CONVERSATION_ID]]) {
+      const message = photoMessage(BOB, { imagePath: () => path });
+      await assertFails(sendMessage(db, BOB, { message }));
+    }
+  });
+
+  test("a photo message holds only its fields", async () => {
+    await seedConversation();
+    const message = photoMessage(BOB, { extra: { imageUrl: "https://example.com/0.jpg" } });
+    await assertFails(sendMessage(verified(BOB), BOB, { message }));
+  });
+
+  test("a photo message cannot be edited or deleted", async () => {
+    await seedConversation();
+    const path = `${CONVERSATION}/messages/m2`;
+    const imagePath = photoPath(CONVERSATION_ID, "m2");
+    await seed(path, { senderUid: BOB, imagePath, sentAt: new Date(0) });
+    const ref = doc(verified(BOB), path);
+    await assertFails(updateDoc(ref, { imagePath: photoPath(CONVERSATION_ID, "m3") }));
+    await assertFails(updateDoc(ref, { text: "Caption" }));
     await assertFails(deleteDoc(ref));
   });
 });

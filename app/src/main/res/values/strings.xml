@@ -56,6 +56,7 @@
     <string name="listing_detail_choose_dates">Choose dates</string>
     <string name="listing_detail_photo">Photo %1$d of %2$d</string>
     <string name="listing_detail_photo_counter">%1$d / %2$d</string>
+    <string name="listing_detail_photo_close">Close photos</string>
     <string name="listing_detail_reassurance">See your full total before you request to book.</string>
     <string name="listing_detail_owner_name">%1$s (you)  ·  Verified</string>
     <string name="listing_detail_edit">Edit listing</string>
@@ -77,6 +78,7 @@
     <!-- Conversation screen -->
     <string name="conversation_other_username">@%1$s</string>
     <string name="conversation_paused_title">This listing is paused</string>
+    <string name="conversation_paused_first_message_body">You can send a message once it’s active again.</string>
     <string name="conversation_deleted_title">This listing has been deleted</string>
     <string name="conversation_deleted_body">You can read past messages, but neither of you can send new ones.</string>
     <string name="conversation_load_error_title">Couldn’t load this conversation</string>
