@@ -188,10 +188,11 @@ class ConversationViewModel(
 
   /**
    * Attaches [photo], picked from the gallery, replacing the photo attached before. Ignored when a
-   * photo cannot be attached.
+   * photo cannot be attached; while the screen is still loading, it is attached and can be sent
+   * once the conversation is known to allow it.
    */
   fun attachPhoto(photo: Uri) {
-    if (!_uiState.value.canAttachPhoto) return
+    if (!_uiState.value.mayReceivePhoto()) return
     replaceAttachedPhoto(photo)
   }
 
@@ -212,12 +213,13 @@ class ConversationViewModel(
 
   /**
    * Attaches the photo the camera app took, or deletes its empty file if [saved] is false or a
-   * photo can no longer be attached.
+   * photo can no longer be attached. While the screen is still loading, it is attached as in
+   * [attachPhoto].
    */
   fun finishTakingPhoto(saved: Boolean) {
     val photo = photoBeingTaken ?: return
     photoBeingTaken = null
-    if (!saved || !_uiState.value.canAttachPhoto) {
+    if (!saved || !_uiState.value.mayReceivePhoto()) {
       photoStorage.delete(photo)
       return
     }
@@ -384,6 +386,14 @@ class ConversationViewModel(
     _uiState.update { it.copy(attachedPhoto = photo).derived() }
     if (replaced != null && replaced != photo) deleteIfTaken(replaced)
   }
+
+  /**
+   * Whether a photo picked or taken can be attached: when it can be, and also while the screen is
+   * loading, as when it was just recreated and the result arrives before the conversation. Then
+   * [ConversationUiState.canSend] waits for the conversation to allow it.
+   */
+  private fun ConversationUiState.mayReceivePhoto(): Boolean =
+      canAttachPhoto || (isLoading && listingStatus != ConversationListingStatus.DELETED)
 
   private fun ConversationUiState.failedPhoto(messageId: String): PendingPhoto? =
       pendingPhotos.find {

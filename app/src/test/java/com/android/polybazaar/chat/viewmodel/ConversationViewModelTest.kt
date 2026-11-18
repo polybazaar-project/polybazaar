@@ -1073,13 +1073,48 @@ class ConversationViewModelTest {
   }
 
   @Test
-  fun attachPhoto_whileTheListingIsUnknown_isIgnored() {
+  fun attachPhoto_whileTheScreenLoads_attachesIt_andItCanBeSentOnceTheConversationIsKnown() {
     listings.gate = CompletableDeferred()
     val viewModel = inConversation()
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    viewModel.attachPhoto(galleryPhoto)
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+    assertFalse(viewModel.uiState.value.canSend)
+
+    listings.gate!!.complete(Unit)
+    advance()
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+    assertTrue(viewModel.uiState.value.canSend)
+  }
+
+  @Test
+  fun attachPhoto_whileTheScreenLoads_staysUnsendableWhenTheConversationTurnsOutMissing() {
+    chat.conversationGate = CompletableDeferred()
+    val viewModel = loadedViewModel()
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    viewModel.attachPhoto(galleryPhoto)
+    chat.conversationGate!!.complete(Unit)
+    advance()
+
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertFalse(viewModel.uiState.value.canAttachPhoto)
+    assertFalse(viewModel.uiState.value.canSend)
+    // Still shown, so the user can remove it.
+    assertEquals(galleryPhoto, viewModel.uiState.value.attachedPhoto)
+  }
+
+  @Test
+  fun attachPhoto_whileTheScreenLoads_toADeletedListing_isIgnored() {
+    listings.allListings = emptyList()
+    chat.conversationGate = CompletableDeferred()
+    val viewModel = loadedViewModel()
+    assertTrue(viewModel.uiState.value.isLoading)
+    assertEquals(ConversationListingStatus.DELETED, viewModel.uiState.value.listingStatus)
 
     viewModel.attachPhoto(galleryPhoto)
 
-    assertFalse(viewModel.uiState.value.canAttachPhoto)
     assertNull(viewModel.uiState.value.attachedPhoto)
   }
 
