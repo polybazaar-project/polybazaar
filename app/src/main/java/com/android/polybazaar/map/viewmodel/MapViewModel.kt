@@ -51,11 +51,13 @@ data class MapUiState(val centre: MapCentre = MapCentre.Undecided)
  * [onPermissionResult]; this ViewModel never sees the permission itself.
  *
  * @param savedStateHandle remembers the campus picked for the session: across tab switches, and
- *   when Android kills the app in the background. Pass `createSavedStateHandle()` from the factory.
+ *   when Android kills the app in the background. Pass `createSavedStateHandle()` from the factory;
+ *   it has no default, since a handle made by hand is not restored by Android (and its constructor
+ *   is meant for tests).
  */
 class MapViewModel(
     private val locationRepository: LocationRepository,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(MapUiState())
