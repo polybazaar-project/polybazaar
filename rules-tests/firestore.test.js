@@ -450,11 +450,45 @@ describe("listings", () => {
       await assertFails(getDocs(query(collection(verified(ALICE), "bookings"), where("listingId", "==", "l1"))));
     });
 
-    test("bookings cannot be updated or deleted", async () => {
+    test("renters and lenders can cancel requested or confirmed bookings", async () => {
+      await seed("bookings/renter-requested", booking());
+      await seed("bookings/renter-confirmed", booking({ status: "CONFIRMED" }));
+      await seed("bookings/lender-requested", booking());
+      await seed("bookings/lender-confirmed", booking({ status: "CONFIRMED" }));
+
+      await assertSucceeds(updateDoc(doc(verified(BOB), "bookings/renter-requested"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(BOB), "bookings/renter-confirmed"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(ALICE), "bookings/lender-requested"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(ALICE), "bookings/lender-confirmed"), { status: "CANCELLED" }));
+    });
+
+    test("cancellation requires a verified renter or lender", async () => {
+      await seed("bookings/requested", booking());
+
+      await assertFails(updateDoc(doc(verified(EVE), "bookings/requested"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(unverified(BOB), "bookings/requested"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(unverified(ALICE), "bookings/requested"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(signedOut(), "bookings/requested"), { status: "CANCELLED" }));
+    });
+
+    test("cancellation rejects stale or invalid status transitions", async () => {
+      await seed("bookings/requested", booking());
+      await seed("bookings/confirmed", booking({ status: "CONFIRMED" }));
+      await seed("bookings/cancelled", booking({ status: "CANCELLED" }));
+
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/requested"), { status: "CONFIRMED" }));
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/requested"), { status: "INVALID" }));
+      await assertFails(updateDoc(doc(verified(ALICE), "bookings/confirmed"), { status: "REQUESTED" }));
+      await assertFails(deleteDoc(doc(verified(BOB), "bookings/requested")));
+    });
+
+    test("cancellation cannot change fields other than status", async () => {
       await seed("bookings/b1", booking());
-      const ref = doc(verified(ALICE), "bookings/b1");
-      await assertFails(updateDoc(ref, { status: "CONFIRMED" }));
-      await assertFails(deleteDoc(ref));
+      const ref = doc(verified(BOB), "bookings/b1");
+
+      await assertFails(updateDoc(ref, { status: "CANCELLED", days: [day0] }));
+      await assertFails(updateDoc(ref, { status: "CANCELLED", extra: true }));
     });
   });
 
