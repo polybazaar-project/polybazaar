@@ -107,9 +107,20 @@ class MapViewModel(
     _uiState.update { it.copy(centre = MapCentre.OnCampus(campus)) }
   }
 
-  /** Opens the campus chooser again ("Change"), with the current campus selected. */
+  /**
+   * Opens the campus chooser again ("Change"), with the current campus selected. Only from a
+   * campus, where the map shows "Change" (Figma "Map — Centred on campus"): anywhere else, Cancel
+   * would have no campus to go back to and the renter would be stuck in the chooser.
+   */
   fun changeCampus() {
-    _uiState.update { it.copy(centre = MapCentre.NeedsChoice(current = chosenCampus)) }
+    _uiState.update {
+      val centre = it.centre
+      if (centre is MapCentre.OnCampus) {
+        it.copy(centre = MapCentre.NeedsChoice(current = centre.campus))
+      } else {
+        it
+      }
+    }
   }
 
   /**
