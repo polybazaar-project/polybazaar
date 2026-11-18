@@ -63,6 +63,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -821,7 +822,15 @@ private fun PhotoLoadError(onRetry: (() -> Unit)?, modifier: Modifier) {
       modifier =
           modifier
               .background(AuthColors.Outline)
-              .then(if (onRetry != null) Modifier.clickable(onClick = onRetry) else Modifier)
+              .then(
+                  if (onRetry != null)
+                      Modifier.clickable(
+                          role = Role.Button,
+                          onClickLabel = stringResource(R.string.conversation_retry),
+                          onClick = onRetry,
+                      )
+                  else Modifier
+              )
               .padding(12.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),

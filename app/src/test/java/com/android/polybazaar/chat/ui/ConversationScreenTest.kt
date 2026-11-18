@@ -17,6 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -1191,6 +1193,13 @@ class ConversationScreenTest {
     composeTestRule
         .onNodeWithTag(ConversationScreenTags.photoLoadError("m4"), useUnmergedTree = true)
         .assertHeightIsEqualTo(200.dp)
+        // Announced by TalkBack as a button that retries.
+        .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        .assert(
+            SemanticsMatcher("retries on click") {
+              it.config[SemanticsActions.OnClick].label == string(R.string.conversation_retry)
+            }
+        )
         .performClick()
 
     text(string(R.string.conversation_photo_load_failed_retry)).assertIsDisplayed()
