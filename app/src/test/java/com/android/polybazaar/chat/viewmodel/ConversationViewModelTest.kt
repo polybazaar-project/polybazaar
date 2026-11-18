@@ -1238,6 +1238,152 @@ class ConversationViewModelTest {
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
   }
 
+  @Test
+  fun sendPhoto_sendsTheConversationAFreshIdThePhotoAndTheTrimmedCaption() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.onDraftChange("  Here it is  ")
+
+    viewModel.send()
+    advance()
+
+    assertEquals(
+        listOf(FakeChatRepository.SentPhoto(conversation, "m1", galleryPhoto, "Here it is")),
+        chat.sentPhotos,
+    )
+    assertEquals(emptyList<Pair<Conversation, String>>(), chat.sentMessages)
+  }
+
+  @Test
+  fun sendPhoto_withABlankCaption_sendsNoCaption() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.onDraftChange("   ")
+
+    viewModel.send()
+    advance()
+
+    assertNull(chat.sentPhotos.single().caption)
+  }
+
+  @Test
+  fun sendPhoto_clearsTheAttachmentAndTheDraftAtOnce() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.onDraftChange("Here it is")
+
+    viewModel.send()
+
+    val state = viewModel.uiState.value
+    assertNull(state.attachedPhoto)
+    assertEquals("", state.draft)
+    assertFalse(state.canSend)
+    assertEquals(
+        listOf(PendingPhoto("m1", galleryPhoto, "Here it is", PendingPhotoStatus.UPLOADING)),
+        state.pendingPhotos,
+    )
+  }
+
+  @Test
+  fun sendPhoto_staysUploadingUntilTheSendReturns_thenIsRemoved() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+    assertEquals(
+        listOf(PendingPhotoStatus.UPLOADING),
+        viewModel.uiState.value.pendingPhotos.map { it.status },
+    )
+
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun sendPhoto_tappedTwice_sendsOnce() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.send()
+    viewModel.send()
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+  }
+
+  @Test
+  fun sendPhoto_whileAnotherUploads_sendsBothWithTheirOwnIds() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    viewModel.attachPhoto(otherGalleryPhoto)
+    viewModel.send()
+    advance()
+
+    assertEquals(listOf("m1", "m2"), chat.sentPhotos.map { it.messageId })
+    assertEquals(
+        listOf(galleryPhoto, otherGalleryPhoto),
+        viewModel.uiState.value.pendingPhotos.map { it.photo },
+    )
+  }
+
+  @Test
+  fun sentTakenPhoto_isDeletedOnceSent() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun sentGalleryPhoto_isNotDeleted() {
+    val viewModel = inConversation()
+    viewModel.attachPhoto(galleryPhoto)
+
+    viewModel.send()
+    advance()
+
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun send_withoutAPhoto_stillSendsTheText() {
+    val viewModel = inConversation()
+    viewModel.onDraftChange("Hello")
+
+    viewModel.send()
+    advance()
+
+    assertEquals(listOf(conversation to "Hello"), chat.sentMessages)
+    assertEquals(emptyList<FakeChatRepository.SentPhoto>(), chat.sentPhotos)
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun closing_whileAPhotoUploads_keepsTheTakenPhotos() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.takePhoto()
+    viewModel.send()
+    advance()
+    viewModel.takePhoto()
+
+    viewModel.close()
+
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
   /**
    * Creates photos like the camera folder: "taken_0", "taken_1", … in [taken], or none while
    * [full]. Records the photos deleted.
