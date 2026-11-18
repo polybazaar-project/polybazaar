@@ -109,6 +109,11 @@ class ConversationScreenTest {
       onSend: () -> Unit = {},
       onRetry: () -> Unit = {},
       onDismissSendError: () -> Unit = {},
+      onTakePhoto: () -> Unit = {},
+      onChoosePhoto: () -> Unit = {},
+      onRemoveAttachedPhoto: () -> Unit = {},
+      onRetryPhoto: (String) -> Unit = {},
+      onDiscardPhoto: (String) -> Unit = {},
   ) {
     composeTestRule.setContent {
       ConversationContent(
@@ -118,6 +123,11 @@ class ConversationScreenTest {
           onSend = onSend,
           onRetry = onRetry,
           onDismissSendError = onDismissSendError,
+          onTakePhoto = onTakePhoto,
+          onChoosePhoto = onChoosePhoto,
+          onRemoveAttachedPhoto = onRemoveAttachedPhoto,
+          onRetryPhoto = onRetryPhoto,
+          onDiscardPhoto = onDiscardPhoto,
           zone = ZoneOffset.UTC,
       )
     }
@@ -833,6 +843,113 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.SEND_ERROR).assertDoesNotExist()
     node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft("Is it free on Saturday?!"))
+  }
+
+  // Photo button and attached photo
+
+  // A photo that cannot be read, which shows the placeholder: Robolectric throws for an unknown
+  // content:// URI, where a device answers FileNotFoundException.
+  private val galleryPhoto = Uri.parse("file:///missing/photo_1.jpg")
+
+  /** The loaded conversation, where a photo can be attached. */
+  private val canAttach = loaded.copy(canAttachPhoto = true)
+
+  @Test
+  fun photoButton_isEnabledWhenAPhotoCanBeAttached_andSaysWhatItDoes() {
+    setContent(canAttach)
+
+    node(ConversationScreenTags.PHOTO_BUTTON)
+        .assertIsEnabled()
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_button))
+  }
+
+  @Test
+  fun photoButton_isDisabledWhenNoPhotoCanBeAttached() {
+    setContent(loaded.copy(canAttachPhoto = false))
+
+    node(ConversationScreenTags.PHOTO_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun photoMenu_takePhoto_opensTheCamera_andClosesTheMenu() {
+    var takes = 0
+    var chooses = 0
+    setContent(canAttach, onTakePhoto = { takes++ }, onChoosePhoto = { chooses++ })
+    node(ConversationScreenTags.TAKE_PHOTO).assertDoesNotExist()
+
+    node(ConversationScreenTags.PHOTO_BUTTON).performClick()
+    node(ConversationScreenTags.TAKE_PHOTO)
+        .assertTextEquals(string(R.string.conversation_take_photo))
+        .performClick()
+
+    assertEquals(1, takes)
+    assertEquals(0, chooses)
+    node(ConversationScreenTags.PHOTO_MENU).assertDoesNotExist()
+  }
+
+  @Test
+  fun photoMenu_choosePhoto_opensTheGallery_andClosesTheMenu() {
+    var takes = 0
+    var chooses = 0
+    setContent(canAttach, onTakePhoto = { takes++ }, onChoosePhoto = { chooses++ })
+
+    node(ConversationScreenTags.PHOTO_BUTTON).performClick()
+    node(ConversationScreenTags.CHOOSE_PHOTO)
+        .assertTextEquals(string(R.string.conversation_choose_photo))
+        .performClick()
+
+    assertEquals(0, takes)
+    assertEquals(1, chooses)
+    node(ConversationScreenTags.PHOTO_MENU).assertDoesNotExist()
+  }
+
+  @Test
+  fun noAttachedPhoto_showsNoPreview_andTheMessagePlaceholder() {
+    setContent(canAttach)
+
+    node(ConversationScreenTags.ATTACHED_PHOTO).assertDoesNotExist()
+    node(ConversationScreenTags.REMOVE_ATTACHED_PHOTO).assertDoesNotExist()
+    text(string(R.string.conversation_placeholder)).assertIsDisplayed()
+  }
+
+  @Test
+  fun attachedPhoto_showsAboveTheField_andAsksForACaption() {
+    setContent(canAttach.copy(attachedPhoto = galleryPhoto))
+
+    node(ConversationScreenTags.ATTACHED_PHOTO)
+        .assertIsDisplayed()
+        .assertContentDescriptionEquals(string(R.string.conversation_attached_photo))
+    text(string(R.string.conversation_placeholder_caption)).assertIsDisplayed()
+    text(string(R.string.conversation_placeholder)).assertDoesNotExist()
+    val photo = node(ConversationScreenTags.ATTACHED_PHOTO).getBoundsInRoot()
+    val field = node(ConversationScreenTags.MESSAGE_FIELD).getBoundsInRoot()
+    assertTrue(photo.bottom <= field.top)
+  }
+
+  @Test
+  fun removeAttachedPhoto_callsTheCallback() {
+    var removals = 0
+    setContent(
+        canAttach.copy(attachedPhoto = galleryPhoto),
+        onRemoveAttachedPhoto = { removals++ },
+    )
+
+    node(ConversationScreenTags.REMOVE_ATTACHED_PHOTO)
+        .assertContentDescriptionEquals(string(R.string.conversation_remove_attached_photo))
+        .performClick()
+
+    assertEquals(1, removals)
+  }
+
+  @Test
+  fun attachedPhotoWithoutACaption_canBeSent() {
+    var sends = 0
+    setContent(canAttach.copy(attachedPhoto = galleryPhoto, canSend = true), onSend = { sends++ })
+
+    node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft(""))
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled().performClick()
+
+    assertEquals(1, sends)
   }
 
   /** No test of the screen takes a photo yet. */
