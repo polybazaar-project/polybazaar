@@ -153,7 +153,7 @@ class FirebaseChatRepository(
       if (!exists(photoRef)) upload(photoRef, compressed)
       // Tells the other participant the photo can be downloaded. The rules allow this only once,
       // so a retry after it reached the server skips it.
-      if (pending) messageRef.update(PHOTO_PENDING, false).awaitLoggingFailure()
+      if (pending) markPhotoUploaded(messageRef)
     }
   }
 
@@ -298,6 +298,26 @@ class FirebaseChatRepository(
             mapOf("senderUid" to senderUid, "sentAt" to FieldValue.serverTimestamp()) +
                 messageFields,
         )
+  }
+
+  /**
+   * Sets photoPending to false on the message at [ref] and waits for the server. The rules allow
+   * this once, so a mark sent twice, as when a mark that timed out still reached the server, is
+   * refused: that refusal counts as done when the server shows the photo as uploaded.
+   */
+  private suspend fun markPhotoUploaded(ref: DocumentReference) {
+    try {
+      ref.update(PHOTO_PENDING, false).await()
+    } catch (e: FirebaseFirestoreException) {
+      if (
+          e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
+              ref.get(Source.SERVER).await().getBoolean(PHOTO_PENDING) == false
+      ) {
+        return
+      }
+      logWriteFailure(e)
+      throw e
+    }
   }
 
   /** Waits for the server to confirm a write; a rejection is logged, then thrown. */

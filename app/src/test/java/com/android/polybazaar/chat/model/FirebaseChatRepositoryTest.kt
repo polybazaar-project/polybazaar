@@ -784,13 +784,17 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
-  fun sendPhotoRejectedMarkIsLoggedAndThrown() = runTest {
+  fun sendPhotoRejectedMarkWithPhotoStillPendingIsLoggedAndThrown() = runTest {
     val failure =
         FirebaseFirestoreException(
             "Missing or insufficient permissions.",
             FirebaseFirestoreException.Code.PERMISSION_DENIED,
         )
     whenever(photoMessageRef.update("photoPending", false)).thenReturn(Tasks.forException(failure))
+    val notWritten = messageSnapshot(exists = false)
+    val stillPending = messageSnapshot(exists = true, pending = true)
+    whenever(photoMessageRef.get(Source.SERVER))
+        .thenReturn(Tasks.forResult(notWritten), Tasks.forResult(stillPending))
     var logged: Exception? = null
     val repository =
         FirebaseChatRepository(photoCompressor, firestore, auth, storage) { logged = it }
