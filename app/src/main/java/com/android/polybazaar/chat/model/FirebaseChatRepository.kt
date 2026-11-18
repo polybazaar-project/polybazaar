@@ -85,7 +85,7 @@ class FirebaseChatRepository(
       caption: String?,
   ) {
     val senderUid = participantUid(conversation)
-    // Storage only accepts a chat photo once the conversation exists.
+    // firestore.rules only accept a message with a photo in a conversation that already exists.
     require(conversation.lastMessageAt != null) {
       "A photo cannot be the first message of a conversation"
     }
@@ -304,7 +304,7 @@ class FirebaseChatRepository(
   private fun conversationDocument(id: String) = firestore.collection(CONVERSATIONS).document(id)
 
   /**
-   * Whether a file is already at [ref], like a photo uploaded by a send whose batch then failed.
+   * Whether a file is already at [ref], like a photo whose upload ended after its send timed out.
    * The rules allow a chat photo to be created only once, so a retry with the same message ID must
    * reuse that file rather than upload it again.
    */
@@ -329,7 +329,10 @@ class FirebaseChatRepository(
     }
   }
 
-  /** Where a message's photo is stored; storage.rules only accept a participant's upload there. */
+  /**
+   * Where a message's photo is stored: the imagePath its message names. storage.rules only accept
+   * an upload there from that message's sender.
+   */
   private fun photoPath(conversationId: String, messageId: String) =
       "$CONVERSATIONS/$conversationId/$messageId.jpg"
 
