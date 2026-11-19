@@ -146,7 +146,8 @@ object ListingRules {
    * @param maxRentalDays kept from the edited item, since the form has no input for it. Ignored for
    *   services.
    * @param availableDates the days the owner offers the listing on.
-   * @param location kept from the edited listing, since the form has no input for it.
+   * @param location where the listing is offered, set in the form. A location with a blank name
+   *   leaves the form incomplete; its name is stored trimmed.
    */
   fun buildListing(
       type: ListingType,
@@ -164,6 +165,8 @@ object ListingRules {
   ): Listing? {
     val parsedPrice = parsePrice(price) ?: return null
     if (title.isBlank() || description.isBlank() || category?.type != type) return null
+    if (location != null && location.name.isBlank()) return null
+    val trimmedLocation = location?.copy(name = location.name.trim())
     return when (type) {
       ListingType.ITEM ->
           ItemListing(
@@ -180,7 +183,7 @@ object ListingRules {
               imagePaths = imagePaths,
               listingId = listingId,
               availableDates = availableDates,
-              location = location,
+              location = trimmedLocation,
           )
       ListingType.SERVICE ->
           ServiceListing(
@@ -192,7 +195,7 @@ object ListingRules {
               imagePaths = imagePaths,
               listingId = listingId,
               availableDates = availableDates,
-              location = location,
+              location = trimmedLocation,
           )
     }
   }
