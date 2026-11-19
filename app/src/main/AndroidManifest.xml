@@ -55,6 +55,13 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
+        <!-- Google Maps' Play Services module still uses Apache HTTP, which Android 9+ no longer
+             loads by default: without this the map crashes with NoClassDefFoundError
+             org/apache/http/ProtocolVersion (seen on the CI emulator, #391). Not required, so
+             devices without the library can still install the app. -->
+        <uses-library
+            android:name="org.apache.http.legacy"
+            android:required="false" />
     </application>
 
 </manifest>
