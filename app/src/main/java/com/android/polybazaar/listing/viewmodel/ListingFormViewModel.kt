@@ -54,6 +54,8 @@ import kotlinx.coroutines.launch
  * @property maxRentalDays kept from the edited listing, so that saving does not erase it. The form
  *   has no input for it yet.
  * @property location where the listing is offered, picked on the map, or null for none.
+ * @property locationNameTouched whether the user has left the location's name field, like
+ *   [priceTouched]: a missing name is only flagged after that.
  * @property suggestedPoint where the map picker opens: the chosen location, else the lender's
  *   position once found, else EPFL.
  * @property availableDates the days the owner offers the listing on, chosen in the calendar.
@@ -80,6 +82,7 @@ data class ListingFormUiState(
     val photos: List<Uri> = emptyList(),
     val maxRentalDays: Int? = null,
     val location: ListingLocation? = null,
+    val locationNameTouched: Boolean = false,
     val suggestedPoint: Coordinates = Campus.EPFL.centre,
     val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = false,
@@ -138,9 +141,12 @@ data class ListingFormUiState(
     get() =
         type == ListingType.ITEM && showAmountError(refundTouched, refundValue, MAX_REFUND_VALUE)
 
-  /** A chosen location needs a name: until it has one, the form cannot be saved. */
+  /**
+   * A chosen location needs a name: until it has one, the form cannot be saved. Like the price, the
+   * missing name is only flagged once the user has left its field.
+   */
   val showLocationNameError: Boolean
-    get() = location != null && location.name.isBlank()
+    get() = locationNameTouched && location != null && location.name.isBlank()
 }
 
 /** Whether to flag [input] as an invalid amount: only once the user has left a non-empty field. */
@@ -339,8 +345,13 @@ class ListingFormViewModel(
     )
   }
 
-  /** Removes the location, so the listing is saved without one. */
-  fun clearLocation() = changeForm { it.copy(location = null) }
+  fun leaveLocationNameField() = changeForm { it.copy(locationNameTouched = true) }
+
+  /**
+   * Removes the location, so the listing is saved without one. A location picked again later starts
+   * without a name error.
+   */
+  fun clearLocation() = changeForm { it.copy(location = null, locationNameTouched = false) }
 
   /**
    * Adds photos picked in the gallery, skipping duplicates and those beyond [MAX_PHOTOS], kept
@@ -497,6 +508,7 @@ class ListingFormViewModel(
     const val LOCATION_LATITUDE = "locationLatitude"
     const val LOCATION_LONGITUDE = "locationLongitude"
     const val LOCATION_NAME = "locationName"
+    const val LOCATION_NAME_TOUCHED = "locationNameTouched"
     const val SUGGESTED_LATITUDE = "suggestedLatitude"
     const val SUGGESTED_LONGITUDE = "suggestedLongitude"
     const val PENDING_PHOTO = "pendingPhoto"
@@ -523,6 +535,7 @@ class ListingFormViewModel(
       set(LOCATION_LATITUDE, state.location?.latitude)
       set(LOCATION_LONGITUDE, state.location?.longitude)
       set(LOCATION_NAME, state.location?.name)
+      set(LOCATION_NAME_TOUCHED, state.locationNameTouched)
       set(SUGGESTED_LATITUDE, state.suggestedPoint.latitude)
       set(SUGGESTED_LONGITUDE, state.suggestedPoint.longitude)
       // As days since 1970: a LongArray survives the app being killed, a set of dates might not.
@@ -563,6 +576,7 @@ class ListingFormViewModel(
             photos = get<List<Uri>>(PHOTOS).orEmpty(),
             maxRentalDays = get(MAX_RENTAL_DAYS),
             location = restoreLocation(),
+            locationNameTouched = get(LOCATION_NAME_TOUCHED) ?: false,
             suggestedPoint = restoreSuggestedPoint(),
             availableDates =
                 upcomingDays(

@@ -1390,9 +1390,23 @@ class ListingFormViewModelTest {
     viewModel.setLocationPoint(lausanne)
 
     assertEquals(ListingLocation(lausanne.latitude, lausanne.longitude, ""), uiLocation())
-    assertTrue(viewModel.uiState.value.showLocationNameError)
     assertNull(viewModel.uiState.value.listing)
     assertFalse(viewModel.uiState.value.canSave)
+  }
+
+  @Test
+  fun locationNameError_showsOnlyOnceTheNameFieldIsLeft() {
+    fillForm()
+    viewModel.setLocationPoint(lausanne)
+    // The lender has not had a chance to type a name yet.
+    assertFalse(viewModel.uiState.value.showLocationNameError)
+
+    viewModel.leaveLocationNameField()
+    assertTrue(viewModel.uiState.value.showLocationNameError)
+
+    viewModel.updateLocationName("Flat")
+    assertFalse(viewModel.uiState.value.showLocationNameError)
+    assertTrue(viewModel.uiState.value.canSave)
   }
 
   @Test
@@ -1416,7 +1430,6 @@ class ListingFormViewModelTest {
     viewModel.setLocationPoint(lausanne)
 
     assertEquals(ListingLocation(lausanne.latitude, lausanne.longitude, ""), uiLocation())
-    assertTrue(viewModel.uiState.value.showLocationNameError)
     assertFalse(viewModel.uiState.value.canSave)
   }
 
@@ -1477,12 +1490,17 @@ class ListingFormViewModelTest {
   fun clearLocation_removesItAndTheNameError() {
     fillForm()
     viewModel.setLocationPoint(lausanne)
+    viewModel.leaveLocationNameField()
 
     viewModel.clearLocation()
 
     assertNull(uiLocation())
     assertFalse(viewModel.uiState.value.showLocationNameError)
     assertTrue(viewModel.uiState.value.canSave)
+
+    // A point picked again starts without the error, until its name field is left.
+    viewModel.setLocationPoint(ouchy)
+    assertFalse(viewModel.uiState.value.showLocationNameError)
   }
 
   @Test
@@ -1571,6 +1589,7 @@ class ListingFormViewModelTest {
     // A name still being typed, even blank, comes back as it was.
     viewModel.setLocationPoint(ouchy)
     viewModel.updateLocationName(" ")
+    viewModel.leaveLocationNameField()
     val form = restored()
     assertEquals(ouchy, form.suggestedPoint)
     assertEquals(ListingLocation(ouchy.latitude, ouchy.longitude, ""), form.location)
