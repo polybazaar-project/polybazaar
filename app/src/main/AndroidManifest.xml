@@ -17,6 +17,8 @@
          keeps it on the device, in its saved state, so the picker still opens there after the app
          is killed. Without it the user picks their campus instead. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- To know when the device is offline, as choosing a listing's location on the map needs it. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:allowBackup="true"

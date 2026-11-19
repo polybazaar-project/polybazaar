@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.booking.model.upcomingDays
+import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ItemListing
@@ -66,6 +67,8 @@ import kotlinx.coroutines.launch
  *   until a Retry succeeds.
  * @property savedListing the saved listing, until the screen has handled it.
  * @property saveError why the last save failed, or null.
+ * @property isOnline whether the device is online, which choosing a location on the map needs.
+ *   Followed live, never saved with the form.
  */
 data class ListingFormUiState(
     val today: LocalDate,
@@ -90,6 +93,7 @@ data class ListingFormUiState(
     val savedListing: Listing? = null,
     val isSaving: Boolean = false,
     val saveError: AppError? = null,
+    val isOnline: Boolean = true,
 ) {
   /** Whether this form edits a saved listing rather than creating one. */
   val isEditing: Boolean
@@ -187,6 +191,8 @@ private fun formFor(listing: Listing, today: LocalDate) =
  *   camera app is in front. Pass `createSavedStateHandle()` from the factory: a handle made by hand
  *   is not saved by Android.
  * @param locationRepository finds the lender, to open the map picker where they are.
+ * @param connectivityRepository tells whether the device is online, see
+ *   [ListingFormUiState.isOnline].
  * @param today the current day, to leave past available days out of an edited listing.
  */
 class ListingFormViewModel(
@@ -195,10 +201,16 @@ class ListingFormViewModel(
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
     private val locationRepository: LocationRepository,
+    connectivityRepository: ConnectivityRepository,
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
-  private val _uiState = MutableStateFlow(savedStateHandle.restoreForm(listingId, today()))
+  private val _uiState =
+      MutableStateFlow(
+          savedStateHandle
+              .restoreForm(listingId, today())
+              .copy(isOnline = connectivityRepository.isOnline.value)
+      )
   val uiState: StateFlow<ListingFormUiState> = _uiState.asStateFlow()
 
   /**
@@ -236,6 +248,11 @@ class ListingFormViewModel(
     photoStorage.deleteAllExcept(_uiState.value.photos + listOfNotNull(pendingPhoto))
     // A restored edit form holds the user's changes, which loading the listing would overwrite.
     if (listingId != null && savedStateHandle.get<Boolean>(LOADED) != true) loadListing()
+    viewModelScope.launch {
+      connectivityRepository.isOnline.collect { online ->
+        _uiState.update { it.copy(isOnline = online) }
+      }
+    }
   }
 
   /**
@@ -253,7 +270,9 @@ class ListingFormViewModel(
             .getListing(id)
             .onSuccess { listing ->
               savedStateHandle[LOADED] = true
-              updateState { formFor(listing, today()).copy(isLoading = true) }
+              updateState {
+                formFor(listing, today()).copy(isLoading = true, isOnline = it.isOnline)
+              }
             }
             .onFailure { exception ->
               // Cancellation means the screen was closed: it is not an error to show.
@@ -447,7 +466,7 @@ class ListingFormViewModel(
           val form =
               if (state.isEditing) formFor(savedListing, today())
               else ListingFormUiState(today = today())
-          form.copy(savedListing = savedListing)
+          form.copy(savedListing = savedListing, isOnline = it.isOnline)
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) {
