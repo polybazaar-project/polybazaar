@@ -38,6 +38,7 @@ class FirebaseBookingRepositoryTest {
   private val listingQuery = mock<Query>()
   private val lenderQuery = mock<Query>()
   private val renterQuery = mock<Query>()
+  private val allLenderQuery = mock<Query>()
   private val snapshot = mock<QuerySnapshot>()
   private val stored = mock<DocumentSnapshot>()
   private val repository = FirebaseBookingRepository(firestore, auth)
@@ -60,6 +61,7 @@ class FirebaseBookingRepositoryTest {
     whenever(collection.whereEqualTo("listingId", "listing")).thenReturn(listingQuery)
     whenever(listingQuery.whereEqualTo("lenderUid", "lender")).thenReturn(lenderQuery)
     whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(renterQuery)
+    whenever(collection.whereEqualTo("lenderUid", "renter")).thenReturn(allLenderQuery)
     whenever(collection.document("booking-id")).thenReturn(document)
   }
 
@@ -228,6 +230,39 @@ class FirebaseBookingRepositoryTest {
         repository.getBookingsForRenter(),
     )
     verify(collection).whereEqualTo("renterUid", "renter")
+  }
+
+  @Test
+  fun getBookingsForLenderQueriesTheSignedInLenderAndDecodesBookings() = runTest {
+    whenever(allLenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn("renter")
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+    whenever(stored.getString("status")).thenReturn("CANCELLED")
+    whenever(stored.id).thenReturn("booking-id")
+
+    assertEquals(
+        listOf(
+            booking.copy(lenderUid = "renter", status = BookingStatus.CANCELLED, id = "booking-id")
+        ),
+        repository.getBookingsForLender(),
+    )
+    verify(collection).whereEqualTo("lenderUid", "renter")
+  }
+
+  @Test
+  fun getBookingsForLenderRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val error = runCatching { repository.getBookingsForLender() }.exceptionOrNull()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (error as FirebaseFirestoreException).code,
+    )
   }
 
   @Test

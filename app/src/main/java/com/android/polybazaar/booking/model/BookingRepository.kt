@@ -16,6 +16,9 @@ interface BookingRepository {
   /** Returns bookings for this listing owned by the signed-in lender. */
   suspend fun getBookingsForListing(listingId: String): List<Booking>
 
+  /** Returns the bookings of all the listings of the signed-in lender, in any status. */
+  suspend fun getBookingsForLender(): List<Booking>
+
   /** Returns bookings made by the signed-in renter. */
   suspend fun getBookingsForRenter(): List<Booking>
 

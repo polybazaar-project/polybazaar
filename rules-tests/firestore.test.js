@@ -450,6 +450,19 @@ describe("listings", () => {
       await assertFails(getDocs(query(collection(verified(ALICE), "bookings"), where("listingId", "==", "l1"))));
     });
 
+    // The Toolbox reads every booking of the lender's listings in one query (#196).
+    test("a verified lender can list the bookings of all their listings, and only theirs", async () => {
+      await seed("bookings/b1", booking());
+      await seed("bookings/b2", booking({ listingId: "l2" }));
+      const allForLender = (db, lender) =>
+        getDocs(query(collection(db, "bookings"), where("lenderUid", "==", lender)));
+
+      const listed = await assertSucceeds(allForLender(verified(ALICE), ALICE));
+      assert.deepEqual(listed.docs.map((d) => d.id).sort(), ["b1", "b2"]);
+      await assertFails(allForLender(verified(BOB), ALICE));
+      await assertFails(allForLender(unverified(ALICE), ALICE));
+    });
+
     test("renters and lenders can cancel requested or confirmed bookings", async () => {
       await seed("bookings/renter-requested", booking());
       await seed("bookings/renter-confirmed", booking({ status: "CONFIRMED" }));

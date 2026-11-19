@@ -69,6 +69,23 @@ class FirebaseBookingRepository(
         .map { it.toBooking() }
   }
 
+  override suspend fun getBookingsForLender(): List<Booking> {
+    val uid =
+        auth.currentUser?.uid
+            ?: throw FirebaseFirestoreException(
+                "Sign in to read bookings",
+                FirebaseFirestoreException.Code.UNAUTHENTICATED,
+            )
+    // The rules let a lender read the bookings that name them, so the query passes as a whole.
+    return firestore
+        .collection("bookings")
+        .whereEqualTo("lenderUid", uid)
+        .get()
+        .await()
+        .documents
+        .map { it.toBooking() }
+  }
+
   override suspend fun getBookingsForRenter(): List<Booking> {
     val uid =
         auth.currentUser?.uid
