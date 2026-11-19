@@ -11,6 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowNetwork
 import org.robolectric.shadows.ShadowNetworkCapabilities
 
 /** [AndroidConnectivityRepository] on Robolectric's [ConnectivityManager]. */
@@ -59,5 +60,21 @@ class AndroidConnectivityRepositoryTest {
 
     callback.onCapabilitiesChanged(network, validated)
     assertTrue(repository.isOnline.value)
+  }
+
+  @Test
+  fun staysOnline_whenThePreviousNetworkIsLostAfterAHandoff() {
+    val repository = repositoryOn(validated)
+    val callback = shadowOf(connectivityManager).networkCallbacks.single()
+    val wifi = connectivityManager.activeNetwork!!
+    val mobile = ShadowNetwork.newInstance(shadowOf(wifi).netId + 1)
+
+    // Mobile becomes the default, validated, before Wi-Fi's loss arrives.
+    callback.onCapabilitiesChanged(mobile, validated)
+    callback.onLost(wifi)
+    assertTrue(repository.isOnline.value)
+
+    callback.onLost(mobile)
+    assertFalse(repository.isOnline.value)
   }
 }

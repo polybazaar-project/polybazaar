@@ -34,15 +34,23 @@ class AndroidConnectivityRepository(context: Context) : ConnectivityRepository {
       )
   override val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
+  /** The default network the callback last reported, or null once it is lost. */
+  @Volatile private var defaultNetwork: Network? = connectivityManager.activeNetwork
+
   init {
     connectivityManager.registerDefaultNetworkCallback(
         object : ConnectivityManager.NetworkCallback() {
           // Also called right after a new default network becomes available.
           override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            defaultNetwork = network
             _isOnline.value = reachesInternet(capabilities)
           }
 
+          // During a Wi-Fi/mobile handoff the old network can be lost after the new one became
+          // the default: only losing the current default means the device is offline.
           override fun onLost(network: Network) {
+            if (network != defaultNetwork) return
+            defaultNetwork = null
             _isOnline.value = false
           }
         }
