@@ -574,7 +574,9 @@ fun AppNavHost(
               viewModel(
                   key = "toolbox_$uid",
                   factory =
-                      viewModelFactory { initializer { ToolboxViewModel(listingRepository) } },
+                      viewModelFactory {
+                        initializer { ToolboxViewModel(listingRepository, bookingRepository) }
+                      },
               )
           // Switching tabs keeps this ViewModel, so a listing published since it loaded needs a
           // reload to show up when the user comes back.
