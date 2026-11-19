@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Fable 5.2, Claude Opus 5.5)
 package com.android.polybazaar.listing.ui
 
 import android.content.Context
@@ -27,6 +27,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
@@ -36,6 +37,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.FakeLocationRepository
 import java.io.ByteArrayOutputStream
 import java.net.UnknownHostException
 import java.time.LocalDate
@@ -97,6 +99,8 @@ class EditListingScreenTest {
             repository,
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
+            FakeLocationRepository(),
+            FakeConnectivityRepository(),
         )
     composeTestRule.setContent {
       EditListingScreen(
@@ -340,6 +344,8 @@ class EditListingScreenTest {
             repository,
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
+            FakeLocationRepository(),
+            FakeConnectivityRepository(),
         )
     composeTestRule.setContent {
       dispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher

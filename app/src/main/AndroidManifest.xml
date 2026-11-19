@@ -12,9 +12,13 @@
     <uses-feature
         android:name="android.hardware.camera.autofocus"
         android:required="false" />
-    <!-- Approximate location only, to centre the map on the renter (#340); never stored or sent.
-         Without it the renter picks their campus instead. -->
+    <!-- Approximate location only, to centre the map on the renter (#340) and to open the listing
+         form's map picker where the lender is (#364). Never sent to the backend; the listing form
+         keeps it on the device, in its saved state, so the picker still opens there after the app
+         is killed. Without it the user picks their campus instead. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- To know when the device is offline, as choosing a listing's location on the map needs it. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:allowBackup="true"

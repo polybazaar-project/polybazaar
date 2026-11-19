@@ -73,6 +73,7 @@ import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -83,6 +84,7 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.listing.ui.ListingDetailScreenTags
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.LenderProfileScreenTags
@@ -164,6 +166,8 @@ class AppNavHostTest {
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
             bookingRepository = bookingRepository,
+            locationRepository = FakeLocationRepository(),
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -206,6 +210,8 @@ class AppNavHostTest {
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
             bookingRepository = bookingRepository,
+            locationRepository = FakeLocationRepository(),
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -675,6 +681,8 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
+          locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }
@@ -1506,6 +1514,8 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
+          locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }
@@ -1582,6 +1592,8 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
+          locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }
