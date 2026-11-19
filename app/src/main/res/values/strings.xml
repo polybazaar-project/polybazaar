@@ -156,6 +156,8 @@
     <string name="toolbox_filter_services">Services</string>
     <string name="toolbox_empty_items">You have no item listings.</string>
     <string name="toolbox_empty_services">You have no service listings.</string>
+    <string name="toolbox_status_available">Available</string>
+    <string name="toolbox_status_booked_today">Booked today</string>
 
     <!-- Forgot password screen -->
     <string name="forgot_password_title">Forgot password</string>

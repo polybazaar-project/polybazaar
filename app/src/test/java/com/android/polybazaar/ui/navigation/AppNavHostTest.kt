@@ -77,6 +77,7 @@ import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -182,6 +183,7 @@ class AppNavHostTest {
               mapState = it
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -230,6 +232,7 @@ class AppNavHostTest {
               mapState = it
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -706,6 +709,7 @@ class AppNavHostTest {
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
           locationRepository = locationRepository,
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
           listingsMap = { mapState = it },
       )
@@ -1539,6 +1543,7 @@ class AppNavHostTest {
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
           locationRepository = locationRepository,
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
           listingsMap = { mapState = it },
       )
@@ -1617,6 +1622,7 @@ class AppNavHostTest {
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
           locationRepository = locationRepository,
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
           listingsMap = { mapState = it },
       )

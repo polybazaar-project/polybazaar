@@ -31,6 +31,7 @@ import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
@@ -89,6 +90,7 @@ class EndToEndFlowTest {
           bookingRepository = FakeBookingRepository(),
           locationRepository = FakeLocationRepository(),
           listingsMap = {},
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }
