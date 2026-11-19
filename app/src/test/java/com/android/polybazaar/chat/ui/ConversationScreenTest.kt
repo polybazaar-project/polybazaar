@@ -1,27 +1,43 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.ui
 
+import android.Manifest
+import android.app.Application
 import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -31,9 +47,11 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -46,21 +64,33 @@ import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
+import com.android.polybazaar.chat.viewmodel.PendingPhoto
+import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.listing.model.TakenPhoto
+import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.FakeProfileRepository
+import com.android.polybazaar.profile.ui.redPhoto
+import java.io.File
 import java.net.UnknownHostException
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -106,6 +136,12 @@ class ConversationScreenTest {
       onSend: () -> Unit = {},
       onRetry: () -> Unit = {},
       onDismissSendError: () -> Unit = {},
+      onTakePhoto: () -> Unit = {},
+      onChoosePhoto: () -> Unit = {},
+      onRemoveAttachedPhoto: () -> Unit = {},
+      onLoadPhoto: (String) -> Unit = {},
+      onRetryPhoto: (String) -> Unit = {},
+      onDiscardPhoto: (String) -> Unit = {},
   ) {
     composeTestRule.setContent {
       ConversationContent(
@@ -115,6 +151,12 @@ class ConversationScreenTest {
           onSend = onSend,
           onRetry = onRetry,
           onDismissSendError = onDismissSendError,
+          onTakePhoto = onTakePhoto,
+          onChoosePhoto = onChoosePhoto,
+          onRemoveAttachedPhoto = onRemoveAttachedPhoto,
+          onLoadPhoto = onLoadPhoto,
+          onRetryPhoto = onRetryPhoto,
+          onDiscardPhoto = onDiscardPhoto,
           zone = ZoneOffset.UTC,
       )
     }
@@ -187,6 +229,8 @@ class ConversationScreenTest {
       chat: FakeChatRepository,
       listings: FakeListingRepository = FakeListingRepository(allListings = listOf(drill)),
       lifecycleOwner: LifecycleOwner? = null,
+      photoStorage: PhotoStorage = NoPhotoStorage,
+      launchers: FakeLaunchers = FakeLaunchers(),
   ): ConversationViewModel {
     val viewModel =
         ConversationViewModel(
@@ -196,15 +240,44 @@ class ConversationScreenTest {
             chatRepository = chat,
             profileRepository = FakeProfileRepository(mapOf(james.uid to james)),
             listingRepository = listings,
+            photoStorage = photoStorage,
+            savedStateHandle = SavedStateHandle(),
+            uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
         )
+    val launcherOwner =
+        object : ActivityResultRegistryOwner {
+          override val activityResultRegistry = launchers
+        }
     composeTestRule.setContent {
       CompositionLocalProvider(
-          LocalLifecycleOwner provides (lifecycleOwner ?: LocalLifecycleOwner.current)
+          LocalLifecycleOwner provides (lifecycleOwner ?: LocalLifecycleOwner.current),
+          // rememberLauncherForActivityResult reads its registry from this composition local.
+          LocalActivityResultRegistryOwner provides launcherOwner,
       ) {
         ConversationScreen(viewModel = viewModel, onBack = {})
       }
     }
     return viewModel
+  }
+
+  /**
+   * Stands in for the gallery, the camera app and the permission request: answers each launch at
+   * once with the next of [results] (a picked URI or null, or a Boolean for the camera and the
+   * permission), and records each contract launched in [launched].
+   */
+  private class FakeLaunchers : ActivityResultRegistry() {
+    val results = ArrayDeque<Any?>()
+    val launched = mutableListOf<ActivityResultContract<*, *>>()
+
+    override fun <I, O> onLaunch(
+        requestCode: Int,
+        contract: ActivityResultContract<I, O>,
+        input: I,
+        options: ActivityOptionsCompat?,
+    ) {
+      launched += contract
+      dispatchResult(requestCode, results.removeFirst())
+    }
   }
 
   /** A lifecycle a test moves by hand, to put the screen in the background and back. */
@@ -442,7 +515,7 @@ class ConversationScreenTest {
   }
 
   @Test
-  fun pausedListing_showsOnlyTheNoticeTitle_andSendsWhenAllowed() {
+  fun pausedListingWithAConversation_showsOnlyTheNoticeTitle_andSendsWhenAllowed() {
     var sends = 0
     setContent(
         loaded.copy(
@@ -458,6 +531,28 @@ class ConversationScreenTest {
     node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
     node(ConversationScreenTags.SEND_BUTTON).performClick()
     assertEquals(1, sends)
+  }
+
+  @Test
+  fun pausedListingWithoutAConversation_saysAFirstMessageWaitsUntilItIsActiveAgain() {
+    setContent(
+        loaded.copy(
+            messages = emptyList(),
+            conversation = null,
+            listingStatus = ConversationListingStatus.PAUSED,
+            draft = "Hello",
+            canSend = false,
+            firstMessageBlockedByPause = true,
+        )
+    )
+
+    node(ConversationScreenTags.PAUSED_NOTICE)
+        .assertTextEquals(
+            string(R.string.conversation_paused_title),
+            string(R.string.conversation_paused_first_message_body),
+        )
+    node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
   }
 
   @Test
@@ -656,6 +751,17 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun photosPreview_showsTheirPhotoLoadingAndMyFailedPhoto() {
+    composeTestRule.setContent { ConversationPhotosPreview() }
+
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.messagePhoto("2"), useUnmergedTree = true)
+        .assertExists()
+    node(ConversationScreenTags.pendingPhoto("3")).assertExists()
+    node(ConversationScreenTags.retryPhoto("3")).assertExists()
+  }
+
+  @Test
   fun conversationBody_prefersTheMessages_thenTheError_thenLoading_elseEmpty() {
     fun body(messages: Boolean, error: Boolean, loading: Boolean) =
         conversationBody(
@@ -772,8 +878,24 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.ERROR_MESSAGE).assertDoesNotExist()
     node(ConversationScreenTags.RETRY_BUTTON).assertDoesNotExist()
-    assertEquals(2, listings.getListingCalls)
+    assertEquals(2, listings.observeListingCalls)
     assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun screen_pausedListingWithoutAConversation_explainsTheDisabledSend_untilItIsResumed() {
+    val listings = FakeListingRepository(allListings = listOf(drill.copy(isPaused = true)))
+    showScreen(FakeChatRepository(), listings)
+    node(ConversationScreenTags.MESSAGE_FIELD).performTextInput("Hello")
+
+    text(string(R.string.conversation_paused_first_message_body)).assertIsDisplayed()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsNotEnabled()
+
+    composeTestRule.runOnIdle { listings.allListings = listOf(drill) }
+
+    node(ConversationScreenTags.PAUSED_NOTICE).assertDoesNotExist()
+    text(string(R.string.conversation_paused_first_message_body)).assertDoesNotExist()
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled()
   }
 
   @Test
@@ -791,5 +913,464 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.SEND_ERROR).assertDoesNotExist()
     node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft("Is it free on Saturday?!"))
+  }
+
+  // Photo button and attached photo
+
+  // A photo that cannot be read, which shows the placeholder: Robolectric throws for an unknown
+  // content:// URI, where a device answers FileNotFoundException.
+  private val galleryPhoto = Uri.parse("file:///missing/photo_1.jpg")
+
+  /** The loaded conversation, where a photo can be attached. */
+  private val canAttach = loaded.copy(canAttachPhoto = true)
+
+  @Test
+  fun photoButton_isEnabledWhenAPhotoCanBeAttached_andSaysWhatItDoes() {
+    setContent(canAttach)
+
+    node(ConversationScreenTags.PHOTO_BUTTON)
+        .assertIsEnabled()
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_button))
+  }
+
+  @Test
+  fun photoButton_isDisabledWhenNoPhotoCanBeAttached() {
+    setContent(loaded.copy(canAttachPhoto = false))
+
+    node(ConversationScreenTags.PHOTO_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun photoMenu_takePhoto_opensTheCamera_andClosesTheMenu() {
+    var takes = 0
+    var chooses = 0
+    setContent(canAttach, onTakePhoto = { takes++ }, onChoosePhoto = { chooses++ })
+    node(ConversationScreenTags.TAKE_PHOTO).assertDoesNotExist()
+
+    node(ConversationScreenTags.PHOTO_BUTTON).performClick()
+    node(ConversationScreenTags.TAKE_PHOTO)
+        .assertTextEquals(string(R.string.conversation_take_photo))
+        .performClick()
+
+    assertEquals(1, takes)
+    assertEquals(0, chooses)
+    node(ConversationScreenTags.PHOTO_MENU).assertDoesNotExist()
+  }
+
+  @Test
+  fun photoMenu_choosePhoto_opensTheGallery_andClosesTheMenu() {
+    var takes = 0
+    var chooses = 0
+    setContent(canAttach, onTakePhoto = { takes++ }, onChoosePhoto = { chooses++ })
+
+    node(ConversationScreenTags.PHOTO_BUTTON).performClick()
+    node(ConversationScreenTags.CHOOSE_PHOTO)
+        .assertTextEquals(string(R.string.conversation_choose_photo))
+        .performClick()
+
+    assertEquals(0, takes)
+    assertEquals(1, chooses)
+    node(ConversationScreenTags.PHOTO_MENU).assertDoesNotExist()
+  }
+
+  @Test
+  fun noAttachedPhoto_showsNoPreview_andTheMessagePlaceholder() {
+    setContent(canAttach)
+
+    node(ConversationScreenTags.ATTACHED_PHOTO).assertDoesNotExist()
+    node(ConversationScreenTags.REMOVE_ATTACHED_PHOTO).assertDoesNotExist()
+    text(string(R.string.conversation_placeholder)).assertIsDisplayed()
+  }
+
+  @Test
+  fun attachedPhoto_showsAboveTheField_andAsksForACaption() {
+    setContent(canAttach.copy(attachedPhoto = galleryPhoto))
+
+    node(ConversationScreenTags.ATTACHED_PHOTO)
+        .assertIsDisplayed()
+        .assertContentDescriptionEquals(string(R.string.conversation_attached_photo))
+    text(string(R.string.conversation_placeholder_caption)).assertIsDisplayed()
+    text(string(R.string.conversation_placeholder)).assertDoesNotExist()
+    val photo = node(ConversationScreenTags.ATTACHED_PHOTO).getBoundsInRoot()
+    val field = node(ConversationScreenTags.MESSAGE_FIELD).getBoundsInRoot()
+    assertTrue(photo.bottom <= field.top)
+  }
+
+  @Test
+  fun removeAttachedPhoto_callsTheCallback() {
+    var removals = 0
+    setContent(
+        canAttach.copy(attachedPhoto = galleryPhoto),
+        onRemoveAttachedPhoto = { removals++ },
+    )
+
+    node(ConversationScreenTags.REMOVE_ATTACHED_PHOTO)
+        .assertContentDescriptionEquals(string(R.string.conversation_remove_attached_photo))
+        .performClick()
+
+    assertEquals(1, removals)
+  }
+
+  @Test
+  fun attachedPhotoWithoutACaption_canBeSent() {
+    var sends = 0
+    setContent(canAttach.copy(attachedPhoto = galleryPhoto, canSend = true), onSend = { sends++ })
+
+    node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft(""))
+    node(ConversationScreenTags.SEND_BUTTON).assertIsEnabled().performClick()
+
+    assertEquals(1, sends)
+  }
+
+  // Photo bubbles
+
+  private val photoTime = Instant.parse("2026-11-11T09:16:00Z")
+
+  /** A photo message [id] from [senderUid], with [caption] as its text ("" for none). */
+  private fun photoMessage(id: String, senderUid: String, caption: String = "") =
+      ChatMessage(id, senderUid, caption, photoTime, imagePath = "conversations/drill_renter/$id")
+
+  private val myPhoto = photoMessage("m3", "renter", caption = "Here it is")
+  private val theirPhoto = photoMessage("m4", james.uid)
+
+  private fun pending(status: PendingPhotoStatus, error: AppError? = null) =
+      PendingPhoto("m5", galleryPhoto, "And the shelf", status, error)
+
+  /** Waits until the photo of message [id] is drawn: [redPhoto] decoded, not the placeholder. */
+  private fun waitForRedPhoto(id: String) {
+    composeTestRule.waitUntil(5_000) {
+      val image =
+          composeTestRule
+              .onNodeWithTag(ConversationScreenTags.messagePhoto(id), useUnmergedTree = true)
+              .captureToImage()
+      image.toPixelMap()[image.width / 2, image.height / 2] == Color.Red
+    }
+  }
+
+  private fun photoNode(id: String) =
+      composeTestRule.onNodeWithTag(ConversationScreenTags.messagePhoto(id), useUnmergedTree = true)
+
+  @Test
+  fun myPhotoWithACaption_isOneTalkBackItem_photoThenCaptionThenFooter() {
+    setContent(loaded.copy(messages = listOf(myPhoto)))
+
+    node(ConversationScreenTags.myMessage("m3"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_loading))
+        .assertTextEquals("Here it is", "You · 09:16")
+    val photo = photoNode("m3").getBoundsInRoot()
+    val caption = text("Here it is").getBoundsInRoot()
+    assertTrue(photo.bottom <= caption.top)
+  }
+
+  @Test
+  fun theirPhotoWithoutACaption_showsOnlyThePhotoAndTheFooter() {
+    setContent(loaded.copy(messages = listOf(theirPhoto)))
+
+    node(ConversationScreenTags.theirMessage("m4"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo_loading))
+        .assertTextEquals("james · 09:16")
+    photoNode("m4").assertIsDisplayed()
+  }
+
+  @Test
+  fun photoNotDownloaded_isAskedForOnce_withAFixedSizePlaceholder() {
+    val loads = mutableListOf<String>()
+    setContent(loaded.copy(messages = listOf(myPhoto, theirPhoto)), onLoadPhoto = { loads += it })
+
+    composeTestRule.waitForIdle()
+    assertEquals(listOf(theirPhoto.imagePath, myPhoto.imagePath), loads)
+    photoNode("m3").assertHeightIsEqualTo(200.dp)
+    node(ConversationScreenTags.photoLoadError("m3")).assertDoesNotExist()
+  }
+
+  @Test
+  fun pendingPhoto_showsTheLoadingPlaceholder_withoutBeingAskedFor() {
+    val loads = mutableListOf<String>()
+    val uploading = theirPhoto.copy(photoPending = true)
+    setContent(loaded.copy(messages = listOf(uploading)), onLoadPhoto = { loads += it })
+
+    composeTestRule.waitForIdle()
+    assertEquals(emptyList<String>(), loads)
+    photoNode("m4").assertHeightIsEqualTo(200.dp)
+    node(ConversationScreenTags.photoLoadError("m4")).assertDoesNotExist()
+  }
+
+  @Test
+  fun pendingPhoto_isAskedForOnceMarkedUploaded() {
+    val loads = mutableListOf<String>()
+    var state by
+        mutableStateOf(loaded.copy(messages = listOf(theirPhoto.copy(photoPending = true))))
+    composeTestRule.setContent {
+      ConversationContent(uiState = state, onLoadPhoto = { loads += it }, zone = ZoneOffset.UTC)
+    }
+    composeTestRule.waitForIdle()
+
+    state = state.copy(messages = listOf(theirPhoto))
+    composeTestRule.waitForIdle()
+
+    assertEquals(listOf(theirPhoto.imagePath), loads)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing.
+  fun downloadedPhoto_isShownAtTheSameSize_withoutAskingAgain() {
+    val loads = mutableListOf<String>()
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto),
+            messagePhotos = mapOf(theirPhoto.imagePath!! to redPhoto()),
+        ),
+        onLoadPhoto = { loads += it },
+    )
+
+    waitForRedPhoto("m4")
+    photoNode("m4").assertHeightIsEqualTo(200.dp)
+    // Loaded: no longer "loading" for TalkBack.
+    node(ConversationScreenTags.theirMessage("m4"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+    assertEquals(emptyList<String>(), loads)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing.
+  fun decodedPhoto_scrolledOutOfViewAndBack_isShownAtOnce() {
+    val later =
+        List(30) { ChatMessage("t$it", "renter", "Message $it", photoTime.plusSeconds(60L + it)) }
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto) + later,
+            messagePhotos = mapOf(theirPhoto.imagePath!! to redPhoto()),
+        )
+    )
+    val list = node(ConversationScreenTags.MESSAGE_LIST)
+    // Newest first: the photo is last.
+    list.performScrollToIndex(later.size)
+    waitForRedPhoto("m4")
+
+    list.performScrollToIndex(0)
+    photoNode("m4").assertDoesNotExist()
+    // Frozen clock: a photo decoded again would still show the placeholder.
+    composeTestRule.mainClock.autoAdvance = false
+    list.performScrollToIndex(later.size)
+
+    // Not decoded again: drawn in the first frame, without the placeholder.
+    val image = photoNode("m4").captureToImage()
+    assertEquals(Color.Red, image.toPixelMap()[image.width / 2, image.height / 2])
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // The legacy BitmapFactory "decodes" any bytes.
+  fun undecodablePhoto_saysItCouldNotLoad_withoutOfferingARetry() {
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto),
+            messagePhotos = mapOf(theirPhoto.imagePath!! to byteArrayOf(1, 2, 3)),
+        )
+    )
+
+    composeTestRule.waitUntil(5_000) {
+      composeTestRule
+          .onAllNodes(
+              hasText(string(R.string.conversation_photo_load_failed)),
+              useUnmergedTree = true,
+          )
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    node(ConversationScreenTags.photoLoadError("m4")).assertDoesNotExist()
+  }
+
+  @Test
+  fun photoThatFailedToDownload_offersARetry_andTappingAsksForItAgain() {
+    val loads = mutableListOf<String>()
+    setContent(
+        loaded.copy(
+            messages = listOf(theirPhoto),
+            photoLoadErrors = mapOf(theirPhoto.imagePath!! to AppError.NETWORK),
+        ),
+        onLoadPhoto = { loads += it },
+    )
+    composeTestRule.waitForIdle()
+    assertEquals(emptyList<String>(), loads)
+
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.photoLoadError("m4"), useUnmergedTree = true)
+        .assertHeightIsEqualTo(200.dp)
+        // Announced by TalkBack as a button that retries.
+        .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        .assert(
+            SemanticsMatcher("retries on click") {
+              it.config[SemanticsActions.OnClick].label == string(R.string.conversation_retry)
+            }
+        )
+        .performClick()
+
+    text(string(R.string.conversation_photo_load_failed_retry)).assertIsDisplayed()
+    assertEquals(listOf(theirPhoto.imagePath), loads)
+  }
+
+  @Test
+  fun photoMissingOrRefused_saysItCouldNotLoad_withoutOfferingARetry() {
+    val loads = mutableListOf<String>()
+    var error by mutableStateOf(AppError.NOT_FOUND)
+    composeTestRule.setContent {
+      ConversationContent(
+          uiState =
+              loaded.copy(
+                  messages = listOf(theirPhoto),
+                  photoLoadErrors = mapOf(theirPhoto.imagePath!! to error),
+              ),
+          zone = ZoneOffset.UTC,
+          onLoadPhoto = { loads += it },
+      )
+    }
+
+    for (permanent in listOf(AppError.NOT_FOUND, AppError.PERMISSION_DENIED)) {
+      error = permanent
+      composeTestRule
+          .onNodeWithTag(ConversationScreenTags.photoLoadError("m4"), useUnmergedTree = true)
+          .assertHasNoClickAction()
+      text(string(R.string.conversation_photo_load_failed)).assertIsDisplayed()
+      text(string(R.string.conversation_photo_load_failed_retry)).assertDoesNotExist()
+    }
+    assertEquals(emptyList<String>(), loads)
+  }
+
+  @Test
+  fun pendingPhoto_whoseMessageArrived_showsOnce() {
+    setContent(
+        loaded.copy(
+            messages = loaded.messages + photoMessage("m5", "renter", caption = "And the shelf"),
+            pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING)),
+        )
+    )
+
+    node(ConversationScreenTags.pendingPhoto("m5")).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m5")).assertDoesNotExist()
+  }
+
+  @Test
+  fun uploadingPhoto_saysSending_withoutRetryOrRemove() {
+    setContent(loaded.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING))))
+
+    node(ConversationScreenTags.pendingPhoto("m5"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertTextEquals("And the shelf", string(R.string.conversation_photo_sending))
+    node(ConversationScreenTags.retryPhoto("m5")).assertDoesNotExist()
+    node(ConversationScreenTags.discardPhoto("m5")).assertDoesNotExist()
+  }
+
+  @Test
+  fun failedPhoto_saysWhy_andOffersRetryAndRemove() {
+    val retried = mutableListOf<String>()
+    val discarded = mutableListOf<String>()
+    setContent(
+        loaded.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.FAILED, AppError.NETWORK))),
+        onRetryPhoto = { retried += it },
+        onDiscardPhoto = { discarded += it },
+    )
+
+    text(string(R.string.conversation_photo_not_sent, string(R.string.error_network)))
+        .assertIsDisplayed()
+        .assert(isPoliteLiveRegion())
+    text(string(R.string.conversation_photo_sending)).assertDoesNotExist()
+    node(ConversationScreenTags.retryPhoto("m5")).performClick()
+    node(ConversationScreenTags.discardPhoto("m5")).performClick()
+
+    assertEquals(listOf("m5"), retried)
+    assertEquals(listOf("m5"), discarded)
+  }
+
+  @Test
+  fun pendingPhotos_showBelowTheMessages_asMyOwnBubbles() {
+    setContent(loaded.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING))))
+
+    val pending = node(ConversationScreenTags.pendingPhoto("m5")).getBoundsInRoot()
+    val answer = node(ConversationScreenTags.theirMessage("m2")).getBoundsInRoot()
+    val mine = node(ConversationScreenTags.myMessage("m1")).getBoundsInRoot()
+    assertTrue(answer.bottom <= pending.top)
+    assertEquals(mine.right.value, pending.right.value, 0.5f)
+  }
+
+  // The screen wires the photo menu to the gallery, the camera and the ViewModel.
+
+  /** A chat whose conversation exists, so a photo can be attached. */
+  private fun existingConversation() = FakeChatRepository(listOf(conversation))
+
+  private fun openPhotoMenuAndPick(tag: String) {
+    node(ConversationScreenTags.PHOTO_BUTTON).assertIsEnabled().performClick()
+    node(tag).performClick()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Real decoding and drawing of the thumbnail.
+  fun screen_choosingFromTheGallery_attachesThePickedPhoto_andShowsIt() {
+    val picked = File(context.cacheDir, "picked.png").apply { writeBytes(redPhoto()) }
+    val launchers = FakeLaunchers().apply { results.add(Uri.fromFile(picked)) }
+    val viewModel = showScreen(existingConversation(), launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.CHOOSE_PHOTO)
+
+    assertTrue(launchers.launched.single() is ActivityResultContracts.PickVisualMedia)
+    assertEquals(Uri.fromFile(picked), viewModel.uiState.value.attachedPhoto)
+    composeTestRule.waitUntil(5_000) {
+      val image =
+          composeTestRule
+              .onNodeWithTag(ConversationScreenTags.ATTACHED_PHOTO, useUnmergedTree = true)
+              .captureToImage()
+      image.toPixelMap()[image.width / 2, image.height / 2] == Color.Red
+    }
+  }
+
+  @Test
+  fun screen_closingTheGalleryWithoutAPhoto_attachesNothing() {
+    val launchers = FakeLaunchers().apply { results.add(null) }
+    val viewModel = showScreen(existingConversation(), launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.CHOOSE_PHOTO)
+
+    assertEquals(null, viewModel.uiState.value.attachedPhoto)
+    node(ConversationScreenTags.ATTACHED_PHOTO).assertDoesNotExist()
+  }
+
+  // The camera app leaves its file empty; native graphics fail to decode it cleanly.
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun screen_takingAPhoto_withPermission_attachesTheTakenFile() {
+    shadowOf(context as Application).grantPermissions(Manifest.permission.CAMERA)
+    val launchers = FakeLaunchers().apply { results.add(true) } // The camera app saved it.
+    val storage = FilePhotoStorage(context, FilePhotoStorage.CHAT_FORM)
+    val viewModel =
+        showScreen(existingConversation(), photoStorage = storage, launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.TAKE_PHOTO)
+
+    assertTrue(launchers.launched.single() is ActivityResultContracts.TakePicture)
+    val attached = viewModel.uiState.value.attachedPhoto
+    assertTrue(attached != null && File(attached.path!!).exists())
+    node(ConversationScreenTags.ATTACHED_PHOTO).assertIsDisplayed()
+  }
+
+  @Test
+  fun screen_refusingTheCamera_explainsWhy_andCancelClosesIt() {
+    val launchers = FakeLaunchers().apply { results.add(false) } // The user refuses.
+    val viewModel = showScreen(existingConversation(), launchers = launchers)
+
+    openPhotoMenuAndPick(ConversationScreenTags.TAKE_PHOTO)
+
+    assertTrue(launchers.launched.single() is ActivityResultContracts.RequestPermission)
+    node(CreateListingScreenTags.CAMERA_PERMISSION_DIALOG).assertIsDisplayed()
+    node(CreateListingScreenTags.CAMERA_PERMISSION_CANCEL).performClick()
+    node(CreateListingScreenTags.CAMERA_PERMISSION_DIALOG).assertDoesNotExist()
+    assertEquals(null, viewModel.uiState.value.attachedPhoto)
+  }
+
+  /** No test of the screen takes a photo yet. */
+  private object NoPhotoStorage : PhotoStorage {
+    override fun newPhoto(): TakenPhoto? = null
+
+    override fun delete(photo: Uri) = Unit
+
+    override fun deleteAllExcept(keep: List<Uri>) = Unit
   }
 }

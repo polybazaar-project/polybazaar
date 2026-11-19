@@ -1,11 +1,18 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,30 +23,47 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -64,8 +88,14 @@ import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
+import com.android.polybazaar.chat.viewmodel.PendingPhoto
+import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.ui.CameraPermissionDialog
+import com.android.polybazaar.listing.ui.decodePhotoPreview
+import com.android.polybazaar.listing.ui.loadPhotoPreview
+import com.android.polybazaar.listing.ui.rememberPhotoCamera
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -88,12 +118,33 @@ object ConversationScreenTags {
   const val SEND_BUTTON = "conversation_send_button"
   const val SEND_ERROR = "conversation_send_error"
   const val LENGTH_COUNTER = "conversation_length_counter"
+  const val PHOTO_BUTTON = "conversation_photo_button"
+  const val PHOTO_MENU = "conversation_photo_menu"
+  const val TAKE_PHOTO = "conversation_take_photo"
+  const val CHOOSE_PHOTO = "conversation_choose_photo"
+  const val ATTACHED_PHOTO = "conversation_attached_photo"
+  const val REMOVE_ATTACHED_PHOTO = "conversation_remove_attached_photo"
 
   /** Tag of the bubble of the signed-in user's message with [id]. */
   fun myMessage(id: String) = "conversation_my_message_$id"
 
   /** Tag of the bubble of the other participant's message with [id]. */
   fun theirMessage(id: String) = "conversation_their_message_$id"
+
+  /** Tag of the photo of the message with [id], or of its placeholder while it loads. */
+  fun messagePhoto(id: String) = "conversation_message_photo_$id"
+
+  /** Tag of the placeholder of the message with [id] whose photo failed to load; tap to retry. */
+  fun photoLoadError(id: String) = "conversation_photo_load_error_$id"
+
+  /** Tag of the bubble of the photo being sent, or that failed, with message ID [id]. */
+  fun pendingPhoto(id: String) = "conversation_pending_photo_$id"
+
+  /** Tag of Retry on the failed photo with message ID [id]. */
+  fun retryPhoto(id: String) = "conversation_retry_photo_$id"
+
+  /** Tag of Remove on the failed photo with message ID [id]. */
+  fun discardPhoto(id: String) = "conversation_discard_photo_$id"
 }
 
 /** What the screen shows between the header and the composer, decided by [conversationBody]. */
@@ -124,6 +175,18 @@ private val PageMargin = 18.dp
 /** Widest a bubble gets, so a long message wraps instead of spanning the screen. */
 private val MaxBubbleWidth = 300.dp
 
+/**
+ * Height of a photo in its bubble, the same while it loads, so the list does not jump when it
+ * arrives.
+ */
+private val BubblePhotoHeight = 200.dp
+
+/** Longest side, in pixels, a message photo is decoded at: sharp across a bubble. */
+private const val BUBBLE_PHOTO_MAX_SIZE = 1024
+
+/** Download errors a retry can't fix: the photo is gone, or the rules refuse it. */
+private val PermanentPhotoErrors = setOf(AppError.NOT_FOUND, AppError.PERMISSION_DENIED)
+
 private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
@@ -142,6 +205,17 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
     viewModel.setVisible(true)
     onStopOrDispose { viewModel.setVisible(false) }
   }
+  val galleryPicker =
+      rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.attachPhoto(uri)
+      }
+  // The ViewModel keeps the photo file in its saved state, so it survives the activity being
+  // recreated meanwhile, and Android killing the app while the camera app is in front.
+  val camera =
+      rememberPhotoCamera(
+          startTakingPhoto = { _ -> viewModel.startTakingPhoto() },
+          finishTakingPhoto = viewModel::finishTakingPhoto,
+      )
   ConversationContent(
       uiState = uiState,
       onBack = onBack,
@@ -149,7 +223,20 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
       onSend = viewModel::send,
       onRetry = viewModel::retry,
       onDismissSendError = viewModel::dismissSendError,
+      onTakePhoto = camera::takePhoto,
+      onChoosePhoto = {
+        galleryPicker.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+      },
+      onRemoveAttachedPhoto = viewModel::removeAttachedPhoto,
+      onLoadPhoto = viewModel::loadPhoto,
+      onRetryPhoto = viewModel::retryPhoto,
+      onDiscardPhoto = viewModel::discardPhoto,
   )
+  if (camera.showPermissionExplanation) {
+    CameraPermissionDialog(onDismiss = camera::dismissPermissionExplanation)
+  }
 }
 
 /**
@@ -165,6 +252,14 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  * @param onRetry called when the user taps Retry after a load failed.
  * @param onDismissSendError called before [onDraftChange] when the user edits the draft while a
  *   send error shows.
+ * @param onTakePhoto called when the user picks "Take photo" in the photo menu.
+ * @param onChoosePhoto called when the user picks "Choose from gallery" in the photo menu.
+ * @param onRemoveAttachedPhoto called when the user taps ✕ on the attached photo.
+ * @param onLoadPhoto called with a message's imagePath when its bubble shows and the photo is
+ *   neither pending, downloaded nor failed, when a pending photo is marked uploaded, and when the
+ *   user taps a photo that failed to load.
+ * @param onRetryPhoto called with the message ID of a failed photo when the user taps Retry.
+ * @param onDiscardPhoto called with the message ID of a failed photo when the user taps Remove.
  * @param zone time zone of the message times.
  */
 @Composable
@@ -175,6 +270,12 @@ fun ConversationContent(
     onSend: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissSendError: () -> Unit = {},
+    onTakePhoto: () -> Unit = {},
+    onChoosePhoto: () -> Unit = {},
+    onRemoveAttachedPhoto: () -> Unit = {},
+    onLoadPhoto: (String) -> Unit = {},
+    onRetryPhoto: (String) -> Unit = {},
+    onDiscardPhoto: (String) -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
 ) {
   val body = conversationBody(uiState)
@@ -183,7 +284,11 @@ fun ConversationContent(
   // canSend decides when Send works.
   val composerOpen = !deleted
   val placeholder =
-      if (deleted) R.string.conversation_placeholder_closed else R.string.conversation_placeholder
+      when {
+        deleted -> R.string.conversation_placeholder_closed
+        uiState.attachedPhoto != null -> R.string.conversation_placeholder_caption
+        else -> R.string.conversation_placeholder
+      }
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -192,7 +297,7 @@ fun ConversationContent(
               .testTag(ConversationScreenTags.SCREEN)
   ) {
     Header(listingTitle = uiState.listingTitle, otherUser = uiState.otherUser, onBack = onBack)
-    uiState.listingStatus?.let { ListingNotice(it) }
+    uiState.listingStatus?.let { ListingNotice(it, uiState.firstMessageBlockedByPause) }
     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
       when (body) {
         ConversationBody.LOADING -> LoadingIndicator()
@@ -204,7 +309,13 @@ fun ConversationContent(
                 listingTitle = uiState.listingTitle,
                 listingStatus = uiState.listingStatus,
             )
-        ConversationBody.MESSAGES -> MessageList(uiState = uiState, zone = zone, onRetry = onRetry)
+        ConversationBody.MESSAGES ->
+            MessageList(
+                uiState = uiState,
+                zone = zone,
+                onRetry = onRetry,
+                photoActions = PhotoActions(onLoadPhoto, onRetryPhoto, onDiscardPhoto),
+            )
       }
     }
     Composer(
@@ -218,6 +329,14 @@ fun ConversationContent(
           onDraftChange(text)
         },
         onSend = onSend,
+        photo =
+            ComposerPhoto(
+                attached = uiState.attachedPhoto,
+                canAttach = uiState.canAttachPhoto,
+                onTake = onTakePhoto,
+                onChoose = onChoosePhoto,
+                onRemove = onRemoveAttachedPhoto,
+            ),
     )
   }
 }
@@ -259,17 +378,23 @@ private fun Header(listingTitle: String?, otherUser: User?, onBack: () -> Unit) 
   HorizontalDivider(color = AuthColors.Outline)
 }
 
-/** What happened to the listing, while it is paused or deleted. */
+/**
+ * What happened to the listing, while it is paused or deleted. [firstMessageBlockedByPause] adds
+ * why Send stays off on a paused listing without a conversation.
+ */
 @Composable
-private fun ListingNotice(status: ConversationListingStatus) {
+private fun ListingNotice(status: ConversationListingStatus, firstMessageBlockedByPause: Boolean) {
   when (status) {
     ConversationListingStatus.ACTIVE -> Unit
-    // The title alone: whether Send works is up to canSend, and the rules refuse a first message
-    // about a paused listing.
+    // The body is only for a first message, the one the rules refuse: an existing conversation
+    // can still send.
     ConversationListingStatus.PAUSED ->
         Notice(
             title = stringResource(R.string.conversation_paused_title),
-            body = null,
+            body =
+                if (firstMessageBlockedByPause) {
+                  stringResource(R.string.conversation_paused_first_message_body)
+                } else null,
             tag = ConversationScreenTags.PAUSED_NOTICE,
         )
     ConversationListingStatus.DELETED ->
@@ -401,15 +526,34 @@ private fun EmptyState(
   }
 }
 
+/** What the user can do with the photos in the conversation. */
+private class PhotoActions(
+    val load: (path: String) -> Unit,
+    val retry: (messageId: String) -> Unit,
+    val discard: (messageId: String) -> Unit,
+)
+
 /**
- * The messages, oldest at the top, with the load error and Retry above them when a reload failed.
+ * The messages, oldest at the top, then the photos being sent, with the load error and Retry above
+ * them when a reload failed.
  */
 @Composable
-private fun MessageList(uiState: ConversationUiState, zone: ZoneId, onRetry: () -> Unit) {
-  val messages = uiState.messages
+private fun MessageList(
+    uiState: ConversationUiState,
+    zone: ZoneId,
+    onRetry: () -> Unit,
+    photoActions: PhotoActions,
+) {
+  val messages = uiState.shownMessages
+  val pendingPhotos = uiState.pendingPhotos
   val listState = rememberLazyListState()
-  // The list keeps its place by key, so a new message would arrive below the view without this.
-  LaunchedEffect(messages.lastOrNull()?.id) { listState.scrollToItem(0) }
+  // Decoded above the list: a bubble that scrolls out of view and back shows its photo at once.
+  val decodedPhotos = rememberDecodedPhotos(uiState.messagePhotos)
+  // The list keeps its place by key, so a new message or photo would arrive below the view without
+  // this.
+  LaunchedEffect(messages.lastOrNull()?.id, pendingPhotos.lastOrNull()?.messageId) {
+    listState.scrollToItem(0)
+  }
   Column(modifier = Modifier.fillMaxSize()) {
     uiState.loadError?.let { LoadErrorRow(text = it.message(), onRetry = onRetry) }
     // Laid out from the bottom, newest first, so the newest message stays in view, footer
@@ -421,12 +565,30 @@ private fun MessageList(uiState: ConversationUiState, zone: ZoneId, onRetry: () 
         reverseLayout = true,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+      // Prefixed: once sent, a photo's message arrives with the same ID.
+      items(pendingPhotos.asReversed(), key = { "pending_${it.messageId}" }) { pending ->
+        PendingPhotoBubble(
+            pending = pending,
+            onRetry = { photoActions.retry(pending.messageId) },
+            onDiscard = { photoActions.discard(pending.messageId) },
+        )
+      }
       items(messages.asReversed(), key = { it.id }) { message ->
         MessageBubble(
             message = message,
             isMine = message.senderUid == uiState.myUid,
             otherUsername = uiState.otherUser?.username,
             zone = zone,
+            photo =
+                message.imagePath?.let { path ->
+                  MessagePhoto(
+                      downloaded = path in uiState.messagePhotos,
+                      decoded = decodedPhotos[path] ?: DecodedPhoto.Loading,
+                      loadError = uiState.photoLoadErrors[path],
+                      pending = message.photoPending,
+                      load = { photoActions.load(path) },
+                  )
+                },
         )
       }
     }
@@ -465,8 +627,22 @@ private fun LoadErrorRow(text: String, onRetry: () -> Unit) {
 }
 
 /**
- * One message: the user's own at the end of the row, the other participant's at the start. The
- * footer says who sent it and when, or only when while the other participant's profile is unknown.
+ * The photo of a message: [downloaded] once its bytes arrived, [decoded] from them above the list
+ * ([DecodedPhoto.Loading] until then); [loadError] why the download failed; [pending] while its
+ * sender is still uploading it, so it can't be downloaded yet. [load] asks for it.
+ */
+private class MessagePhoto(
+    val downloaded: Boolean,
+    val decoded: DecodedPhoto,
+    val loadError: AppError?,
+    val pending: Boolean,
+    val load: () -> Unit,
+)
+
+/**
+ * One message: the user's own at the end of the row, the other participant's at the start. A photo
+ * message shows its photo, then its caption if any. The footer says who sent it and when, or only
+ * when while the other participant's profile is unknown.
  */
 @Composable
 private fun MessageBubble(
@@ -474,6 +650,7 @@ private fun MessageBubble(
     isMine: Boolean,
     otherUsername: String?,
     zone: ZoneId,
+    photo: MessagePhoto?,
 ) {
   val time = message.sentAt.atZone(zone).format(TimeFormat)
   val footer =
@@ -483,6 +660,42 @@ private fun MessageBubble(
             stringResource(R.string.conversation_their_message_footer, otherUsername, time)
         else -> time
       }
+  Bubble(
+      isMine = isMine,
+      tag =
+          if (isMine) ConversationScreenTags.myMessage(message.id)
+          else ConversationScreenTags.theirMessage(message.id),
+      // A photo bubble takes its full width at once, so it does not grow when the photo arrives.
+      fixedWidth = photo != null,
+  ) {
+    photo?.let { BubblePhoto(messageId = message.id, photo = it) }
+    // A photo alone has no text.
+    if (message.text.isNotEmpty()) {
+      Text(
+          text = message.text,
+          color = AuthColors.TextPrimary,
+          fontSize = 14.sp,
+          lineHeight = 19.sp,
+      )
+    }
+    BubbleFooter(text = footer)
+  }
+}
+
+/**
+ * A message bubble: the user's own at the end of the row, the other participant's at the start. One
+ * TalkBack item: its photo, its text, then who sent it and when.
+ *
+ * @param fixedWidth whether the bubble is always [MaxBubbleWidth] wide, as for a photo, rather than
+ *   as wide as its text.
+ */
+@Composable
+private fun Bubble(
+    isMine: Boolean,
+    tag: String,
+    fixedWidth: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
   val shape = RoundedCornerShape(16.dp)
   Box(
       modifier = Modifier.fillMaxWidth(),
@@ -490,14 +703,10 @@ private fun MessageBubble(
   ) {
     Column(
         modifier =
-            Modifier.widthIn(max = MaxBubbleWidth)
-                // One TalkBack item per message, the whole bubble: its text, then who sent it and
-                // when.
+            (if (fixedWidth) Modifier.width(MaxBubbleWidth)
+                else Modifier.widthIn(max = MaxBubbleWidth))
                 .semantics(mergeDescendants = true) {}
-                .testTag(
-                    if (isMine) ConversationScreenTags.myMessage(message.id)
-                    else ConversationScreenTags.theirMessage(message.id)
-                )
+                .testTag(tag)
                 .background(
                     if (isMine) AuthColors.AccentContainer else AuthColors.CardBackground,
                     shape,
@@ -507,25 +716,237 @@ private fun MessageBubble(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-      Text(
-          text = message.text,
-          color = AuthColors.TextPrimary,
-          fontSize = 14.sp,
-          lineHeight = 19.sp,
+      content()
+    }
+  }
+}
+
+@Composable
+private fun ColumnScope.BubbleFooter(text: String) {
+  Text(
+      text = text,
+      color = AuthColors.TextSecondary,
+      fontSize = 11.sp,
+      modifier = Modifier.align(Alignment.End),
+  )
+}
+
+/**
+ * [photos] decoded off the main thread, by path: each one once, and again only if its bytes change.
+ * A photo still decoding is absent.
+ */
+@Composable
+private fun rememberDecodedPhotos(photos: Map<String, ByteArray>): Map<String, DecodedPhoto> {
+  val decoded = remember { mutableStateMapOf<String, DecodedPhoto>() }
+  photos.forEach { (path, bytes) ->
+    // One effect per photo: a photo that finishes downloading starts its own decode, without
+    // restarting the ones already running.
+    key(path) {
+      LaunchedEffect(bytes) {
+        decoded[path] =
+            decodePhotoPreview(bytes, maxSize = BUBBLE_PHOTO_MAX_SIZE)?.let {
+              DecodedPhoto.Shown(it)
+            } ?: DecodedPhoto.Failed
+      }
+    }
+  }
+  return decoded
+}
+
+/** A message photo after it is decoded, or why it is not shown. */
+private sealed interface DecodedPhoto {
+  data object Loading : DecodedPhoto
+
+  data object Failed : DecodedPhoto
+
+  class Shown(val bitmap: ImageBitmap) : DecodedPhoto
+}
+
+/**
+ * The photo of a message, asked for when the bubble first shows, or once its sender has uploaded
+ * it: a placeholder of the same size while it uploads, downloads and decodes, and one that says it
+ * could not be loaded, offering to try again when that may help.
+ */
+@Composable
+private fun BubblePhoto(messageId: String, photo: MessagePhoto) {
+  // Not asked again on its own after a failure: only when the user taps to retry.
+  LaunchedEffect(messageId, photo.pending) {
+    if (!photo.pending && !photo.downloaded && photo.loadError == null) photo.load()
+  }
+  val description = stringResource(R.string.conversation_photo)
+  // Not the same as the photo's, so TalkBack users can tell it is not there yet.
+  val loadingDescription = stringResource(R.string.conversation_photo_loading)
+  val shape = RoundedCornerShape(10.dp)
+  val current = photo.decoded
+  val loadError = photo.loadError
+  val downloadFailed = loadError != null && current !is DecodedPhoto.Shown
+  // One tag per state: of two test tags on a node, only the first counts.
+  val tag =
+      if (downloadFailed) ConversationScreenTags.photoLoadError(messageId)
+      else ConversationScreenTags.messagePhoto(messageId)
+  val modifier = Modifier.fillMaxWidth().height(BubblePhotoHeight).clip(shape).testTag(tag)
+  when {
+    current is DecodedPhoto.Shown ->
+        Image(
+            bitmap = current.bitmap,
+            contentDescription = description,
+            contentScale = ContentScale.Crop,
+            modifier = modifier,
+        )
+    // Undecodable bytes, or a photo missing or refused, would fail again: only another failed
+    // download offers to retry.
+    loadError != null || current is DecodedPhoto.Failed ->
+        PhotoLoadError(
+            onRetry = photo.load.takeIf { loadError != null && loadError !in PermanentPhotoErrors },
+            modifier = modifier,
+        )
+    else ->
+        Box(
+            modifier =
+                modifier.background(AuthColors.Outline).semantics {
+                  contentDescription = loadingDescription
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+          CircularProgressIndicator(
+              color = AuthColors.TextSecondary,
+              strokeWidth = 2.dp,
+              modifier = Modifier.size(20.dp),
+          )
+        }
+  }
+}
+
+/** A photo that could not be loaded, with "tap to retry" when [onRetry] is given. */
+@Composable
+private fun PhotoLoadError(onRetry: (() -> Unit)?, modifier: Modifier) {
+  Column(
+      modifier =
+          modifier
+              .background(AuthColors.Outline)
+              .then(
+                  if (onRetry != null)
+                      Modifier.clickable(
+                          role = Role.Button,
+                          onClickLabel = stringResource(R.string.conversation_retry),
+                          onClick = onRetry,
+                      )
+                  else Modifier
+              )
+              .padding(12.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+  ) {
+    // Decorative: the text under it says what happened.
+    Icon(
+        painter = painterResource(R.drawable.ic_image),
+        contentDescription = null,
+        tint = AuthColors.TextSecondary,
+        modifier = Modifier.size(20.dp),
+    )
+    Text(
+        text =
+            stringResource(
+                if (onRetry != null) R.string.conversation_photo_load_failed_retry
+                else R.string.conversation_photo_load_failed
+            ),
+        color = AuthColors.TextSecondary,
+        fontSize = 11.sp,
+        textAlign = TextAlign.Center,
+    )
+  }
+}
+
+/**
+ * A photo the user sent that is not in the conversation yet, as their own bubble: faded with a
+ * spinner while it uploads; faded with why it failed, Retry and Remove once it failed.
+ */
+@Composable
+private fun PendingPhotoBubble(pending: PendingPhoto, onRetry: () -> Unit, onDiscard: () -> Unit) {
+  val description = stringResource(R.string.conversation_photo)
+  val uploading = pending.status == PendingPhotoStatus.UPLOADING
+  Bubble(
+      isMine = true,
+      tag = ConversationScreenTags.pendingPhoto(pending.messageId),
+      fixedWidth = true,
+  ) {
+    Box(contentAlignment = Alignment.Center) {
+      // The placeholder shows when the photo on the device can no longer be read.
+      PhotoOrPlaceholder(
+          photo = rememberLocalPhoto(pending.photo),
+          description = description,
+          modifier =
+              Modifier.fillMaxWidth()
+                  .height(BubblePhotoHeight)
+                  .clip(RoundedCornerShape(10.dp))
+                  .alpha(0.6f),
       )
+      if (uploading) {
+        CircularProgressIndicator(
+            color = AuthColors.CardBackground,
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(24.dp),
+        )
+      }
+    }
+    pending.caption?.let {
+      Text(text = it, color = AuthColors.TextPrimary, fontSize = 14.sp, lineHeight = 19.sp)
+    }
+    if (uploading) {
+      BubbleFooter(text = stringResource(R.string.conversation_photo_sending))
+    } else {
       Text(
-          text = footer,
-          color = AuthColors.TextSecondary,
-          fontSize = 11.sp,
-          modifier = Modifier.align(Alignment.End),
+          text =
+              stringResource(
+                  R.string.conversation_photo_not_sent,
+                  (pending.error ?: AppError.UNKNOWN).message(),
+              ),
+          color = AuthColors.Danger,
+          fontSize = 12.sp,
+          // Announced when it fails: TalkBack's focus is elsewhere, on Send or the field.
+          modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
       )
+      Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        TextButton(
+            onClick = onRetry,
+            modifier = Modifier.testTag(ConversationScreenTags.retryPhoto(pending.messageId)),
+        ) {
+          Text(
+              text = stringResource(R.string.conversation_retry),
+              color = AuthColors.Accent,
+              fontWeight = FontWeight.SemiBold,
+          )
+        }
+        TextButton(
+            onClick = onDiscard,
+            modifier = Modifier.testTag(ConversationScreenTags.discardPhoto(pending.messageId)),
+        ) {
+          Text(
+              text = stringResource(R.string.conversation_photo_remove),
+              color = AuthColors.TextSecondary,
+          )
+        }
+      }
     }
   }
 }
 
 /**
- * The message field and Send, with why the last send failed under them and, once the draft is too
- * long, a counter that explains why Send is disabled. The text is kept as typed.
+ * The composer's photo: the one attached, whether one can be attached, and what the user does with
+ * it.
+ */
+private class ComposerPhoto(
+    val attached: Uri?,
+    val canAttach: Boolean,
+    val onTake: () -> Unit,
+    val onChoose: () -> Unit,
+    val onRemove: () -> Unit,
+)
+
+/**
+ * The photo button, the message field and Send, with the attached photo above them, and under them
+ * why the last send failed and, once the draft is too long, a counter that explains why Send is
+ * disabled. The text is kept as typed.
  *
  * @param open whether the user can type; Send also needs [canSend].
  */
@@ -538,6 +959,7 @@ private fun Composer(
     sendError: AppError?,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
+    photo: ComposerPhoto,
 ) {
   val length = ChatRules.countedLength(draft)
   val tooLong = open && length > ChatRules.MAX_MESSAGE_LENGTH
@@ -557,10 +979,12 @@ private fun Composer(
               .padding(horizontal = PageMargin, vertical = 10.dp),
       verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
+    photo.attached?.let { AttachedPhoto(photo = it, onRemove = photo.onRemove) }
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
+      PhotoButton(enabled = photo.canAttach, onTake = photo.onTake, onChoose = photo.onChoose)
       MessageField(
           value = draft,
           onValueChange = onDraftChange,
@@ -618,6 +1042,145 @@ private fun Composer(
       }
     }
   }
+}
+
+/** The camera button left of the field, opening a menu to take a photo or choose one. */
+@Composable
+private fun PhotoButton(enabled: Boolean, onTake: () -> Unit, onChoose: () -> Unit) {
+  var menuOpen by remember { mutableStateOf(false) }
+  val shape = RoundedCornerShape(14.dp)
+  Box {
+    IconButton(
+        onClick = { menuOpen = true },
+        enabled = enabled,
+        modifier =
+            Modifier.size(48.dp)
+                .border(1.dp, AuthColors.Outline, shape)
+                .testTag(ConversationScreenTags.PHOTO_BUTTON),
+    ) {
+      Icon(
+          painter = painterResource(R.drawable.ic_camera),
+          contentDescription = stringResource(R.string.conversation_photo_button),
+          tint = if (enabled) AuthColors.TextPrimary else AuthColors.TextSecondary,
+          modifier = Modifier.size(20.dp),
+      )
+    }
+    DropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = { menuOpen = false },
+        containerColor = AuthColors.CardBackground,
+        modifier = Modifier.testTag(ConversationScreenTags.PHOTO_MENU),
+    ) {
+      PhotoMenuItem(
+          text = stringResource(R.string.conversation_take_photo),
+          icon = R.drawable.ic_camera,
+          tag = ConversationScreenTags.TAKE_PHOTO,
+          onClick = {
+            menuOpen = false
+            onTake()
+          },
+      )
+      PhotoMenuItem(
+          text = stringResource(R.string.conversation_choose_photo),
+          icon = R.drawable.ic_image,
+          tag = ConversationScreenTags.CHOOSE_PHOTO,
+          onClick = {
+            menuOpen = false
+            onChoose()
+          },
+      )
+    }
+  }
+}
+
+@Composable
+private fun PhotoMenuItem(text: String, icon: Int, tag: String, onClick: () -> Unit) {
+  DropdownMenuItem(
+      text = { Text(text = text, color = AuthColors.TextPrimary, fontSize = 14.sp) },
+      // Decorative: the text says what the item does.
+      leadingIcon = {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = AuthColors.TextPrimary,
+            modifier = Modifier.size(20.dp),
+        )
+      },
+      onClick = onClick,
+      modifier = Modifier.testTag(tag),
+  )
+}
+
+/** The photo attached to the draft, as a thumbnail with ✕ in its corner to remove it. */
+@Composable
+private fun AttachedPhoto(photo: Uri, onRemove: () -> Unit) {
+  val shape = RoundedCornerShape(12.dp)
+  val description = stringResource(R.string.conversation_attached_photo)
+  // The thumbnail with room around it for ✕, which overlaps its top-right corner.
+  Box(modifier = Modifier.size(80.dp)) {
+    PhotoOrPlaceholder(
+        photo = rememberLocalPhoto(photo),
+        description = description,
+        modifier =
+            Modifier.align(Alignment.BottomStart)
+                .size(64.dp)
+                .clip(shape)
+                .testTag(ConversationScreenTags.ATTACHED_PHOTO),
+    )
+    IconButton(
+        onClick = onRemove,
+        modifier =
+            Modifier.align(Alignment.TopEnd)
+                .size(32.dp)
+                .testTag(ConversationScreenTags.REMOVE_ATTACHED_PHOTO),
+    ) {
+      Box(
+          modifier =
+              Modifier.size(20.dp)
+                  .background(AuthColors.TextPrimary.copy(alpha = 0.7f), CircleShape),
+          contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_close),
+            contentDescription = stringResource(R.string.conversation_remove_attached_photo),
+            tint = AuthColors.CardBackground,
+            modifier = Modifier.size(12.dp),
+        )
+      }
+    }
+  }
+}
+
+/** [photo] filling its bounds, or a plain placeholder of the same size until it is decoded. */
+@Composable
+private fun PhotoOrPlaceholder(photo: ImageBitmap?, description: String, modifier: Modifier) {
+  if (photo != null) {
+    Image(
+        bitmap = photo,
+        contentDescription = description,
+        contentScale = ContentScale.Crop,
+        modifier = modifier,
+    )
+  } else {
+    Box(
+        modifier =
+            modifier.background(AuthColors.Outline).semantics { contentDescription = description }
+    )
+  }
+}
+
+/**
+ * A photo on the device, decoded off the main thread and scaled down, or null while it decodes or
+ * when it cannot be read.
+ */
+@Composable
+private fun rememberLocalPhoto(photo: Uri): ImageBitmap? {
+  val contentResolver = LocalContext.current.contentResolver
+  val bitmap by
+      produceState<ImageBitmap?>(initialValue = null, photo) {
+        value = loadPhotoPreview(contentResolver, photo)
+      }
+  return bitmap
 }
 
 /** A field styled like LabeledField's, that grows up to five lines as the message gets longer. */
@@ -691,6 +1254,54 @@ internal fun ConversationContentPreview() {
               listingTitle = "Bosch drill set",
               listingStatus = ConversationListingStatus.PAUSED,
               otherUser = User(uid = "lender", email = "", username = "james"),
+              isLoading = false,
+          ),
+      zone = ZoneOffset.UTC,
+  )
+}
+
+/** A photo from the other participant still loading, and one of mine that failed to send. */
+@Preview(showBackground = true, widthDp = 412, heightDp = 917)
+@Composable
+internal fun ConversationPhotosPreview() {
+  val start = Instant.parse("2026-05-04T09:12:00Z")
+  ConversationContent(
+      uiState =
+          ConversationUiState(
+              myUid = "renter",
+              messages =
+                  listOf(
+                      ChatMessage("1", "renter", "Could you send a photo of the drill?", start),
+                      ChatMessage(
+                          "2",
+                          "lender",
+                          "Here it is, with both batteries.",
+                          start.plusSeconds(120),
+                          imagePath = "conversations/drill_renter/2.jpg",
+                      ),
+                  ),
+              conversation =
+                  Conversation(
+                      listingId = "drill",
+                      listingTitle = "Bosch drill set",
+                      renterUid = "renter",
+                      lenderUid = "lender",
+                      lastMessageAt = start.plusSeconds(120),
+                  ),
+              listingTitle = "Bosch drill set",
+              listingStatus = ConversationListingStatus.ACTIVE,
+              otherUser = User(uid = "lender", email = "", username = "james"),
+              canAttachPhoto = true,
+              pendingPhotos =
+                  listOf(
+                      PendingPhoto(
+                          messageId = "3",
+                          photo = Uri.parse("file:///preview/photo_3.jpg"),
+                          caption = "And the shelf I mean",
+                          status = PendingPhotoStatus.FAILED,
+                          error = AppError.NETWORK,
+                      )
+                  ),
               isLoading = false,
           ),
       zone = ZoneOffset.UTC,

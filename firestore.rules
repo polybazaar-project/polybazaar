@@ -94,33 +94,43 @@ service cloud.firestore {
     match /bookings/{bookingId} {
       function validBooking(data) {
         let listing = get(/databases/$(database)/documents/listings/$(data.listingId)).data;
-        return data.keys().hasAll(['listingId', 'renterUid', 'lenderUid', 'startDate', 'endDate', 'status'])
-            && data.keys().hasOnly(['listingId', 'renterUid', 'lenderUid', 'startDate', 'endDate', 'status'])
+        return data.keys().hasAll(['listingId', 'renterUid', 'lenderUid', 'days', 'status'])
+            && data.keys().hasOnly(['listingId', 'renterUid', 'lenderUid', 'days', 'status'])
             && data.listingId is string && data.listingId.size() > 0
             && data.renterUid == request.auth.uid
             && data.lenderUid is string
             && data.lenderUid == listing.ownerUid
             && listing.paused == false
             && data.renterUid != data.lenderUid
-            // LocalDate epoch days, bounded to the range supported by java.time.LocalDate.
-            && data.startDate is int && data.startDate >= -365243219162
-            && data.endDate is int && data.endDate <= 365241780471
-            // Compare against server time so client clock changes cannot create past bookings.
-            && data.startDate >= request.time.toMillis() / 86400000
-            && data.startDate <= data.endDate
-            // Both ends are inclusive. A listing without maxRentalDays has no limit.
-            && (!('maxRentalDays' in listing) || data.endDate - data.startDate + 1 <= listing.maxRentalDays)
-            // Rules cannot loop over the range: only its first and last days must be on offer.
+            // The days booked, as LocalDate epoch days. They need not follow each other. Every one
+            // must be on offer, once: hasAll plus no duplicates bounds the size by the listing's
+            // availableDates, which are at most 366.
+            && data.days is list && data.days.size() > 0
+            && data.days.toSet().size() == data.days.size()
             && 'availableDates' in listing
-            && data.startDate in listing.availableDates
-            && data.endDate in listing.availableDates
+            && listing.availableDates.hasAll(data.days)
+            // Every day counts. A listing without maxRentalDays has no limit.
+            && (!('maxRentalDays' in listing) || data.days.size() <= listing.maxRentalDays)
+            // Rules cannot loop over the days, so only the first is checked against server time
+            // (not the client clock). The app sends them earliest first; a modified client could
+            // still add a past day the listing offers (#346).
+            && data.days[0] is int
+            && data.days[0] >= request.time.toMillis() / 86400000
             && data.status == 'REQUESTED';
       }
 
       allow read: if isVerified()
           && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid);
       allow create: if isVerified() && validBooking(request.resource.data);
-      allow update, delete: if false;
+      allow update: if isVerified()
+          && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid)
+          && resource.data.status in ['REQUESTED', 'CONFIRMED']
+          // A finished booking is history. The app stores the days earliest first, so the last
+          // one decides; it must not be before today by server time.
+          && resource.data.days[resource.data.days.size() - 1] >= request.time.toMillis() / 86400000
+          && request.resource.data.status == 'CANCELLED'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      allow delete: if false;
     }
 
     // One conversation per listing and renter. It is created and bumped only in the same batch as a
@@ -233,21 +243,35 @@ service cloud.firestore {
         // getAfter, because the first message creates the conversation in the same batch. Requiring
         // the conversation to name this message allows one message per batch. A message has a text,
         // a photo, or both (a photo with a caption). exists sees the state before the batch, so a
-        // photo cannot open a conversation; the app sends a text first.
+        // photo cannot open a conversation; the app sends a text first. A photo message is written
+        // before its photo is uploaded, so it starts with photoPending true; a text never has it.
         function validMessage(data) {
           let conversation = getAfter(conversationPath()).data;
           return request.auth.uid in conversation.participants
               && conversation.lastMessageAt == request.time
               && conversation.lastMessageId == messageId
               && data.keys().hasAll(['senderUid', 'sentAt'])
-              && data.keys().hasOnly(['senderUid', 'text', 'sentAt', 'imagePath'])
+              && data.keys().hasOnly(['senderUid', 'text', 'sentAt', 'imagePath', 'photoPending'])
               && data.keys().hasAny(['text', 'imagePath'])
               && data.senderUid == request.auth.uid
               && data.sentAt == request.time
               && (!('text' in data) || validText(data.text))
+              && ('imagePath' in data) == ('photoPending' in data)
               && (!('imagePath' in data)
-                  || (exists(conversationPath()) && validImagePath(data.imagePath)))
+                  || (exists(conversationPath())
+                      && validImagePath(data.imagePath)
+                      && data.photoPending == true))
               && listingData(conversation.listingId).ownerUid == conversation.lenderUid;
+        }
+
+        // Once the photo is uploaded, its sender marks it so, once: photoPending goes from true to
+        // false and nothing else changes. Rules cannot see Storage, so the app marks it only after
+        // the upload ends.
+        function isPhotoUploaded() {
+          return resource.data.senderUid == request.auth.uid
+              && resource.data.get('photoPending', false) == true
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photoPending'])
+              && request.resource.data.photoPending == false;
         }
 
         allow read: if isVerified()
@@ -255,7 +279,14 @@ service cloud.firestore {
 
         allow create: if isVerified() && validMessage(request.resource.data);
 
-        allow update, delete: if false;
+        allow update: if isVerified() && isPhotoUploaded();
+
+        // The sender can take back a photo message whose photo never arrived: the app's Remove after
+        // a failed send. Once photoPending is false the photo is delivered and the message stays. A
+        // text never has photoPending, so it cannot be deleted.
+        allow delete: if isVerified()
+            && resource.data.senderUid == request.auth.uid
+            && resource.data.get('photoPending', false) == true;
       }
     }
 

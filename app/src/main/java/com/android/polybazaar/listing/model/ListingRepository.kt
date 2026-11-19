@@ -2,6 +2,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.model
 
+import kotlinx.coroutines.flow.Flow
+
 interface ListingRepository {
 
   /**
@@ -41,6 +43,20 @@ interface ListingRepository {
    * rules deny the read; the caller maps the failure with `toAppError()`.
    */
   suspend fun getListing(listingId: String): Result<Listing>
+
+  /**
+   * Follows the listing with this id, for the conversation screen: emits it again whenever it
+   * changes, as [ObservedListing.Found], or [ObservedListing.Missing] while the server says it does
+   * not exist or it is malformed.
+   *
+   * Offline, a listing already seen comes from the local cache. One the cache does not have is
+   * [ObservedListing.NotCached], and the flow keeps going, so the server's answer follows once it
+   * can reach the device.
+   *
+   * The flow fails when Firestore cannot answer or the security rules deny the read; the caller
+   * maps the failure with `toAppError()`.
+   */
+  fun observeListing(listingId: String): Flow<ObservedListing>
 
   /**
    * Saves the signed-in owner's changes to an existing [listing], identified by its

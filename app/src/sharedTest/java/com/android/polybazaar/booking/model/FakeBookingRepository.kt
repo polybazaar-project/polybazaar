@@ -19,6 +19,16 @@ class FakeBookingRepository : BookingRepository {
   var immediateWriteFailure: Exception? = null
   var writeFailure: ((Exception) -> Unit)? = null
   var requestJob: Job? = null
+  var renterBookings: List<Booking> = emptyList()
+  var listingBookings: List<Booking> = emptyList()
+  var pendingLoad: CompletableDeferred<Unit>? = null
+  var loadFailure: Exception? = null
+  var loadCount = 0
+  var cancellationCount = 0
+  var cancelFailure: Exception? = null
+  var pendingCancel: CompletableDeferred<Unit>? = null
+  var cancelWriteFailure: ((Exception) -> Unit)? = null
+  var immediateCancelWriteFailure: Exception? = null
 
   override suspend fun requestBooking(booking: Booking, onWriteFailure: (Exception) -> Unit) {
     requestJob = currentCoroutineContext()[Job]
@@ -30,5 +40,25 @@ class FakeBookingRepository : BookingRepository {
     failure?.let { throw it }
   }
 
-  override suspend fun getBookingsForListing(listingId: String): List<Booking> = emptyList()
+  override suspend fun getBookingsForListing(listingId: String): List<Booking> {
+    loadCount++
+    pendingLoad?.await()
+    loadFailure?.let { throw it }
+    return listingBookings
+  }
+
+  override suspend fun getBookingsForRenter(): List<Booking> {
+    loadCount++
+    pendingLoad?.await()
+    loadFailure?.let { throw it }
+    return renterBookings
+  }
+
+  override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
+    cancellationCount++
+    cancelWriteFailure = onWriteFailure
+    pendingCancel?.await()
+    immediateCancelWriteFailure?.let(onWriteFailure)
+    cancelFailure?.let { throw it }
+  }
 }

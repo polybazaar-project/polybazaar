@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.ui
 
 import androidx.compose.foundation.background
@@ -113,10 +114,9 @@ fun BookingRequestScreen(
               onRetry = viewModel::loadListing,
               onSelectionChange = viewModel::updateSelection,
               onRequest = { uiState.booking?.let(bookingViewModel::requestBooking) },
-              onDone = {
-                bookingViewModel.acknowledgeQueuedBooking()
-                onBack()
-              },
+              // The request stays marked as sent: the screen is still shown while it leaves, and
+              // the form coming back could be sent a second time.
+              onDone = onBack,
           ),
   )
 }
@@ -235,8 +235,8 @@ private fun Heading(title: String, listingTitle: String) {
 }
 
 /**
- * The period chosen, written as "13–16 Nov". Tapping the field opens the calendar, where only the
- * days the lender offers can be chosen. Under it: why the period cannot be requested, if so.
+ * The days chosen, written as "1, 4, 8–10 Nov". Tapping the field opens the calendar, where only
+ * the days the lender offers can be chosen. Under it: why the days cannot be requested, if so.
  */
 @Composable
 private fun DatesField(
@@ -317,7 +317,7 @@ private fun DatesField(
 }
 
 /**
- * What the request costs: the price for each day and the total once a period is chosen, the damage
+ * What the request costs: the price for each day and the total once days are chosen, the damage
  * compensation of an item, and how payment works.
  */
 @Composable

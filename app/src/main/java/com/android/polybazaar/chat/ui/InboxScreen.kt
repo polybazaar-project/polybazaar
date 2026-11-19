@@ -415,16 +415,34 @@ private fun LastMessagePreview(
     isUnread: Boolean,
     conversationId: String,
 ) {
-  Text(
-      text = if (isMine) stringResource(R.string.inbox_last_message_mine, text) else text,
-      color = if (isUnread) AuthColors.TextPrimary else AuthColors.TextSecondary,
-      fontSize = 13.sp,
-      lineHeight = 18.sp,
-      fontWeight = if (isUnread) FontWeight.SemiBold else FontWeight.Normal,
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-      modifier = Modifier.testTag(InboxScreenTags.preview(conversationId)),
-  )
+  // A photo sent alone previews as an empty text.
+  val isPhoto = text.isEmpty()
+  val shown = if (isPhoto) stringResource(R.string.inbox_last_message_photo) else text
+  val color = if (isUnread) AuthColors.TextPrimary else AuthColors.TextSecondary
+  Row(
+      horizontalArrangement = Arrangement.spacedBy(4.dp),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    if (isPhoto) {
+      // Decorative: the text says "Photo".
+      Icon(
+          painter = painterResource(R.drawable.ic_image),
+          contentDescription = null,
+          tint = color,
+          modifier = Modifier.size(14.dp),
+      )
+    }
+    Text(
+        text = if (isMine) stringResource(R.string.inbox_last_message_mine, shown) else shown,
+        color = color,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        fontWeight = if (isUnread) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.testTag(InboxScreenTags.preview(conversationId)),
+    )
+  }
 }
 
 /**

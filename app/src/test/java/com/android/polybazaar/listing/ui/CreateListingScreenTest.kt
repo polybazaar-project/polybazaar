@@ -51,6 +51,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
+import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
@@ -58,6 +59,7 @@ import java.io.File
 import java.net.UnknownHostException
 import java.time.LocalDate
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -1074,6 +1076,8 @@ class CreateListingScreenTest {
     override suspend fun getAllListings(): Result<List<Listing>> = Result.success(emptyList())
 
     override suspend fun getListing(listingId: String): Result<Listing> = error("Not used here")
+
+    override fun observeListing(listingId: String): Flow<ObservedListing> = error("Not used here")
 
     override suspend fun updateListing(listing: Listing): Listing = error("Not used here")
 

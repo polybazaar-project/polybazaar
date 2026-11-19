@@ -78,6 +78,7 @@
     <!-- Conversation screen -->
     <string name="conversation_other_username">@%1$s</string>
     <string name="conversation_paused_title">This listing is paused</string>
+    <string name="conversation_paused_first_message_body">You can send a message once it’s active again.</string>
     <string name="conversation_deleted_title">This listing has been deleted</string>
     <string name="conversation_deleted_body">You can read past messages, but neither of you can send new ones.</string>
     <string name="conversation_load_error_title">Couldn’t load this conversation</string>
@@ -91,6 +92,19 @@
     <string name="conversation_placeholder">Write a message…</string>
     <string name="conversation_placeholder_closed">Conversation closed</string>
     <string name="conversation_send">Send</string>
+    <string name="conversation_placeholder_caption">Add a caption…</string>
+    <string name="conversation_photo_button">Add a photo</string>
+    <string name="conversation_take_photo">Take photo</string>
+    <string name="conversation_choose_photo">Choose from gallery</string>
+    <string name="conversation_attached_photo">Attached photo</string>
+    <string name="conversation_remove_attached_photo">Remove photo</string>
+    <string name="conversation_photo">Photo</string>
+    <string name="conversation_photo_loading">Photo, loading</string>
+    <string name="conversation_photo_load_failed_retry">Couldn’t load the photo · Tap to retry</string>
+    <string name="conversation_photo_load_failed">Couldn’t load the photo</string>
+    <string name="conversation_photo_sending">Sending…</string>
+    <string name="conversation_photo_not_sent">Not sent. %1$s</string>
+    <string name="conversation_photo_remove">Remove</string>
     <string name="conversation_length_counter">%1$d/%2$d</string>
     <plurals name="conversation_length_too_long">
         <item quantity="one">Message too long: at most %d character</item>
@@ -182,6 +196,7 @@
     <string name="inbox_empty_message">Found something you like?\nOpen a listing and message its owner.\nYour conversations will appear here.</string>
     <string name="inbox_browse_listings">Browse listings</string>
     <string name="inbox_last_message_mine">You: %1$s</string>
+    <string name="inbox_last_message_photo">Photo</string>
     <string name="inbox_unread">Unread</string>
 
     <!-- Reset password screen -->
@@ -251,4 +266,12 @@
     <string name="booking_request_sent_message">You asked for %1$s. The lender still has to accept it.</string>
     <string name="booking_request_done">Done</string>
     <string name="booking_request_retry">Retry</string>
+    <string name="renter_bookings_title">My bookings</string>
+    <string name="lender_bookings_title">Booking requests</string>
+    <string name="bookings_empty">No bookings yet.</string>
+    <string name="bookings_cancel">Cancel</string>
+    <string name="bookings_cancelling">Cancelling…</string>
+    <string name="bookings_status_requested">Requested</string>
+    <string name="bookings_status_confirmed">Confirmed</string>
+    <string name="bookings_status_cancelled">Cancelled</string>
 </resources>

@@ -14,16 +14,27 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.EventListener
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1167,6 +1178,128 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun observeListing_emitsTheListingOnEachChange_andRemovesTheListener() = runTest {
+    val listener = captureListingListener()
+
+    val observed = async { repository.observeListing(listingId).take(2).toList() }
+    runCurrent()
+    listener().onEvent(storedSnapshot(storedService()), null)
+    listener().onEvent(storedSnapshot(storedService() + ("paused" to true)), null)
+
+    val service =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            listingId = listingId,
+            ownerUid = uid,
+        )
+    assertEquals(
+        listOf(
+            ObservedListing.Found(service),
+            ObservedListing.Found(service.copy(isPaused = true)),
+        ),
+        observed.await(),
+    )
+    verify(listings).document(listingId)
+    verify(document).addSnapshotListener(eq(MetadataChanges.INCLUDE), any())
+    verify(registration).remove()
+  }
+
+  @Test
+  fun observeListing_emitsTheSameListingOnce_whenOnlyTheMetadataChanges() = runTest {
+    val listener = captureListingListener()
+
+    val emitted = mutableListOf<ObservedListing>()
+    val collection = launch { repository.observeListing(listingId).toList(emitted) }
+    runCurrent()
+    listener().onEvent(storedSnapshot(storedService(), fromCache = true), null)
+    listener().onEvent(storedSnapshot(storedService()), null)
+    listener().onEvent(storedSnapshot(null, fromCache = true), null)
+    listener().onEvent(storedSnapshot(null, fromCache = true), null)
+    runCurrent()
+
+    val service =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            listingId = listingId,
+            ownerUid = uid,
+        )
+    assertEquals(listOf(ObservedListing.Found(service), ObservedListing.NotCached), emitted)
+    collection.cancel()
+  }
+
+  @Test
+  fun observeListing_reportsAMissingOrMalformedListingAsMissing() = runTest {
+    val listener = captureListingListener()
+
+    val observed = async { repository.observeListing(listingId).take(3).toList() }
+    runCurrent()
+    listener().onEvent(storedSnapshot(null), null)
+    // In between, so the two answers are not merged as one.
+    listener().onEvent(storedSnapshot(storedService()), null)
+    listener().onEvent(storedSnapshot(storedService() - "title"), null)
+
+    val (deleted, found, malformed) = observed.await()
+    assertEquals(ObservedListing.Missing, deleted)
+    assertTrue(found is ObservedListing.Found)
+    assertEquals(ObservedListing.Missing, malformed)
+  }
+
+  @Test
+  fun observeListing_reportsAnUncachedListingAsNotCached_andKeepsListeningForTheServer() = runTest {
+    val listener = captureListingListener()
+
+    val emitted = mutableListOf<ObservedListing>()
+    val collection = launch { repository.observeListing(listingId).toList(emitted) }
+    runCurrent()
+
+    listener().onEvent(storedSnapshot(null, fromCache = true), null)
+    runCurrent()
+    assertEquals(listOf(ObservedListing.NotCached), emitted)
+    verify(registration, never()).remove()
+
+    listener().onEvent(storedSnapshot(null), null)
+    runCurrent()
+    assertEquals(listOf(ObservedListing.NotCached, ObservedListing.Missing), emitted)
+    collection.cancel()
+    runCurrent()
+    verify(registration).remove()
+  }
+
+  @Test
+  fun observeListing_failsWithTheListenersError() = runTest {
+    val listener = captureListingListener()
+    val error =
+        FirebaseFirestoreException(
+            "denied",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
+
+    val observed = observeListingFailure()
+    runCurrent()
+    listener().onEvent(null, error)
+
+    assertSame(error, observed.await())
+    verify(registration).remove()
+  }
+
+  @Test
+  fun observeListing_failsWithoutASnapshotOrAnError() = runTest {
+    val listener = captureListingListener()
+
+    val observed = observeListingFailure()
+    runCurrent()
+    listener().onEvent(null, null)
+
+    assertTrue(observed.await() is IllegalStateException)
+  }
+
+  @Test
   fun updateListing_keepingEveryPhoto_savesTheFieldsWithoutTouchingStorage() = runTest {
     givenStoredListing(storedService(listOf(path(0), path(1))))
     givenImageSlots()
@@ -1590,6 +1723,38 @@ class FirebaseListingRepositoryTest {
     whenever(snapshot.exists()).thenReturn(fields != null)
     whenever(listings.document(listingId)).thenReturn(document)
     whenever(document.get()).thenReturn(Tasks.forResult(snapshot))
+  }
+
+  private val registration = mock<ListenerRegistration>()
+
+  /**
+   * Captures the snapshot listener on [document], registered with metadata changes; call the result
+   * once it is registered.
+   */
+  private fun captureListingListener(): () -> EventListener<DocumentSnapshot> {
+    val captor = argumentCaptor<EventListener<DocumentSnapshot>>()
+    whenever(document.addSnapshotListener(eq(MetadataChanges.INCLUDE), captor.capture()))
+        .thenReturn(registration)
+    return { captor.firstValue }
+  }
+
+  /**
+   * A snapshot of [document] holding [fields], or of a missing one when null, from the server
+   * unless [fromCache].
+   */
+  private fun storedSnapshot(
+      fields: Map<String, Any>?,
+      fromCache: Boolean = false,
+  ): DocumentSnapshot =
+      listingDocument(listingId, fields.orEmpty()).also {
+        whenever(it.exists()).thenReturn(fields != null)
+        val metadata = mock<SnapshotMetadata>()
+        whenever(metadata.isFromCache).thenReturn(fromCache)
+        whenever(it.metadata).thenReturn(metadata)
+      }
+
+  private fun TestScope.observeListingFailure() = async {
+    runCatching { repository.observeListing(listingId).first() }.exceptionOrNull()
   }
 
   private fun storedService(imagePaths: List<String> = emptyList()): Map<String, Any> =
