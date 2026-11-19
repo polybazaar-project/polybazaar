@@ -19,12 +19,16 @@ import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.booking.model.FirebaseBookingRepository
 import com.android.polybazaar.chat.model.FirebaseChatRepository
+import com.android.polybazaar.connectivity.model.AndroidConnectivityRepository
+import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
+import com.android.polybazaar.map.model.FusedLocationRepository
 import com.android.polybazaar.photo.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
 import com.android.polybazaar.ui.theme.PolyBazaarTheme
+import com.google.android.gms.location.LocationServices
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,9 +66,28 @@ class MainActivity : ComponentActivity() {
                     FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
                   },
               bookingRepository = remember { FirebaseBookingRepository() },
+              locationRepository =
+                  remember {
+                    FusedLocationRepository(
+                        LocationServices.getFusedLocationProviderClient(applicationContext)
+                    )
+                  },
+              connectivityRepository = connectivityRepository(),
           )
         }
       }
     }
+  }
+
+  /** The app's [ConnectivityRepository], created on first use. */
+  private fun connectivityRepository(): ConnectivityRepository =
+      connectivity ?: AndroidConnectivityRepository(applicationContext).also { connectivity = it }
+
+  private companion object {
+    /**
+     * One for the whole process, never released: the listing forms' ViewModels outlive a rotated
+     * activity and keep using it, and its network callback is registered only once.
+     */
+    var connectivity: ConnectivityRepository? = null
   }
 }

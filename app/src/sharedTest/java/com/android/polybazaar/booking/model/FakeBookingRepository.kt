@@ -11,6 +11,10 @@ import kotlinx.coroutines.currentCoroutineContext
  * A [BookingRepository] in memory, for tests. It records the last booking requested and how many
  * were, and can hold a request back ([pendingRequest]), make it throw ([failure]) or report a write
  * failure, at once ([immediateWriteFailure]) or later through [writeFailure].
+ *
+ * [getBookingsForLender] returns [lenderBookings], or throws [lenderLoadFailure], after
+ * [pendingLenderLoad]; it has its own fields so that a screen loading both kinds of bookings can
+ * fail one alone.
  */
 class FakeBookingRepository : BookingRepository {
   var requestedBooking: Booking? = null
@@ -22,6 +26,10 @@ class FakeBookingRepository : BookingRepository {
   var requestJob: Job? = null
   var renterBookings: List<Booking> = emptyList()
   var listingBookings: List<Booking> = emptyList()
+  var lenderBookings: List<Booking> = emptyList()
+  var pendingLenderLoad: CompletableDeferred<Unit>? = null
+  var lenderLoadFailure: Exception? = null
+  var lenderLoadCount = 0
   var pendingLoad: CompletableDeferred<Unit>? = null
   var loadFailure: Exception? = null
   var loadCount = 0
@@ -46,6 +54,13 @@ class FakeBookingRepository : BookingRepository {
     pendingLoad?.await()
     loadFailure?.let { throw it }
     return listingBookings
+  }
+
+  override suspend fun getBookingsForLender(): List<Booking> {
+    lenderLoadCount++
+    pendingLenderLoad?.await()
+    lenderLoadFailure?.let { throw it }
+    return lenderBookings
   }
 
   /** Does nothing: no test answers a booking request yet. */

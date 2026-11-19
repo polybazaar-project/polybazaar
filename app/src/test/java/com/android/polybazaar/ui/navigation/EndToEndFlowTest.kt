@@ -31,11 +31,13 @@ import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
@@ -86,6 +88,8 @@ class EndToEndFlowTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = FakeChatRepository(),
           bookingRepository = FakeBookingRepository(),
+          locationRepository = FakeLocationRepository(),
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
     }

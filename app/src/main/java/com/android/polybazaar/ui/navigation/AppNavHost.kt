@@ -72,6 +72,7 @@ import com.android.polybazaar.chat.ui.InboxScreen
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.chat.viewmodel.photoUploadScope
+import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -83,6 +84,7 @@ import com.android.polybazaar.listing.ui.ListingDetailActions
 import com.android.polybazaar.listing.ui.ListingDetailScreen
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.LocationRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -119,6 +121,8 @@ object AppNavHostTags {
  * @param photoStorage keeps the photos of the listing being created.
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
+ * @param locationRepository finds the lender, to open the listing form's map picker where they are.
+ * @param connectivityRepository tells the listing forms whether the device is online.
  */
 @Composable
 fun AppNavHost(
@@ -130,6 +134,8 @@ fun AppNavHost(
     editPhotoStorage: PhotoStorage,
     chatRepository: ChatRepository,
     bookingRepository: BookingRepository,
+    locationRepository: LocationRepository,
+    connectivityRepository: ConnectivityRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -300,6 +306,8 @@ fun AppNavHost(
                               listingRepository = listingRepository,
                               photoStorage = photoStorage,
                               savedStateHandle = createSavedStateHandle(),
+                              locationRepository = locationRepository,
+                              connectivityRepository = connectivityRepository,
                           )
                         }
                       }
@@ -326,6 +334,8 @@ fun AppNavHost(
                               listingRepository = listingRepository,
                               photoStorage = editPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
+                              locationRepository = locationRepository,
+                              connectivityRepository = connectivityRepository,
                           )
                         }
                       }
@@ -564,7 +574,9 @@ fun AppNavHost(
               viewModel(
                   key = "toolbox_$uid",
                   factory =
-                      viewModelFactory { initializer { ToolboxViewModel(listingRepository) } },
+                      viewModelFactory {
+                        initializer { ToolboxViewModel(listingRepository, bookingRepository) }
+                      },
               )
           // Switching tabs keeps this ViewModel, so a listing published since it loaded needs a
           // reload to show up when the user comes back.

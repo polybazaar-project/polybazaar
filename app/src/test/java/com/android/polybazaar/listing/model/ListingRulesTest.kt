@@ -487,4 +487,22 @@ class ListingRulesTest {
     assertEquals(location, service?.location)
     assertNull(withoutLocation?.location)
   }
+
+  @Test
+  fun buildListing_refusesABlankLocationName_andTrimsTheOthers() {
+    fun build(name: String) =
+        buildListing(
+            ListingType.SERVICE,
+            "Tutoring",
+            "One hour",
+            "25",
+            ListingCategory.SERVICE_TUTORING,
+            emptyList(),
+            location = ListingLocation(46.52, 6.57, name),
+        )
+
+    assertNull(build(""))
+    assertNull(build("   "))
+    assertEquals(ListingLocation(46.52, 6.57, "Flat"), build("  Flat  ")?.location)
+  }
 }

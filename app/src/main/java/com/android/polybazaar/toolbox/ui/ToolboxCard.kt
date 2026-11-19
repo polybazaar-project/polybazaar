@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -26,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -46,8 +48,10 @@ import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.formatChf
 import com.android.polybazaar.listing.ui.PausedBadge
+import com.android.polybazaar.toolbox.model.ToolboxListingStatus
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
+import java.time.LocalDate
 
 object ToolboxCardTags {
   const val LISTINGS = "toolbox_listings"
@@ -61,7 +65,13 @@ object ToolboxCardTags {
   const val FILTER_SERVICES = "toolbox_filter_services"
   const val FILTER_EMPTY = "toolbox_filter_empty"
   const val PAUSED_BADGE = "toolbox_paused_badge"
+  /** The status of an unpaused listing: available or booked today. */
+  const val STATUS_BADGE = "toolbox_status_badge"
 }
+
+/** Green for a listing anyone can book, so it reads apart from the busy ones. */
+private val AvailableText = Color(0xFF2E6B3A)
+private val AvailableBackground = Color(0xFFE3F1E1)
 
 /** @param onOpenListing called with a listing's id when the user taps its row. */
 @Composable
@@ -83,6 +93,9 @@ fun ToolboxCard(viewModel: ToolboxViewModel, onOpenListing: (String) -> Unit = {
  * Fills the height it is given: the title stays in place and the rows scroll inside the card, so it
  * needs a bounded height.
  *
+ * Each row shows its listing's status on [today]: paused, booked today or available. A row whose
+ * status needs bookings that could not be loaded shows none.
+ *
  * @param onOpenListing called with a listing's id when the user taps its row.
  */
 @Composable
@@ -92,6 +105,7 @@ fun ToolboxContent(
     onTypeSelected: (ListingType?) -> Unit,
     modifier: Modifier = Modifier,
     onOpenListing: (String) -> Unit = {},
+    today: LocalDate = LocalDate.now(),
 ) {
   val shape = RoundedCornerShape(20.dp)
   Column(
@@ -182,7 +196,11 @@ fun ToolboxContent(
         items(filteredListings) { listing ->
           // A listing loaded from the repository always has its id.
           val id = listing.listingId
-          ToolboxListingRow(listing = listing, onClick = id?.let { { onOpenListing(it) } })
+          ToolboxListingRow(
+              listing = listing,
+              status = uiState.statusOf(listing, today),
+              onClick = id?.let { { onOpenListing(it) } },
+          )
         }
       }
     } else if (uiState.listings.isNotEmpty()) {
@@ -233,9 +251,16 @@ private fun TypeFilterButton(
   )
 }
 
-/** @param onClick called when the user taps the row, or null for a row that cannot be tapped. */
+/**
+ * @param status what the badge after the title says, or null for no badge.
+ * @param onClick called when the user taps the row, or null for a row that cannot be tapped.
+ */
 @Composable
-private fun ToolboxListingRow(listing: Listing, onClick: (() -> Unit)?) {
+private fun ToolboxListingRow(
+    listing: Listing,
+    status: ToolboxListingStatus?,
+    onClick: (() -> Unit)?,
+) {
   val shape = RoundedCornerShape(18.dp)
   val openLabel = stringResource(R.string.open_listing)
   // Clipped first, so the ripple follows the row's rounded corners.
@@ -269,11 +294,7 @@ private fun ToolboxListingRow(listing: Listing, onClick: (() -> Unit)?) {
           // Not filling: the badge follows a short title, and a long one is cut before the badge.
           modifier = Modifier.weight(1f, fill = false),
       )
-      // Paused listings are hidden from everyone else, so the owner needs to see which ones are.
-      if (listing.isPaused) {
-        // No vertical padding, so a paused row is as tall as an active one.
-        PausedBadge(Modifier.testTag(ToolboxCardTags.PAUSED_BADGE), verticalPadding = 0.dp)
-      }
+      status?.let { StatusBadge(it) }
     }
     Row {
       Text(
@@ -295,6 +316,47 @@ private fun ToolboxListingRow(listing: Listing, onClick: (() -> Unit)?) {
       )
     }
   }
+}
+
+/**
+ * The badge after a row's title. Paused uses the listing detail's badge: paused listings are hidden
+ * from everyone else, so the owner needs to spot them. No vertical padding, so every row is as tall
+ * as one without a badge.
+ */
+@Composable
+private fun StatusBadge(status: ToolboxListingStatus) {
+  when (status) {
+    ToolboxListingStatus.Paused ->
+        PausedBadge(Modifier.testTag(ToolboxCardTags.PAUSED_BADGE), verticalPadding = 0.dp)
+    ToolboxListingStatus.Available ->
+        StatusPill(
+            text = stringResource(R.string.toolbox_status_available),
+            textColor = AvailableText,
+            background = AvailableBackground,
+        )
+    ToolboxListingStatus.BookedToday ->
+        StatusPill(
+            text = stringResource(R.string.toolbox_status_booked_today),
+            textColor = AuthColors.CardBackground,
+            background = AuthColors.Accent,
+        )
+  }
+}
+
+/** A pill shaped like [PausedBadge], in the colours of its status. */
+@Composable
+private fun StatusPill(text: String, textColor: Color, background: Color) {
+  Text(
+      text = text.uppercase(),
+      color = textColor,
+      fontSize = 11.sp,
+      fontWeight = FontWeight.SemiBold,
+      maxLines = 1,
+      modifier =
+          Modifier.testTag(ToolboxCardTags.STATUS_BADGE)
+              .background(background, CircleShape)
+              .padding(horizontal = 10.dp),
+  )
 }
 
 @Preview(showBackground = true, widthDp = 412, heightDp = 320)
@@ -320,7 +382,8 @@ internal fun ToolboxContentPreview() {
                           "",
                           listingId = "math",
                       ),
-                  )
+                  ),
+              bookings = emptyList(),
           ),
       onRetry = {},
       onTypeSelected = {},

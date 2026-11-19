@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
+import com.android.polybazaar.booking.model.Booking
+import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
@@ -39,6 +42,7 @@ import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
 import com.android.polybazaar.ui.theme.PolyBazaarTheme
 import java.net.UnknownHostException
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -52,6 +56,9 @@ import org.robolectric.annotation.GraphicsMode
 class ToolboxCardTest {
 
   @get:Rule val composeTestRule = createComposeRule()
+
+  private val bookings = FakeBookingRepository()
+  private val today = LocalDate.of(2026, 11, 19)
 
   private val myListings =
       listOf(
@@ -391,7 +398,7 @@ class ToolboxCardTest {
 
   @Test
   fun card_showsTheListingsLoadedByTheViewModel() {
-    val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings))
+    val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings), bookings)
     composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
 
     composeTestRule.onNodeWithText(string(R.string.toolbox_title)).assertIsDisplayed()
@@ -401,7 +408,7 @@ class ToolboxCardTest {
 
   @Test
   fun card_tappingTheFilterButtonsSelectsSwitchesAndShowsAllAgain() {
-    val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings))
+    val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings), bookings)
     composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
     val all = composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ALL)
     val items = composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_ITEMS)
@@ -438,7 +445,7 @@ class ToolboxCardTest {
   @Test
   fun card_retryKeepsTheSelectedFilter() {
     val repository = FakeListingRepository(myListings = myListings)
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
     composeTestRule.onNodeWithTag(ToolboxCardTags.FILTER_SERVICES).performClick()
     repository.failure = UnknownHostException("offline")
@@ -461,7 +468,7 @@ class ToolboxCardTest {
         FakeListingRepository(myListings = myListings).apply {
           failure = UnknownHostException("offline")
         }
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
     composeTestRule.onNodeWithTag(ToolboxCardTags.ERROR).assertIsDisplayed()
 
@@ -507,8 +514,122 @@ class ToolboxCardTest {
           onRetry = onRetry,
           onTypeSelected = onTypeSelected,
           onOpenListing = onOpenListing,
+          today = today,
       )
     }
+  }
+
+  /** Four listings: paused, booked today, and two available, one of them booked later. */
+  private val statusListings =
+      listOf(
+          ItemListing(ListingCategory.ITEM_TOOLS, 5.0, "Kayak", "", listingId = "kayak")
+              .copy(isPaused = true),
+          ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Bosch drill", "", listingId = "drill"),
+          ItemListing(ListingCategory.ITEM_TOOLS, 12.0, "Tent 3p", "", listingId = "tent"),
+          ServiceListing(
+              ListingCategory.SERVICE_TUTORING,
+              20.0,
+              "Bike repair",
+              "",
+              listingId = "bike",
+          ),
+      )
+
+  private val statusBookings =
+      listOf(
+          // A paused listing stays paused whatever its bookings.
+          Booking("kayak", "renter", "me", setOf(today)),
+          Booking("drill", "renter", "me", setOf(today, today.plusDays(1))),
+          Booking("tent", "renter", "me", setOf(today.plusDays(2))),
+          Booking("tent", "other", "me", setOf(today.plusDays(4), today.plusDays(6))),
+          // Neither counts: one is cancelled, the other is over.
+          Booking("bike", "renter", "me", setOf(today), BookingStatus.CANCELLED),
+          Booking("bike", "renter", "me", setOf(today.minusDays(2))),
+      )
+
+  @Test
+  fun statuses_showOneBadgePerRow() {
+    setContent(ToolboxUiState(listings = statusListings, bookings = statusBookings))
+
+    val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
+    rows[0]
+        .assert(hasText("Kayak"))
+        .assert(hasText(string(R.string.listing_detail_paused).uppercase()))
+    rows[1]
+        .assert(hasText("Bosch drill"))
+        .assert(hasText(string(R.string.toolbox_status_booked_today).uppercase()))
+    val available = string(R.string.toolbox_status_available).uppercase()
+    // Booked on later days only: still available today.
+    rows[2].assert(hasText("Tent 3p")).assert(hasText(available))
+    rows[3].assert(hasText("Bike repair")).assert(hasText(available))
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertCountEquals(1)
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.STATUS_BADGE, useUnmergedTree = true)
+        .assertCountEquals(3)
+  }
+
+  @Test
+  fun bookingsNotLoaded_showOnlyThePausedBadge() {
+    setContent(ToolboxUiState(listings = statusListings, bookings = null))
+
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertCountEquals(1)
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.STATUS_BADGE, useUnmergedTree = true)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Measures the text for real, so heights are real.
+  fun everyStatus_keepsTheRowsTheSameHeight() {
+    composeTestRule.setContent {
+      PolyBazaarTheme(dynamicColor = false) {
+        ToolboxContent(
+            uiState = ToolboxUiState(listings = statusListings, bookings = statusBookings),
+            onRetry = {},
+            onTypeSelected = {},
+            today = today,
+        )
+      }
+    }
+
+    val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
+    val heights =
+        (0 until 4).map { rows[it].getUnclippedBoundsInRoot().let { b -> b.bottom - b.top } }
+    assertEquals(1, heights.distinct().size)
+  }
+
+  @Test
+  fun card_showsTheStatusFromTheLenderBookings() {
+    bookings.lenderBookings = listOf(Booking("drill", "renter", "me", setOf(LocalDate.now())))
+    val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings), bookings)
+    composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
+
+    val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
+    rows[0].assert(hasText(string(R.string.toolbox_status_booked_today).uppercase()))
+    rows[1].assert(hasText(string(R.string.toolbox_status_available).uppercase()))
+  }
+
+  @Test
+  fun card_aFailedRefreshOfTheBookings_showsNoStaleBadge() {
+    bookings.lenderBookings = listOf(Booking("drill", "renter", "me", setOf(LocalDate.now())))
+    val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings), bookings)
+    composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.STATUS_BADGE, useUnmergedTree = true)
+        .assertCountEquals(2)
+
+    bookings.lenderLoadFailure = UnknownHostException("offline")
+    viewModel.loadListings()
+    composeTestRule.waitForIdle()
+
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.STATUS_BADGE, useUnmergedTree = true)
+        .assertCountEquals(0)
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
   }
 
   private fun string(id: Int): String =
