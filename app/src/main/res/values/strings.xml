@@ -6,6 +6,7 @@
 
     <!-- Bottom navigation -->
     <string name="nav_browse">Browse</string>
+    <string name="nav_map">Map</string>
     <string name="nav_create_listing">Create listing</string>
     <string name="nav_conversations">Conversations</string>
     <string name="nav_profile">Profile</string>
@@ -112,6 +113,28 @@
         <item quantity="other">Message too long: at most %d characters</item>
     </plurals>
 
+    <!-- Map: renter location and campus fallback (#340) -->
+    <string name="map_location_reason_title">See what\'s near you</string>
+    <string name="map_location_reason_text">PolyBazaar uses your approximate location only to centre the map on you. It\'s never saved or shared with other students.</string>
+    <string name="map_location_continue">Continue</string>
+    <string name="map_location_not_now">Not now</string>
+    <string name="map_campus_title">Where are you studying?</string>
+    <string name="map_campus_text">Pick your campus to centre the map. You can change it any time from the map.</string>
+    <string name="map_campus_epfl">EPFL</string>
+    <string name="map_campus_epfl_area">Écublens</string>
+    <string name="map_campus_unil">UNIL</string>
+    <string name="map_campus_unil_area">Dorigny</string>
+    <string name="map_campus_cancel">Cancel</string>
+    <string name="map_locating">Finding your location…</string>
+    <string name="map_showing_campus">Showing %1$s</string>
+    <string name="map_change_campus">Change</string>
+    <string name="map_change_campus_description">Change campus</string>
+    <string name="map_loading_listings">Loading listings…</string>
+    <string name="map_no_listings">No listings with a location nearby yet</string>
+    <string name="map_retry">Retry</string>
+    <string name="map_marker_item">%1$s, item, %2$s per day</string>
+    <string name="map_marker_service">%1$s, skill, %2$s per day</string>
+
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
 
@@ -134,6 +157,8 @@
     <string name="toolbox_filter_services">Services</string>
     <string name="toolbox_empty_items">You have no item listings.</string>
     <string name="toolbox_empty_services">You have no service listings.</string>
+    <string name="toolbox_status_available">Available</string>
+    <string name="toolbox_status_booked_today">Booked today</string>
 
     <!-- Forgot password screen -->
     <string name="forgot_password_title">Forgot password</string>
@@ -209,6 +234,21 @@
     <string name="listing_form_availability_description">%1$s: %2$s</string>
     <string name="listing_form_availability_item_title">When can you lend it?</string>
     <string name="listing_form_availability_service_title">When can you offer it?</string>
+    <string name="listing_location_item_label">Pickup location (optional)</string>
+    <string name="listing_location_service_label">Meeting place (optional)</string>
+    <string name="listing_location_placeholder">Choose on the map</string>
+    <!-- What TalkBack reads for the field: its label, then the placeholder. -->
+    <string name="listing_location_description">%1$s: %2$s</string>
+    <string name="listing_location_move_pin">Move the pin</string>
+    <string name="listing_location_remove">Remove location</string>
+    <string name="listing_location_name_placeholder">Name the place…</string>
+    <string name="listing_location_name_error">Give the place a name.</string>
+    <string name="listing_location_picker_title">Choose the location</string>
+    <string name="listing_location_picker_hint">Move the map to place the pin</string>
+    <string name="listing_location_offline">Connect to the internet to choose a location</string>
+    <string name="listing_location_show_mine">Show my location</string>
+    <string name="listing_location_confirm">Confirm location</string>
+    <string name="listing_location_map_description">Map to choose where the listing is offered</string>
 
     <!-- Availability calendar -->
     <string name="calendar_previous_month">Previous month</string>

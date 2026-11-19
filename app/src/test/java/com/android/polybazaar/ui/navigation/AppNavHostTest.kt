@@ -7,8 +7,12 @@ package com.android.polybazaar.ui.navigation
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -73,16 +77,21 @@ import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.listing.ui.ListingDetailScreenTags
+import com.android.polybazaar.map.model.FakeLocationRepository
+import com.android.polybazaar.map.ui.MapScreenTags
+import com.android.polybazaar.map.viewmodel.MapUiState
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.LenderProfileScreenTags
@@ -132,6 +141,10 @@ class AppNavHostTest {
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
   private val chatRepository = FakeChatRepository()
   private val bookingRepository = FakeBookingRepository()
+  private val locationRepository = FakeLocationRepository()
+
+  /** What the Map tab last gave its map: the stand-in records it, since it draws no markers. */
+  private var mapState: MapUiState? = null
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -164,6 +177,13 @@ class AppNavHostTest {
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
             bookingRepository = bookingRepository,
+            locationRepository = locationRepository,
+            // Google Maps can't run under Robolectric: a stand-in that shows the markers.
+            listingsMap = {
+              mapState = it
+              Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
+            },
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -206,6 +226,13 @@ class AppNavHostTest {
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
             bookingRepository = bookingRepository,
+            locationRepository = locationRepository,
+            // Google Maps can't run under Robolectric: a stand-in that shows the markers.
+            listingsMap = {
+              mapState = it
+              Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
+            },
+            connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
       }
@@ -252,6 +279,12 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BottomBarTags.CONVERSATIONS_TAB).performClick()
     composeTestRule.waitForIdle()
     assertEquals(Routes.INBOX, navController.currentBackStackEntry?.destination?.route)
+  }
+
+  private fun openMap() {
+    composeTestRule.onNodeWithTag(BottomBarTags.MAP_TAB).performClick()
+    composeTestRule.onNodeWithTag(MapScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(Routes.MAP, navController.currentBackStackEntry?.destination?.route)
   }
 
   private fun openBrowse() {
@@ -675,7 +708,10 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
+          locationRepository = locationRepository,
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
+          listingsMap = { mapState = it },
       )
     }
 
@@ -1506,7 +1542,10 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
+          locationRepository = locationRepository,
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
+          listingsMap = { mapState = it },
       )
     }
     openProfile()
@@ -1582,7 +1621,10 @@ class AppNavHostTest {
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
+          locationRepository = locationRepository,
+          connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
+          listingsMap = { mapState = it },
       )
     }
     composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
@@ -1652,6 +1694,9 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
     composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
 
+    openMap()
+    composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
+
     openCreateListing()
     composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
 
@@ -1660,6 +1705,39 @@ class AppNavHostTest {
 
     openProfile()
     composeTestRule.onNodeWithTag(BottomBarTags.BAR).assertIsDisplayed()
+  }
+
+  @Test
+  fun mapTab_isSecond_betweenBrowseAndCreateListing() {
+    setContent(FakeAuthRepository(currentUser = user))
+
+    fun left(tag: String) = composeTestRule.onNodeWithTag(tag).getBoundsInRoot().left
+    assertTrue(left(BottomBarTags.BROWSE_TAB) < left(BottomBarTags.MAP_TAB))
+    assertTrue(left(BottomBarTags.MAP_TAB) < left(BottomBarTags.CREATE_LISTING_TAB))
+  }
+
+  @Test
+  fun mapTab_showsOtherUsersListingsWithALocation_andReloadsWhenComingBack() {
+    val rolex = ListingLocation(46.5185, 6.5683, "Rolex Learning Center")
+    listingRepository.allListings =
+        listOf(
+            gracesDrill.copy(location = rolex),
+            gracesDrill.copy(listingId = "nowhere", title = "No location"),
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+
+    openMap()
+    composeTestRule.waitForIdle()
+    assertEquals(listOf("drill"), mapState?.markers?.map { it.id })
+
+    // A listing placed meanwhile shows when the renter comes back to the tab.
+    listingRepository.allListings =
+        listingRepository.allListings + gracesDrill.copy(listingId = "tent", location = rolex)
+    openBrowse()
+    openMap()
+    composeTestRule.waitForIdle()
+
+    assertEquals(listOf("drill", "tent"), mapState?.markers?.map { it.id })
   }
 
   @Test
@@ -2216,3 +2294,6 @@ class AppNavHostTest {
 }
 
 private const val NETWORK_MESSAGE = "No connection. Check your internet and try again."
+
+/** Tag of the stand-in drawn instead of the Google map, which can't run under Robolectric. */
+private const val MAP_STAND_IN = "map_stand_in"

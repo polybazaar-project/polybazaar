@@ -8,14 +8,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRules
 import com.android.polybazaar.booking.model.upcomingDays
+import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingLocation
+import com.android.polybazaar.listing.model.ListingLocations
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules.MAX_DESCRIPTION_LENGTH
+import com.android.polybazaar.listing.model.ListingRules.MAX_LOCATION_NAME_LENGTH
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingRules.MAX_PRICE
 import com.android.polybazaar.listing.model.ListingRules.MAX_REFUND_VALUE
@@ -28,8 +31,12 @@ import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.map.model.Campus
+import com.android.polybazaar.map.model.Coordinates
+import com.android.polybazaar.map.model.LocationRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,8 +54,11 @@ import kotlinx.coroutines.launch
  * @property photos photos on this device, to upload when the form is saved.
  * @property maxRentalDays kept from the edited listing, so that saving does not erase it. The form
  *   has no input for it yet.
- * @property location kept from the edited listing, so that saving does not erase it. The form has
- *   no input for it yet, so a new listing has none.
+ * @property location where the listing is offered, picked on the map, or null for none.
+ * @property locationNameTouched whether the user has left the location's name field, like
+ *   [priceTouched]: a missing name is only flagged after that.
+ * @property suggestedPoint where the map picker opens: the chosen location, else the lender's
+ *   position once found, else EPFL.
  * @property availableDates the days the owner offers the listing on, chosen in the calendar.
  * @property today the day earlier days cannot be offered from, for the calendar to use as well.
  *   Always given, so that building a state never reads the clock.
@@ -57,6 +67,8 @@ import kotlinx.coroutines.launch
  *   until a Retry succeeds.
  * @property savedListing the saved listing, until the screen has handled it.
  * @property saveError why the last save failed, or null.
+ * @property isOnline whether the device is online, which choosing a location on the map needs.
+ *   Followed live, never saved with the form.
  */
 data class ListingFormUiState(
     val today: LocalDate,
@@ -73,12 +85,15 @@ data class ListingFormUiState(
     val photos: List<Uri> = emptyList(),
     val maxRentalDays: Int? = null,
     val location: ListingLocation? = null,
+    val locationNameTouched: Boolean = false,
+    val suggestedPoint: Coordinates = Campus.EPFL.centre,
     val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = false,
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
     val isSaving: Boolean = false,
     val saveError: AppError? = null,
+    val isOnline: Boolean = true,
 ) {
   /** Whether this form edits a saved listing rather than creating one. */
   val isEditing: Boolean
@@ -129,6 +144,13 @@ data class ListingFormUiState(
   val showRefundError: Boolean
     get() =
         type == ListingType.ITEM && showAmountError(refundTouched, refundValue, MAX_REFUND_VALUE)
+
+  /**
+   * A chosen location needs a name: until it has one, the form cannot be saved. Like the price, the
+   * missing name is only flagged once the user has left its field.
+   */
+  val showLocationNameError: Boolean
+    get() = locationNameTouched && location != null && location.name.isBlank()
 }
 
 /** Whether to flag [input] as an invalid amount: only once the user has left a non-empty field. */
@@ -151,6 +173,8 @@ private fun formFor(listing: Listing, today: LocalDate) =
         storedPhotos = listing.imagePaths,
         maxRentalDays = (listing as? ItemListing)?.maxRentalDays,
         location = listing.location,
+        suggestedPoint =
+            listing.location?.let { Coordinates(it.latitude, it.longitude) } ?: Campus.EPFL.centre,
         availableDates = upcomingDays(listing.availableDates, today),
         today = today,
     )
@@ -166,6 +190,9 @@ private fun formFor(listing: Listing, today: LocalDate) =
  * @param savedStateHandle keeps the form when Android kills the app, which can happen while the
  *   camera app is in front. Pass `createSavedStateHandle()` from the factory: a handle made by hand
  *   is not saved by Android.
+ * @param locationRepository finds the lender, to open the map picker where they are.
+ * @param connectivityRepository tells whether the device is online, see
+ *   [ListingFormUiState.isOnline].
  * @param today the current day, to leave past available days out of an edited listing.
  */
 class ListingFormViewModel(
@@ -173,10 +200,17 @@ class ListingFormViewModel(
     private val listingRepository: ListingRepository,
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
+    private val locationRepository: LocationRepository,
+    connectivityRepository: ConnectivityRepository,
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
-  private val _uiState = MutableStateFlow(savedStateHandle.restoreForm(listingId, today()))
+  private val _uiState =
+      MutableStateFlow(
+          savedStateHandle
+              .restoreForm(listingId, today())
+              .copy(isOnline = connectivityRepository.isOnline.value)
+      )
   val uiState: StateFlow<ListingFormUiState> = _uiState.asStateFlow()
 
   /**
@@ -188,6 +222,9 @@ class ListingFormViewModel(
 
   /** The saved photos being downloaded, so that each is downloaded once at a time. */
   private val photosDownloading = mutableSetOf<String>()
+
+  /** The running request for the lender's position, see [locateLender]. */
+  private var locateJob: Job? = null
 
   /** The photo the camera app is taking, until it closes. */
   private var pendingPhoto: Uri?
@@ -211,6 +248,11 @@ class ListingFormViewModel(
     photoStorage.deleteAllExcept(_uiState.value.photos + listOfNotNull(pendingPhoto))
     // A restored edit form holds the user's changes, which loading the listing would overwrite.
     if (listingId != null && savedStateHandle.get<Boolean>(LOADED) != true) loadListing()
+    viewModelScope.launch {
+      connectivityRepository.isOnline.collect { online ->
+        _uiState.update { it.copy(isOnline = online) }
+      }
+    }
   }
 
   /**
@@ -228,7 +270,9 @@ class ListingFormViewModel(
             .getListing(id)
             .onSuccess { listing ->
               savedStateHandle[LOADED] = true
-              updateState { formFor(listing, today()).copy(isLoading = true) }
+              updateState {
+                formFor(listing, today()).copy(isLoading = true, isOnline = it.isOnline)
+              }
             }
             .onFailure { exception ->
               // Cancellation means the screen was closed: it is not an error to show.
@@ -281,6 +325,52 @@ class ListingFormViewModel(
 
   /** Replaces the days the listing is offered on with those chosen in the calendar. */
   fun updateAvailableDates(days: Set<LocalDate>) = changeForm { it.copy(availableDates = days) }
+
+  /**
+   * Opens the map picker where the lender is, when the form has no location yet. If their position
+   * cannot be read, the picker stays on its suggested point and no error is shown.
+   */
+  fun locateLender() {
+    val state = _uiState.value
+    // While the edited listing loads, its location would overwrite the result anyway; and one
+    // request at a time, so repeated calls don't stack Play Services requests.
+    if (state.location != null || !state.canEdit || locateJob?.isActive == true) return
+    locateJob = viewModelScope.launch {
+      locationRepository.currentLocation().onSuccess { point ->
+        // A location chosen meanwhile is where the picker should open instead.
+        updateState { if (it.location == null) it.copy(suggestedPoint = point) else it }
+      }
+    }
+  }
+
+  /**
+   * Sets the location to [point] picked on the map. A point on a campus is named after it;
+   * otherwise the name typed for the previous point is kept, or left blank for the lender to fill.
+   * A campus name is not kept: it would mislabel a point off that campus.
+   */
+  fun setLocationPoint(point: Coordinates) = changeForm {
+    val previous = it.location?.name?.takeUnless(ListingLocations::isCampusName) ?: ""
+    val name = ListingLocations.campusNameFor(point) ?: previous
+    it.copy(
+        location = ListingLocation(point.latitude, point.longitude, name),
+        suggestedPoint = point,
+    )
+  }
+
+  /** Ignored while no location is set: the name belongs to a point on the map. */
+  fun updateLocationName(name: String) = changeForm {
+    it.copy(
+        location = it.location?.copy(name = AuthRules.limitInput(name, MAX_LOCATION_NAME_LENGTH))
+    )
+  }
+
+  fun leaveLocationNameField() = changeForm { it.copy(locationNameTouched = true) }
+
+  /**
+   * Removes the location, so the listing is saved without one. A location picked again later starts
+   * without a name error.
+   */
+  fun clearLocation() = changeForm { it.copy(location = null, locationNameTouched = false) }
 
   /**
    * Adds photos picked in the gallery, skipping duplicates and those beyond [MAX_PHOTOS], kept
@@ -376,7 +466,7 @@ class ListingFormViewModel(
           val form =
               if (state.isEditing) formFor(savedListing, today())
               else ListingFormUiState(today = today())
-          form.copy(savedListing = savedListing)
+          form.copy(savedListing = savedListing, isOnline = it.isOnline)
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) {
@@ -437,6 +527,9 @@ class ListingFormViewModel(
     const val LOCATION_LATITUDE = "locationLatitude"
     const val LOCATION_LONGITUDE = "locationLongitude"
     const val LOCATION_NAME = "locationName"
+    const val LOCATION_NAME_TOUCHED = "locationNameTouched"
+    const val SUGGESTED_LATITUDE = "suggestedLatitude"
+    const val SUGGESTED_LONGITUDE = "suggestedLongitude"
     const val PENDING_PHOTO = "pendingPhoto"
     const val RETAKE_INDEX = "retakeIndex"
 
@@ -461,6 +554,9 @@ class ListingFormViewModel(
       set(LOCATION_LATITUDE, state.location?.latitude)
       set(LOCATION_LONGITUDE, state.location?.longitude)
       set(LOCATION_NAME, state.location?.name)
+      set(LOCATION_NAME_TOUCHED, state.locationNameTouched)
+      set(SUGGESTED_LATITUDE, state.suggestedPoint.latitude)
+      set(SUGGESTED_LONGITUDE, state.suggestedPoint.longitude)
       // As days since 1970: a LongArray survives the app being killed, a set of dates might not.
       set(AVAILABLE_DATES, state.availableDates.map { it.toEpochDay() }.toLongArray())
     }
@@ -471,6 +567,13 @@ class ListingFormViewModel(
       val longitude = get<Double>(LOCATION_LONGITUDE) ?: return null
       val name = get<String>(LOCATION_NAME) ?: return null
       return ListingLocation(latitude, longitude, name)
+    }
+
+    /** The saved suggested point, or EPFL when the form had none. */
+    fun SavedStateHandle.restoreSuggestedPoint(): Coordinates {
+      val latitude = get<Double>(SUGGESTED_LATITUDE) ?: return Campus.EPFL.centre
+      val longitude = get<Double>(SUGGESTED_LONGITUDE) ?: return Campus.EPFL.centre
+      return Coordinates(latitude, longitude)
     }
 
     /**
@@ -492,6 +595,8 @@ class ListingFormViewModel(
             photos = get<List<Uri>>(PHOTOS).orEmpty(),
             maxRentalDays = get(MAX_RENTAL_DAYS),
             location = restoreLocation(),
+            locationNameTouched = get(LOCATION_NAME_TOUCHED) ?: false,
+            suggestedPoint = restoreSuggestedPoint(),
             availableDates =
                 upcomingDays(
                     get<LongArray>(AVAILABLE_DATES)?.map(LocalDate::ofEpochDay)?.toSet().orEmpty(),

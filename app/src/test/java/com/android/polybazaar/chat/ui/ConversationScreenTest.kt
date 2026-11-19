@@ -73,6 +73,7 @@ import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.PendingPhoto
 import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -292,6 +293,7 @@ class ConversationScreenTest {
             photoStorage = photoStorage,
             savedStateHandle = SavedStateHandle(),
             uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            connectivity = FakeConnectivityRepository(),
         )
     val launcherOwner =
         object : ActivityResultRegistryOwner {

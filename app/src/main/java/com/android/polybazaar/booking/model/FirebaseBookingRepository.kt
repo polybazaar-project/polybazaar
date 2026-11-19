@@ -6,6 +6,7 @@ package com.android.polybazaar.booking.model
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.time.DateTimeException
@@ -16,6 +17,8 @@ import kotlinx.coroutines.tasks.await
 class FirebaseBookingRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    /** The current day, to leave finished requests alone when accepting. */
+    private val today: () -> LocalDate = LocalDate::now,
     private val logWriteFailure: (Exception) -> Unit = {
       Log.e("BookingRepository", "Booking write failed", it)
     },
@@ -25,16 +28,11 @@ class FirebaseBookingRepository(
       booking: Booking,
       onWriteFailure: (Exception) -> Unit,
   ) {
-    val renterUid =
-        auth.currentUser?.uid
-            ?: throw FirebaseFirestoreException(
-                "Sign in to request a booking",
-                FirebaseFirestoreException.Code.UNAUTHENTICATED,
-            )
+    val renterUid = signedInUid("Sign in to request a booking")
     require(booking.status == BookingStatus.REQUESTED) { "A new booking must be requested" }
     require(booking.days.isNotEmpty()) { "A booking needs at least one day" }
     firestore
-        .collection("bookings")
+        .collection(BOOKINGS)
         .document()
         .set(
             mapOf(
@@ -43,7 +41,7 @@ class FirebaseBookingRepository(
                 "lenderUid" to booking.lenderUid,
                 // Earliest first: the rules check that the first day is not in the past.
                 DAYS to booking.days.sorted().map { it.toEpochDay() },
-                "status" to booking.status.name,
+                STATUS to booking.status.name,
             )
         )
         .addOnFailureListener(Executor { it.run() }) {
@@ -53,14 +51,9 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> {
-    val uid =
-        auth.currentUser?.uid
-            ?: throw FirebaseFirestoreException(
-                "Sign in to read bookings",
-                FirebaseFirestoreException.Code.UNAUTHENTICATED,
-            )
+    val uid = signedInUid("Sign in to read bookings")
     return firestore
-        .collection("bookings")
+        .collection(BOOKINGS)
         .whereEqualTo("listingId", listingId)
         .whereEqualTo("lenderUid", uid)
         .get()
@@ -69,15 +62,22 @@ class FirebaseBookingRepository(
         .map { it.toBooking() }
   }
 
-  override suspend fun getBookingsForRenter(): List<Booking> {
-    val uid =
-        auth.currentUser?.uid
-            ?: throw FirebaseFirestoreException(
-                "Sign in to read bookings",
-                FirebaseFirestoreException.Code.UNAUTHENTICATED,
-            )
+  override suspend fun getBookingsForLender(): List<Booking> {
+    val uid = signedInUid("Sign in to read bookings")
+    // The rules let a lender read the bookings that name them, so the query passes as a whole.
     return firestore
-        .collection("bookings")
+        .collection(BOOKINGS)
+        .whereEqualTo("lenderUid", uid)
+        .get()
+        .await()
+        .documents
+        .map { it.toBooking() }
+  }
+
+  override suspend fun getBookingsForRenter(): List<Booking> {
+    val uid = signedInUid("Sign in to read bookings")
+    return firestore
+        .collection(BOOKINGS)
         .whereEqualTo("renterUid", uid)
         .get()
         .await()
@@ -86,21 +86,55 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
-    if (auth.currentUser == null) {
-      throw FirebaseFirestoreException(
-          "Sign in to cancel a booking",
-          FirebaseFirestoreException.Code.UNAUTHENTICATED,
-      )
-    }
+    signedInUid("Sign in to cancel a booking")
     firestore
-        .collection("bookings")
+        .collection(BOOKINGS)
         .document(id)
-        .update("status", BookingStatus.CANCELLED.name)
+        .update(STATUS, BookingStatus.CANCELLED.name)
         .addOnFailureListener(Executor { it.run() }) {
           logWriteFailure(it)
           onWriteFailure(it)
         }
   }
+
+  override suspend fun acceptBooking(booking: Booking) {
+    signedInUid("Sign in to accept a booking")
+    require(booking.status == BookingStatus.REQUESTED) { "Only a request can be accepted" }
+    require(booking.id.isNotEmpty()) { "Only a stored booking can be accepted" }
+    // Read again rather than taken from the screen: a request sent since it loaded must be
+    // cancelled too. One sent between this read and the write stays requested; the rules then
+    // refuse to accept it, since its days are no longer offered. A finished request is history:
+    // the rules refuse to cancel it, which would refuse the whole accept, so it is left as it is.
+    val today = today()
+    val overlapping =
+        getBookingsForListing(booking.listingId).filter {
+          it.id != booking.id &&
+              it.status == BookingStatus.REQUESTED &&
+              it.overlaps(booking) &&
+              !it.isFinished(today)
+        }
+    val bookings = firestore.collection(BOOKINGS)
+    val batch = firestore.batch()
+    batch.update(bookings.document(booking.id), STATUS, BookingStatus.CONFIRMED.name)
+    overlapping.forEach {
+      batch.update(bookings.document(it.id), STATUS, BookingStatus.CANCELLED.name)
+    }
+    // The rules only confirm a booking whose days this same write takes off the listing.
+    batch.update(
+        firestore.collection(LISTINGS).document(booking.listingId),
+        AVAILABLE_DATES,
+        FieldValue.arrayRemove(*booking.days.map { it.toEpochDay() }.toTypedArray()),
+    )
+    batch.commit().await()
+  }
+
+  /** The signed-in user's uid, or an UNAUTHENTICATED failure saying [message]. */
+  private fun signedInUid(message: String): String =
+      auth.currentUser?.uid
+          ?: throw FirebaseFirestoreException(
+              message,
+              FirebaseFirestoreException.Code.UNAUTHENTICATED,
+          )
 
   private fun DocumentSnapshot.toBooking(): Booking {
     fun string(field: String): String =
@@ -125,13 +159,20 @@ class FirebaseBookingRepository(
         renterUid = string("renterUid"),
         lenderUid = string("lenderUid"),
         days = days(),
-        status = BookingStatus.valueOf(string("status")),
+        status = BookingStatus.valueOf(string(STATUS)),
         id = id,
     )
   }
 
   private companion object {
+    const val BOOKINGS = "bookings"
+    const val STATUS = "status"
+
     /** The booked days, as epoch days. */
     const val DAYS = "days"
+
+    /** The listings, and their offered days, as FirebaseListingRepository stores them. */
+    const val LISTINGS = "listings"
+    const val AVAILABLE_DATES = "availableDates"
   }
 }

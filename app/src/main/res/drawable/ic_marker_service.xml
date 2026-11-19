@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
+<!-- "graduation-cap" icon of a skill marker on the map (#341), white on the accent pin. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="2"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round"
+      android:pathData="M21.42,10.922a1,1 0,0 0,-0.019 -1.838L12.83,5.18a2,2 0,0 0,-1.66 0L2.6,9.08a1,1 0,0 0,0 1.832l8.57,3.908a2,2 0,0 0,1.66 0zM22,10v6M6,12.5V16a6,3 0,0 0,12 0v-3.5" />
+</vector>
