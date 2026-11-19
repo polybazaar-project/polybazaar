@@ -6,6 +6,9 @@ import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import java.net.UnknownHostException
 import java.time.LocalDate
@@ -55,6 +58,21 @@ class ReceivedRequestsViewModelTest {
       )
   private lateinit var bookings: FakeBookingRepository
 
+  /** The listing "drill", offering [days]: by default every day the requests above ask for. */
+  private fun drill(days: Set<LocalDate> = days(17..30)) =
+      ItemListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 8.0,
+          title = "Drill",
+          description = "Cordless drill.",
+          refundValue = 120.0,
+          listingId = "drill",
+          ownerUid = "lender",
+          availableDates = days,
+      )
+
+  private val listings = FakeListingRepository(listOf(drill()))
+
   @Before
   fun setUp() {
     Dispatchers.setMain(testDispatcher)
@@ -67,7 +85,7 @@ class ReceivedRequestsViewModelTest {
   }
 
   private fun newViewModel() =
-      ReceivedRequestsViewModel("drill", bookings, profiles, today).also {
+      ReceivedRequestsViewModel("drill", bookings, listings, profiles, today).also {
         testDispatcher.scheduler.advanceUntilIdle()
       }
 
@@ -222,6 +240,70 @@ class ReceivedRequestsViewModelTest {
     val state = viewModel.uiState.value
     assertEquals(listOf(cy), state.requests)
     assertEquals(listOf(ann.copy(status = BookingStatus.CONFIRMED)), state.accepted)
+  }
+
+  @Test
+  fun aRequestWithADayNoLongerOffered_isListedButCannotBeAccepted() = runTest {
+    // The owner edited the listing after the request was sent: saving dropped the past days, so
+    // the 17th, the first day of this ongoing request, is no longer offered.
+    val ongoing = booking("now", "uid-ann", days(17..19))
+    bookings.listingBookings = listOf(ongoing, cy)
+    listings.allListings = listOf(drill(days(18..30)))
+    val viewModel = newViewModel()
+
+    val state = viewModel.uiState.value
+    assertEquals(listOf(ongoing, cy), state.requests)
+    assertFalse(state.canAccept(ongoing))
+    assertTrue(state.canAccept(cy))
+
+    viewModel.accept(ongoing)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(emptyList<Booking>(), bookings.accepted)
+    assertNull(viewModel.uiState.value.acceptingId)
+  }
+
+  @Test
+  fun aRequestSharingADayWithAnAcceptedBooking_cannotBeAccepted() = runTest {
+    // Left waiting by the accept race: the accept took the 21st and 22nd off the listing.
+    val confirmed = booking("ok", "uid-cy", days(21..22), BookingStatus.CONFIRMED)
+    bookings.listingBookings = listOf(confirmed, ann, cy)
+    listings.allListings = listOf(drill(days(17..20) + days(23..30)))
+
+    val state = newViewModel().uiState.value
+
+    assertEquals(listOf(ann, cy), state.requests)
+    assertFalse(state.canAccept(ann))
+    assertTrue(state.canAccept(cy))
+  }
+
+  @Test
+  fun accept_takesTheAcceptedDaysOffTheOfferedDays() = runTest {
+    val gate = CompletableDeferred<Unit>()
+    val viewModel = newViewModel()
+    // Hold back the reload, to see the state right after the accept.
+    bookings.pendingLoad = gate
+
+    viewModel.accept(ann)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertFalse(viewModel.uiState.value.offeredDays.any { it in ann.days })
+    assertTrue(viewModel.uiState.value.canAccept(cy))
+    gate.complete(Unit)
+  }
+
+  @Test
+  fun aListingReadFailure_isShownAsALoadFailure_andRetryLoads() = runTest {
+    listings.failure = UnknownHostException("offline")
+    val viewModel = newViewModel()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.hasLoaded)
+
+    listings.failure = null
+    viewModel.loadRequests()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.error)
+    assertTrue(viewModel.uiState.value.canAccept(ann))
   }
 
   @Test
