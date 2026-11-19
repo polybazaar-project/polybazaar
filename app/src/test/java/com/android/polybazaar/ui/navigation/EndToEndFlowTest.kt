@@ -89,6 +89,7 @@ class EndToEndFlowTest {
           chatRepository = FakeChatRepository(),
           bookingRepository = FakeBookingRepository(),
           locationRepository = FakeLocationRepository(),
+          listingsMap = {},
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
