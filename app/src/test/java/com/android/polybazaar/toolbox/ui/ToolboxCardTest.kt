@@ -613,6 +613,25 @@ class ToolboxCardTest {
     rows[1].assert(hasText(string(R.string.toolbox_status_available).uppercase()))
   }
 
+  @Test
+  fun card_aFailedRefreshOfTheBookings_showsNoStaleBadge() {
+    bookings.lenderBookings = listOf(Booking("drill", "renter", "me", setOf(LocalDate.now())))
+    val viewModel = ToolboxViewModel(FakeListingRepository(myListings = myListings), bookings)
+    composeTestRule.setContent { ToolboxCard(viewModel = viewModel) }
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.STATUS_BADGE, useUnmergedTree = true)
+        .assertCountEquals(2)
+
+    bookings.lenderLoadFailure = UnknownHostException("offline")
+    viewModel.loadListings()
+    composeTestRule.waitForIdle()
+
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.STATUS_BADGE, useUnmergedTree = true)
+        .assertCountEquals(0)
+    composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW).assertCountEquals(2)
+  }
+
   private fun string(id: Int): String =
       ApplicationProvider.getApplicationContext<android.content.Context>().getString(id)
 }

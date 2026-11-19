@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.toolbox.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.booking.model.Booking
@@ -31,7 +32,8 @@ import kotlinx.coroutines.launch
  * @property error why the last load failed, or null.
  * @property selectedType the type the listings are filtered by, or null to show them all.
  * @property bookings the bookings of all the user's listings, or null until they are first loaded
- *   or while they cannot be: the listings then show only whether they are paused.
+ *   and after the last load of them failed: the listings then show only whether they are paused,
+ *   since bookings from an earlier load may be out of date.
  */
 data class ToolboxUiState(
     val listings: List<Listing> = emptyList(),
@@ -78,9 +80,10 @@ class ToolboxViewModel(
 
   /**
    * Loads the user's listings and their bookings, for example again after a failure (Retry) or
-   * after creating one. Ignored while a load is already running. On failure the listings and
-   * bookings already shown are kept, so a reload while offline does not empty the Toolbox. Only a
-   * failure of the listings is shown: without the bookings, the listings are still worth showing.
+   * after creating one. Ignored while a load is already running. On failure the listings already
+   * shown are kept, so a reload while offline does not empty the Toolbox, and the error says they
+   * may be out of date. A failure of the bookings shows no error, as the listings are still worth
+   * showing, so the bookings are dropped instead: a status from an earlier load would look current.
    */
   fun loadListings() {
     // Two loads at once could finish in any order, and the older answer would overwrite the newer.
@@ -98,7 +101,8 @@ class ToolboxViewModel(
               if (exception is CancellationException) throw exception
               _uiState.update { it.copy(error = exception.toAppError()) }
             }
-        bookings.await()?.let { loaded -> _uiState.update { it.copy(bookings = loaded) } }
+        val loaded = bookings.await()
+        _uiState.update { it.copy(bookings = loaded) }
       } finally {
         // Also on cancellation, otherwise the guard above would block every later load.
         _uiState.update { it.copy(isLoading = false) }
@@ -106,12 +110,20 @@ class ToolboxViewModel(
     }
   }
 
-  /** The user's bookings as a lender, or null when they cannot be read. */
+  /**
+   * The user's bookings as a lender, or null when they cannot be read. The failure is logged, as
+   * nothing on screen reports it: a malformed booking would otherwise hide every status silently.
+   */
   private suspend fun loadBookings(): List<Booking>? =
       try {
         bookingRepository.getBookingsForLender()
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
+        Log.w(TAG, "Could not load the bookings, so the listings show no status", exception)
         null
       }
+
+  private companion object {
+    const val TAG = "ToolboxViewModel"
+  }
 }

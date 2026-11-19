@@ -339,14 +339,41 @@ class ToolboxViewModelTest {
   }
 
   @Test
-  fun bookingsFailingOnAReload_keepsTheStatusesAlreadyShown() {
+  fun bookingsFailingOnAReload_dropsTheStatusesAlreadyShown() {
     bookings.lenderBookings = listOf(drillToday)
     val viewModel = ToolboxViewModel(repository, bookings)
+    assertEquals(
+        ToolboxListingStatus.BookedToday,
+        viewModel.uiState.value.statusOf(myListings[0], today),
+    )
+    // Cancelled meanwhile, but the reload fails: Booked today would now be wrong.
+    bookings.lenderBookings = emptyList()
     bookings.lenderLoadFailure = UnknownHostException("offline")
 
     viewModel.loadListings()
 
-    assertEquals(listOf(drillToday), viewModel.uiState.value.bookings)
+    val state = viewModel.uiState.value
+    assertNull(state.bookings)
+    assertNull(state.statusOf(myListings[0], today))
+    assertNull(state.statusOf(myListings[1], today))
+    // The listings stay, with no error: only their status is unknown.
+    assertEquals(myListings, state.listings)
+    assertNull(state.error)
+  }
+
+  @Test
+  fun bookingsLoadingAgainAfterAFailedReload_showTheStatusesAgain() {
+    bookings.lenderLoadFailure = UnknownHostException("offline")
+    val viewModel = ToolboxViewModel(repository, bookings)
+    bookings.lenderLoadFailure = null
+    bookings.lenderBookings = listOf(drillToday)
+
+    viewModel.loadListings()
+
+    assertEquals(
+        ToolboxListingStatus.BookedToday,
+        viewModel.uiState.value.statusOf(myListings[0], today),
+    )
   }
 
   @Test
