@@ -89,7 +89,6 @@ import com.android.polybazaar.map.ui.ListingsMap
 import com.android.polybazaar.map.ui.MapScreen
 import com.android.polybazaar.map.viewmodel.MapUiState
 import com.android.polybazaar.map.viewmodel.MapViewModel
-import com.android.polybazaar.network.AndroidConnectivityObserver
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -130,7 +129,8 @@ object AppNavHostTags {
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
  * @param locationRepository reads the device's approximate location: to centre the Map tab on the
  *   renter, and to open the listing form's map picker where the lender is.
- * @param connectivityRepository tells the listing forms whether the device is online.
+ * @param connectivityRepository tells the listing forms and the conversations whether the device is
+ *   online.
  */
 @Composable
 fun AppNavHost(
@@ -536,7 +536,7 @@ fun AppNavHost(
                               photoStorage = chatPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               uploadScope = photoUploadScope,
-                              connectivity = AndroidConnectivityObserver(appContext),
+                              connectivity = connectivityRepository,
                           )
                         }
                       }

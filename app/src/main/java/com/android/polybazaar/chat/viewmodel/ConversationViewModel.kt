@@ -11,13 +11,13 @@ import com.android.polybazaar.chat.model.ChatRepository
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.conversationId
+import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.PhotoStorage
-import com.android.polybazaar.network.ConnectivityObserver
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -146,7 +145,7 @@ private data class LoadedListing(
  * taken with the camera, whether it was sent or not, as nothing can retry it any more.
  *
  * [connectivity] tells when the device is back online, to send again the photos that failed for
- * want of a connection while the screen is open.
+ * want of a connection while the screen is open. Pass the app's single [ConnectivityRepository].
  *
  * The lender must only be routed here for a conversation that already exists: until then the
  * security rules refuse them the conversation and its messages, which shows as a load error.
@@ -161,7 +160,7 @@ class ConversationViewModel(
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
     private val uploadScope: CoroutineScope,
-    private val connectivity: ConnectivityObserver,
+    private val connectivity: ConnectivityRepository,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ConversationUiState(myUid = myUid))
@@ -214,12 +213,8 @@ class ConversationViewModel(
    */
   private fun retryPhotosWhenOnline() {
     viewModelScope.launch {
-      connectivity
-          .observeOnline()
-          .distinctUntilChanged()
+      connectivity.isOnline
           .filter { online -> online }
-          // Without it, the user can still tap Retry; toAppError() logs unrecognised failures.
-          .catch { exception -> exception.toAppError() }
           .collect {
             _uiState.value.pendingPhotos
                 .filter { it.status == PendingPhotoStatus.FAILED && it.error == AppError.NETWORK }

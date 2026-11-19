@@ -14,6 +14,7 @@ import com.android.polybazaar.chat.model.ChatRepository
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -21,7 +22,6 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.TakenPhoto
-import com.android.polybazaar.network.FakeConnectivityObserver
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.net.UnknownHostException
@@ -56,7 +56,7 @@ class ConversationViewModelTest {
   private lateinit var profiles: FakeProfileRepository
   private lateinit var listings: FakeListingRepository
   private lateinit var photoStorage: FakePhotoStorage
-  private lateinit var connectivity: FakeConnectivityObserver
+  private lateinit var connectivity: FakeConnectivityRepository
   private lateinit var downloads: CountingDownloads
 
   private val lender = User(uid = "lender", email = "", username = "Lena")
@@ -92,7 +92,7 @@ class ConversationViewModelTest {
     profiles = FakeProfileRepository(listOf(lender, renter).associateBy { it.uid })
     listings = FakeListingRepository(allListings = listOf(listing))
     photoStorage = FakePhotoStorage()
-    connectivity = FakeConnectivityObserver()
+    connectivity = FakeConnectivityRepository()
   }
 
   @After
@@ -1762,11 +1762,11 @@ class ConversationViewModelTest {
 
   @Test
   fun backOnline_sendsANetworkFailureAgainWithTheSameId() {
-    connectivity.online.value = false
+    connectivity.isOnline.value = false
     val viewModel = failedPhotoSend(offline)
     chat.sendFailure = null
 
-    connectivity.online.value = true
+    connectivity.isOnline.value = true
     advance()
 
     assertEquals(listOf("m1", "m1"), chat.sentPhotos.map { it.messageId })
@@ -1775,10 +1775,10 @@ class ConversationViewModelTest {
 
   @Test
   fun backOnline_leavesARefusedPhotoForTheUsersRetry() {
-    connectivity.online.value = false
+    connectivity.isOnline.value = false
     val viewModel = failedPhotoSend(refused)
 
-    connectivity.online.value = true
+    connectivity.isOnline.value = true
     advance()
 
     assertEquals(1, chat.sentPhotos.size)
@@ -1787,14 +1787,14 @@ class ConversationViewModelTest {
 
   @Test
   fun backOnline_leavesAPhotoStillSendingAlone() {
-    connectivity.online.value = false
+    connectivity.isOnline.value = false
     val viewModel = inConversation()
     chat.gate = CompletableDeferred()
     viewModel.attachPhoto(galleryPhoto)
     viewModel.send()
     advance()
 
-    connectivity.online.value = true
+    connectivity.isOnline.value = true
     advance()
 
     assertEquals(1, chat.sentPhotos.size)
@@ -1806,10 +1806,10 @@ class ConversationViewModelTest {
 
   @Test
   fun stillOffline_sendsNothingAgain() {
-    connectivity.online.value = false
+    connectivity.isOnline.value = false
     val viewModel = failedPhotoSend(offline)
 
-    connectivity.online.value = false
+    connectivity.isOnline.value = false
     advance()
 
     assertEquals(1, chat.sentPhotos.size)
@@ -1818,15 +1818,15 @@ class ConversationViewModelTest {
 
   @Test
   fun backOnlineAgain_afterASecondNetworkFailure_sendsItAgain() {
-    connectivity.online.value = false
+    connectivity.isOnline.value = false
     failedPhotoSend(offline)
-    connectivity.online.value = true
+    connectivity.isOnline.value = true
     advance()
     assertEquals(2, chat.sentPhotos.size)
 
-    connectivity.online.value = false
+    connectivity.isOnline.value = false
     advance()
-    connectivity.online.value = true
+    connectivity.isOnline.value = true
     advance()
 
     assertEquals(listOf("m1", "m1", "m1"), chat.sentPhotos.map { it.messageId })

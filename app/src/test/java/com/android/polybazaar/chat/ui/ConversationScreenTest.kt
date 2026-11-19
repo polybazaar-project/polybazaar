@@ -66,6 +66,7 @@ import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.PendingPhoto
 import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -74,7 +75,6 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
-import com.android.polybazaar.network.FakeConnectivityObserver
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.android.polybazaar.profile.ui.redPhoto
 import java.io.File
@@ -244,7 +244,7 @@ class ConversationScreenTest {
             photoStorage = photoStorage,
             savedStateHandle = SavedStateHandle(),
             uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-            connectivity = FakeConnectivityObserver(),
+            connectivity = FakeConnectivityRepository(),
         )
     val launcherOwner =
         object : ActivityResultRegistryOwner {
