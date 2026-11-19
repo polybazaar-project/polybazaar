@@ -9,6 +9,11 @@ import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
@@ -165,6 +170,23 @@ class MapLocationLayerTest {
     composeTestRule.waitForIdle()
 
     node(MapLocationTags.REASON_CARD).assertDoesNotExist()
+    assertEquals(MapCentre.Located(Coordinates(46.518, 6.568)), viewModel.uiState.value.centre)
+  }
+
+  @Test
+  fun permissionGrantedInSettingsWhileExplaining_readsTheLocationOnTheNextRedraw() {
+    val viewModel = MapViewModel(location, SavedStateHandle())
+    var redraws by mutableIntStateOf(0)
+    // A new modifier on each redraw, like a parent recomposing around the layer.
+    composeTestRule.setContent { MapLocationLayer(viewModel, Modifier.testTag("layer_$redraws")) }
+    node(MapLocationTags.REASON_CARD).assertIsDisplayed()
+
+    // The renter grants the permission in Android's settings and comes back.
+    shadowOf(context as Application).grantPermissions(Manifest.permission.ACCESS_COARSE_LOCATION)
+    redraws++
+    composeTestRule.waitForIdle()
+
+    assertEquals(1, location.calls)
     assertEquals(MapCentre.Located(Coordinates(46.518, 6.568)), viewModel.uiState.value.centre)
   }
 

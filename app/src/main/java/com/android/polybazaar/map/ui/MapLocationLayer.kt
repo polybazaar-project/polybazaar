@@ -107,9 +107,13 @@ fun MapLocationLayer(viewModel: MapViewModel, modifier: Modifier = Modifier) {
       rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         viewModel.onPermissionResult(granted)
       }
-  LaunchedEffect(Unit) {
-    // Only on opening: with the permission already granted there is nothing to explain.
-    if (uiState.centre == MapCentre.Undecided && alreadyGranted) viewModel.onPermissionResult(true)
+  // Keyed on the permission, not run once: if the renter grants it in Android's settings while the
+  // explanation is open, the next redraw shows "Finding your location…" below, so the location
+  // must be read then too, or the pill would never go away.
+  LaunchedEffect(alreadyGranted) {
+    if (alreadyGranted && viewModel.uiState.value.centre == MapCentre.Undecided) {
+      viewModel.onPermissionResult(true)
+    }
   }
   MapLocationContent(
       // Undecided but granted is the frame before the effect above runs: show nothing rather than
