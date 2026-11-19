@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.ui.navigation
 
 import androidx.activity.compose.BackHandler
@@ -25,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +60,8 @@ import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.booking.model.BookingRepository
 import com.android.polybazaar.booking.ui.BookingRequestScreen
+import com.android.polybazaar.booking.ui.LenderBookingsScreen
+import com.android.polybazaar.booking.ui.RenterBookingsScreen
 import com.android.polybazaar.booking.viewmodel.BookingRequestViewModel
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
@@ -67,8 +71,10 @@ import com.android.polybazaar.chat.ui.ConversationScreen
 import com.android.polybazaar.chat.ui.InboxScreen
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
+import com.android.polybazaar.chat.viewmodel.photoUploadScope
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
@@ -365,6 +371,9 @@ fun AppNavHost(
                       onEdit = {
                         navController.navigate(Routes.editListing(it)) { launchSingleTop = true }
                       },
+                      onOpenBookings = {
+                        navController.navigate(Routes.lenderBookings(it)) { launchSingleTop = true }
+                      },
                       onDeleted = { navController.popBackStack() },
                       // The viewer messages the owner as the renter. Single top, so a double tap
                       // does not stack two conversation screens.
@@ -405,13 +414,55 @@ fun AppNavHost(
               )
           val bookingViewModel: BookingViewModel =
               viewModel(
-                  factory = viewModelFactory { initializer { BookingViewModel(bookingRepository) } }
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      }
               )
           BookingRequestScreen(
               viewModel = requestViewModel,
               bookingViewModel = bookingViewModel,
               // The screen stays tappable while it leaves: a second tap on back or "Done" would
               // also pop the listing detail.
+              onBack = dropUnlessResumed { navController.popBackStack() },
+          )
+        }
+        composable(Routes.RENTER_BOOKINGS) {
+          val bookingViewModel: BookingViewModel =
+              viewModel(
+                  key = "renter_bookings",
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      },
+              )
+          RenterBookingsScreen(
+              viewModel = bookingViewModel,
+              onBack = dropUnlessResumed { navController.popBackStack() },
+          )
+        }
+        composable(
+            route = Routes.LENDER_BOOKINGS,
+            arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
+        ) { entry ->
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          val bookingViewModel: BookingViewModel =
+              viewModel(
+                  key = "lender_bookings_$listingId",
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      },
+              )
+          LenderBookingsScreen(
+              listingId = listingId,
+              viewModel = bookingViewModel,
               onBack = dropUnlessResumed { navController.popBackStack() },
           )
         }
@@ -447,6 +498,9 @@ fun AppNavHost(
           // The route requires both, so they are always there.
           val listingId = entry.arguments!!.getString(Routes.LISTING_ID)!!
           val renterUid = entry.arguments!!.getString(Routes.RENTER_UID)!!
+          val appContext = LocalContext.current.applicationContext
+          val chatPhotoStorage =
+              remember(appContext) { FilePhotoStorage(appContext, FilePhotoStorage.CHAT_FORM) }
           // Scoped to this entry: each conversation opened gets its own ViewModel.
           val conversationViewModel: ConversationViewModel =
               viewModel(
@@ -460,6 +514,9 @@ fun AppNavHost(
                               chatRepository = chatRepository,
                               profileRepository = profileRepository,
                               listingRepository = listingRepository,
+                              photoStorage = chatPhotoStorage,
+                              savedStateHandle = createSavedStateHandle(),
+                              uploadScope = photoUploadScope,
                           )
                         }
                       }
@@ -523,6 +580,9 @@ fun AppNavHost(
               },
               onOpenSettings = {
                 navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+              },
+              onOpenBookings = {
+                navController.navigate(Routes.RENTER_BOOKINGS) { launchSingleTop = true }
               },
               toolbox = {
                 ToolboxCard(

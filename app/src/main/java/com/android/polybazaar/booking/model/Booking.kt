@@ -30,3 +30,6 @@ data class Booking(
     val status: BookingStatus = BookingStatus.REQUESTED,
     val id: String = "",
 )
+
+/** Whether every day is before [today]: the booking is history and stays as it is. */
+fun Booking.isFinished(today: LocalDate): Boolean = days.all { it.isBefore(today) }
