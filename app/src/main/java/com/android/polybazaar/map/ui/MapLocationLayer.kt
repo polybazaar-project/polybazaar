@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -115,20 +116,25 @@ fun MapLocationLayer(viewModel: MapViewModel, modifier: Modifier = Modifier) {
       viewModel.onPermissionResult(true)
     }
   }
+  // Remembered: MapLocationActions is a plain class of lambdas, so a new one on every redraw would
+  // make Compose redraw the whole content each time the map around it redraws.
+  val actions =
+      remember(viewModel, requestPermission) {
+        MapLocationActions(
+            onContinue = { requestPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+            onNotNow = { viewModel.onPermissionResult(false) },
+            onChooseCampus = viewModel::chooseCampus,
+            onChangeCampus = viewModel::changeCampus,
+            onCancelChoice = viewModel::cancelCampusChoice,
+        )
+      }
   MapLocationContent(
       // Undecided but granted is the frame before the effect above runs: show nothing rather than
       // flash the explanation.
       centre =
           if (uiState.centre == MapCentre.Undecided && alreadyGranted) MapCentre.Locating
           else uiState.centre,
-      actions =
-          MapLocationActions(
-              onContinue = { requestPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
-              onNotNow = { viewModel.onPermissionResult(false) },
-              onChooseCampus = viewModel::chooseCampus,
-              onChangeCampus = viewModel::changeCampus,
-              onCancelChoice = viewModel::cancelCampusChoice,
-          ),
+      actions = actions,
       modifier = modifier,
   )
 }
