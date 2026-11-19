@@ -127,6 +127,11 @@
     <string name="map_showing_campus">Showing %1$s</string>
     <string name="map_change_campus">Change</string>
     <string name="map_change_campus_description">Change campus</string>
+    <string name="map_loading_listings">Loading listings…</string>
+    <string name="map_no_listings">No listings with a location nearby yet</string>
+    <string name="map_retry">Retry</string>
+    <string name="map_marker_item">%1$s, item, %2$s per day</string>
+    <string name="map_marker_service">%1$s, skill, %2$s per day</string>
 
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
