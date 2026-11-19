@@ -645,11 +645,21 @@ private fun MessageList(
       MessageListChange.NONE -> Unit
     }
   }
-  // The photos being sent are the items under the newest message. The hint goes only once that
-  // message or one of them is in view, so a tap whose scroll is cut short leaves it up.
-  val pendingCount by rememberUpdatedState(pendingPhotos.size)
+  // The hint goes once the newest message, or a photo being sent under it, is in view; a tap whose
+  // scroll is cut short leaves it up. Looked up by key, which holds whether or not the new message
+  // is laid out yet.
+  val endKeys by
+      rememberUpdatedState(setOfNotNull(newest?.id) + pendingPhotos.map(::pendingPhotoKey))
   LaunchedEffect(listState) {
-    snapshotFlow { newestUnseen && listState.firstVisibleItemIndex <= pendingCount }
+    snapshotFlow {
+      if (!newestUnseen) return@snapshotFlow false
+      val layout = listState.layoutInfo
+      layout.visibleItemsInfo.any {
+        it.key in endKeys &&
+            it.offset + it.size > layout.viewportStartOffset &&
+            it.offset < layout.viewportEndOffset
+      }
+    }
         .collect { seen -> if (seen) newestUnseen = false }
   }
   Column(modifier = Modifier.fillMaxSize()) {
