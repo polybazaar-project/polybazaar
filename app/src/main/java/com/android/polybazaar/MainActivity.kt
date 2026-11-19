@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot Claude Sonnet 5.5
+// Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar
 
 import android.os.Bundle
@@ -16,6 +17,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.booking.model.FirebaseBookingRepository
 import com.android.polybazaar.chat.model.FirebaseChatRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
@@ -55,7 +57,11 @@ class MainActivity : ComponentActivity() {
                   remember { FilePhotoStorage(applicationContext, FilePhotoStorage.CREATE_FORM) },
               editPhotoStorage =
                   remember { FilePhotoStorage(applicationContext, FilePhotoStorage.EDIT_FORM) },
-              chatRepository = remember { FirebaseChatRepository() },
+              chatRepository =
+                  remember {
+                    FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
+                  },
+              bookingRepository = remember { FirebaseBookingRepository() },
           )
         }
       }

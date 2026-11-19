@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.auth.model.ViewerCache
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
@@ -91,7 +92,7 @@ class ListingDetailViewModel(
     private val listingId: String,
     private val listingRepository: ListingRepository,
     private val profileRepository: ProfileRepository,
-    private val authRepository: AuthRepository,
+    authRepository: AuthRepository,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ListingDetailUiState())
@@ -109,7 +110,7 @@ class ListingDetailViewModel(
   private var currentImagePaths: List<String> = emptyList()
 
   /** The viewer once read, kept for the rest of the screen's life (see [showListing]). */
-  private var knownViewer: User? = null
+  private val viewerCache = ViewerCache(authRepository)
 
   /**
    * Set once the listing is deleted and never reset, unlike [ListingDetailUiState.isDeleted] which
@@ -231,10 +232,9 @@ class ListingDetailViewModel(
 
   private suspend fun showListing(listing: Listing) {
     // Read once and kept: an offline reload would otherwise lose a viewer it already knew and
-    // disable the actions, and every getCurrentUser() also writes the viewer's profile document.
-    // Read again only while unknown, so a reload after a failed read can still enable them.
-    val viewer = knownViewer ?: currentViewer()
-    knownViewer = viewer
+    // disable the actions. Read again only while unknown, so a reload after a failed read can still
+    // enable them.
+    val viewer = viewerCache.viewer()
     currentImagePaths = listing.imagePaths
     _uiState.update {
       it.copy(
@@ -267,29 +267,14 @@ class ListingDetailViewModel(
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
-        // Only for the log, as in currentViewer(): the placeholder stays, a photo is not worth an
-        // error.
+        // Only for the log: the AppError it returns is dropped, so the placeholder stays and no
+        // error is shown. A photo is not worth one.
         exception.toAppError()
       } finally {
         photosDownloading.remove(path)
       }
     }
   }
-
-  /**
-   * The signed-in user, or null when it cannot be read, for example offline before the username is
-   * cached. Not shown as an error: the listing can still be read, only the actions stay disabled.
-   */
-  private suspend fun currentViewer(): User? =
-      try {
-        authRepository.getCurrentUser()
-      } catch (exception: Exception) {
-        if (exception is CancellationException) throw exception
-        // Only for the log: toAppError() logs exceptions it does not recognise, such as a bug in
-        // getCurrentUser(), and stays quiet for expected ones such as a network failure.
-        exception.toAppError()
-        null
-      }
 
   /** Keeps [ListingDetailUiState.lender] and its photo up to date with the owner's profile. */
   private fun observeLender(ownerUid: String) {
@@ -330,7 +315,7 @@ class ListingDetailViewModel(
       _uiState.update { it.copy(lenderPhoto = photo) }
     } catch (exception: Exception) {
       if (exception is CancellationException) throw exception
-      // Only for the log, as in currentViewer().
+      // Only for the log: the AppError it returns is dropped, so nothing is shown.
       exception.toAppError()
     }
   }

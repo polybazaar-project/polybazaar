@@ -1,5 +1,6 @@
 // Co-authored-by: Copilot (Auto)
 // Co-authored-by: Copilot (GPT-5.6 Terra)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
 import com.google.android.gms.tasks.TaskCompletionSource
@@ -36,6 +37,7 @@ class FirebaseBookingRepositoryTest {
   private val document = mock<DocumentReference>()
   private val listingQuery = mock<Query>()
   private val lenderQuery = mock<Query>()
+  private val renterQuery = mock<Query>()
   private val snapshot = mock<QuerySnapshot>()
   private val stored = mock<DocumentSnapshot>()
   private val repository = FirebaseBookingRepository(firestore, auth)
@@ -44,8 +46,8 @@ class FirebaseBookingRepositoryTest {
           listingId = "listing",
           renterUid = "caller-renter",
           lenderUid = "lender",
-          startDate = LocalDate.of(2026, 12, 31),
-          endDate = LocalDate.of(2027, 1, 2),
+          // Separate days, given out of order, across two years.
+          days = setOf(LocalDate.of(2027, 1, 2), LocalDate.of(2026, 12, 31)),
       )
 
   @Before
@@ -57,6 +59,8 @@ class FirebaseBookingRepositoryTest {
     whenever(collection.document()).thenReturn(document)
     whenever(collection.whereEqualTo("listingId", "listing")).thenReturn(listingQuery)
     whenever(listingQuery.whereEqualTo("lenderUid", "lender")).thenReturn(lenderQuery)
+    whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(renterQuery)
+    whenever(collection.document("booking-id")).thenReturn(document)
   }
 
   @Test
@@ -72,8 +76,12 @@ class FirebaseBookingRepositoryTest {
                     "listingId" to "listing",
                     "renterUid" to "renter",
                     "lenderUid" to "lender",
-                    "startDate" to booking.startDate.toEpochDay(),
-                    "endDate" to booking.endDate.toEpochDay(),
+                    // Earliest first, as the rules check the first day against today.
+                    "days" to
+                        listOf(
+                            LocalDate.of(2026, 12, 31).toEpochDay(),
+                            LocalDate.of(2027, 1, 2).toEpochDay(),
+                        ),
                     "status" to "REQUESTED",
                 )
             )
@@ -108,12 +116,12 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
-  fun requestBookingRejectsInvalidDatesAndStatus() = runTest {
-    val reversed = booking.copy(endDate = booking.startDate.minusDays(1))
+  fun requestBookingRejectsNoDaysAndANonRequestedStatus() = runTest {
+    val noDays = booking.copy(days = emptySet())
     val confirmed = booking.copy(status = BookingStatus.CONFIRMED)
 
     assertTrue(
-        runCatching { repository.requestBooking(reversed) }.exceptionOrNull()
+        runCatching { repository.requestBooking(noDays) }.exceptionOrNull()
             is IllegalArgumentException
     )
     assertTrue(
@@ -133,8 +141,7 @@ class FirebaseBookingRepositoryTest {
     whenever(stored.getString("listingId")).thenReturn(booking.listingId)
     whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
     whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
-    whenever(stored.getLong("startDate")).thenReturn(booking.startDate.toEpochDay())
-    whenever(stored.getLong("endDate")).thenReturn(booking.endDate.toEpochDay())
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
     whenever(stored.getString("status")).thenReturn("CANCELLED")
     whenever(stored.id).thenReturn("booking-id")
 
@@ -159,6 +166,42 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
+  fun getBookingsRejectsABookingWithoutDaysOrWithAnInvalidDay() = runTest {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
+    whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getString("status")).thenReturn("REQUESTED")
+
+    // A booking written with the first and last day of earlier versions has no days.
+    whenever(stored.get("days")).thenReturn(null)
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+    whenever(stored.get("days")).thenReturn(emptyList<Long>())
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+    whenever(stored.get("days")).thenReturn(listOf("20000"))
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+    // Out of LocalDate's range: ofEpochDay throws DateTimeException, rethrown as above.
+    whenever(stored.get("days")).thenReturn(listOf(Long.MAX_VALUE))
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+  }
+
+  @Test
   fun getBookingsRejectsSignedOutUser() = runTest {
     whenever(auth.currentUser).thenReturn(null)
     val error = runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
@@ -167,5 +210,91 @@ class FirebaseBookingRepositoryTest {
         FirebaseFirestoreException.Code.UNAUTHENTICATED,
         (error as FirebaseFirestoreException).code,
     )
+  }
+
+  @Test
+  fun getBookingsForRenterQueriesAuthenticatedRenterAndDecodesBookings() = runTest {
+    whenever(renterQuery.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn("renter")
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+    whenever(stored.getString("status")).thenReturn("REQUESTED")
+    whenever(stored.id).thenReturn("booking-id")
+
+    assertEquals(
+        listOf(booking.copy(renterUid = "renter", id = "booking-id")),
+        repository.getBookingsForRenter(),
+    )
+    verify(collection).whereEqualTo("renterUid", "renter")
+  }
+
+  @Test
+  fun getBookingsForRenterRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val error = runCatching { repository.getBookingsForRenter() }.exceptionOrNull()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (error as FirebaseFirestoreException).code,
+    )
+  }
+
+  @Test
+  fun cancelBookingQueuesOfflineWriteWithoutWaitingForServer() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
+
+    withTimeout(1_000) { repository.cancelBooking("booking-id") }
+
+    assertTrue(!pendingWrite.task.isComplete)
+    verify(document).update("status", "CANCELLED")
+  }
+
+  @Test
+  fun cancelBookingReportsLaterRejectedWrite() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
+    var reportedFailure: Exception? = null
+    val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+    var reportedToCaller: Exception? = null
+
+    repository.cancelBooking("booking-id", onWriteFailure = { reportedToCaller = it })
+    val failure = IllegalStateException("Write rejected")
+    pendingWrite.setException(failure)
+
+    assertSame(failure, reportedFailure)
+    assertSame(failure, reportedToCaller)
+  }
+
+  @Test
+  fun cancelBookingLogsRejectedWriteWhenCallerPassesNoCallback() = runTest {
+    val pendingWrite = TaskCompletionSource<Void>()
+    whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
+    var logged: Exception? = null
+    val repository = FirebaseBookingRepository(firestore, auth) { logged = it }
+
+    repository.cancelBooking("booking-id")
+    val failure = IllegalStateException("Write rejected")
+    pendingWrite.setException(failure)
+
+    assertSame(failure, logged)
+  }
+
+  @Test
+  fun cancelBookingRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val error = runCatching { repository.cancelBooking("booking-id") }.exceptionOrNull()
+
+    assertTrue(error is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (error as FirebaseFirestoreException).code,
+    )
+    verify(document, never()).update(any<String>(), any())
   }
 }
