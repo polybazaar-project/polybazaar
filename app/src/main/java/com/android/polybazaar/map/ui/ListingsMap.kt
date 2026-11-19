@@ -4,6 +4,7 @@ package com.android.polybazaar.map.ui
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
@@ -14,10 +15,12 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapEffect
 import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.MapsComposeExperimentalApi
 import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberMarkerState
+import com.google.maps.android.compose.rememberUpdatedMarkerState
 
 /** Radius of the "approximate location" circle (Figma "Map — Centred on you"), in metres. */
 private const val APPROXIMATE_RADIUS_METRES = 150.0
@@ -26,11 +29,17 @@ private fun Coordinates.toLatLng() = LatLng(latitude, longitude)
 
 /**
  * The Google map itself: camera from [cameraFor], one marker per listing with its item or skill
- * icon, and the renter's approximate circle or their campus marker. Kept to drawing only, since
- * Google Maps can't run in unit tests: every decision is in the tested functions of MapScreen.kt.
+ * icon, and the renter's approximate circle or their campus marker. [onMapReady] is called once the
+ * map is created (tests wait for it). Kept to drawing only, since Google Maps can't run in unit
+ * tests: every decision is in the tested functions of MapScreen.kt.
  */
+@OptIn(MapsComposeExperimentalApi::class)
 @Composable
-internal fun ListingsMap(centre: MapCentre, markers: List<MapMarker>) {
+internal fun ListingsMap(
+    centre: MapCentre,
+    markers: List<MapMarker>,
+    onMapReady: () -> Unit = {},
+) {
   val camera = cameraFor(centre)
   val cameraState = rememberCameraPositionState {
     position = CameraPosition.fromLatLngZoom(camera.target.toLatLng(), camera.zoom)
@@ -48,13 +57,21 @@ internal fun ListingsMap(centre: MapCentre, markers: List<MapMarker>) {
       // controls out of their way.
       uiSettings = MapUiSettings(zoomControlsEnabled = false, mapToolbarEnabled = false),
   ) {
+    // Once the map exists, whether or not its tiles can load: lets the instrumented test wait for
+    // the map instead of sleeping.
+    MapEffect(Unit) { onMapReady() }
     markers.forEach { marker ->
-      MarkerComposable(
-          keys = arrayOf<Any>(marker.id, marker.type),
-          state = rememberMarkerState(key = marker.id, position = marker.coordinates.toLatLng()),
-          title = markerLabel(marker),
-      ) {
-        MarkerPin(icon = markerIcon(marker.type))
+      // Keyed by listing, not by its place in the list: after a reload that drops or reorders
+      // listings, each marker keeps its own state instead of taking its neighbour's, and a listing
+      // its owner moved follows its new position (rememberUpdatedMarkerState).
+      key(marker.id) {
+        MarkerComposable(
+            keys = arrayOf<Any>(marker.id, marker.type),
+            state = rememberUpdatedMarkerState(position = marker.coordinates.toLatLng()),
+            title = markerLabel(marker),
+        ) {
+          MarkerPin(icon = markerIcon(marker.type))
+        }
       }
     }
     when (centre) {
@@ -67,16 +84,14 @@ internal fun ListingsMap(centre: MapCentre, markers: List<MapMarker>) {
               strokeWidth = 2f,
           )
       is MapCentre.OnCampus ->
-          MarkerComposable(
-              keys = arrayOf<Any>(centre.campus),
-              state =
-                  rememberMarkerState(
-                      key = centre.campus.name,
-                      position = centre.campus.centre.toLatLng(),
-                  ),
-              title = centre.campus.name,
-          ) {
-            MarkerPin(icon = R.drawable.ic_campus)
+          key(centre.campus) {
+            MarkerComposable(
+                keys = arrayOf<Any>(centre.campus),
+                state = rememberUpdatedMarkerState(position = centre.campus.centre.toLatLng()),
+                title = centre.campus.name,
+            ) {
+              MarkerPin(icon = R.drawable.ic_campus)
+            }
           }
       else -> Unit
     }

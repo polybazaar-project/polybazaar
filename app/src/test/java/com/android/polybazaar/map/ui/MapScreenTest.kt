@@ -30,6 +30,7 @@ import com.android.polybazaar.map.viewmodel.MapCentre
 import com.android.polybazaar.map.viewmodel.MapMarker
 import com.android.polybazaar.map.viewmodel.MapUiState
 import com.android.polybazaar.map.viewmodel.MapViewModel
+import java.net.UnknownHostException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -197,14 +198,23 @@ class MapScreenTest {
                     )
                 )
         )
+    // The first load fails, as offline without a cache.
+    listings.failure = UnknownHostException("firestore.googleapis.com")
     val viewModel = MapViewModel(FakeLocationRepository(), listings, "renter", SavedStateHandle())
+    // A campus already picked, so the location card doesn't cover the bottom of the map.
+    viewModel.chooseCampus(Campus.EPFL)
     var shown = emptyList<MapMarker>()
 
     composeTestRule.setContent { MapScreen(viewModel, map = { shown = it.markers }) }
     composeTestRule.waitForIdle()
+    assertEquals(emptyList<String>(), shown.map { it.id })
+    node(MapLocationTags.CAMPUS_PILL).assertIsDisplayed()
+
+    listings.failure = null
+    node(MapScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.waitForIdle()
 
     assertEquals(listOf("drill"), shown.map { it.id })
-    // The location layer is drawn over the map: the explanation before asking.
-    node(MapLocationTags.REASON_CARD).assertIsDisplayed()
+    node(MapScreenTags.ERROR).assertDoesNotExist()
   }
 }
