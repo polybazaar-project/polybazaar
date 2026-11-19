@@ -28,6 +28,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
+import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.FakeLocationRepository
@@ -130,6 +131,7 @@ class MapLocationLayerTest {
 
   // ---- With the real ViewModel and Android's permission ----
 
+  private val listings = FakeListingRepository()
   private val location = FakeLocationRepository(Coordinates(46.518, 6.568))
 
   /** Stands in for Android's permission dialog: every request is answered [granted]. */
@@ -164,7 +166,7 @@ class MapLocationLayerTest {
   @Test
   fun permissionAlreadyGranted_skipsTheExplanation_andCentresOnTheRenter() {
     shadowOf(context as Application).grantPermissions(Manifest.permission.ACCESS_COARSE_LOCATION)
-    val viewModel = MapViewModel(location, SavedStateHandle())
+    val viewModel = MapViewModel(location, listings, "renter", SavedStateHandle())
 
     showLayer(viewModel)
     composeTestRule.waitForIdle()
@@ -175,7 +177,7 @@ class MapLocationLayerTest {
 
   @Test
   fun permissionGrantedInSettingsWhileExplaining_readsTheLocationOnTheNextRedraw() {
-    val viewModel = MapViewModel(location, SavedStateHandle())
+    val viewModel = MapViewModel(location, listings, "renter", SavedStateHandle())
     var redraws by mutableIntStateOf(0)
     // A new modifier on each redraw, like a parent recomposing around the layer.
     composeTestRule.setContent { MapLocationLayer(viewModel, Modifier.testTag("layer_$redraws")) }
@@ -193,7 +195,7 @@ class MapLocationLayerTest {
   @Test
   fun continue_asksForApproximateLocationOnly_andAGrantCentresOnTheRenter() {
     val asked = mutableListOf<String>()
-    val viewModel = MapViewModel(location, SavedStateHandle())
+    val viewModel = MapViewModel(location, listings, "renter", SavedStateHandle())
     showLayer(viewModel, permissionDialog(granted = true) { asked += it })
 
     node(MapLocationTags.CONTINUE_BUTTON).performClick()
@@ -205,7 +207,7 @@ class MapLocationLayerTest {
 
   @Test
   fun aRefusal_showsTheChooser_andPickingACampusCentresOnIt() {
-    val viewModel = MapViewModel(location, SavedStateHandle())
+    val viewModel = MapViewModel(location, listings, "renter", SavedStateHandle())
     showLayer(viewModel, permissionDialog(granted = false))
 
     node(MapLocationTags.CONTINUE_BUTTON).performClick()
@@ -219,7 +221,7 @@ class MapLocationLayerTest {
   @Test
   fun notNow_showsTheChooser_withoutAskingAndroid() {
     val asked = mutableListOf<String>()
-    val viewModel = MapViewModel(location, SavedStateHandle())
+    val viewModel = MapViewModel(location, listings, "renter", SavedStateHandle())
     showLayer(viewModel, permissionDialog(granted = true) { asked += it })
 
     node(MapLocationTags.NOT_NOW_BUTTON).performClick()
@@ -230,7 +232,7 @@ class MapLocationLayerTest {
 
   @Test
   fun changeThenCancel_goesBackToTheCampus() {
-    val viewModel = MapViewModel(location, SavedStateHandle())
+    val viewModel = MapViewModel(location, listings, "renter", SavedStateHandle())
     viewModel.chooseCampus(Campus.UNIL)
     showLayer(viewModel)
 
