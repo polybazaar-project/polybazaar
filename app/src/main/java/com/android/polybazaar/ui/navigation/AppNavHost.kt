@@ -83,6 +83,11 @@ import com.android.polybazaar.listing.ui.ListingDetailActions
 import com.android.polybazaar.listing.ui.ListingDetailScreen
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.LocationRepository
+import com.android.polybazaar.map.ui.ListingsMap
+import com.android.polybazaar.map.ui.MapScreen
+import com.android.polybazaar.map.viewmodel.MapUiState
+import com.android.polybazaar.map.viewmodel.MapViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -105,8 +110,8 @@ object AppNavHostTags {
 /**
  * Navigation graph of the app. It starts on a loading screen until the persisted session has been
  * checked, then routes a signed-in user to Browse, or to the verify email screen while their email
- * is not verified, and everyone else to sign-in. Browse, Create listing, Conversations and Profile
- * share a bottom bar.
+ * is not verified, and everyone else to sign-in. Browse, Map, Create listing, Conversations and
+ * Profile share a bottom bar.
  *
  * All auth screens share [authViewModel], so a sign-in made on one of them is seen by the others.
  * Signing out from any signed-in screen returns to sign-in and clears the back stack.
@@ -116,6 +121,9 @@ object AppNavHostTags {
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
  * @param chatRepository gives the Conversations screen the signed-in user's conversations.
  * @param bookingRepository sends the booking requests made from a listing's "Choose dates".
+ * @param locationRepository reads the renter's approximate location for the Map tab.
+ * @param listingsMap draws the Map tab's map: the Google map, or a stand-in in tests, where Google
+ *   Maps can't run.
  * @param photoStorage keeps the photos of the listing being created.
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
@@ -130,7 +138,9 @@ fun AppNavHost(
     editPhotoStorage: PhotoStorage,
     chatRepository: ChatRepository,
     bookingRepository: BookingRepository,
+    locationRepository: LocationRepository,
     navController: NavHostController = rememberNavController(),
+    listingsMap: @Composable (MapUiState) -> Unit = { ListingsMap(it.centre, it.markers) },
 ) {
   val uiState by authViewModel.uiState.collectAsState()
   val snackbarHostState = remember { SnackbarHostState() }
@@ -526,6 +536,29 @@ fun AppNavHost(
               onBack = { navController.popBackStack() },
           )
         }
+        composable(Routes.MAP) {
+          val uid = uiState.user?.uid ?: return@composable
+          // Keyed by uid, like Browse: the map leaves out the signed-in user's own listings.
+          val mapViewModel: MapViewModel =
+              viewModel(
+                  key = "map_$uid",
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          MapViewModel(
+                              locationRepository = locationRepository,
+                              listingRepository = listingRepository,
+                              currentUid = uid,
+                              savedStateHandle = createSavedStateHandle(),
+                          )
+                        }
+                      },
+              )
+          // Coming back to the tab shows listings created or paused meanwhile. On opening, the
+          // ViewModel ignores this call while its first load runs.
+          LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { mapViewModel.loadListings() }
+          MapScreen(viewModel = mapViewModel, map = listingsMap)
+        }
         composable(Routes.INBOX) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
           val uid = uiState.user?.uid ?: return@composable
@@ -670,6 +703,7 @@ private val signedInRoutes =
     setOf(
         Routes.VERIFY_EMAIL,
         Routes.BROWSE,
+        Routes.MAP,
         Routes.CREATE_LISTING,
         Routes.EDIT_LISTING,
         Routes.LISTING_DETAIL,
