@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.ui
 
 import android.content.Context
@@ -136,10 +137,20 @@ class BookingRequestScreenTest {
   }
 
   @Test
-  fun aChosenPeriod_showsTheDatesThePriceAndTheTotal() {
+  fun daysInARow_showTheDatesThePriceAndTheTotal() {
     setContent(drillState(selection = days(13..15)))
 
     composeTestRule.onNodeWithText("13–15 Nov").assertIsDisplayed()
+    node(BookingRequestScreenTags.PRICE_LINE).assertTextEquals("CHF 8 / day × 3 days")
+    node(BookingRequestScreenTags.TOTAL).assertTextEquals("CHF 24")
+    node(BookingRequestScreenTags.SUBMIT_BUTTON).assertIsEnabled()
+  }
+
+  @Test
+  fun separateDays_showTogether_withThePriceOfEachDay() {
+    setContent(drillState(selection = setOf(day(13), day(15), day(20))))
+
+    composeTestRule.onNodeWithText("13, 15, 20 Nov").assertIsDisplayed()
     node(BookingRequestScreenTags.PRICE_LINE).assertTextEquals("CHF 8 / day × 3 days")
     node(BookingRequestScreenTags.TOTAL).assertTextEquals("CHF 24")
     node(BookingRequestScreenTags.SUBMIT_BUTTON).assertIsEnabled()
@@ -190,7 +201,7 @@ class BookingRequestScreenTest {
   }
 
   @Test
-  fun aPeriodLongerThanTheItemAllows_isRefused() {
+  fun moreDaysThanTheItemAllows_areRefused() {
     setContent(drillState(selection = days(13..16)))
 
     node(BookingRequestScreenTags.DATES_MESSAGE)
@@ -271,6 +282,17 @@ class BookingRequestScreenTest {
   }
 
   @Test
+  fun onceSent_confirmsSeparateDays() {
+    setContent(
+        drillState(selection = setOf(day(13), day(15), day(16))),
+        BookingUiState(isQueued = true),
+    )
+
+    node(BookingRequestScreenTags.SENT_MESSAGE)
+        .assertTextEquals("You asked for 13, 15–16 Nov. The lender still has to accept it.")
+  }
+
+  @Test
   fun onceSent_confirmsTheDays_andDoneLeaves() {
     var dones = 0
     setContent(
@@ -315,7 +337,7 @@ class BookingRequestScreenTest {
   }
 
   @Test
-  fun withItsViewModels_aChosenPeriodIsRequested_thenConfirmed() {
+  fun withItsViewModels_separateDaysAreRequested_thenConfirmed() {
     val renter =
         User(uid = "renter", email = "renter@epfl.ch", username = "Rita", isEmailVerified = true)
     val auth: AuthRepository = mock { onBlocking { getCurrentUser() } doReturn renter }
@@ -334,7 +356,7 @@ class BookingRequestScreenTest {
     }
     composeTestRule.waitForIdle()
 
-    viewModel.updateSelection(days(13..15))
+    viewModel.updateSelection(setOf(day(13), day(15), day(20)))
     node(BookingRequestScreenTags.SUBMIT_BUTTON).performScrollTo().performClick()
     composeTestRule.waitForIdle()
 
@@ -343,8 +365,7 @@ class BookingRequestScreenTest {
             listingId = "drill",
             renterUid = "renter",
             lenderUid = "lender",
-            startDate = day(13),
-            endDate = day(15),
+            days = setOf(day(13), day(15), day(20)),
         ),
         bookings.requestedBooking,
     )
@@ -352,5 +373,8 @@ class BookingRequestScreenTest {
     node(BookingRequestScreenTags.SENT_MESSAGE).assertIsDisplayed()
     node(BookingRequestScreenTags.DONE_BUTTON).performClick()
     assertEquals(1, backs)
+    // The confirmation stays while the screen is leaving: the form coming back could be sent again.
+    node(BookingRequestScreenTags.SENT_MESSAGE).assertIsDisplayed()
+    node(BookingRequestScreenTags.SUBMIT_BUTTON).assertDoesNotExist()
   }
 }

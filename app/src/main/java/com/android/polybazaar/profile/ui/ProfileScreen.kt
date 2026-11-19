@@ -1,5 +1,6 @@
 // Portions of this code were generated with the help of Claude Code.
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.profile.ui
 
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +33,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -54,6 +57,7 @@ object ProfileScreenTags {
   const val ERROR_MESSAGE = "profile_error_message"
   const val RECENT_ACTIVITY = "profile_recent_activity"
   const val EDIT_PROFILE_BUTTON = "profile_edit_profile_button"
+  const val MY_BOOKINGS_BUTTON = "profile_my_bookings_button"
 }
 
 /** The fixed cards take about 450 dp; the rest leaves the Toolbox room to show a few rows. */
@@ -68,6 +72,7 @@ private val MinPageHeight = 640.dp
  * @param error the error to show, if any.
  * @param onEditProfile called when the user taps "Edit profile".
  * @param onOpenSettings called when the user taps the settings button.
+ * @param onOpenBookings called when the user taps "My bookings".
  * @param toolbox the user's Toolbox, shown under the identity card in a bounded height.
  */
 @Composable
@@ -78,6 +83,7 @@ fun ProfileContent(
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
     photo: ByteArray? = null,
+    onOpenBookings: () -> Unit = {},
     toolbox: @Composable () -> Unit = {},
 ) {
   BoxWithConstraints(
@@ -107,7 +113,17 @@ fun ProfileContent(
       Spacer(modifier = Modifier.height(24.dp))
       // Takes the height the other cards leave, and its content scrolls inside that height.
       Box(modifier = Modifier.fillMaxWidth().weight(1f)) { toolbox() }
-      RecentActivityCard(modifier = Modifier.padding(vertical = 24.dp))
+      RecentActivityCard(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp))
+      TextButton(
+          onClick = onOpenBookings,
+          modifier = Modifier.fillMaxWidth().testTag(ProfileScreenTags.MY_BOOKINGS_BUTTON),
+      ) {
+        Text(
+            text = stringResource(R.string.renter_bookings_title),
+            color = AuthColors.Accent,
+            fontWeight = FontWeight.Bold,
+        )
+      }
       EditProfileButton(onClick = onEditProfile, enabled = profile != null)
     }
   }

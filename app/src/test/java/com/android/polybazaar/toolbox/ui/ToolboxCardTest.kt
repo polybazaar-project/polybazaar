@@ -37,6 +37,7 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.testing.hasClickLabel
 import com.android.polybazaar.toolbox.viewmodel.ToolboxUiState
 import com.android.polybazaar.toolbox.viewmodel.ToolboxViewModel
+import com.android.polybazaar.ui.theme.PolyBazaarTheme
 import java.net.UnknownHostException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -176,6 +177,86 @@ class ToolboxCardTest {
     composeTestRule.onNodeWithText("Item").assertDoesNotExist()
     composeTestRule.onNodeWithText("Service").assertDoesNotExist()
     composeTestRule.onNodeWithTag(ToolboxCardTags.EMPTY).assertDoesNotExist()
+  }
+
+  @Test
+  fun pausedListing_showsThePausedBadgeOnItsRowOnly() {
+    val listings = listOf((myListings[0] as ItemListing).copy(isPaused = true), myListings[1])
+    setContent(ToolboxUiState(listings = listings))
+
+    val paused = string(R.string.listing_detail_paused).uppercase()
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertCountEquals(1)[0]
+        .assertTextEquals(paused)
+        .assertIsDisplayed()
+    // Each row is one button, so the badge's text is merged into the row it belongs to.
+    val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
+    rows[0].assert(hasText("Bosch drill set")).assert(hasText(paused))
+    rows[1].assert(hasText("Math tutoring")).assert(!hasText(paused))
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Measures the text for real, so heights are real.
+  fun pausedRow_isAsTallAsAnActiveRow() {
+    val listings = listOf((myListings[0] as ItemListing).copy(isPaused = true), myListings[1])
+    // The app's theme, since its line height is what sets the title's height.
+    composeTestRule.setContent {
+      PolyBazaarTheme(dynamicColor = false) {
+        ToolboxContent(
+            uiState = ToolboxUiState(listings = listings),
+            onRetry = {},
+            onTypeSelected = {},
+        )
+      }
+    }
+
+    val rows = composeTestRule.onAllNodesWithTag(ToolboxCardTags.LISTING_ROW)
+    val paused = rows[0].getUnclippedBoundsInRoot()
+    val active = rows[1].getUnclippedBoundsInRoot()
+    assertEquals(active.bottom - active.top, paused.bottom - paused.top)
+  }
+
+  @Test
+  fun activeListings_showNoPausedBadge() {
+    setContent(ToolboxUiState(listings = myListings))
+
+    composeTestRule
+        .onAllNodesWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  @Config(qualifiers = "w360dp")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE) // Measures the text for real, so truncation shows.
+  fun pausedListingWithALongTitle_cutsTheTitleAndKeepsTheBadgeInTheRow() {
+    val longTitle = "Professional cordless drill with two batteries, a charger and a case"
+    val listing =
+        ItemListing(ListingCategory.ITEM_TOOLS, 8.0, longTitle, "", listingId = "long")
+            .copy(isPaused = true)
+    composeTestRule.setContent {
+      ToolboxContent(
+          uiState = ToolboxUiState(listings = listOf(listing)),
+          onRetry = {},
+          onTypeSelected = {},
+          modifier = Modifier.padding(horizontal = 18.dp),
+      )
+    }
+
+    val row = composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).getUnclippedBoundsInRoot()
+    val badge =
+        composeTestRule
+            .onNodeWithTag(ToolboxCardTags.PAUSED_BADGE, useUnmergedTree = true)
+            .assertIsDisplayed()
+            .getUnclippedBoundsInRoot()
+    assertTrue(badge.right <= row.right)
+    val layouts = mutableListOf<TextLayoutResult>()
+    composeTestRule.onNodeWithText(longTitle, useUnmergedTree = true).performSemanticsAction(
+        SemanticsActions.GetTextLayoutResult
+    ) {
+      it(layouts)
+    }
+    assertTrue(layouts.single().isLineEllipsized(0))
   }
 
   @Test

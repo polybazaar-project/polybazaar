@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.ui.navigation
 
 import android.net.Uri
@@ -24,6 +26,9 @@ object Routes {
   const val INBOX = "inbox"
   const val RENTER_UID = "renterUid"
   const val CONVERSATION = "conversation/{$LISTING_ID}/{$RENTER_UID}"
+  const val BOOKING_REQUEST = "booking_request/{$LISTING_ID}"
+  const val RENTER_BOOKINGS = "renter_bookings"
+  const val LENDER_BOOKINGS = "lender_bookings/{$LISTING_ID}"
 
   /** The route of the "Edit listing" screen for the listing [listingId]. */
   fun editListing(listingId: String) = "edit_listing/${Uri.encode(listingId)}"
@@ -40,4 +45,10 @@ object Routes {
    */
   fun conversation(listingId: String, renterUid: String) =
       "conversation/${Uri.encode(listingId)}/${Uri.encode(renterUid)}"
+
+  /** The route of the screen where a renter requests the listing [listingId] for some days. */
+  fun bookingRequest(listingId: String) = "booking_request/${Uri.encode(listingId)}"
+
+  /** The route of the lender's bookings of the listing [listingId]. */
+  fun lenderBookings(listingId: String) = "lender_bookings/${Uri.encode(listingId)}"
 }

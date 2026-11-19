@@ -11,6 +11,8 @@ import java.time.Instant
  * @property text trimmed message text, or "" for a photo-only message.
  * @property sentAt when the message was sent.
  * @property imagePath Storage path of the message's photo, or null for a text message.
+ * @property photoPending true while the sender has not finished uploading the photo: it can't be
+ *   downloaded yet. It stays true if the upload never ends, as when the sender's app was closed.
  */
 data class ChatMessage(
     val id: String,
@@ -18,4 +20,5 @@ data class ChatMessage(
     val text: String,
     val sentAt: Instant,
     val imagePath: String? = null,
+    val photoPending: Boolean = false,
 )
