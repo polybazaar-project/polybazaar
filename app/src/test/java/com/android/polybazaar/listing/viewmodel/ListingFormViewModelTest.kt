@@ -1276,7 +1276,7 @@ class ListingFormViewModelTest {
 
   @Test
   fun locateLender_opensThePickerWhereTheLenderIs() = runTest {
-    locationRepository.result = Result.success(lausanne)
+    locationRepository.location = lausanne
 
     viewModel.locateLender()
     testDispatcher.scheduler.advanceUntilIdle()
@@ -1288,6 +1288,7 @@ class ListingFormViewModelTest {
 
   @Test
   fun locateLender_failureLeavesTheFormUnchangedWithoutError() = runTest {
+    locationRepository.failure = IllegalStateException("No location")
     val before = viewModel.uiState.value
 
     viewModel.locateLender()
@@ -1300,7 +1301,7 @@ class ListingFormViewModelTest {
 
   @Test
   fun locateLender_isSkippedWhenALocationIsSet() = runTest {
-    locationRepository.result = Result.success(lausanne)
+    locationRepository.location = lausanne
     viewModel.setLocationPoint(ouchy)
 
     viewModel.locateLender()
@@ -1312,7 +1313,7 @@ class ListingFormViewModelTest {
 
   @Test
   fun locateLender_answeringAfterALocationWasChosen_keepsTheChosenPoint() = runTest {
-    locationRepository.result = Result.success(lausanne)
+    locationRepository.location = lausanne
 
     viewModel.locateLender()
     viewModel.setLocationPoint(ouchy)
@@ -1385,7 +1386,7 @@ class ListingFormViewModelTest {
 
   @Test
   fun locateLender_asksOnceAtATime() = runTest {
-    locationRepository.result = Result.success(lausanne)
+    locationRepository.location = lausanne
 
     viewModel.locateLender()
     viewModel.locateLender()
@@ -1400,7 +1401,7 @@ class ListingFormViewModelTest {
 
   @Test
   fun locateLender_whileTheEditedListingLoads_asksNothing() = runTest {
-    locationRepository.result = Result.success(lausanne)
+    locationRepository.location = lausanne
     repository.storedListing = storedItem.copy(location = storedLocation)
     repository.pendingLoad = CompletableDeferred()
     val editViewModel = newForm("l1")
@@ -1513,7 +1514,7 @@ class ListingFormViewModelTest {
   @Test
   fun suggestedPointAndUnnamedLocation_surviveTheAppBeingKilled() = runTest {
     fun restored() = newForm(null, afterAppKilled(savedStateHandle)) { today }.uiState.value
-    locationRepository.result = Result.success(lausanne)
+    locationRepository.location = lausanne
     viewModel.locateLender()
     testDispatcher.scheduler.advanceUntilIdle()
 

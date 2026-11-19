@@ -87,8 +87,8 @@ class EndToEndFlowTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = FakeChatRepository(),
-          locationRepository = FakeLocationRepository(),
           bookingRepository = FakeBookingRepository(),
+          locationRepository = FakeLocationRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )

@@ -165,8 +165,8 @@ class AppNavHostTest {
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
-            locationRepository = FakeLocationRepository(),
             bookingRepository = bookingRepository,
+            locationRepository = FakeLocationRepository(),
             connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
@@ -209,8 +209,8 @@ class AppNavHostTest {
             photoStorage = photoStorage,
             editPhotoStorage = editPhotoStorage,
             chatRepository = chatRepository,
-            locationRepository = FakeLocationRepository(),
             bookingRepository = bookingRepository,
+            locationRepository = FakeLocationRepository(),
             connectivityRepository = FakeConnectivityRepository(),
             navController = navController,
         )
@@ -680,8 +680,8 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
-          locationRepository = FakeLocationRepository(),
           bookingRepository = bookingRepository,
+          locationRepository = FakeLocationRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
@@ -1513,8 +1513,8 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
-          locationRepository = FakeLocationRepository(),
           bookingRepository = bookingRepository,
+          locationRepository = FakeLocationRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
@@ -1591,8 +1591,8 @@ class AppNavHostTest {
           photoStorage = photoStorage,
           editPhotoStorage = editPhotoStorage,
           chatRepository = chatRepository,
-          locationRepository = FakeLocationRepository(),
           bookingRepository = bookingRepository,
+          locationRepository = FakeLocationRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )

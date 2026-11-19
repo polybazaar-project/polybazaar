@@ -58,8 +58,8 @@ abstract class PolyBazaarTestCase :
                   FilePhotoStorage.EDIT_FORM,
               ),
           chatRepository = FakeChatRepository(),
-          locationRepository = FakeLocationRepository(),
           bookingRepository = FakeBookingRepository(),
+          locationRepository = FakeLocationRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = rememberNavController(),
       )

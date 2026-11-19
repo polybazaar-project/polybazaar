@@ -133,8 +133,8 @@ fun AppNavHost(
     photoStorage: PhotoStorage,
     editPhotoStorage: PhotoStorage,
     chatRepository: ChatRepository,
-    locationRepository: LocationRepository,
     bookingRepository: BookingRepository,
+    locationRepository: LocationRepository,
     connectivityRepository: ConnectivityRepository,
     navController: NavHostController = rememberNavController(),
 ) {
