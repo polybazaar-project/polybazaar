@@ -60,6 +60,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.Coordinates
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 
@@ -147,6 +148,14 @@ class ListingFormActions(
     /** Returns the URI the camera app writes the photo to, or null when none can be created. */
     val startTakingPhoto: (retakeIndex: Int?) -> Uri? = { null },
     val finishTakingPhoto: (saved: Boolean) -> Unit = {},
+    /** Sets the location to the point confirmed on the map. */
+    val onConfirmLocation: (Coordinates) -> Unit = {},
+    val onLocationNameChange: (String) -> Unit = {},
+    /** The location's name field lost focus: a missing name is flagged from then on. */
+    val onLocationNameFieldLeft: () -> Unit = {},
+    val onClearLocation: () -> Unit = {},
+    /** Asks for the lender's position, for the map picker to open there. */
+    val onLocateLender: () -> Unit = {},
     val onSave: () -> Unit = {},
 )
 
@@ -168,6 +177,11 @@ internal fun listingFormActions(viewModel: ListingFormViewModel) =
         onStoredPhotoShown = viewModel::loadStoredPhoto,
         startTakingPhoto = viewModel::startTakingPhoto,
         finishTakingPhoto = viewModel::finishTakingPhoto,
+        onConfirmLocation = viewModel::setLocationPoint,
+        onLocationNameChange = viewModel::updateLocationName,
+        onLocationNameFieldLeft = viewModel::leaveLocationNameField,
+        onClearLocation = viewModel::clearLocation,
+        onLocateLender = viewModel::locateLender,
         onSave = viewModel::save,
     )
 
@@ -201,9 +215,14 @@ fun CreateListingScreen(
  * [ListingType]: items get a daily price and a refund value, services an hourly price.
  *
  * @param actions called when the user edits the form, adds photos or creates the listing.
+ * @param locationMap the location picker's map, replaced in tests.
  */
 @Composable
-fun CreateListingContent(uiState: ListingFormUiState, actions: ListingFormActions) {
+fun CreateListingContent(
+    uiState: ListingFormUiState,
+    actions: ListingFormActions,
+    locationMap: ListingLocationMap = DefaultListingLocationMap,
+) {
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -221,7 +240,7 @@ fun CreateListingContent(uiState: ListingFormUiState, actions: ListingFormAction
           // The repository is still reading these photos, so none may be removed or replaced.
           enabled = !uiState.isSaving,
       )
-      ListingDetailsFields(uiState = uiState, actions = actions)
+      ListingDetailsFields(uiState = uiState, actions = actions, locationMap = locationMap)
     }
     CreateListingFooter(uiState = uiState, onCreate = actions.onSave)
   }
@@ -296,7 +315,8 @@ internal fun ListingTypeSelector(
 }
 
 /**
- * Title, description, price, category, for items the refund value, and the available days.
+ * Title, description, price, category, for items the refund value, the available days and the
+ * location.
  *
  * @param priceHint shown under the price, such as when a price change only applies to new bookings.
  */
@@ -305,6 +325,7 @@ internal fun ListingDetailsFields(
     uiState: ListingFormUiState,
     actions: ListingFormActions,
     priceHint: String? = null,
+    locationMap: ListingLocationMap = DefaultListingLocationMap,
 ) {
   val texts = formTextsFor(uiState.type)
   FormField(
@@ -363,6 +384,7 @@ internal fun ListingDetailsFields(
       // Not while saving: an edit form then shows the listing as saved, and would lose the change.
       enabled = uiState.canEdit && !uiState.isSaving,
   )
+  ListingLocationField(uiState = uiState, actions = actions, map = locationMap)
 }
 
 /**
