@@ -95,6 +95,9 @@ class FilePhotoStorage(context: Context, private val form: String) : PhotoStorag
     /** The folder of the form that edits a saved listing. */
     const val EDIT_FORM = "edit"
 
+    /** The folder of the photos taken in a conversation, kept until they are sent. */
+    const val CHAT_FORM = "chat"
+
     /**
      * Both the name and the path of the files-path declared in res/xml/file_paths.xml. The
      * FileProvider shares its subfolders too, so each form's folder lives under it.

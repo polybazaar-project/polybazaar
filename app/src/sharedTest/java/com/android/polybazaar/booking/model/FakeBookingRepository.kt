@@ -21,6 +21,7 @@ class FakeBookingRepository : BookingRepository {
   var writeFailure: ((Exception) -> Unit)? = null
   var requestJob: Job? = null
   var renterBookings: List<Booking> = emptyList()
+  var listingBookings: List<Booking> = emptyList()
   var pendingLoad: CompletableDeferred<Unit>? = null
   var loadFailure: Exception? = null
   var loadCount = 0
@@ -40,7 +41,12 @@ class FakeBookingRepository : BookingRepository {
     failure?.let { throw it }
   }
 
-  override suspend fun getBookingsForListing(listingId: String): List<Booking> = emptyList()
+  override suspend fun getBookingsForListing(listingId: String): List<Booking> {
+    loadCount++
+    pendingLoad?.await()
+    loadFailure?.let { throw it }
+    return listingBookings
+  }
 
   /** Does nothing: no test answers a booking request yet. */
   override suspend fun acceptBooking(booking: Booking) = Unit

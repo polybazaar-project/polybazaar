@@ -234,6 +234,54 @@ class InboxScreenTest {
   }
 
   @Test
+  fun rowPreview_ofAPhotoAlone_saysPhoto() {
+    val photo = context.getString(R.string.inbox_last_message_photo)
+    val drill = conversation("drill").copy(lastMessageText = "")
+    setContent(loaded(row(drill)))
+
+    node(InboxScreenTags.preview(drill.id)).assertTextEquals(photo)
+    // Read once in the row: the icon next to it is decorative.
+    rowOf(drill).assert(hasText(photo))
+    composeTestRule
+        .onAllNodes(
+            hasContentDescription(photo) and
+                hasAnyAncestor(hasTestTag(InboxScreenTags.row(drill.id))),
+            useUnmergedTree = true,
+        )
+        .assertCountEquals(0)
+  }
+
+  @Test
+  fun rowPreview_ofAPhotoWithACaption_showsTheCaption_notPhoto() {
+    // A photo's caption is its message text, so it is the preview.
+    val drill = conversation("drill").copy(lastMessageText = "Both batteries are in")
+    setContent(loaded(row(drill)))
+
+    node(InboxScreenTags.preview(drill.id)).assertTextEquals("Both batteries are in")
+    composeTestRule
+        .onAllNodes(
+            hasText(context.getString(R.string.inbox_last_message_photo)) and
+                hasAnyAncestor(hasTestTag(InboxScreenTags.row(drill.id))),
+            useUnmergedTree = true,
+        )
+        .assertCountEquals(0)
+  }
+
+  @Test
+  fun rowPreview_ofMyOwnPhoto_startsWithYou() {
+    val drill = conversation("drill").copy(lastMessageText = "")
+    setContent(loaded(row(drill, isLastMessageMine = true)))
+
+    node(InboxScreenTags.preview(drill.id))
+        .assertTextEquals(
+            context.getString(
+                R.string.inbox_last_message_mine,
+                context.getString(R.string.inbox_last_message_photo),
+            )
+        )
+  }
+
+  @Test
   fun rowWithoutLastMessageText_showsNoPreview() {
     val drill = conversation("drill")
     setContent(loaded(row(drill, isUnread = true)))

@@ -484,6 +484,16 @@ describe("listings", () => {
       await assertFails(deleteDoc(doc(verified(BOB), "bookings/requested")));
     });
 
+    test("a finished booking cannot be cancelled", async () => {
+      const today = Math.floor(Date.now() / 86_400_000);
+      await seed("bookings/finished", booking({ days: [today - 5, today - 3] }));
+      await seed("bookings/ends-today", booking({ days: [today - 2, today] }));
+
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/finished"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(ALICE), "bookings/finished"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(BOB), "bookings/ends-today"), { status: "CANCELLED" }));
+    });
+
     test("cancellation cannot change fields other than status", async () => {
       await seed("bookings/b1", booking());
       const ref = doc(verified(BOB), "bookings/b1");
@@ -1010,7 +1020,8 @@ const photoPath = (conversationId, messageId) => `conversations/${conversationId
 
 /**
  * A photo message for sendMessage: no text unless it has a caption, and by default the photo at
- * the message's own path in Bob's conversation. `imagePath` maps the message id to the stored path.
+ * the message's own path in Bob's conversation, still being uploaded. `imagePath` maps the message
+ * id to the stored path.
  */
 function photoMessage(
   senderUid,
@@ -1020,6 +1031,7 @@ function photoMessage(
     senderUid,
     sentAt: serverTimestamp(),
     imagePath: imagePath(messageId),
+    photoPending: true,
     ...(caption === undefined ? {} : { text: caption }),
     ...extra,
   });
@@ -1664,5 +1676,116 @@ describe("photo messages", () => {
     await assertFails(updateDoc(ref, { imagePath: photoPath(CONVERSATION_ID, "m3") }));
     await assertFails(updateDoc(ref, { text: "Caption" }));
     await assertFails(deleteDoc(ref));
+  });
+
+  test("a photo message is sent with its photo pending", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    for (const photoPending of [false, "true", null]) {
+      const message = photoMessage(BOB, { extra: { photoPending } });
+      await assertFails(sendMessage(db, BOB, { message }));
+    }
+    const withoutPending = (messageId) => {
+      const { photoPending, ...message } = photoMessage(BOB)(messageId);
+      return message;
+    };
+    await assertFails(sendMessage(db, BOB, { message: withoutPending }));
+  });
+
+  test("a text message has no pending photo", async () => {
+    await seedConversation();
+    for (const photoPending of [true, false]) {
+      await assertFails(sendMessage(verified(BOB), BOB, { message: { photoPending } }));
+    }
+  });
+});
+
+describe("pending photos", () => {
+  const PATH = `${CONVERSATION}/messages/m2`;
+
+  /** Seeds Bob's photo message m2, sent earlier, with its photo still pending unless told so. */
+  async function seedPhotoMessage(fields = { photoPending: true }) {
+    await seedConversation();
+    await seed(PATH, {
+      senderUid: BOB,
+      imagePath: photoPath(CONVERSATION_ID, "m2"),
+      sentAt: new Date(0),
+      ...fields,
+    });
+  }
+
+  test("the sender can mark their photo uploaded", async () => {
+    await seedPhotoMessage();
+    await assertSucceeds(updateDoc(doc(verified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("a photo with a caption can be marked uploaded", async () => {
+    await seedPhotoMessage({ photoPending: true, text: "The drill bits" });
+    await assertSucceeds(updateDoc(doc(verified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("only the sender can mark their photo uploaded", async () => {
+    await seedPhotoMessage();
+    await assertFails(updateDoc(doc(verified(ALICE), PATH), { photoPending: false }));
+    await assertFails(updateDoc(doc(verified(EVE), PATH), { photoPending: false }));
+    await assertFails(updateDoc(doc(unverified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("a photo is marked uploaded only once", async () => {
+    await seedPhotoMessage({ photoPending: false });
+    const ref = doc(verified(BOB), PATH);
+    await assertFails(updateDoc(ref, { photoPending: true }));
+    await assertFails(updateDoc(ref, { photoPending: false, text: "Caption" }));
+  });
+
+  test("a photo sent before photoPending existed cannot be marked", async () => {
+    await seedPhotoMessage({});
+    await assertFails(updateDoc(doc(verified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("marking a photo uploaded changes nothing else", async () => {
+    await seedPhotoMessage();
+    const ref = doc(verified(BOB), PATH);
+    await assertFails(updateDoc(ref, { photoPending: false, text: "Caption" }));
+    await assertFails(
+      updateDoc(ref, { photoPending: false, imagePath: photoPath(CONVERSATION_ID, "m3") }),
+    );
+    await assertFails(updateDoc(ref, { photoPending: false, sentAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { photoPending: "false" }));
+    await assertFails(updateDoc(ref, { photoPending: deleteField() }));
+  });
+
+  test("the sender can delete their message while its photo is pending", async () => {
+    await seedPhotoMessage();
+    await assertSucceeds(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("a pending photo with a caption can be deleted", async () => {
+    await seedPhotoMessage({ photoPending: true, text: "The drill bits" });
+    await assertSucceeds(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("only the sender can delete their pending photo message", async () => {
+    await seedPhotoMessage();
+    await assertFails(deleteDoc(doc(verified(ALICE), PATH)));
+    await assertFails(deleteDoc(doc(verified(EVE), PATH)));
+    await assertFails(deleteDoc(doc(unverified(BOB), PATH)));
+    await assertFails(deleteDoc(doc(signedOut(), PATH)));
+  });
+
+  test("a photo message cannot be deleted once its photo is uploaded", async () => {
+    await seedPhotoMessage({ photoPending: false });
+    await assertFails(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("a photo sent before photoPending existed cannot be deleted", async () => {
+    await seedPhotoMessage({});
+    await assertFails(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  // The app's Remove also deletes a message that was never written; the rules refuse it.
+  test("a missing message cannot be deleted", async () => {
+    await seedConversation();
+    await assertFails(deleteDoc(doc(verified(BOB), `${CONVERSATION}/messages/m9`)));
   });
 });
