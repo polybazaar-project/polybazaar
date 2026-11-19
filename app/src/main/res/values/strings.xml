@@ -233,6 +233,21 @@
     <string name="listing_form_availability_description">%1$s: %2$s</string>
     <string name="listing_form_availability_item_title">When can you lend it?</string>
     <string name="listing_form_availability_service_title">When can you offer it?</string>
+    <string name="listing_location_item_label">Pickup location (optional)</string>
+    <string name="listing_location_service_label">Meeting place (optional)</string>
+    <string name="listing_location_placeholder">Choose on the map</string>
+    <!-- What TalkBack reads for the field: its label, then the placeholder. -->
+    <string name="listing_location_description">%1$s: %2$s</string>
+    <string name="listing_location_move_pin">Move the pin</string>
+    <string name="listing_location_remove">Remove location</string>
+    <string name="listing_location_name_placeholder">Name the place…</string>
+    <string name="listing_location_name_error">Give the place a name.</string>
+    <string name="listing_location_picker_title">Choose the location</string>
+    <string name="listing_location_picker_hint">Move the map to place the pin</string>
+    <string name="listing_location_offline">Connect to the internet to choose a location</string>
+    <string name="listing_location_show_mine">Show my location</string>
+    <string name="listing_location_confirm">Confirm location</string>
+    <string name="listing_location_map_description">Map to choose where the listing is offered</string>
 
     <!-- Availability calendar -->
     <string name="calendar_previous_month">Previous month</string>

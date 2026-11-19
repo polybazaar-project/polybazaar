@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
-<!-- "map-pin" icon of the map's location reason card (Figma "Map — Location reason"). -->
+<!-- Map pin: the listing location field, the centre of its map picker, and the map's location
+     reason card (Figma "Map — Location reason"). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="22dp"
     android:height="22dp"

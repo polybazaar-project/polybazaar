@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Opus 5.5, Claude Fable 5.2)
 package com.android.polybazaar.listing.ui
 
 import androidx.activity.compose.BackHandler
@@ -110,6 +110,7 @@ fun EditListingScreen(
  * @param onRetry loads the listing again after a failure.
  * @param storedPhotoBytes the saved photos downloaded so far, by Storage path, for their
  *   thumbnails.
+ * @param locationMap the location picker's map, replaced in tests.
  */
 @Composable
 fun EditListingContent(
@@ -118,6 +119,7 @@ fun EditListingContent(
     onBack: () -> Unit,
     onRetry: () -> Unit,
     storedPhotoBytes: Map<String, ByteArray> = emptyMap(),
+    locationMap: ListingLocationMap = DefaultListingLocationMap,
 ) {
   Column(
       modifier =
@@ -161,6 +163,7 @@ fun EditListingContent(
               uiState = uiState,
               actions = actions,
               priceHint = stringResource(R.string.edit_listing_price_hint),
+              locationMap = locationMap,
           )
         }
         EditListingFooter(uiState = uiState, onCancel = onBack, onSave = actions.onSave)
