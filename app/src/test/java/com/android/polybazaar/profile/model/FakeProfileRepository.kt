@@ -6,20 +6,33 @@ import com.android.polybazaar.auth.model.User
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 
 /**
  * A [ProfileRepository] for tests.
  *
  * [observeProfile] emits the user with that uid from [users], or null when there is none, like the
- * real repository for a missing profile. For a uid in [failingUids] it fails with [failure]
- * instead, a network error unless the test sets another. [lookups] counts how many times each uid's
- * profile was collected. Set [gate] to keep every lookup waiting until the test completes it, to
- * look at one in progress. [loadProfilePhoto] returns an empty photo, counted per path in
- * [photoLoads]. It waits for [photoGate] when set, and fails with [failure] for a path in
- * [failingPhotoPaths]. The other calls do nothing.
+ * real repository for a missing profile, and emits again whenever a test sets [users], like a new
+ * snapshot. For a uid in [failingUids] it fails with [failure] instead, a network error unless the
+ * test sets another. [lookups] counts how many times each uid's profile was collected. Set [gate]
+ * to keep every lookup waiting until the test completes it, to look at one in progress.
+ * [loadProfilePhoto] returns an empty photo, counted per path in [photoLoads]. It waits for
+ * [photoGate] when set, and fails with [failure] for a path in [failingPhotoPaths]. The other calls
+ * do nothing.
  */
-class FakeProfileRepository(private val users: Map<String, User> = emptyMap()) : ProfileRepository {
+class FakeProfileRepository(users: Map<String, User> = emptyMap()) : ProfileRepository {
+  // A flow, so that observeProfile sees every change a test makes.
+  private val usersFlow = MutableStateFlow(users)
+
+  var users: Map<String, User>
+    get() = usersFlow.value
+    set(value) {
+      usersFlow.value = value
+    }
+
   val failingUids = mutableSetOf<String>()
   var gate: CompletableDeferred<Unit>? = null
   val failingPhotoPaths = mutableSetOf<String>()
@@ -41,7 +54,7 @@ class FakeProfileRepository(private val users: Map<String, User> = emptyMap()) :
     lookupCounts[uid] = (lookupCounts[uid] ?: 0) + 1
     gate?.await()
     if (uid in failingUids) throw failure
-    emit(users[uid])
+    emitAll(usersFlow.map { it[uid] })
   }
 
   override suspend fun uploadProfilePhoto(uid: String, photoUri: Uri) = ""

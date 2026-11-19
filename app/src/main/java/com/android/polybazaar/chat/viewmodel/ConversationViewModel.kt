@@ -71,8 +71,16 @@ data class PendingPhoto(
  *   conversation. Null until either is known.
  * @property listingStatus the state of the listing, kept up to date while the screen is open, or
  *   null until it is known.
+ * @property listing the listing as last observed. Kept after it is deleted, and null when it was
+ *   never read.
+ * @property listingPhoto the listing's first photo, or null while it is missing, downloading or
+ *   failed to download.
+ * @property isRenter whether the signed-in user is the renter, so the other participant is the
+ *   lender.
  * @property otherUser profile of the other participant, or null while it loads, after a failure, or
  *   when they have no profile.
+ * @property otherUserPhoto the other participant's profile photo, or null while it is missing,
+ *   downloading or failed to download.
  * @property draft the message being typed, or the caption of [attachedPhoto] when there is one.
  * @property attachedPhoto the photo picked or taken to send with the draft as its caption, if any.
  * @property canAttachPhoto whether a photo can be attached: only once the conversation exists,
@@ -98,7 +106,11 @@ data class ConversationUiState(
     val conversation: Conversation? = null,
     val listingTitle: String? = null,
     val listingStatus: ConversationListingStatus? = null,
+    val listing: Listing? = null,
+    val listingPhoto: ByteArray? = null,
+    val isRenter: Boolean = false,
     val otherUser: User? = null,
+    val otherUserPhoto: ByteArray? = null,
     val draft: String = "",
     val attachedPhoto: Uri? = null,
     val canAttachPhoto: Boolean = false,
@@ -163,7 +175,8 @@ class ConversationViewModel(
     private val connectivity: ConnectivityRepository,
 ) : ViewModel() {
 
-  private val _uiState = MutableStateFlow(ConversationUiState(myUid = myUid))
+  private val _uiState =
+      MutableStateFlow(ConversationUiState(myUid = myUid, isRenter = myUid == renterUid))
   val uiState: StateFlow<ConversationUiState> = _uiState.asStateFlow()
 
   // Read by derived(), which a write failure can run from a Firestore background thread.
@@ -183,6 +196,14 @@ class ConversationViewModel(
   private var sendInFlight = false
   private var lastMarkedReadAt: Instant? = null
   private var isVisible = false
+  private val listingPhoto =
+      PhotoDownload(listingRepository::loadListingImage) { state, photo ->
+        state.copy(listingPhoto = photo)
+      }
+  private val otherUserPhoto =
+      PhotoDownload(profileRepository::loadProfilePhoto) { state, photo ->
+        state.copy(otherUserPhoto = photo)
+      }
   // Whether the screen is closed, so an upload that fails afterwards deletes its photo.
   private var cleared = false
   // The photo the camera app is taking, until it closes. Saved, so that it is still attached when
@@ -604,6 +625,7 @@ class ConversationViewModel(
     _uiState.update { (if (clearError) it.copy(loadError = null) else it).derived() }
     updateLoading()
     observeOtherUser()
+    listingPhoto.show(loaded.listing?.imagePaths?.firstOrNull())
   }
 
   private fun observeConversation() {
@@ -679,7 +701,10 @@ class ConversationViewModel(
           // The chat works without the profile, so no error is shown; toAppError() still logs
           // unrecognised failures.
           .catch { exception -> exception.toAppError() }
-          .collect { user -> _uiState.update { it.copy(otherUser = user) } }
+          .collect { user ->
+            _uiState.update { it.copy(otherUser = user) }
+            otherUserPhoto.show(user?.photoPath)
+          }
     }
   }
 
@@ -710,6 +735,7 @@ class ConversationViewModel(
     return copy(
         listingTitle = listing?.title ?: conversation?.listingTitle,
         listingStatus = status,
+        listing = listing,
         canAttachPhoto = canAttach,
         canSend = sendable,
         firstMessageBlockedByPause =
@@ -718,6 +744,36 @@ class ConversationViewModel(
                 conversation == null &&
                 conversationKnown,
     )
+  }
+
+  /**
+   * One photo of the screen, set into the state by [set]. It is downloaded with [download] once per
+   * Storage path, and again only when the path changes, which drops the older photo and any
+   * download of it still running. A failed download, a stray [CancellationException] included,
+   * leaves the photo missing without an error: the screen shows a placeholder. Only used on the
+   * main thread.
+   */
+  private inner class PhotoDownload(
+      private val download: suspend (String) -> ByteArray,
+      private val set: (ConversationUiState, ByteArray?) -> ConversationUiState,
+  ) {
+    private var path: String? = null
+    private var job: Job? = null
+
+    fun show(newPath: String?) {
+      if (newPath == path) return
+      path = newPath
+      job?.cancel()
+      _uiState.update { set(it, null) }
+      if (newPath == null) return
+      job = viewModelScope.launch {
+        attempt { download(newPath) }
+            .onSuccess { photo ->
+              // A download that ignored its cancellation must not replace a newer photo.
+              if (path == newPath) _uiState.update { set(it, photo) }
+            }
+      }
+    }
   }
 
   private companion object {
