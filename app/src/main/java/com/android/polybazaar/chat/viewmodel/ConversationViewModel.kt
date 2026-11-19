@@ -210,6 +210,9 @@ class ConversationViewModel(
    * Each time the device comes back online, sends again the photos that failed with
    * [AppError.NETWORK]. Other failures, such as a refusal, would fail again, so they wait for the
    * user's Retry.
+   *
+   * [ConnectivityRepository.isOnline] also gives its current value first, but no photo has been
+   * sent yet when the screen opens, so that first value sends nothing again.
    */
   private fun retryPhotosWhenOnline() {
     viewModelScope.launch {
