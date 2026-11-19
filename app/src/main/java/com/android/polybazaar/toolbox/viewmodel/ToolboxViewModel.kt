@@ -3,12 +3,18 @@ package com.android.polybazaar.toolbox.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.android.polybazaar.booking.model.Booking
+import com.android.polybazaar.booking.model.BookingRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingType
+import com.android.polybazaar.toolbox.model.ToolboxListingStatus
+import com.android.polybazaar.toolbox.model.toolboxListingStatus
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,20 +30,39 @@ import kotlinx.coroutines.launch
  * @property isLoading true while the listings are being loaded.
  * @property error why the last load failed, or null.
  * @property selectedType the type the listings are filtered by, or null to show them all.
+ * @property bookings the bookings of all the user's listings, or null until they are first loaded
+ *   or while they cannot be: the listings then show only whether they are paused.
  */
 data class ToolboxUiState(
     val listings: List<Listing> = emptyList(),
     val isLoading: Boolean = false,
     val error: AppError? = null,
     val selectedType: ListingType? = null,
+    val bookings: List<Booking>? = null,
 ) {
+  /**
+   * The status of [listing] on [today], or null when it depends on [bookings] that are not loaded:
+   * a paused listing is known to be paused without them.
+   */
+  fun statusOf(listing: Listing, today: LocalDate): ToolboxListingStatus? =
+      when {
+        listing.isPaused -> ToolboxListingStatus.Paused
+        bookings == null -> null
+        else -> toolboxListingStatus(listing, bookings, today)
+      }
+
   /** The [listings] of the [selectedType], or all of them when no type is selected. */
   val filteredListings: List<Listing>
     get() = if (selectedType == null) listings else listings.filter { it.type == selectedType }
 }
 
-/** Loads the signed-in user's listings for the Toolbox. */
-class ToolboxViewModel(private val listingRepository: ListingRepository) : ViewModel() {
+/**
+ * Loads the signed-in user's listings for the Toolbox, with the bookings that give their status.
+ */
+class ToolboxViewModel(
+    private val listingRepository: ListingRepository,
+    private val bookingRepository: BookingRepository,
+) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ToolboxUiState())
   val uiState: StateFlow<ToolboxUiState> = _uiState.asStateFlow()
@@ -52,15 +77,18 @@ class ToolboxViewModel(private val listingRepository: ListingRepository) : ViewM
   }
 
   /**
-   * Loads the user's listings, for example again after a failure (Retry) or after creating one.
-   * Ignored while a load is already running. On failure the listings already shown are kept, so a
-   * reload while offline does not empty the Toolbox.
+   * Loads the user's listings and their bookings, for example again after a failure (Retry) or
+   * after creating one. Ignored while a load is already running. On failure the listings and
+   * bookings already shown are kept, so a reload while offline does not empty the Toolbox. Only a
+   * failure of the listings is shown: without the bookings, the listings are still worth showing.
    */
   fun loadListings() {
     // Two loads at once could finish in any order, and the older answer would overwrite the newer.
     if (_uiState.value.isLoading) return
     _uiState.update { it.copy(isLoading = true, error = null) }
     viewModelScope.launch {
+      // At the same time as the listings, so the statuses do not arrive a round trip later.
+      val bookings = async { loadBookings() }
       try {
         listingRepository
             .getMyListings()
@@ -70,10 +98,20 @@ class ToolboxViewModel(private val listingRepository: ListingRepository) : ViewM
               if (exception is CancellationException) throw exception
               _uiState.update { it.copy(error = exception.toAppError()) }
             }
+        bookings.await()?.let { loaded -> _uiState.update { it.copy(bookings = loaded) } }
       } finally {
         // Also on cancellation, otherwise the guard above would block every later load.
         _uiState.update { it.copy(isLoading = false) }
       }
     }
   }
+
+  /** The user's bookings as a lender, or null when they cannot be read. */
+  private suspend fun loadBookings(): List<Booking>? =
+      try {
+        bookingRepository.getBookingsForLender()
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        null
+      }
 }

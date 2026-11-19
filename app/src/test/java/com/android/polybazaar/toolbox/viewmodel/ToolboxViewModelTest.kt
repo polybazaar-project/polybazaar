@@ -2,6 +2,8 @@
 // Co-authored-by: Copilot GPT-5.6 Terra
 package com.android.polybazaar.toolbox.viewmodel
 
+import com.android.polybazaar.booking.model.Booking
+import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
@@ -9,7 +11,9 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.toolbox.model.ToolboxListingStatus
 import java.net.UnknownHostException
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +52,10 @@ class ToolboxViewModelTest {
       )
 
   private val repository = FakeListingRepository(myListings = myListings)
+  private val bookings = FakeBookingRepository()
+
+  private val today = LocalDate.of(2026, 11, 19)
+  private val drillToday = Booking("drill", "renter", "lender", setOf(today))
 
   @Before
   fun setUp() {
@@ -62,7 +70,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun init_loadsMyListings() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     val state = viewModel.uiState.value
     assertEquals(myListings, state.listings)
@@ -77,7 +85,7 @@ class ToolboxViewModelTest {
   fun init_withNoListings_showsAnEmptyToolboxWithoutError() {
     repository.myListings = emptyList()
 
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     assertEquals(emptyList<Listing>(), viewModel.uiState.value.listings)
     assertNull(viewModel.uiState.value.error)
@@ -88,7 +96,7 @@ class ToolboxViewModelTest {
     val gate = CompletableDeferred<Unit>()
     repository.gate = gate
 
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     assertTrue(viewModel.uiState.value.isLoading)
     assertEquals(emptyList<Listing>(), viewModel.uiState.value.listings)
 
@@ -101,7 +109,7 @@ class ToolboxViewModelTest {
   fun loadListings_whileALoadIsRunning_isIgnored() {
     val gate = CompletableDeferred<Unit>()
     repository.gate = gate
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     viewModel.loadListings()
     viewModel.loadListings()
@@ -115,7 +123,7 @@ class ToolboxViewModelTest {
   fun loadListings_onFailure_setsTheErrorAndStopsLoading() {
     repository.failure = UnknownHostException("offline")
 
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     val state = viewModel.uiState.value
     assertFalse(state.isLoading)
@@ -125,7 +133,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun loadListings_onFailure_keepsTheListingsAlreadyShown() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     repository.failure = UnknownHostException("offline")
 
     viewModel.loadListings()
@@ -137,7 +145,7 @@ class ToolboxViewModelTest {
   @Test
   fun loadListings_retryAfterFailure_clearsTheErrorAndShowsTheListings() {
     repository.failure = UnknownHostException("offline")
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
 
     val gate = CompletableDeferred<Unit>()
@@ -156,7 +164,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun loadListings_afterANewListing_showsIt() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     val newListing = ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Novel", "", listingId = "novel")
     repository.myListings = myListings + newListing
 
@@ -168,7 +176,7 @@ class ToolboxViewModelTest {
   @Test
   fun loadListings_whenCancelled_reportsNoErrorAndAllowsTheNextLoad() {
     repository.failure = CancellationException("left the screen")
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     assertNull(viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isLoading)
 
@@ -181,7 +189,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun init_selectsNoTypeAndShowsAllListings() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     assertNull(viewModel.uiState.value.selectedType)
     assertEquals(myListings, viewModel.uiState.value.filteredListings)
@@ -189,7 +197,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun selectType_item_showsOnlyItems() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     viewModel.selectType(ListingType.ITEM)
 
@@ -201,7 +209,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun selectType_service_showsOnlyServices() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     viewModel.selectType(ListingType.SERVICE)
 
@@ -211,7 +219,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun selectType_null_showsAllListings() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     viewModel.selectType(ListingType.ITEM)
 
     viewModel.selectType(null)
@@ -222,7 +230,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun selectType_theSelectedTypeAgain_keepsIt() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     viewModel.selectType(ListingType.ITEM)
 
     viewModel.selectType(ListingType.ITEM)
@@ -233,7 +241,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun selectType_theOtherType_switchesDirectly() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     viewModel.selectType(ListingType.ITEM)
 
     viewModel.selectType(ListingType.SERVICE)
@@ -245,7 +253,7 @@ class ToolboxViewModelTest {
   @Test
   fun selectType_withNoListingOfThatType_filtersToAnEmptyList() {
     repository.myListings = listOf(myListings[0])
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
 
     viewModel.selectType(ListingType.SERVICE)
 
@@ -255,7 +263,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun loadListings_afterANewListing_keepsTheFilter() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     viewModel.selectType(ListingType.ITEM)
     val newItem = ItemListing(ListingCategory.ITEM_BOOKS, 3.0, "Novel", "", listingId = "novel")
     val newService =
@@ -270,7 +278,7 @@ class ToolboxViewModelTest {
 
   @Test
   fun loadListings_retryAfterFailure_keepsTheFilter() {
-    val viewModel = ToolboxViewModel(repository)
+    val viewModel = ToolboxViewModel(repository, bookings)
     viewModel.selectType(ListingType.SERVICE)
     repository.failure = UnknownHostException("offline")
     viewModel.loadListings()
@@ -282,5 +290,80 @@ class ToolboxViewModelTest {
     assertNull(viewModel.uiState.value.error)
     assertEquals(ListingType.SERVICE, viewModel.uiState.value.selectedType)
     assertEquals(listOf(myListings[1]), viewModel.uiState.value.filteredListings)
+  }
+
+  @Test
+  fun init_loadsTheLenderBookings_soEachListingHasItsStatus() {
+    bookings.lenderBookings = listOf(drillToday)
+
+    val state = ToolboxViewModel(repository, bookings).uiState.value
+
+    assertEquals(1, bookings.lenderLoadCount)
+    assertEquals(ToolboxListingStatus.BookedToday, state.statusOf(myListings[0], today))
+    assertEquals(ToolboxListingStatus.Available, state.statusOf(myListings[1], today))
+  }
+
+  @Test
+  fun loadListings_staysLoadingUntilTheBookingsArrive() {
+    val gate = CompletableDeferred<Unit>()
+    bookings.pendingLenderLoad = gate
+    bookings.lenderBookings = listOf(drillToday)
+
+    val viewModel = ToolboxViewModel(repository, bookings)
+    assertTrue(viewModel.uiState.value.isLoading)
+    // The listings already show; their status is unknown until the bookings arrive.
+    assertEquals(myListings, viewModel.uiState.value.listings)
+    assertNull(viewModel.uiState.value.statusOf(myListings[0], today))
+
+    gate.complete(Unit)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertEquals(
+        ToolboxListingStatus.BookedToday,
+        viewModel.uiState.value.statusOf(myListings[0], today),
+    )
+  }
+
+  @Test
+  fun bookingsFailing_showsTheListingsWithoutStatusAndNoError() {
+    bookings.lenderLoadFailure = UnknownHostException("offline")
+    val paused = (myListings[0] as ItemListing).copy(isPaused = true)
+    repository.myListings = listOf(paused, myListings[1])
+
+    val state = ToolboxViewModel(repository, bookings).uiState.value
+
+    assertNull(state.error)
+    assertEquals(listOf(paused, myListings[1]), state.listings)
+    // Paused needs no bookings; Available would be a guess.
+    assertEquals(ToolboxListingStatus.Paused, state.statusOf(paused, today))
+    assertNull(state.statusOf(myListings[1], today))
+  }
+
+  @Test
+  fun bookingsFailingOnAReload_keepsTheStatusesAlreadyShown() {
+    bookings.lenderBookings = listOf(drillToday)
+    val viewModel = ToolboxViewModel(repository, bookings)
+    bookings.lenderLoadFailure = UnknownHostException("offline")
+
+    viewModel.loadListings()
+
+    assertEquals(listOf(drillToday), viewModel.uiState.value.bookings)
+  }
+
+  @Test
+  fun loadListings_reloadsTheBookings_soABookingForTodayShows() {
+    val viewModel = ToolboxViewModel(repository, bookings)
+    assertEquals(
+        ToolboxListingStatus.Available,
+        viewModel.uiState.value.statusOf(myListings[0], today),
+    )
+    bookings.lenderBookings = listOf(drillToday)
+
+    viewModel.loadListings()
+
+    assertEquals(2, bookings.lenderLoadCount)
+    assertEquals(
+        ToolboxListingStatus.BookedToday,
+        viewModel.uiState.value.statusOf(myListings[0], today),
+    )
   }
 }
