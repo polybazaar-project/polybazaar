@@ -2,9 +2,16 @@
 package com.android.polybazaar.map.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.FakeLocationRepository
+import java.net.UnknownHostException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -13,6 +20,9 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -21,6 +31,7 @@ class MapViewModelTest {
 
   private val testDispatcher = StandardTestDispatcher()
   private val nearRolex = Coordinates(46.518, 6.568)
+  private val listings = FakeListingRepository()
   private val location = FakeLocationRepository(nearRolex)
 
   @Before
@@ -35,7 +46,7 @@ class MapViewModelTest {
 
   private val handle = SavedStateHandle()
 
-  private fun viewModel() = MapViewModel(location, handle)
+  private fun viewModel() = MapViewModel(location, listings, "renter", handle)
 
   private fun MapViewModel.centre() = uiState.value.centre
 
@@ -134,7 +145,13 @@ class MapViewModelTest {
   @Test
   fun locationUnavailable_withACampusChosen_goesBackToIt() {
     location.failure = IllegalStateException("No location available")
-    val viewModel = MapViewModel(location, SavedStateHandle(mapOf("map_chosen_campus" to "EPFL")))
+    val viewModel =
+        MapViewModel(
+            location,
+            listings,
+            "renter",
+            SavedStateHandle(mapOf("map_chosen_campus" to "EPFL")),
+        )
 
     viewModel.onPermissionResult(granted = true)
     testDispatcher.scheduler.advanceUntilIdle()
@@ -144,7 +161,13 @@ class MapViewModelTest {
 
   @Test
   fun unknownSavedCampus_readsAsNone() {
-    val viewModel = MapViewModel(location, SavedStateHandle(mapOf("map_chosen_campus" to "ETHZ")))
+    val viewModel =
+        MapViewModel(
+            location,
+            listings,
+            "renter",
+            SavedStateHandle(mapOf("map_chosen_campus" to "ETHZ")),
+        )
 
     viewModel.onPermissionResult(granted = false)
 
@@ -209,5 +232,107 @@ class MapViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(MapCentre.OnCampus(Campus.UNIL), viewModel.centre())
+  }
+
+  // ---- Listings shown as markers (#341) ----
+
+  private val rolex = ListingLocation(46.5185, 6.5683, "Rolex Learning Center")
+
+  private fun item(id: String, ownerUid: String, location: ListingLocation? = rolex) =
+      ItemListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 8.0,
+          title = "Item $id",
+          description = "Description",
+          listingId = id,
+          ownerUid = ownerUid,
+          location = location,
+      )
+
+  private fun loadedViewModel(): MapViewModel {
+    val viewModel = viewModel()
+    testDispatcher.scheduler.advanceUntilIdle()
+    return viewModel
+  }
+
+  @Test
+  fun init_showsOtherUsersListingsWithALocation_asMarkers() {
+    listings.allListings =
+        listOf(
+            item("drill", ownerUid = "lender"),
+            item("mine", ownerUid = "renter"),
+            item("nowhere", ownerUid = "lender", location = null),
+            item("paused", ownerUid = "lender").copy(isPaused = true),
+        )
+
+    val state = loadedViewModel().uiState.value
+
+    assertEquals(listOf("drill"), state.markers.map { it.id })
+    assertFalse(state.isLoading)
+    assertNull(state.error)
+  }
+
+  @Test
+  fun loadListings_isLoadingOnlyWhileTheRepositoryAnswers() {
+    val gate = CompletableDeferred<Unit>()
+    listings.gate = gate
+
+    val viewModel = viewModel()
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.isLoading)
+
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  @Test
+  fun failedLoad_saysWhy_andRetryClearsIt() {
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+    val viewModel = loadedViewModel()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+
+    listings.failure = null
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    viewModel.loadListings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listOf("drill"), viewModel.uiState.value.markers.map { it.id })
+  }
+
+  @Test
+  fun failedReload_keepsTheMarkersShown() {
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+    viewModel.loadListings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("drill"), viewModel.uiState.value.markers.map { it.id })
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun loadListings_whileALoadIsRunning_isIgnored() {
+    listings.gate = CompletableDeferred()
+    val viewModel = viewModel()
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.loadListings()
+    listings.gate?.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, listings.getAllListingsCalls)
+  }
+
+  @Test
+  fun cancelledLoad_isNotAnError_andAllowsTheNextLoad() {
+    listings.failure = CancellationException("Map closed")
+    val viewModel = loadedViewModel()
+
+    assertNull(viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isLoading)
   }
 }

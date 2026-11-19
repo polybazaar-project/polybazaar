@@ -4,9 +4,13 @@ package com.android.polybazaar.map.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
+import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.LocationRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,14 +45,26 @@ sealed interface MapCentre {
  * State of the map tab (#21).
  *
  * @property centre where the map is centred, or why it isn't yet.
+ * @property markers the listings to show on the map: the ones Browse shows (other users', not
+ *   paused) that have a location.
+ * @property isLoading true while the listings are being loaded.
+ * @property error why the listings could not be loaded, or null. The markers already shown are
+ *   kept.
  */
-data class MapUiState(val centre: MapCentre = MapCentre.Undecided)
+data class MapUiState(
+    val centre: MapCentre = MapCentre.Undecided,
+    val markers: List<MapMarker> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: AppError? = null,
+)
 
 /**
  * Centres the map on the renter's approximate location, or on a campus they pick when they don't
- * share it (#340). The screen asks Android for the permission and reports the answer with
- * [onPermissionResult]; this ViewModel never sees the permission itself.
+ * share it (#340), and loads the listings to show on it (#341). The screen asks Android for the
+ * permission and reports the answer with [onPermissionResult]; this ViewModel never sees the
+ * permission itself.
  *
+ * @param currentUid the signed-in user, whose own listings are left out, as in Browse.
  * @param savedStateHandle remembers the campus picked for the session: across tab switches, and
  *   when Android kills the app in the background. Pass `createSavedStateHandle()` from the factory;
  *   it has no default, since a handle made by hand is not restored by Android (and its constructor
@@ -56,11 +72,48 @@ data class MapUiState(val centre: MapCentre = MapCentre.Undecided)
  */
 class MapViewModel(
     private val locationRepository: LocationRepository,
+    private val listingRepository: ListingRepository,
+    private val currentUid: String,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(MapUiState())
   val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
+
+  init {
+    loadListings()
+  }
+
+  /**
+   * Loads the listings to show as markers, for example again after a failure (Retry) or when the
+   * tab comes back. Same listings as Browse: every listing that isn't paused, except the signed-in
+   * user's own, and only those with a location can be placed. Offline, Firestore answers from its
+   * cache; on failure the markers already shown are kept. Ignored while a load is already running.
+   */
+  fun loadListings() {
+    // Two loads at once could finish in any order, and the older answer would overwrite the newer.
+    if (_uiState.value.isLoading) return
+    _uiState.update { it.copy(isLoading = true, error = null) }
+    viewModelScope.launch {
+      try {
+        listingRepository
+            .getAllListings()
+            .onSuccess { listings ->
+              val markers =
+                  listings.filter { it.ownerUid != currentUid }.mapNotNull { it.toMapMarker() }
+              _uiState.update { it.copy(markers = markers) }
+            }
+            .onFailure { exception ->
+              // Cancellation means the map was closed: it is not an error to show.
+              if (exception is CancellationException) throw exception
+              _uiState.update { it.copy(error = exception.toAppError()) }
+            }
+      } finally {
+        // Also on cancellation, otherwise the guard above would block every later load.
+        _uiState.update { it.copy(isLoading = false) }
+      }
+    }
+  }
 
   /** The campus picked earlier this session, or null. An unknown saved name reads as none. */
   private val chosenCampus: Campus?
