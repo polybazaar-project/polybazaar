@@ -119,17 +119,40 @@ service cloud.firestore {
             && data.status == 'REQUESTED';
       }
 
+      // Either party cancels a request, or a confirmed booking. Accepting a request also cancels
+      // the other requests for its days, through this rule.
+      function isCancel() {
+        return (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid)
+            && request.resource.data.status == 'CANCELLED'
+            // Cancelling a cancelled booking changes nothing, so it is allowed: the renter may cancel
+            // a request while the lender's accept is cancelling it too, and the accept must not fail.
+            && (resource.data.status == 'CANCELLED'
+                || (resource.data.status in ['REQUESTED', 'CONFIRMED']
+                    // A finished booking is history. The app stores the days earliest first, so the
+                    // last one decides; it must not be before today by server time.
+                    && resource.data.days[resource.data.days.size() - 1] >= request.time.toMillis() / 86400000));
+      }
+
+      // The lender accepts a request once. Accepting takes the booked days off the listing in the
+      // same write, so no one can request them again. They must still be offered before it, so two
+      // requests sharing a day can never both be accepted, even when accepted at the same time: the
+      // second sees the day gone.
+      function isAccept() {
+        let listingPath = /databases/$(database)/documents/listings/$(resource.data.listingId);
+        return resource.data.lenderUid == request.auth.uid
+            && resource.data.status == 'REQUESTED'
+            && request.resource.data.status == 'CONFIRMED'
+            && get(listingPath).data.get('availableDates', []).hasAll(resource.data.days)
+            && !getAfter(listingPath).data.get('availableDates', []).hasAny(resource.data.days);
+      }
+
       allow read: if isVerified()
           && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid);
       allow create: if isVerified() && validBooking(request.resource.data);
+      // Only the status changes.
       allow update: if isVerified()
-          && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid)
-          && resource.data.status in ['REQUESTED', 'CONFIRMED']
-          // A finished booking is history. The app stores the days earliest first, so the last
-          // one decides; it must not be before today by server time.
-          && resource.data.days[resource.data.days.size() - 1] >= request.time.toMillis() / 86400000
-          && request.resource.data.status == 'CANCELLED'
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && (isCancel() || isAccept());
       allow delete: if false;
     }
 

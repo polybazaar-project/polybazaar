@@ -14,6 +14,7 @@ object Routes {
   const val FORGOT_PASSWORD = "forgot_password"
   const val VERIFY_EMAIL = "verify_email"
   const val BROWSE = "browse"
+  const val MAP = "map"
   const val CREATE_LISTING = "create_listing"
   const val LISTING_ID = "listingId"
   const val EDIT_LISTING = "edit_listing/{$LISTING_ID}"

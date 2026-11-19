@@ -41,6 +41,7 @@ import com.android.polybazaar.auth.ui.AuthColors
 object BottomBarTags {
   const val BAR = "bottom_bar"
   const val BROWSE_TAB = "bottom_bar_browse_tab"
+  const val MAP_TAB = "bottom_bar_map_tab"
   const val CREATE_LISTING_TAB = "bottom_bar_create_listing_tab"
   const val CONVERSATIONS_TAB = "bottom_bar_conversations_tab"
   const val PROFILE_TAB = "bottom_bar_profile_tab"
@@ -60,6 +61,13 @@ private val tabs =
             R.string.nav_browse,
             R.drawable.ic_nav_browse,
             BottomBarTags.BROWSE_TAB,
+        ),
+        // Second, next to Browse: the same listings, on a map (Figma "Map — …" frames, #341).
+        BottomBarTab(
+            Routes.MAP,
+            R.string.nav_map,
+            R.drawable.ic_nav_map,
+            BottomBarTags.MAP_TAB,
         ),
         BottomBarTab(
             Routes.CREATE_LISTING,

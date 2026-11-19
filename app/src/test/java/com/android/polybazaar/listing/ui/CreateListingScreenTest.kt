@@ -45,6 +45,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.booking.ui.AvailabilityCalendarSheetTags
 import com.android.polybazaar.booking.ui.AvailabilityCalendarTags
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
@@ -55,6 +56,7 @@ import com.android.polybazaar.listing.model.ObservedListing
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.FakeLocationRepository
 import java.io.File
 import java.net.UnknownHostException
 import java.time.LocalDate
@@ -92,7 +94,15 @@ class CreateListingScreenTest {
       today: () -> LocalDate = LocalDate::now,
   ): ListingFormViewModel {
     val viewModel =
-        ListingFormViewModel(null, repository, createStorage(), SavedStateHandle(), today)
+        ListingFormViewModel(
+            null,
+            repository,
+            createStorage(),
+            SavedStateHandle(),
+            FakeLocationRepository(),
+            FakeConnectivityRepository(),
+            today,
+        )
     setContentWithRegistry(registry) {
       CreateListingScreen(listingViewModel = viewModel, onListingCreated = onListingCreated)
     }
@@ -878,6 +888,8 @@ class CreateListingScreenTest {
             RecordingListingRepository(),
             createStorage(),
             SavedStateHandle(),
+            FakeLocationRepository(),
+            FakeConnectivityRepository(),
         )
     var createdCount = 0
     val owner =
