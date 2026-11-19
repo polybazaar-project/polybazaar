@@ -477,11 +477,24 @@ describe("listings", () => {
       await seed("bookings/confirmed", booking({ status: "CONFIRMED" }));
       await seed("bookings/cancelled", booking({ status: "CANCELLED" }));
 
-      await assertFails(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "REQUESTED" }));
       await assertFails(updateDoc(doc(verified(BOB), "bookings/requested"), { status: "CONFIRMED" }));
       await assertFails(updateDoc(doc(verified(BOB), "bookings/requested"), { status: "INVALID" }));
       await assertFails(updateDoc(doc(verified(ALICE), "bookings/confirmed"), { status: "REQUESTED" }));
       await assertFails(deleteDoc(doc(verified(BOB), "bookings/requested")));
+    });
+
+    test("cancelling a cancelled booking changes nothing and is allowed to its renter and lender", async () => {
+      const today = Math.floor(Date.now() / 86_400_000);
+      await seed("bookings/cancelled", booking({ status: "CANCELLED" }));
+      await seed("bookings/finished", booking({ status: "CANCELLED", days: [today - 5, today - 3] }));
+
+      await assertSucceeds(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(ALICE), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(ALICE), "bookings/finished"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(EVE), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(unverified(BOB), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "CANCELLED", extra: true }));
     });
 
     test("a finished booking cannot be cancelled", async () => {
@@ -529,6 +542,21 @@ describe("listings", () => {
       // The accepted days can no longer be requested; the others still can.
       await assertFails(setDoc(doc(verified(BOB), "bookings/b4"), booking({ days: [day0 + 1] })));
       await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b5"), booking({ days: [day0 + 2] })));
+    });
+
+    test("the accept still succeeds when a renter cancels an overlapping request just before it", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 5)));
+      await seed("bookings/b1", booking({ days: [day0, day0 + 1] }));
+      await seed("bookings/b2", booking({ renterUid: EVE, days: [day0 + 1, day0 + 2] }));
+      const db = verified(ALICE);
+      // The lender's app read b2 as requested; its renter cancels it before the accept is written.
+      await assertSucceeds(updateDoc(doc(verified(EVE), "bookings/b2"), { status: "CANCELLED" }));
+
+      await assertSucceeds(accept(db, "b1", [day0, day0 + 1], ["b2"]));
+
+      const status = async (id) => (await getDoc(doc(db, `bookings/${id}`))).data().status;
+      assert.equal(await status("b1"), "CONFIRMED");
+      assert.equal(await status("b2"), "CANCELLED");
     });
 
     test("a request is only confirmed when the same write takes all its days off the listing", async () => {

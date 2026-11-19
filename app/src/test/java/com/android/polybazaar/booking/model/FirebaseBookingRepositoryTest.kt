@@ -45,7 +45,9 @@ class FirebaseBookingRepositoryTest {
   private val renterQuery = mock<Query>()
   private val snapshot = mock<QuerySnapshot>()
   private val stored = mock<DocumentSnapshot>()
-  private val repository = FirebaseBookingRepository(firestore, auth)
+  // A fixed day before every booking these tests store, so none of them is ever finished.
+  private val repository =
+      FirebaseBookingRepository(firestore, auth, today = { LocalDate.of(2026, 11, 1) })
   private val booking =
       Booking(
           listingId = "listing",
@@ -372,6 +374,39 @@ class FirebaseBookingRepositoryTest {
     )
     verify(batch, never()).update(eq(bookingDocuments.getValue("elsewhere")), any<String>(), any())
     verify(batch, never()).update(eq(bookingDocuments.getValue("answered")), any<String>(), any())
+  }
+
+  @Test
+  fun acceptBookingLeavesFinishedRequestsSharingADayAsTheyAre() = runTest {
+    val batch =
+        givenLenderWith(
+            storedBooking("accepted", listOf(2, 3), BookingStatus.REQUESTED),
+            storedBooking("finished", listOf(1, 2), BookingStatus.REQUESTED),
+            storedBooking("current", listOf(3), BookingStatus.REQUESTED),
+        )
+    val bookingDocuments =
+        listOf("accepted", "finished", "current").associateWith {
+          mock<DocumentReference>().also { reference ->
+            whenever(collection.document(it)).thenReturn(reference)
+          }
+        }
+    whenever(firestore.collection("listings")).thenReturn(mock())
+    val repository =
+        FirebaseBookingRepository(firestore, auth, today = { LocalDate.of(2026, 12, 3) })
+    val accepted =
+        Booking(
+            listingId = "listing",
+            renterUid = "renter-accepted",
+            lenderUid = "lender",
+            days = setOf(LocalDate.of(2026, 12, 2), LocalDate.of(2026, 12, 3)),
+            id = "accepted",
+        )
+
+    repository.acceptBooking(accepted)
+
+    // Every day of "finished" is before today; "current" ends today, so it is still cancelled.
+    verify(batch).update(bookingDocuments.getValue("current"), "status", "CANCELLED")
+    verify(batch, never()).update(eq(bookingDocuments.getValue("finished")), any<String>(), any())
   }
 
   /** The elements of an arrayRemove, which the SDK keeps package-private. */

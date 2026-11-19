@@ -123,11 +123,14 @@ service cloud.firestore {
       // the other requests for its days, through this rule.
       function isCancel() {
         return (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid)
-            && resource.data.status in ['REQUESTED', 'CONFIRMED']
-            // A finished booking is history. The app stores the days earliest first, so the last
-            // one decides; it must not be before today by server time.
-            && resource.data.days[resource.data.days.size() - 1] >= request.time.toMillis() / 86400000
-            && request.resource.data.status == 'CANCELLED';
+            && request.resource.data.status == 'CANCELLED'
+            // Cancelling a cancelled booking changes nothing, so it is allowed: the renter may cancel
+            // a request while the lender's accept is cancelling it too, and the accept must not fail.
+            && (resource.data.status == 'CANCELLED'
+                || (resource.data.status in ['REQUESTED', 'CONFIRMED']
+                    // A finished booking is history. The app stores the days earliest first, so the
+                    // last one decides; it must not be before today by server time.
+                    && resource.data.days[resource.data.days.size() - 1] >= request.time.toMillis() / 86400000));
       }
 
       // The lender accepts a request once. Accepting takes the booked days off the listing in the
