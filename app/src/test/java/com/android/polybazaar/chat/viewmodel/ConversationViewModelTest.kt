@@ -14,6 +14,7 @@ import com.android.polybazaar.chat.model.ChatRepository
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -55,6 +56,7 @@ class ConversationViewModelTest {
   private lateinit var profiles: FakeProfileRepository
   private lateinit var listings: FakeListingRepository
   private lateinit var photoStorage: FakePhotoStorage
+  private lateinit var connectivity: FakeConnectivityRepository
   private lateinit var downloads: CountingDownloads
 
   private val lender = User(uid = "lender", email = "", username = "Lena")
@@ -90,6 +92,7 @@ class ConversationViewModelTest {
     profiles = FakeProfileRepository(listOf(lender, renter).associateBy { it.uid })
     listings = FakeListingRepository(allListings = listOf(listing))
     photoStorage = FakePhotoStorage()
+    connectivity = FakeConnectivityRepository()
   }
 
   @After
@@ -117,6 +120,7 @@ class ConversationViewModelTest {
           photoStorage,
           savedState,
           uploadScope,
+          connectivity,
       )
 
   /** Creates the ViewModel and lets its loads finish. */
@@ -1754,6 +1758,78 @@ class ConversationViewModelTest {
 
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
     assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun backOnline_sendsANetworkFailureAgainWithTheSameId() {
+    connectivity.isOnline.value = false
+    val viewModel = failedPhotoSend(offline)
+    chat.sendFailure = null
+
+    connectivity.isOnline.value = true
+    advance()
+
+    assertEquals(listOf("m1", "m1"), chat.sentPhotos.map { it.messageId })
+    assertEquals(emptyList<PendingPhoto>(), viewModel.uiState.value.pendingPhotos)
+  }
+
+  @Test
+  fun backOnline_leavesARefusedPhotoForTheUsersRetry() {
+    connectivity.isOnline.value = false
+    val viewModel = failedPhotoSend(refused)
+
+    connectivity.isOnline.value = true
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.pendingPhotos.single().error)
+  }
+
+  @Test
+  fun backOnline_leavesAPhotoStillSendingAlone() {
+    connectivity.isOnline.value = false
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+
+    connectivity.isOnline.value = true
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(
+        listOf(PendingPhotoStatus.UPLOADING),
+        viewModel.uiState.value.pendingPhotos.map { it.status },
+    )
+  }
+
+  @Test
+  fun stillOffline_sendsNothingAgain() {
+    connectivity.isOnline.value = false
+    val viewModel = failedPhotoSend(offline)
+
+    connectivity.isOnline.value = false
+    advance()
+
+    assertEquals(1, chat.sentPhotos.size)
+    assertEquals(PendingPhotoStatus.FAILED, viewModel.uiState.value.pendingPhotos.single().status)
+  }
+
+  @Test
+  fun backOnlineAgain_afterASecondNetworkFailure_sendsItAgain() {
+    connectivity.isOnline.value = false
+    failedPhotoSend(offline)
+    connectivity.isOnline.value = true
+    advance()
+    assertEquals(2, chat.sentPhotos.size)
+
+    connectivity.isOnline.value = false
+    advance()
+    connectivity.isOnline.value = true
+    advance()
+
+    assertEquals(listOf("m1", "m1", "m1"), chat.sentPhotos.map { it.messageId })
   }
 
   private val photoPath = "chats/drill_renter/m1.jpg"
