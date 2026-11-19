@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -176,6 +177,47 @@ internal fun conversationBody(state: ConversationUiState): ConversationBody =
       state.isLoading -> ConversationBody.LOADING
       else -> ConversationBody.EMPTY
     }
+
+/** How the message list answers a change in what it shows, decided by [messageListChange]. */
+internal enum class MessageListChange {
+  /** Scroll to the bottom: on opening, and for the user's own message or photo. */
+  FOLLOW,
+  /** A message from the other participant came after the newest one. */
+  THEIRS_ARRIVED,
+  /** Nothing arrived, so the list stays where it is. */
+  NONE,
+}
+
+/**
+ * Classifies the change from [previousNewestId] and [previousPendingIds] to the shown [messages],
+ * oldest first, and the [pendingIds] of the photos being sent. A message arrived only when it comes
+ * after the previous newest one, which a deletion's new newest does not. A photo's message that was
+ * pending did not arrive either: it takes the place of its pending bubble.
+ *
+ * @param firstLoad true until the list has shown anything.
+ */
+internal fun messageListChange(
+    messages: List<ChatMessage>,
+    pendingIds: List<String>,
+    myUid: String,
+    previousNewestId: String?,
+    previousPendingIds: List<String>,
+    firstLoad: Boolean,
+): MessageListChange {
+  if (firstLoad) return MessageListChange.FOLLOW
+  val sentId = pendingIds.lastOrNull()
+  if (sentId != null && sentId !in previousPendingIds) return MessageListChange.FOLLOW
+  val newest = messages.lastOrNull() ?: return MessageListChange.NONE
+  val arrived =
+      newest.id != previousNewestId &&
+          (previousNewestId == null || messages.any { it.id == previousNewestId }) &&
+          newest.id !in previousPendingIds
+  return when {
+    !arrived -> MessageListChange.NONE
+    newest.senderUid == myUid -> MessageListChange.FOLLOW
+    else -> MessageListChange.THEIRS_ARRIVED
+  }
+}
 
 /** Side margin of the page, the same as on the listing detail. */
 private val PageMargin = 18.dp
@@ -558,43 +600,56 @@ private fun MessageList(
   val messages = uiState.shownMessages
   val pendingPhotos = uiState.pendingPhotos
   val newest = messages.lastOrNull()
+  val pendingIds = pendingPhotos.map { it.messageId }
   // Item 0, at the bottom of the reversed list.
   val bottomKey = pendingPhotos.lastOrNull()?.let(::pendingPhotoKey) ?: newest?.id
   val listState = rememberLazyListState()
   val scope = rememberCoroutineScope()
   // Decoded above the list: a bubble that scrolls out of view and back shows its photo at once.
   val decodedPhotos = rememberDecodedPhotos(uiState.messagePhotos)
-  // The newest message and the bottom item already followed or hinted at, and whether a message is
-  // waiting below the view. Saved across recreation, as the list's position is.
+  // What the list showed at the last change, and whether a message is waiting below the view.
+  // Saved across recreation, as the list's position is; the ids in an ArrayList, which it can save.
   var previousNewestId by rememberSaveable { mutableStateOf<String?>(null) }
+  var previousPendingIds by rememberSaveable { mutableStateOf(ArrayList<String>()) }
   var previousBottomKey by rememberSaveable { mutableStateOf<String?>(null) }
   var newestUnseen by rememberSaveable { mutableStateOf(false) }
-  // The list keeps its place by key, so a new message or photo arrives below the view unless this
-  // follows it. The user's own, a photo being sent included, is always followed. One from the
-  // other participant is followed only when the previous bottom item's bottom edge is on screen:
-  // then the user is reading the end of the conversation. Looked up by key, that item is found
-  // whether or not the new one is laid out yet.
+  // The list keeps its place by key, so an arrival lands below the view unless this follows it.
+  // One from the other participant is followed only when the previous bottom item's bottom edge is
+  // on screen: then the user is reading the end of the conversation. Looked up by key, that item is
+  // found whether or not the new one is laid out yet.
   // requestScrollToItem takes no scroll lock, so a finger on the list cannot cancel the follow.
-  LaunchedEffect(newest?.id, pendingPhotos.lastOrNull()?.messageId) {
+  LaunchedEffect(newest?.id, pendingIds) {
+    val change =
+        messageListChange(
+            messages = messages,
+            pendingIds = pendingIds,
+            myUid = uiState.myUid,
+            previousNewestId = previousNewestId,
+            previousPendingIds = previousPendingIds,
+            firstLoad = previousBottomKey == null,
+        )
     val previousBottom = previousBottomKey
-    val newestChanged = newest != null && newest.id != previousNewestId
-    if (!newestChanged && bottomKey == previousBottom) return@LaunchedEffect
-    val layout = listState.layoutInfo
-    val follow =
-        previousBottom == null ||
-            (bottomKey != previousBottom && pendingPhotos.isNotEmpty()) ||
-            (newestChanged && newest.senderUid == uiState.myUid) ||
+    previousNewestId = newest?.id
+    previousPendingIds = ArrayList(pendingIds)
+    previousBottomKey = bottomKey
+    when (change) {
+      MessageListChange.FOLLOW -> listState.requestScrollToItem(0)
+      MessageListChange.THEIRS_ARRIVED -> {
+        val layout = listState.layoutInfo
+        val atTheEnd =
             layout.visibleItemsInfo.any {
               it.key == previousBottom && it.offset >= layout.viewportStartOffset
             }
-    previousNewestId = newest?.id
-    previousBottomKey = bottomKey
-    if (follow) listState.requestScrollToItem(0) else if (newestChanged) newestUnseen = true
+        if (atTheEnd) listState.requestScrollToItem(0) else newestUnseen = true
+      }
+      MessageListChange.NONE -> Unit
+    }
   }
-  // Item 0 is the bottom one. The hint goes only once that is in view, so a tap whose scroll is
-  // cut short leaves it up.
+  // The photos being sent are the items under the newest message. The hint goes only once that
+  // message or one of them is in view, so a tap whose scroll is cut short leaves it up.
+  val pendingCount by rememberUpdatedState(pendingPhotos.size)
   LaunchedEffect(listState) {
-    snapshotFlow { newestUnseen && listState.firstVisibleItemIndex == 0 }
+    snapshotFlow { newestUnseen && listState.firstVisibleItemIndex <= pendingCount }
         .collect { seen -> if (seen) newestUnseen = false }
   }
   Column(modifier = Modifier.fillMaxSize()) {
