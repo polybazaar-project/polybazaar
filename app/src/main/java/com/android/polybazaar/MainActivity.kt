@@ -19,8 +19,6 @@ import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.booking.model.FirebaseBookingRepository
 import com.android.polybazaar.chat.model.FirebaseChatRepository
-import com.android.polybazaar.connectivity.model.AndroidConnectivityRepository
-import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
 import com.android.polybazaar.map.model.FusedLocationRepository
@@ -72,22 +70,9 @@ class MainActivity : ComponentActivity() {
                         LocationServices.getFusedLocationProviderClient(applicationContext)
                     )
                   },
-              connectivityRepository = connectivityRepository(),
           )
         }
       }
     }
-  }
-
-  /** The app's [ConnectivityRepository], created on first use. */
-  private fun connectivityRepository(): ConnectivityRepository =
-      connectivity ?: AndroidConnectivityRepository(applicationContext).also { connectivity = it }
-
-  private companion object {
-    /**
-     * One for the whole process, never released: the listing forms' ViewModels outlive a rotated
-     * activity and keep using it, and its network callback is registered only once.
-     */
-    var connectivity: ConnectivityRepository? = null
   }
 }

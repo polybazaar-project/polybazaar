@@ -45,7 +45,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.booking.ui.AvailabilityCalendarSheetTags
 import com.android.polybazaar.booking.ui.AvailabilityCalendarTags
-import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
@@ -100,7 +99,6 @@ class CreateListingScreenTest {
             createStorage(),
             SavedStateHandle(),
             FakeLocationRepository(),
-            FakeConnectivityRepository(),
             today,
         )
     setContentWithRegistry(registry) {
@@ -889,7 +887,6 @@ class CreateListingScreenTest {
             createStorage(),
             SavedStateHandle(),
             FakeLocationRepository(),
-            FakeConnectivityRepository(),
         )
     var createdCount = 0
     val owner =
