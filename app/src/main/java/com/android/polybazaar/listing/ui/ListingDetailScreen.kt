@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.listing.ui
 
 import androidx.annotation.DrawableRes
@@ -107,6 +108,7 @@ object ListingDetailScreenTags {
   const val PAUSED_BADGE = "listing_detail_paused_badge"
   const val PAUSED_NOTICE = "listing_detail_paused_notice"
   const val OWNER_ACTION_ERROR = "listing_detail_owner_action_error"
+  const val BOOKING_REQUESTS_BUTTON = "listing_detail_booking_requests_button"
 }
 
 /**
@@ -114,6 +116,7 @@ object ListingDetailScreenTags {
  * not here: they stay inside the screen, so [ListingDetailScreen] wires them to the ViewModel.
  *
  * @property onEdit opens the "Edit listing" screen for the listing with this id (owner only).
+ * @property onOpenBookings opens the booking requests of the listing with this id (owner only).
  * @property onDeleted leaves the screen once the owner deleted the listing.
  */
 class ListingDetailActions(
@@ -122,6 +125,7 @@ class ListingDetailActions(
     val onMessageLender: () -> Unit = {},
     val onChooseDates: () -> Unit = {},
     val onEdit: (String) -> Unit = {},
+    val onOpenBookings: (String) -> Unit = {},
     val onDeleted: () -> Unit = {},
 )
 
@@ -605,6 +609,20 @@ private fun BookingBar(
             enabled = uiState.canContactLender,
             tag = ListingDetailScreenTags.CHOOSE_DATES_BUTTON,
             onClick = actions.onChooseDates,
+        )
+      }
+    }
+    val ownedListingId = listing.listingId
+    if (uiState.isOwner && ownedListingId != null) {
+      TextButton(
+          onClick = { actions.onOpenBookings(ownedListingId) },
+          modifier =
+              Modifier.fillMaxWidth().testTag(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON),
+      ) {
+        Text(
+            text = stringResource(R.string.lender_bookings_title),
+            color = AuthColors.Accent,
+            fontWeight = FontWeight.Bold,
         )
       }
     }

@@ -17,6 +17,8 @@ import kotlinx.coroutines.tasks.await
 class FirebaseBookingRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    /** The current day, to leave finished requests alone when accepting. */
+    private val today: () -> LocalDate = LocalDate::now,
     private val logWriteFailure: (Exception) -> Unit = {
       Log.e("BookingRepository", "Booking write failed", it)
     },
@@ -89,10 +91,15 @@ class FirebaseBookingRepository(
     require(booking.id.isNotEmpty()) { "Only a stored booking can be accepted" }
     // Read again rather than taken from the screen: a request sent since it loaded must be
     // cancelled too. One sent between this read and the write stays requested; the rules then
-    // refuse to accept it, since its days are no longer offered.
+    // refuse to accept it, since its days are no longer offered. A finished request is history:
+    // the rules refuse to cancel it, which would refuse the whole accept, so it is left as it is.
+    val today = today()
     val overlapping =
         getBookingsForListing(booking.listingId).filter {
-          it.id != booking.id && it.status == BookingStatus.REQUESTED && it.overlaps(booking)
+          it.id != booking.id &&
+              it.status == BookingStatus.REQUESTED &&
+              it.overlaps(booking) &&
+              !it.isFinished(today)
         }
     val bookings = firestore.collection(BOOKINGS)
     val batch = firestore.batch()

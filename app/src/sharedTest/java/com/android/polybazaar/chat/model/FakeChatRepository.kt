@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.model
 
+import android.net.Uri
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,14 @@ import kotlinx.coroutines.flow.map
  * look at a send in progress, and throws [sendFailure] if set, like a send refused before queuing;
  * such a call is still recorded.
  *
+ * [sendPhoto] records every call in [sentPhotos], then waits for [gate] and throws [sendFailure]
+ * like [sendMessage]; it has no later rejection, since a photo send waits for the server.
+ * [newMessageId] returns "m1", "m2", … in call order. [deletePhotoMessage] records every call in
+ * [deletedPhotoMessages] and removes the message from [messages].
+ *
+ * [loadMessagePhoto] returns the bytes stored in [photos] for the path, and throws
+ * [photoLoadFailure] if set, or when the path is not in [photos].
+ *
  * [markRead] records every id in [markedRead]. When [myUid] is set and the conversation is in
  * [myConversations] with a last message, it also sets [myUid]'s lastReadAt to that message's time
  * and emits the updated list, like a local write the listener sees at once.
@@ -47,6 +56,26 @@ class FakeChatRepository(
   /** The `onWriteFailure` callbacks passed to [sendMessage], in order. */
   val writeFailureCallbacks = mutableListOf<(Exception) -> Unit>()
 
+  /** A call to [sendPhoto]. */
+  data class SentPhoto(
+      val conversation: Conversation,
+      val messageId: String,
+      val photo: Uri,
+      val caption: String?,
+  )
+
+  /** The calls to [sendPhoto], in order. */
+  val sentPhotos = mutableListOf<SentPhoto>()
+
+  /** The calls to [deletePhotoMessage], as (conversation id, message id), in order. */
+  val deletedPhotoMessages = mutableListOf<Pair<String, String>>()
+
+  /** The photos [loadMessagePhoto] returns, by Storage path. */
+  val photos = mutableMapOf<String, ByteArray>()
+
+  /** When set, [loadMessagePhoto] throws it. */
+  var photoLoadFailure: Exception? = null
+
   /** The ids passed to [markRead], in order. */
   val markedRead = mutableListOf<String>()
 
@@ -54,6 +83,8 @@ class FakeChatRepository(
   var gate: CompletableDeferred<Unit>? = null
   var conversationGate: CompletableDeferred<Unit>? = null
   var messagesGate: CompletableDeferred<Unit>? = null
+
+  private var messageIds = 0
 
   var observeConversationCalls = 0
     private set
@@ -70,6 +101,31 @@ class FakeChatRepository(
     writeFailureCallbacks += onWriteFailure
     gate?.await()
     sendFailure?.let { throw it }
+  }
+
+  override fun newMessageId(conversationId: String): String = "m${++messageIds}"
+
+  override suspend fun sendPhoto(
+      conversation: Conversation,
+      messageId: String,
+      photo: Uri,
+      caption: String?,
+  ) {
+    sentPhotos += SentPhoto(conversation, messageId, photo, caption)
+    gate?.await()
+    sendFailure?.let { throw it }
+  }
+
+  override fun deletePhotoMessage(conversationId: String, messageId: String) {
+    deletedPhotoMessages += conversationId to messageId
+    val conversationMessages = messages.value[conversationId] ?: return
+    messages.value =
+        messages.value + (conversationId to conversationMessages.filterNot { it.id == messageId })
+  }
+
+  override suspend fun loadMessagePhoto(imagePath: String): ByteArray {
+    photoLoadFailure?.let { throw it }
+    return photos[imagePath] ?: throw NoSuchElementException("No photo at $imagePath")
   }
 
   override fun markRead(conversationId: String) {

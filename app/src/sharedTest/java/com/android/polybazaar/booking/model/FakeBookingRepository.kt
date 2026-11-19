@@ -12,13 +12,14 @@ import kotlinx.coroutines.currentCoroutineContext
  * were, and can hold a request back ([pendingRequest]), make it throw ([failure]) or report a write
  * failure, at once ([immediateWriteFailure]) or later through [writeFailure].
  *
- * [getBookingsForListing] returns the [bookings] of that listing, counted in [reads]; it waits for
- * [readGate] when set and fails with [readFailure] when set. [acceptBooking] changes [bookings] as
- * the real repository does: the booking is confirmed and the other requests sharing a day with it
- * cancelled. It waits for [acceptGate] when set and fails with [acceptFailure] when set, leaving
- * [bookings] unchanged.
+ * [getBookingsForListing] returns the [listingBookings] of that listing. Like
+ * [getBookingsForRenter], it is counted in [loadCount], waits for [pendingLoad] when set and fails
+ * with [loadFailure] when set. [acceptBooking] changes [listingBookings] as the real repository
+ * does: the booking is confirmed and the other requests sharing a day with it cancelled. It waits
+ * for [acceptGate] when set and fails with [acceptFailure] when set, leaving [listingBookings]
+ * unchanged.
  */
-class FakeBookingRepository(var bookings: List<Booking> = emptyList()) : BookingRepository {
+class FakeBookingRepository : BookingRepository {
   var requestedBooking: Booking? = null
   var requestCount = 0
   var pendingRequest: CompletableDeferred<Unit>? = null
@@ -27,6 +28,7 @@ class FakeBookingRepository(var bookings: List<Booking> = emptyList()) : Booking
   var writeFailure: ((Exception) -> Unit)? = null
   var requestJob: Job? = null
   var renterBookings: List<Booking> = emptyList()
+  var listingBookings: List<Booking> = emptyList()
   var pendingLoad: CompletableDeferred<Unit>? = null
   var loadFailure: Exception? = null
   var loadCount = 0
@@ -36,9 +38,6 @@ class FakeBookingRepository(var bookings: List<Booking> = emptyList()) : Booking
   var cancelWriteFailure: ((Exception) -> Unit)? = null
   var immediateCancelWriteFailure: Exception? = null
 
-  var reads = 0
-  var readGate: CompletableDeferred<Unit>? = null
-  var readFailure: Exception? = null
   val accepted = mutableListOf<Booking>()
   var acceptGate: CompletableDeferred<Unit>? = null
   var acceptFailure: Exception? = null
@@ -54,17 +53,17 @@ class FakeBookingRepository(var bookings: List<Booking> = emptyList()) : Booking
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> {
-    reads++
-    readGate?.await()
-    readFailure?.let { throw it }
-    return bookings.filter { it.listingId == listingId }
+    loadCount++
+    pendingLoad?.await()
+    loadFailure?.let { throw it }
+    return listingBookings.filter { it.listingId == listingId }
   }
 
   override suspend fun acceptBooking(booking: Booking) {
     accepted += booking
     acceptGate?.await()
     acceptFailure?.let { throw it }
-    bookings = bookings.map {
+    listingBookings = listingBookings.map {
       when {
         it.id == booking.id -> it.copy(status = BookingStatus.CONFIRMED)
         it.status == BookingStatus.REQUESTED &&

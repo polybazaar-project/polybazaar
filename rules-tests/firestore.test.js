@@ -477,11 +477,34 @@ describe("listings", () => {
       await seed("bookings/confirmed", booking({ status: "CONFIRMED" }));
       await seed("bookings/cancelled", booking({ status: "CANCELLED" }));
 
-      await assertFails(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "REQUESTED" }));
       await assertFails(updateDoc(doc(verified(BOB), "bookings/requested"), { status: "CONFIRMED" }));
       await assertFails(updateDoc(doc(verified(BOB), "bookings/requested"), { status: "INVALID" }));
       await assertFails(updateDoc(doc(verified(ALICE), "bookings/confirmed"), { status: "REQUESTED" }));
       await assertFails(deleteDoc(doc(verified(BOB), "bookings/requested")));
+    });
+
+    test("cancelling a cancelled booking changes nothing and is allowed to its renter and lender", async () => {
+      const today = Math.floor(Date.now() / 86_400_000);
+      await seed("bookings/cancelled", booking({ status: "CANCELLED" }));
+      await seed("bookings/finished", booking({ status: "CANCELLED", days: [today - 5, today - 3] }));
+
+      await assertSucceeds(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(ALICE), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(ALICE), "bookings/finished"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(EVE), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(unverified(BOB), "bookings/cancelled"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/cancelled"), { status: "CANCELLED", extra: true }));
+    });
+
+    test("a finished booking cannot be cancelled", async () => {
+      const today = Math.floor(Date.now() / 86_400_000);
+      await seed("bookings/finished", booking({ days: [today - 5, today - 3] }));
+      await seed("bookings/ends-today", booking({ days: [today - 2, today] }));
+
+      await assertFails(updateDoc(doc(verified(BOB), "bookings/finished"), { status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(ALICE), "bookings/finished"), { status: "CANCELLED" }));
+      await assertSucceeds(updateDoc(doc(verified(BOB), "bookings/ends-today"), { status: "CANCELLED" }));
     });
 
     test("cancellation cannot change fields other than status", async () => {
@@ -519,6 +542,21 @@ describe("listings", () => {
       // The accepted days can no longer be requested; the others still can.
       await assertFails(setDoc(doc(verified(BOB), "bookings/b4"), booking({ days: [day0 + 1] })));
       await assertSucceeds(setDoc(doc(verified(BOB), "bookings/b5"), booking({ days: [day0 + 2] })));
+    });
+
+    test("the accept still succeeds when a renter cancels an overlapping request just before it", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 5)));
+      await seed("bookings/b1", booking({ days: [day0, day0 + 1] }));
+      await seed("bookings/b2", booking({ renterUid: EVE, days: [day0 + 1, day0 + 2] }));
+      const db = verified(ALICE);
+      // The lender's app read b2 as requested; its renter cancels it before the accept is written.
+      await assertSucceeds(updateDoc(doc(verified(EVE), "bookings/b2"), { status: "CANCELLED" }));
+
+      await assertSucceeds(accept(db, "b1", [day0, day0 + 1], ["b2"]));
+
+      const status = async (id) => (await getDoc(doc(db, `bookings/${id}`))).data().status;
+      assert.equal(await status("b1"), "CONFIRMED");
+      assert.equal(await status("b2"), "CANCELLED");
     });
 
     test("a request is only confirmed when the same write takes all its days off the listing", async () => {
@@ -1010,7 +1048,8 @@ const photoPath = (conversationId, messageId) => `conversations/${conversationId
 
 /**
  * A photo message for sendMessage: no text unless it has a caption, and by default the photo at
- * the message's own path in Bob's conversation. `imagePath` maps the message id to the stored path.
+ * the message's own path in Bob's conversation, still being uploaded. `imagePath` maps the message
+ * id to the stored path.
  */
 function photoMessage(
   senderUid,
@@ -1020,6 +1059,7 @@ function photoMessage(
     senderUid,
     sentAt: serverTimestamp(),
     imagePath: imagePath(messageId),
+    photoPending: true,
     ...(caption === undefined ? {} : { text: caption }),
     ...extra,
   });
@@ -1664,5 +1704,116 @@ describe("photo messages", () => {
     await assertFails(updateDoc(ref, { imagePath: photoPath(CONVERSATION_ID, "m3") }));
     await assertFails(updateDoc(ref, { text: "Caption" }));
     await assertFails(deleteDoc(ref));
+  });
+
+  test("a photo message is sent with its photo pending", async () => {
+    await seedConversation();
+    const db = verified(BOB);
+    for (const photoPending of [false, "true", null]) {
+      const message = photoMessage(BOB, { extra: { photoPending } });
+      await assertFails(sendMessage(db, BOB, { message }));
+    }
+    const withoutPending = (messageId) => {
+      const { photoPending, ...message } = photoMessage(BOB)(messageId);
+      return message;
+    };
+    await assertFails(sendMessage(db, BOB, { message: withoutPending }));
+  });
+
+  test("a text message has no pending photo", async () => {
+    await seedConversation();
+    for (const photoPending of [true, false]) {
+      await assertFails(sendMessage(verified(BOB), BOB, { message: { photoPending } }));
+    }
+  });
+});
+
+describe("pending photos", () => {
+  const PATH = `${CONVERSATION}/messages/m2`;
+
+  /** Seeds Bob's photo message m2, sent earlier, with its photo still pending unless told so. */
+  async function seedPhotoMessage(fields = { photoPending: true }) {
+    await seedConversation();
+    await seed(PATH, {
+      senderUid: BOB,
+      imagePath: photoPath(CONVERSATION_ID, "m2"),
+      sentAt: new Date(0),
+      ...fields,
+    });
+  }
+
+  test("the sender can mark their photo uploaded", async () => {
+    await seedPhotoMessage();
+    await assertSucceeds(updateDoc(doc(verified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("a photo with a caption can be marked uploaded", async () => {
+    await seedPhotoMessage({ photoPending: true, text: "The drill bits" });
+    await assertSucceeds(updateDoc(doc(verified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("only the sender can mark their photo uploaded", async () => {
+    await seedPhotoMessage();
+    await assertFails(updateDoc(doc(verified(ALICE), PATH), { photoPending: false }));
+    await assertFails(updateDoc(doc(verified(EVE), PATH), { photoPending: false }));
+    await assertFails(updateDoc(doc(unverified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("a photo is marked uploaded only once", async () => {
+    await seedPhotoMessage({ photoPending: false });
+    const ref = doc(verified(BOB), PATH);
+    await assertFails(updateDoc(ref, { photoPending: true }));
+    await assertFails(updateDoc(ref, { photoPending: false, text: "Caption" }));
+  });
+
+  test("a photo sent before photoPending existed cannot be marked", async () => {
+    await seedPhotoMessage({});
+    await assertFails(updateDoc(doc(verified(BOB), PATH), { photoPending: false }));
+  });
+
+  test("marking a photo uploaded changes nothing else", async () => {
+    await seedPhotoMessage();
+    const ref = doc(verified(BOB), PATH);
+    await assertFails(updateDoc(ref, { photoPending: false, text: "Caption" }));
+    await assertFails(
+      updateDoc(ref, { photoPending: false, imagePath: photoPath(CONVERSATION_ID, "m3") }),
+    );
+    await assertFails(updateDoc(ref, { photoPending: false, sentAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { photoPending: "false" }));
+    await assertFails(updateDoc(ref, { photoPending: deleteField() }));
+  });
+
+  test("the sender can delete their message while its photo is pending", async () => {
+    await seedPhotoMessage();
+    await assertSucceeds(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("a pending photo with a caption can be deleted", async () => {
+    await seedPhotoMessage({ photoPending: true, text: "The drill bits" });
+    await assertSucceeds(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("only the sender can delete their pending photo message", async () => {
+    await seedPhotoMessage();
+    await assertFails(deleteDoc(doc(verified(ALICE), PATH)));
+    await assertFails(deleteDoc(doc(verified(EVE), PATH)));
+    await assertFails(deleteDoc(doc(unverified(BOB), PATH)));
+    await assertFails(deleteDoc(doc(signedOut(), PATH)));
+  });
+
+  test("a photo message cannot be deleted once its photo is uploaded", async () => {
+    await seedPhotoMessage({ photoPending: false });
+    await assertFails(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  test("a photo sent before photoPending existed cannot be deleted", async () => {
+    await seedPhotoMessage({});
+    await assertFails(deleteDoc(doc(verified(BOB), PATH)));
+  });
+
+  // The app's Remove also deletes a message that was never written; the rules refuse it.
+  test("a missing message cannot be deleted", async () => {
+    await seedConversation();
+    await assertFails(deleteDoc(doc(verified(BOB), `${CONVERSATION}/messages/m9`)));
   });
 });

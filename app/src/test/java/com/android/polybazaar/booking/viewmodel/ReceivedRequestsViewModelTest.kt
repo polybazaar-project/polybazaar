@@ -58,7 +58,7 @@ class ReceivedRequestsViewModelTest {
   @Before
   fun setUp() {
     Dispatchers.setMain(testDispatcher)
-    bookings = FakeBookingRepository(listOf(cy, bob, ann))
+    bookings = FakeBookingRepository().apply { listingBookings = listOf(cy, bob, ann) }
   }
 
   @After
@@ -87,7 +87,7 @@ class ReceivedRequestsViewModelTest {
   @Test
   fun loads_onlyThisListing_andHidesCancelledAndPastBookings() = runTest {
     val accepted = booking("ok", "uid-ann", days(28..28), BookingStatus.CONFIRMED)
-    bookings.bookings =
+    bookings.listingBookings =
         listOf(
             ann,
             accepted,
@@ -105,7 +105,7 @@ class ReceivedRequestsViewModelTest {
   @Test
   fun aRequestStartedBeforeToday_isStillShownWhileItHasDaysToCome() = runTest {
     val ongoing = booking("now", "uid-ann", days(17..19))
-    bookings.bookings = listOf(ongoing)
+    bookings.listingBookings = listOf(ongoing)
 
     assertEquals(listOf(ongoing), newViewModel().uiState.value.requests)
   }
@@ -121,12 +121,12 @@ class ReceivedRequestsViewModelTest {
 
   @Test
   fun aLoadFailure_isShown_andRetryLoads() = runTest {
-    bookings.readFailure = UnknownHostException("offline")
+    bookings.loadFailure = UnknownHostException("offline")
     val viewModel = newViewModel()
     assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.hasLoaded)
 
-    bookings.readFailure = null
+    bookings.loadFailure = null
     viewModel.loadRequests()
     testDispatcher.scheduler.advanceUntilIdle()
 
@@ -162,7 +162,7 @@ class ReceivedRequestsViewModelTest {
     assertEquals(listOf(ann.copy(status = BookingStatus.CONFIRMED)), state.accepted)
     assertNull(state.acceptingId)
     // Read again after the accept, to catch requests sent since the screen loaded.
-    assertEquals(2, bookings.reads)
+    assertEquals(2, bookings.loadCount)
   }
 
   @Test
@@ -214,7 +214,7 @@ class ReceivedRequestsViewModelTest {
   @Test
   fun aFailedReloadAfterAnAccept_keepsTheAcceptShown() = runTest {
     val viewModel = newViewModel()
-    bookings.readFailure = UnknownHostException("offline")
+    bookings.loadFailure = UnknownHostException("offline")
 
     viewModel.accept(ann)
     testDispatcher.scheduler.advanceUntilIdle()
@@ -227,7 +227,7 @@ class ReceivedRequestsViewModelTest {
   @Test
   fun loadRequests_isIgnoredWhileALoadRuns() = runTest {
     val gate = CompletableDeferred<Unit>()
-    bookings.readGate = gate
+    bookings.pendingLoad = gate
     val viewModel = newViewModel()
     assertTrue(viewModel.uiState.value.isLoading)
 
@@ -236,7 +236,7 @@ class ReceivedRequestsViewModelTest {
     gate.complete(Unit)
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(1, bookings.reads)
+    assertEquals(1, bookings.loadCount)
     assertEquals(emptyList<Booking>(), bookings.accepted)
   }
 }
