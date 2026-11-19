@@ -11,8 +11,8 @@ interface LocationRepository {
    * available (for example offline without a recent one), or when Play Services cannot answer. The
    * caller then falls back to a campus.
    *
-   * The location is never sent to the backend. The listing form keeps it on the device, in its saved
-   * state, so the map picker still opens there after the app is killed.
+   * The location is never sent to the backend. The listing form keeps it on the device, in its
+   * saved state, so the map picker still opens there after the app is killed.
    */
   suspend fun currentLocation(): Result<Coordinates>
 }
