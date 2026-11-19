@@ -15,7 +15,9 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.Circle
 import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapEffect
 import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.MapsComposeExperimentalApi
 import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberUpdatedMarkerState
@@ -27,11 +29,17 @@ private fun Coordinates.toLatLng() = LatLng(latitude, longitude)
 
 /**
  * The Google map itself: camera from [cameraFor], one marker per listing with its item or skill
- * icon, and the renter's approximate circle or their campus marker. Kept to drawing only, since
- * Google Maps can't run in unit tests: every decision is in the tested functions of MapScreen.kt.
+ * icon, and the renter's approximate circle or their campus marker. [onMapReady] is called once the
+ * map is created (tests wait for it). Kept to drawing only, since Google Maps can't run in unit
+ * tests: every decision is in the tested functions of MapScreen.kt.
  */
+@OptIn(MapsComposeExperimentalApi::class)
 @Composable
-internal fun ListingsMap(centre: MapCentre, markers: List<MapMarker>) {
+internal fun ListingsMap(
+    centre: MapCentre,
+    markers: List<MapMarker>,
+    onMapReady: () -> Unit = {},
+) {
   val camera = cameraFor(centre)
   val cameraState = rememberCameraPositionState {
     position = CameraPosition.fromLatLngZoom(camera.target.toLatLng(), camera.zoom)
@@ -49,6 +57,9 @@ internal fun ListingsMap(centre: MapCentre, markers: List<MapMarker>) {
       // controls out of their way.
       uiSettings = MapUiSettings(zoomControlsEnabled = false, mapToolbarEnabled = false),
   ) {
+    // Once the map exists, whether or not its tiles can load: lets the instrumented test wait for
+    // the map instead of sleeping.
+    MapEffect(Unit) { onMapReady() }
     markers.forEach { marker ->
       // Keyed by listing, not by its place in the list: after a reload that drops or reorders
       // listings, each marker keeps its own state instead of taking its neighbour's, and a listing
