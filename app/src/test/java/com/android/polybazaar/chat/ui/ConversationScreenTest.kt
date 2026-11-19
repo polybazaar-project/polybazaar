@@ -47,6 +47,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
@@ -235,10 +236,20 @@ class ConversationScreenTest {
     return { message -> uiState = uiState.copy(messages = uiState.messages + message) }
   }
 
-  /** Scrolls up to the oldest of [manyMessages], the last item of the list. */
+  /** Scrolls up to the oldest of [manyMessages], at the top of the list. */
   private fun scrollToTheOldest() {
-    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(manyMessages.lastIndex)
+    node(ConversationScreenTags.MESSAGE_LIST)
+        .performScrollToNode(hasTestTag(ConversationScreenTags.myMessage("m0")))
     node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  /** Shows [state], and returns how to change it. */
+  private fun showChanging(
+      state: ConversationUiState
+  ): ((ConversationUiState) -> ConversationUiState) -> Unit {
+    var uiState by mutableStateOf(state)
+    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
+    return { change -> uiState = change(uiState) }
   }
 
   /** Every text of the empty state. */
@@ -656,36 +667,159 @@ class ConversationScreenTest {
   }
 
   @Test
-  fun photoSentWhileReadingOlderOnes_isFollowed_withoutTheHint() {
-    var uiState by mutableStateOf(loaded.copy(messages = manyMessages))
-    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
+  fun photoSentWhileReadingOlderOnes_isFollowed() {
+    val change = showChanging(loaded.copy(messages = manyMessages))
     scrollToTheOldest()
 
-    uiState =
-        uiState.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")))
+    change { it.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50"))) }
 
     assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
-    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
   }
 
   @Test
-  fun theirNewMessageWhileAPhotoSendsAtTheEnd_isFollowed_withoutTheHint() {
-    var uiState by
-        mutableStateOf(
+  fun theirNewMessageWhileAPhotoSendsAtTheEnd_staysAboveThePhoto_withoutTheHint() {
+    val change =
+        showChanging(
             loaded.copy(
                 messages = manyMessages,
                 pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
             )
         )
-    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
     assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
 
-    uiState =
-        uiState.copy(messages = manyMessages + ChatMessage("m51", james.uid, "Nice", manyStart))
+    change { it.copy(messages = manyMessages + ChatMessage("m51", james.uid, "Nice", manyStart)) }
 
-    // The photo being sent stays last, under the new message.
     assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
     node(ConversationScreenTags.theirMessage("m51")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun uploadFinishingWhileReadingOlderOnes_keepsThePlace_withoutTheHint() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages + photoMessage("m50", "renter"),
+                pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
+            )
+        )
+    scrollToTheOldest()
+
+    change { it.copy(pendingPhotos = emptyList()) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m50")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun newerPhotoFinishingAboveAFailedOneWhileReadingOlderOnes_keepsThePlace() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages =
+                    manyMessages + photoMessage("m50", "renter") + photoMessage("m51", "renter"),
+                pendingPhotos =
+                    listOf(
+                        pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m50"),
+                        pending(PendingPhotoStatus.UPLOADING, id = "m51"),
+                    ),
+            )
+        )
+    scrollToTheOldest()
+
+    change { it.copy(pendingPhotos = it.pendingPhotos.dropLast(1)) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m51")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  // A window taller than a photo bubble, so the photo and the messages around it fit together.
+  @Test
+  @Config(qualifiers = "w360dp-h800dp")
+  fun uploadFinishingAtTheEnd_staysAtTheEnd() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages + photoMessage("m50", "renter"),
+                pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
+            )
+        )
+    assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
+
+    change { it.copy(pendingPhotos = emptyList()) }
+
+    assertFullyInTheList(node(ConversationScreenTags.myMessage("m50")))
+  }
+
+  @Test
+  fun newestMessageDeletedWhileReadingOlderOnes_withTheirsNowNewest_keepsThePlace_withoutTheHint() {
+    val change =
+        showChanging(
+            loaded.copy(messages = manyMessages + ChatMessage("m50", "renter", "Photo", manyStart))
+        )
+    scrollToTheOldest()
+
+    change { it.copy(messages = manyMessages) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun newestMessageDeletedWhileReadingOlderOnes_withMineNowNewest_keepsThePlace() {
+    val change = showChanging(loaded.copy(messages = manyMessages))
+    scrollToTheOldest()
+
+    change { it.copy(messages = manyMessages.dropLast(1)) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  @Config(qualifiers = "w360dp-h800dp")
+  fun theirNewMessageFullyInViewAboveAFailedPhoto_hidesTheHint() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages,
+                pendingPhotos =
+                    listOf(pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m50")),
+            )
+        )
+    scrollToTheOldest()
+    change { it.copy(messages = manyMessages + ChatMessage("m51", james.uid, "Nice", manyStart)) }
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+
+    // The new message first from the bottom, the failed photo under it scrolled away.
+    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(1)
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m51")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  @Config(qualifiers = "w360dp-h800dp")
+  fun theirNewMessageLandingInViewAboveTwoFailedPhotos_leavesNoHint() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages,
+                pendingPhotos =
+                    listOf(
+                        pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m50"),
+                        pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m51"),
+                    ),
+            )
+        )
+    // The upper failed photo first from the bottom, the lower one scrolled away.
+    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(1)
+
+    change { it.copy(messages = manyMessages + ChatMessage("m52", james.uid, "Nice", manyStart)) }
+
+    node(ConversationScreenTags.theirMessage("m52")).assertIsDisplayed()
     node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
   }
 
