@@ -218,10 +218,14 @@ class ListingLocationFieldTest {
   }
 
   @Test
-  fun withABlankName_asksForAName() {
-    showField(onRenens.copy(location = onRenens.location!!.copy(name = "")))
+  fun withABlankName_asksForANameOnceTheFieldWasLeft() {
+    val unnamed = onRenens.copy(location = onRenens.location!!.copy(name = ""))
+    showField(unnamed)
 
     composeTestRule.onNodeWithText("0/$MAX_LOCATION_NAME_LENGTH").assertIsDisplayed()
+    node(ListingLocationFieldTags.NAME_ERROR).assertDoesNotExist()
+
+    uiState = unnamed.copy(locationNameTouched = true)
     node(ListingLocationFieldTags.NAME_ERROR)
         .assertTextEquals(string(R.string.listing_location_name_error))
   }
@@ -411,6 +415,10 @@ class ListingLocationFieldTest {
     composeTestRule.waitForIdle()
     assertEquals(lausanne, mapCentre())
     node(ListingLocationFieldTags.CONFIRM).performClick()
+    // No error before the lender has had a chance to name the place.
+    node(ListingLocationFieldTags.NAME_ERROR).assertDoesNotExist()
+    node(ListingLocationFieldTags.NAME_FIELD).performScrollTo().performClick()
+    node(CreateListingScreenTags.TITLE_FIELD).performScrollTo().performClick()
     node(ListingLocationFieldTags.NAME_ERROR).performScrollTo().assertIsDisplayed()
     node(ListingLocationFieldTags.NAME_FIELD).performTextReplacement("Flon")
     node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()

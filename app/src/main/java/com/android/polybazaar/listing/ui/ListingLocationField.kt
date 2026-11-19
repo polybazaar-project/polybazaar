@@ -182,6 +182,7 @@ internal fun ListingLocationField(
               onValueChange = actions.onLocationNameChange,
               placeholder = stringResource(R.string.listing_location_name_placeholder),
               tag = ListingLocationFieldTags.NAME_FIELD,
+              onFocusLost = actions.onLocationNameFieldLeft,
           )
         }
         LocationIconButton(

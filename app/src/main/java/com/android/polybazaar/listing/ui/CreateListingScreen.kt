@@ -151,6 +151,8 @@ class ListingFormActions(
     /** Sets the location to the point confirmed on the map. */
     val onConfirmLocation: (Coordinates) -> Unit = {},
     val onLocationNameChange: (String) -> Unit = {},
+    /** The location's name field lost focus: a missing name is flagged from then on. */
+    val onLocationNameFieldLeft: () -> Unit = {},
     val onClearLocation: () -> Unit = {},
     /** Asks for the lender's position, for the map picker to open there. */
     val onLocateLender: () -> Unit = {},
@@ -177,6 +179,7 @@ internal fun listingFormActions(viewModel: ListingFormViewModel) =
         finishTakingPhoto = viewModel::finishTakingPhoto,
         onConfirmLocation = viewModel::setLocationPoint,
         onLocationNameChange = viewModel::updateLocationName,
+        onLocationNameFieldLeft = viewModel::leaveLocationNameField,
         onClearLocation = viewModel::clearLocation,
         onLocateLender = viewModel::locateLender,
         onSave = viewModel::save,
