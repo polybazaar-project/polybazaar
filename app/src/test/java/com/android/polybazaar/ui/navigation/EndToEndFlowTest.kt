@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar.ui.navigation
 
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -27,6 +28,7 @@ import com.android.polybazaar.auth.ui.CreateAccountScreenTags
 import com.android.polybazaar.auth.ui.SignInScreenTags
 import com.android.polybazaar.auth.ui.VerifyEmailScreenTags
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
@@ -87,6 +89,7 @@ class EndToEndFlowTest {
           chatRepository = FakeChatRepository(),
           locationRepository = FakeLocationRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          bookingRepository = FakeBookingRepository(),
           navController = navController,
       )
     }

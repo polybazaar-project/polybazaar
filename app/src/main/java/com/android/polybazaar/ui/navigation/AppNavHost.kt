@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot GPT-5.6 Terra
+// Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.ui.navigation
 
 import androidx.activity.compose.BackHandler
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -54,6 +58,12 @@ import com.android.polybazaar.auth.ui.VerifyEmailScreen
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
+import com.android.polybazaar.booking.model.BookingRepository
+import com.android.polybazaar.booking.ui.BookingRequestScreen
+import com.android.polybazaar.booking.ui.LenderBookingsScreen
+import com.android.polybazaar.booking.ui.RenterBookingsScreen
+import com.android.polybazaar.booking.viewmodel.BookingRequestViewModel
+import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.chat.model.ChatRepository
@@ -61,9 +71,11 @@ import com.android.polybazaar.chat.ui.ConversationScreen
 import com.android.polybazaar.chat.ui.InboxScreen
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
+import com.android.polybazaar.chat.viewmodel.photoUploadScope
 import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
@@ -105,6 +117,7 @@ object AppNavHostTags {
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
  * @param chatRepository gives the Conversations screen the signed-in user's conversations.
+ * @param bookingRepository sends the booking requests made from a listing's "Choose dates".
  * @param photoStorage keeps the photos of the listing being created.
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
@@ -122,6 +135,7 @@ fun AppNavHost(
     chatRepository: ChatRepository,
     locationRepository: LocationRepository,
     connectivityRepository: ConnectivityRepository,
+    bookingRepository: BookingRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -367,6 +381,9 @@ fun AppNavHost(
                       onEdit = {
                         navController.navigate(Routes.editListing(it)) { launchSingleTop = true }
                       },
+                      onOpenBookings = {
+                        navController.navigate(Routes.lenderBookings(it)) { launchSingleTop = true }
+                      },
                       onDeleted = { navController.popBackStack() },
                       // The viewer messages the owner as the renter. Single top, so a double tap
                       // does not stack two conversation screens.
@@ -377,7 +394,86 @@ fun AppNavHost(
                           }
                         }
                       },
+                      // Only a renter sees "Choose dates"; the owner has "Edit listing" there.
+                      onChooseDates = {
+                        navController.navigate(Routes.bookingRequest(listingId)) {
+                          launchSingleTop = true
+                        }
+                      },
                   ),
+          )
+        }
+        composable(
+            route = Routes.BOOKING_REQUEST,
+            arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
+        ) { entry ->
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          // Both scoped to this entry: each request opened starts without days or a sent request.
+          val requestViewModel: BookingRequestViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingRequestViewModel(
+                              listingId = listingId,
+                              listingRepository = listingRepository,
+                              authRepository = authRepository,
+                          )
+                        }
+                      }
+              )
+          val bookingViewModel: BookingViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      }
+              )
+          BookingRequestScreen(
+              viewModel = requestViewModel,
+              bookingViewModel = bookingViewModel,
+              // The screen stays tappable while it leaves: a second tap on back or "Done" would
+              // also pop the listing detail.
+              onBack = dropUnlessResumed { navController.popBackStack() },
+          )
+        }
+        composable(Routes.RENTER_BOOKINGS) {
+          val bookingViewModel: BookingViewModel =
+              viewModel(
+                  key = "renter_bookings",
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      },
+              )
+          RenterBookingsScreen(
+              viewModel = bookingViewModel,
+              onBack = dropUnlessResumed { navController.popBackStack() },
+          )
+        }
+        composable(
+            route = Routes.LENDER_BOOKINGS,
+            arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
+        ) { entry ->
+          val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
+          val bookingViewModel: BookingViewModel =
+              viewModel(
+                  key = "lender_bookings_$listingId",
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                        }
+                      },
+              )
+          LenderBookingsScreen(
+              listingId = listingId,
+              viewModel = bookingViewModel,
+              onBack = dropUnlessResumed { navController.popBackStack() },
           )
         }
         composable(
@@ -412,6 +508,9 @@ fun AppNavHost(
           // The route requires both, so they are always there.
           val listingId = entry.arguments!!.getString(Routes.LISTING_ID)!!
           val renterUid = entry.arguments!!.getString(Routes.RENTER_UID)!!
+          val appContext = LocalContext.current.applicationContext
+          val chatPhotoStorage =
+              remember(appContext) { FilePhotoStorage(appContext, FilePhotoStorage.CHAT_FORM) }
           // Scoped to this entry: each conversation opened gets its own ViewModel.
           val conversationViewModel: ConversationViewModel =
               viewModel(
@@ -425,6 +524,9 @@ fun AppNavHost(
                               chatRepository = chatRepository,
                               profileRepository = profileRepository,
                               listingRepository = listingRepository,
+                              photoStorage = chatPhotoStorage,
+                              savedStateHandle = createSavedStateHandle(),
+                              uploadScope = photoUploadScope,
                           )
                         }
                       }
@@ -488,6 +590,9 @@ fun AppNavHost(
               },
               onOpenSettings = {
                 navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+              },
+              onOpenBookings = {
+                navController.navigate(Routes.RENTER_BOOKINGS) { launchSingleTop = true }
               },
               toolbox = {
                 ToolboxCard(
@@ -581,6 +686,7 @@ private val signedInRoutes =
         Routes.LENDER_PROFILE,
         Routes.INBOX,
         Routes.CONVERSATION,
+        Routes.BOOKING_REQUEST,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,
