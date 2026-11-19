@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
 interface BookingRepository {
@@ -30,4 +31,16 @@ interface BookingRepository {
    * @param onWriteFailure receives a write failure that arrives after local queuing.
    */
   suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit = {})
+
+  /**
+   * Accepts [booking], a request on one of the signed-in lender's listings, in a single write: it
+   * becomes [BookingStatus.CONFIRMED], its days are taken off the listing's available days so no
+   * one can request them again, and every other request on the listing that asks for one of those
+   * days becomes [BookingStatus.CANCELLED]. Requests for other days stay as they are.
+   *
+   * Fails when nobody is signed in, or when Firestore cannot answer or refuses the write: for
+   * example when [booking] was already answered, or one of its days was taken by another request
+   * accepted first.
+   */
+  suspend fun acceptBooking(booking: Booking)
 }

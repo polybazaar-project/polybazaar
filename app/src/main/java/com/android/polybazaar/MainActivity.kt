@@ -21,10 +21,12 @@ import com.android.polybazaar.booking.model.FirebaseBookingRepository
 import com.android.polybazaar.chat.model.FirebaseChatRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
+import com.android.polybazaar.map.model.FusedLocationRepository
 import com.android.polybazaar.photo.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
 import com.android.polybazaar.ui.theme.PolyBazaarTheme
+import com.google.android.gms.location.LocationServices
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,6 +64,12 @@ class MainActivity : ComponentActivity() {
                     FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
                   },
               bookingRepository = remember { FirebaseBookingRepository() },
+              locationRepository =
+                  remember {
+                    FusedLocationRepository(
+                        LocationServices.getFusedLocationProviderClient(applicationContext)
+                    )
+                  },
           )
         }
       }

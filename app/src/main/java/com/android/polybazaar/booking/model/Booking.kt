@@ -31,5 +31,8 @@ data class Booking(
     val id: String = "",
 )
 
+/** Whether this booking and [other] share at least one day. */
+fun Booking.overlaps(other: Booking): Boolean = days.any { it in other.days }
+
 /** Whether every day is before [today]: the booking is history and stays as it is. */
 fun Booking.isFinished(today: LocalDate): Boolean = days.all { it.isBefore(today) }

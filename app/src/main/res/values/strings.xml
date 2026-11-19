@@ -111,6 +111,23 @@
         <item quantity="other">Message too long: at most %d characters</item>
     </plurals>
 
+    <!-- Map: renter location and campus fallback (#340) -->
+    <string name="map_location_reason_title">See what\'s near you</string>
+    <string name="map_location_reason_text">PolyBazaar uses your approximate location only to centre the map on you. It\'s never saved or shared with other students.</string>
+    <string name="map_location_continue">Continue</string>
+    <string name="map_location_not_now">Not now</string>
+    <string name="map_campus_title">Where are you studying?</string>
+    <string name="map_campus_text">Pick your campus to centre the map. You can change it any time from the map.</string>
+    <string name="map_campus_epfl">EPFL</string>
+    <string name="map_campus_epfl_area">Écublens</string>
+    <string name="map_campus_unil">UNIL</string>
+    <string name="map_campus_unil_area">Dorigny</string>
+    <string name="map_campus_cancel">Cancel</string>
+    <string name="map_locating">Finding your location…</string>
+    <string name="map_showing_campus">Showing %1$s</string>
+    <string name="map_change_campus">Change</string>
+    <string name="map_change_campus_description">Change campus</string>
+
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
 

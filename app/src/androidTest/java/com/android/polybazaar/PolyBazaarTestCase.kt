@@ -11,6 +11,7 @@ import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
+import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.testing.InMemoryBackend
 import com.android.polybazaar.ui.navigation.AppNavHost
 import com.kaspersky.components.composesupport.config.withComposeSupport
@@ -57,6 +58,7 @@ abstract class PolyBazaarTestCase :
               ),
           chatRepository = FakeChatRepository(),
           bookingRepository = FakeBookingRepository(),
+          locationRepository = FakeLocationRepository(),
           navController = rememberNavController(),
       )
     }

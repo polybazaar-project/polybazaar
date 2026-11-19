@@ -1,4 +1,4 @@
-// Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Claude Code (Claude Fable 5.2, Claude Opus 5.5)
 package com.android.polybazaar.listing.ui
 
 import android.content.Context
@@ -36,6 +36,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.FakeLocationRepository
 import java.io.ByteArrayOutputStream
 import java.net.UnknownHostException
 import java.time.LocalDate
@@ -97,6 +98,7 @@ class EditListingScreenTest {
             repository,
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
+            FakeLocationRepository(),
         )
     composeTestRule.setContent {
       EditListingScreen(
@@ -340,6 +342,7 @@ class EditListingScreenTest {
             repository,
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
+            FakeLocationRepository(),
         )
     composeTestRule.setContent {
       dispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher

@@ -83,6 +83,7 @@ import com.android.polybazaar.listing.ui.ListingDetailActions
 import com.android.polybazaar.listing.ui.ListingDetailScreen
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.map.model.LocationRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
 import com.android.polybazaar.profile.ui.EditProfileContent
@@ -119,6 +120,7 @@ object AppNavHostTags {
  * @param photoStorage keeps the photos of the listing being created.
  * @param editPhotoStorage keeps the photos added to the listing being edited. It must use another
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
+ * @param locationRepository finds the lender, to open the listing form's map picker where they are.
  */
 @Composable
 fun AppNavHost(
@@ -130,6 +132,7 @@ fun AppNavHost(
     editPhotoStorage: PhotoStorage,
     chatRepository: ChatRepository,
     bookingRepository: BookingRepository,
+    locationRepository: LocationRepository,
     navController: NavHostController = rememberNavController(),
 ) {
   val uiState by authViewModel.uiState.collectAsState()
@@ -300,6 +303,7 @@ fun AppNavHost(
                               listingRepository = listingRepository,
                               photoStorage = photoStorage,
                               savedStateHandle = createSavedStateHandle(),
+                              locationRepository = locationRepository,
                           )
                         }
                       }
@@ -326,6 +330,7 @@ fun AppNavHost(
                               listingRepository = listingRepository,
                               photoStorage = editPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
+                              locationRepository = locationRepository,
                           )
                         }
                       }
