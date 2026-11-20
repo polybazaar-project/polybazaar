@@ -92,10 +92,9 @@ class FirebaseProfileRepository(
   private fun profilePhoto(uid: String) = storage.reference.child(profilePhotoPath(uid))
 
   private fun com.google.firebase.firestore.DocumentSnapshot.toUser(uid: String): User {
-    val email =
-        getString("email")
-            ?: auth.currentUser?.takeIf { it.uid == uid }?.email
-            ?: throw IllegalStateException("Email is unavailable for profile $uid")
+    // The public profile does not store the email (see firestore.rules), so only the signed-in
+    // user's own profile has one; other users' profiles get an empty email.
+    val email = getString("email") ?: auth.currentUser?.takeIf { it.uid == uid }?.email ?: ""
     val username =
         getString("username")
             ?: throw IllegalStateException("Username is missing from profile $uid")
