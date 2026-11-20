@@ -105,6 +105,7 @@
     <string name="conversation_placeholder">Write a message…</string>
     <string name="conversation_placeholder_closed">Conversation closed</string>
     <string name="conversation_send">Send</string>
+    <string name="conversation_new_message">New message</string>
     <string name="conversation_placeholder_caption">Add a caption…</string>
     <string name="conversation_photo_button">Add a photo</string>
     <string name="conversation_take_photo">Take photo</string>
