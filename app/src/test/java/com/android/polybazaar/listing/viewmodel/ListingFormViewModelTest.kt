@@ -26,6 +26,7 @@ import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.FakeLocationRepository
+import com.android.polybazaar.map.model.FakePlaceNameRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.io.IOException
 import java.net.UnknownHostException
@@ -58,6 +59,7 @@ class ListingFormViewModelTest {
   private lateinit var photoStorage: FakePhotoStorage
   private lateinit var savedStateHandle: SavedStateHandle
   private val locationRepository = FakeLocationRepository()
+  private val placeNameRepository = FakePlaceNameRepository()
   private val connectivity = FakeConnectivityRepository()
   private lateinit var viewModel: ListingFormViewModel
 
@@ -90,6 +92,7 @@ class ListingFormViewModelTest {
           photoStorage,
           handle,
           locationRepository,
+          placeNameRepository,
           connectivity,
           today,
       )
@@ -1382,6 +1385,188 @@ class ListingFormViewModelTest {
 
     assertEquals(ListingLocation(lausanne.latitude, lausanne.longitude, ""), uiLocation())
     assertFalse(viewModel.uiState.value.canSave)
+  }
+
+  // Town suggested off campus (#395)
+
+  private fun locationName() = uiLocation()?.name
+
+  private fun nameSuggested() = viewModel.uiState.value.locationNameSuggested
+
+  @Test
+  fun setLocationPoint_offCampus_suggestsTheTownOnceFound() = runTest {
+    placeNameRepository.town = "Lausanne"
+
+    viewModel.setLocationPoint(lausanne)
+    assertEquals("", locationName())
+    assertFalse(nameSuggested())
+
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(ListingLocation(lausanne.latitude, lausanne.longitude, "Lausanne"), uiLocation())
+    assertTrue(nameSuggested())
+    assertEquals(1, placeNameRepository.calls)
+
+    // The suggestion stays editable, and is then the lender's own name.
+    viewModel.updateLocationName("Lausanne gare")
+    assertEquals("Lausanne gare", locationName())
+    assertFalse(nameSuggested())
+  }
+
+  @Test
+  fun setLocationPoint_onACampus_isSuggestedWithoutALookup() = runTest {
+    placeNameRepository.town = "Ecublens"
+
+    viewModel.setLocationPoint(epfl)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("EPFL campus", locationName())
+    assertTrue(nameSuggested())
+    assertEquals(0, placeNameRepository.calls)
+  }
+
+  @Test
+  fun setLocationPoint_offCampus_keepsATypedNameWithoutALookup() = runTest {
+    placeNameRepository.town = "Lausanne"
+    viewModel.setLocationPoint(lausanne)
+    viewModel.updateLocationName("Flat")
+
+    viewModel.setLocationPoint(ouchy)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(ListingLocation(ouchy.latitude, ouchy.longitude, "Flat"), uiLocation())
+    assertFalse(nameSuggested())
+    // The lookup for the first point was cancelled by the typing, before it was asked.
+    assertEquals(0, placeNameRepository.calls)
+  }
+
+  @Test
+  fun setLocationPoint_movedOffACampus_replacesTheCampusNameWithTheTown() = runTest {
+    placeNameRepository.town = "Lausanne"
+    viewModel.setLocationPoint(epfl)
+
+    viewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("Lausanne", locationName())
+    assertTrue(nameSuggested())
+  }
+
+  @Test
+  fun setLocationPoint_movedFromASuggestedTown_suggestsTheNewTown() = runTest {
+    placeNameRepository.town = "Lausanne"
+    viewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    placeNameRepository.town = "Pully"
+    viewModel.setLocationPoint(ouchy)
+    assertEquals("", locationName())
+
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(ListingLocation(ouchy.latitude, ouchy.longitude, "Pully"), uiLocation())
+    assertEquals(2, placeNameRepository.calls)
+  }
+
+  @Test
+  fun townFoundAfterTheLenderTyped_isNotApplied() = runTest {
+    placeNameRepository.town = "Lausanne"
+    placeNameRepository.gate = CompletableDeferred()
+    viewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(1, placeNameRepository.calls)
+
+    viewModel.updateLocationName("Flat")
+    placeNameRepository.gate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("Flat", locationName())
+    assertFalse(nameSuggested())
+  }
+
+  @Test
+  fun townFoundAfterThePinMoved_isNotApplied() = runTest {
+    val gate = CompletableDeferred<Unit>()
+    placeNameRepository.gate = gate
+    placeNameRepository.town = "Lausanne"
+    viewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.setLocationPoint(ouchy)
+    testDispatcher.scheduler.runCurrent()
+    placeNameRepository.town = "Pully"
+    gate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    // Only the latest point's town names it.
+    assertEquals(ListingLocation(ouchy.latitude, ouchy.longitude, "Pully"), uiLocation())
+    assertEquals(2, placeNameRepository.calls)
+  }
+
+  @Test
+  fun clearLocation_dropsTheTownBeingLookedUp() = runTest {
+    placeNameRepository.town = "Lausanne"
+    placeNameRepository.gate = CompletableDeferred()
+    viewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.clearLocation()
+    placeNameRepository.gate!!.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertNull(uiLocation())
+    assertFalse(nameSuggested())
+  }
+
+  @Test
+  fun townNotFound_leavesTheNameBlankWithoutError_andTheFormStillSaves() = runTest {
+    placeNameRepository.town = null
+    repository.result = listing
+    fillForm()
+
+    viewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(1, placeNameRepository.calls)
+    assertEquals("", locationName())
+    assertFalse(nameSuggested())
+    assertNull(viewModel.uiState.value.saveError)
+    assertFalse(viewModel.uiState.value.showLocationNameError)
+
+    viewModel.updateLocationName("Flat")
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals("Flat", repository.createdListing?.location?.name)
+  }
+
+  @Test
+  fun suggestedName_survivesTheAppBeingKilled() = runTest {
+    placeNameRepository.town = "Lausanne"
+    viewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val restored = newForm(null, afterAppKilled(savedStateHandle)) { today }
+    assertEquals("Lausanne", restored.uiState.value.location?.name)
+    assertTrue(restored.uiState.value.locationNameSuggested)
+
+    // Still a suggestion, so moving the pin replaces it rather than keeping it as typed.
+    placeNameRepository.town = "Pully"
+    restored.setLocationPoint(ouchy)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals("Pully", restored.uiState.value.location?.name)
+  }
+
+  @Test
+  fun edit_listingOnACampusMovedOffIt_getsTheTown() = runTest {
+    repository.storedListing =
+        storedItem.copy(location = ListingLocation(epfl.latitude, epfl.longitude, "EPFL campus"))
+    val editViewModel = newForm("l1") { today }
+    testDispatcher.scheduler.advanceUntilIdle()
+    placeNameRepository.town = "Lausanne"
+
+    editViewModel.setLocationPoint(lausanne)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("Lausanne", editViewModel.uiState.value.location?.name)
+    assertTrue(editViewModel.uiState.value.locationNameSuggested)
   }
 
   @Test

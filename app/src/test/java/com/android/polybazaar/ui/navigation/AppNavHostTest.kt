@@ -90,6 +90,7 @@ import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.listing.ui.ListingDetailScreenTags
 import com.android.polybazaar.map.model.FakeLocationRepository
+import com.android.polybazaar.map.model.FakePlaceNameRepository
 import com.android.polybazaar.map.ui.MapScreenTags
 import com.android.polybazaar.map.viewmodel.MapUiState
 import com.android.polybazaar.profile.model.ProfileRepository
@@ -178,6 +179,7 @@ class AppNavHostTest {
             chatRepository = chatRepository,
             bookingRepository = bookingRepository,
             locationRepository = locationRepository,
+            placeNameRepository = FakePlaceNameRepository(),
             // Google Maps can't run under Robolectric: a stand-in that shows the markers.
             listingsMap = {
               mapState = it
@@ -227,6 +229,7 @@ class AppNavHostTest {
             chatRepository = chatRepository,
             bookingRepository = bookingRepository,
             locationRepository = locationRepository,
+            placeNameRepository = FakePlaceNameRepository(),
             // Google Maps can't run under Robolectric: a stand-in that shows the markers.
             listingsMap = {
               mapState = it
@@ -709,6 +712,7 @@ class AppNavHostTest {
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
           locationRepository = locationRepository,
+          placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
           listingsMap = { mapState = it },
@@ -1543,6 +1547,7 @@ class AppNavHostTest {
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
           locationRepository = locationRepository,
+          placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
           listingsMap = { mapState = it },
@@ -1622,6 +1627,7 @@ class AppNavHostTest {
           chatRepository = chatRepository,
           bookingRepository = bookingRepository,
           locationRepository = locationRepository,
+          placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
           listingsMap = { mapState = it },
