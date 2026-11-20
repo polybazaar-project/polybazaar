@@ -4,9 +4,12 @@
 // Co-authored-by: Claude Code (Claude Fable 5.2)
 package com.android.polybazaar
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -34,6 +37,14 @@ import com.google.android.gms.location.LocationServices
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    // With edge-to-edge and adjustResize (manifest), Compose receives the keyboard's insets and
+    // the screens shrink above it. The bars keep dark icons and a light scrim in dark mode too,
+    // because the screens stay light; auto keeps the system's contrast scrim for 3-button nav.
+    enableEdgeToEdge(
+        statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+        navigationBarStyle =
+            SystemBarStyle.auto(LIGHT_SCRIM, DARK_SCRIM, detectDarkMode = { false }),
+    )
     setContent {
       PolyBazaarTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -92,5 +103,9 @@ class MainActivity : ComponentActivity() {
      * activity and keep using it, and its network callback is registered only once.
      */
     var connectivity: ConnectivityRepository? = null
+
+    // The activity library's default nav bar scrims.
+    val LIGHT_SCRIM = Color.argb(0xe6, 0xff, 0xff, 0xff)
+    val DARK_SCRIM = Color.argb(0x80, 0x1b, 0x1b, 0x1b)
   }
 }
