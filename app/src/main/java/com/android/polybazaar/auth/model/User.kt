@@ -3,6 +3,7 @@ package com.android.polybazaar.auth.model
 
 data class User(
     val uid: String,
+    /** Empty when read from another user's public profile, which does not store it. */
     val email: String,
     val username: String,
     /** Storage path of the profile photo, read with ProfileRepository.loadProfilePhoto. */
