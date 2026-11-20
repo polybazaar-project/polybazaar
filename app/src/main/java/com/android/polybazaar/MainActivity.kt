@@ -24,6 +24,7 @@ import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
 import com.android.polybazaar.map.model.FusedLocationRepository
+import com.android.polybazaar.map.model.GoogleGeocodingRepository
 import com.android.polybazaar.photo.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
@@ -72,6 +73,8 @@ class MainActivity : ComponentActivity() {
                         LocationServices.getFusedLocationProviderClient(applicationContext)
                     )
                   },
+              placeNameRepository =
+                  remember { GoogleGeocodingRepository(BuildConfig.GEOCODING_API_KEY) },
               connectivityRepository = connectivityRepository(),
           )
         }

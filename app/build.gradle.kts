@@ -45,7 +45,11 @@ android {
 
   testCoverage { jacocoVersion = "0.8.11" }
 
-  buildFeatures { compose = true }
+  buildFeatures {
+    compose = true
+    // So the Secrets plugin exposes GEOCODING_API_KEY to the code.
+    buildConfig = true
+  }
 
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -125,7 +129,8 @@ androidComponents {
 // With AGP 9+ the JVM target is set outside the Android block.
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
-// Reads MAPS_API_KEY from local.properties, or from the committed defaults file when it is absent.
+// Reads MAPS_API_KEY and GEOCODING_API_KEY from local.properties, or from the committed defaults
+// file when they are absent.
 secrets {
   propertiesFileName = "local.properties"
   defaultPropertiesFileName = "secrets.defaults.properties"
