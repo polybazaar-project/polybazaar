@@ -8,10 +8,14 @@ package com.android.polybazaar.ui.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -181,6 +185,8 @@ fun AppNavHost(
 
   Scaffold(
       containerColor = AuthColors.Background,
+      // The cutout too, for the screens that do not pad for it themselves: Browse and Map.
+      contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout),
       bottomBar = {
         if (showsBottomBar(currentRoute)) {
           AppBottomBar(currentRoute = currentRoute, onTabSelected = navController::navigateToTab)
