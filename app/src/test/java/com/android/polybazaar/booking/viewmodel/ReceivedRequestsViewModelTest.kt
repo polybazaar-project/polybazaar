@@ -291,6 +291,117 @@ class ReceivedRequestsViewModelTest {
     gate.complete(Unit)
   }
 
+  /** Dan's booking, already accepted, on days no request asks for. */
+  private val dan = booking("dan", "uid-ann", days(27..28), BookingStatus.CONFIRMED)
+
+  @Test
+  fun cancel_takesTheBookingOffTheAcceptedOnes_andLeavesTheOfferedDaysAsTheyAre() = runTest {
+    bookings.listingBookings = listOf(ann, dan)
+    val viewModel = newViewModel()
+    val offeredBefore = viewModel.uiState.value.offeredDays
+
+    viewModel.cancel(dan)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("dan"), bookings.cancelledIds)
+    val state = viewModel.uiState.value
+    assertEquals(emptyList<Booking>(), state.accepted)
+    assertEquals(listOf(ann), state.requests)
+    assertEquals(offeredBefore, state.offeredDays)
+    assertNull(state.cancellingId)
+    assertNull(state.cancelError)
+  }
+
+  @Test
+  fun aCancelTheServerRefusesLater_putsTheBookingBack_andSaysWhy() = runTest {
+    bookings.listingBookings = listOf(dan)
+    val viewModel = newViewModel()
+    viewModel.cancel(dan)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(emptyList<Booking>(), viewModel.uiState.value.accepted)
+
+    bookings.cancelWriteFailure!!(UnknownHostException("offline"))
+
+    assertEquals(listOf(dan), viewModel.uiState.value.accepted)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.cancelError)
+  }
+
+  @Test
+  fun aCancelRefusedWhileBeingQueued_keepsTheBookingListed() = runTest {
+    bookings.listingBookings = listOf(dan)
+    bookings.immediateCancelWriteFailure = UnknownHostException("offline")
+    val viewModel = newViewModel()
+
+    viewModel.cancel(dan)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(dan), viewModel.uiState.value.accepted)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.cancelError)
+  }
+
+  @Test
+  fun aCancelThatCannotBeQueued_keepsTheBooking_andSaysWhy_untilTriedAgain() = runTest {
+    bookings.listingBookings = listOf(dan)
+    bookings.cancelFailure = UnknownHostException("offline")
+    val viewModel = newViewModel()
+
+    viewModel.cancel(dan)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(dan), viewModel.uiState.value.accepted)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.cancelError)
+    assertNull(viewModel.uiState.value.cancellingId)
+
+    bookings.cancelFailure = null
+    viewModel.cancel(dan)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertNull(viewModel.uiState.value.cancelError)
+    assertEquals(emptyList<Booking>(), viewModel.uiState.value.accepted)
+  }
+
+  @Test
+  fun cancel_ignoresABookingThatIsNotAccepted() = runTest {
+    val viewModel = newViewModel()
+
+    viewModel.cancel(ann)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(emptyList<String>(), bookings.cancelledIds)
+  }
+
+  @Test
+  fun anAcceptAndACancel_neverRunTogether() = runTest {
+    // Cy's request stays acceptable after Ann's accept: it shares no day with it.
+    bookings.listingBookings = listOf(ann, cy, dan)
+    val acceptGate = CompletableDeferred<Unit>()
+    bookings.acceptGate = acceptGate
+    val viewModel = newViewModel()
+
+    viewModel.accept(ann)
+    viewModel.cancel(dan)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals(emptyList<String>(), bookings.cancelledIds)
+    acceptGate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val cancelGate = CompletableDeferred<Unit>()
+    bookings.pendingCancel = cancelGate
+    viewModel.cancel(dan)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertEquals("dan", viewModel.uiState.value.cancellingId)
+    assertTrue(viewModel.uiState.value.isAnswering)
+    viewModel.accept(cy)
+    viewModel.loadRequests()
+    testDispatcher.scheduler.advanceUntilIdle()
+    cancelGate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(ann), bookings.accepted)
+    // One read when opened and one after the accept; none while the cancel was queued.
+    assertEquals(2, bookings.loadCount)
+    assertFalse(viewModel.uiState.value.isAnswering)
+  }
+
   @Test
   fun aListingReadFailure_isShownAsALoadFailure_andRetryLoads() = runTest {
     listings.failure = UnknownHostException("offline")

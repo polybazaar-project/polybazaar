@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -60,6 +61,11 @@ object ReceivedRequestsScreenTags {
   const val ACCEPT_DIALOG_TEXT = "received_requests_accept_dialog_text"
   const val ACCEPT_CONFIRM = "received_requests_accept_confirm"
   const val ACCEPT_CANCEL = "received_requests_accept_cancel"
+  const val CANCEL_ERROR = "received_requests_cancel_error"
+  const val CANCEL_DIALOG = "received_requests_cancel_dialog"
+  const val CANCEL_DIALOG_TEXT = "received_requests_cancel_dialog_text"
+  const val CANCEL_CONFIRM = "received_requests_cancel_confirm"
+  const val CANCEL_KEEP = "received_requests_cancel_keep"
 
   /** The card of the waiting request with this id. */
   fun request(id: String) = "received_requests_request_$id"
@@ -69,6 +75,9 @@ object ReceivedRequestsScreenTags {
 
   /** The card of the accepted booking with this id. */
   fun accepted(id: String) = "received_requests_accepted_$id"
+
+  /** The "Cancel booking" button of the accepted booking with this id. */
+  fun cancelButton(id: String) = "received_requests_cancel_$id"
 }
 
 /** What the screen can do; every action does nothing by default. */
@@ -76,12 +85,13 @@ class ReceivedRequestsActions(
     val onBack: () -> Unit = {},
     val onRetry: () -> Unit = {},
     val onAccept: (Booking) -> Unit = {},
+    val onCancel: (Booking) -> Unit = {},
 )
 
 /**
  * The screen where the owner of a listing sees the requests renters made on it and accepts the ones
  * they want. Accepting asks for confirmation first, saying how many other requests for the same
- * days it cancels.
+ * days it cancels. An accepted booking can be cancelled, also after confirmation.
  */
 @Composable
 fun ReceivedRequestsScreen(viewModel: ReceivedRequestsViewModel, onBack: () -> Unit) {
@@ -93,6 +103,7 @@ fun ReceivedRequestsScreen(viewModel: ReceivedRequestsViewModel, onBack: () -> U
               onBack = onBack,
               onRetry = viewModel::loadRequests,
               onAccept = viewModel::accept,
+              onCancel = viewModel::cancel,
           ),
   )
 }
@@ -127,8 +138,11 @@ fun ReceivedRequestsContent(uiState: ReceivedRequestsUiState, actions: ReceivedR
 
 @Composable
 private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequestsActions) {
-  // The id of the request waiting for confirmation. Saveable, so the dialog survives a rotation.
+  // The ids of the request to accept and of the booking to cancel, each waiting for confirmation.
+  // Saveable, so the dialogs survive a rotation.
   var confirmingId by rememberSaveable { mutableStateOf<String?>(null) }
+  var cancellingId by rememberSaveable { mutableStateOf<String?>(null) }
+  val canAnswer = !uiState.isAnswering && !uiState.isLoading
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -149,6 +163,15 @@ private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequ
           fontSize = 13.sp,
           lineHeight = 18.sp,
           modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_ERROR),
+      )
+    }
+    uiState.cancelError?.let {
+      Text(
+          text = it.message(),
+          color = AuthColors.Danger,
+          fontSize = 13.sp,
+          lineHeight = 18.sp,
+          modifier = Modifier.testTag(ReceivedRequestsScreenTags.CANCEL_ERROR),
       )
     }
     if (uiState.requests.isEmpty() && uiState.accepted.isEmpty()) {
@@ -172,7 +195,7 @@ private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequ
             AuthPrimaryButton(
                 text = stringResource(R.string.received_requests_accept),
                 onClick = { confirmingId = request.id },
-                enabled = uiState.acceptingId == null && !uiState.isLoading,
+                enabled = canAnswer,
                 modifier =
                     Modifier.fillMaxWidth()
                         .height(44.dp)
@@ -189,7 +212,20 @@ private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequ
             booking = booking,
             renterName = uiState.renterNames[booking.renterUid],
             tag = ReceivedRequestsScreenTags.accepted(booking.id),
-        )
+        ) {
+          TextButton(
+              onClick = { cancellingId = booking.id },
+              enabled = canAnswer,
+              modifier = Modifier.testTag(ReceivedRequestsScreenTags.cancelButton(booking.id)),
+          ) {
+            Text(
+                text = stringResource(R.string.received_requests_cancel_booking),
+                color = if (canAnswer) AuthColors.Danger else AuthColors.TextSecondary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+          }
+        }
       }
     }
   }
@@ -205,6 +241,19 @@ private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequ
           actions.onAccept(confirming)
         },
         onDismiss = { confirmingId = null },
+    )
+  }
+  // As above: the booking may have been cancelled meanwhile.
+  val toCancel = uiState.accepted.find { it.id == cancellingId }
+  if (toCancel != null) {
+    CancelDialog(
+        renterName = uiState.renterNames[toCancel.renterUid],
+        days = formatRuns(groupIntoRuns(toCancel.days)),
+        onConfirm = {
+          cancellingId = null
+          actions.onCancel(toCancel)
+        },
+        onDismiss = { cancellingId = null },
     )
   }
 }
@@ -288,14 +337,82 @@ private fun AcceptDialog(
       )
     }
   }
+  ConfirmDialog(
+      title = stringResource(R.string.received_requests_confirm_title),
+      text = text,
+      confirm = stringResource(R.string.received_requests_accept),
+      confirmColor = AuthColors.Accent,
+      dismiss = stringResource(R.string.received_requests_cancel),
+      tags =
+          DialogTags(
+              dialog = ReceivedRequestsScreenTags.ACCEPT_DIALOG,
+              text = ReceivedRequestsScreenTags.ACCEPT_DIALOG_TEXT,
+              confirm = ReceivedRequestsScreenTags.ACCEPT_CONFIRM,
+              dismiss = ReceivedRequestsScreenTags.ACCEPT_CANCEL,
+          ),
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+  )
+}
+
+/**
+ * Asks the lender to confirm cancelling the booking of [renterName] for [days]. The days stay off
+ * the listing, which the text says, so that the lender knows to add them back to lend them again.
+ */
+@Composable
+private fun CancelDialog(
+    renterName: String?,
+    days: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  val renter = renterName ?: stringResource(R.string.received_requests_unknown_renter)
+  ConfirmDialog(
+      title = stringResource(R.string.received_requests_cancel_title),
+      text = stringResource(R.string.received_requests_cancel_text, renter, days),
+      confirm = stringResource(R.string.received_requests_cancel_booking),
+      confirmColor = AuthColors.Danger,
+      dismiss = stringResource(R.string.received_requests_keep),
+      tags =
+          DialogTags(
+              dialog = ReceivedRequestsScreenTags.CANCEL_DIALOG,
+              text = ReceivedRequestsScreenTags.CANCEL_DIALOG_TEXT,
+              confirm = ReceivedRequestsScreenTags.CANCEL_CONFIRM,
+              dismiss = ReceivedRequestsScreenTags.CANCEL_KEEP,
+          ),
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+  )
+}
+
+/** The test tags of a [ConfirmDialog]: the dialog, its text and its two buttons. */
+private class DialogTags(
+    val dialog: String,
+    val text: String,
+    val confirm: String,
+    val dismiss: String,
+)
+
+/** A dialog asking to confirm an answer, in the style of the screen. */
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    text: String,
+    confirm: String,
+    confirmColor: Color,
+    dismiss: String,
+    tags: DialogTags,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
   AlertDialog(
       onDismissRequest = onDismiss,
       containerColor = AuthColors.CardBackground,
       shape = RoundedCornerShape(20.dp),
-      modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_DIALOG),
+      modifier = Modifier.testTag(tags.dialog),
       title = {
         Text(
-            text = stringResource(R.string.received_requests_confirm_title),
+            text = title,
             color = AuthColors.TextPrimary,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
@@ -307,29 +424,23 @@ private fun AcceptDialog(
             color = AuthColors.TextSecondary,
             fontSize = 13.sp,
             lineHeight = 18.sp,
-            modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_DIALOG_TEXT),
+            modifier = Modifier.testTag(tags.text),
         )
       },
       confirmButton = {
-        TextButton(
-            onClick = onConfirm,
-            modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_CONFIRM),
-        ) {
+        TextButton(onClick = onConfirm, modifier = Modifier.testTag(tags.confirm)) {
           Text(
-              text = stringResource(R.string.received_requests_accept),
-              color = AuthColors.Accent,
+              text = confirm,
+              color = confirmColor,
               fontSize = 14.sp,
               fontWeight = FontWeight.SemiBold,
           )
         }
       },
       dismissButton = {
-        TextButton(
-            onClick = onDismiss,
-            modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_CANCEL),
-        ) {
+        TextButton(onClick = onDismiss, modifier = Modifier.testTag(tags.dismiss)) {
           Text(
-              text = stringResource(R.string.received_requests_cancel),
+              text = dismiss,
               color = AuthColors.TextSecondary,
               fontSize = 14.sp,
               fontWeight = FontWeight.SemiBold,
