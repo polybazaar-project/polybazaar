@@ -32,7 +32,6 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -71,6 +70,7 @@ import com.android.polybazaar.booking.ui.AvailabilityCalendarSheetTags
 import com.android.polybazaar.booking.ui.AvailabilityCalendarTags
 import com.android.polybazaar.booking.ui.BookingListScreenTags
 import com.android.polybazaar.booking.ui.BookingRequestScreenTags
+import com.android.polybazaar.booking.ui.ReceivedRequestsScreenTags
 import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.Conversation
@@ -928,6 +928,32 @@ class AppNavHostTest {
   }
 
   @Test
+  fun listingDetail_ownerOpensTheBookingRequests_andComesBack() {
+    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    bookingRepository.listingBookings =
+        listOf(
+            Booking(
+                listingId = "drill",
+                renterUid = "uid-grace",
+                lenderUid = user.uid,
+                days = setOf(LocalDate.now().plusDays(10)),
+                id = "b1",
+            )
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).performClick()
+
+    assertCurrentRoute(Routes.RECEIVED_REQUESTS, Routes.LISTING_ID, "drill")
+    composeTestRule.onNodeWithTag(ReceivedRequestsScreenTags.request("b1")).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ReceivedRequestsScreenTags.BACK_BUTTON).performClick()
+    assertOnListingDetail("Bosch drill set")
+  }
+
+  @Test
   fun signOut_fromTheListingDetail_returnsToSignIn() {
     listingRepository.allListings = listOf(gracesDrill)
     val viewModel = setContent(FakeAuthRepository(currentUser = user))
@@ -1084,39 +1110,6 @@ class AppNavHostTest {
     assertBottomBarHidden()
     composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
     composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
-  }
-
-  @Test
-  fun listingOwner_bookingRequestsOpensBookingsForThatListing() {
-    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
-    bookingRepository.listingBookings =
-        listOf(
-            Booking(
-                listingId = "drill",
-                renterUid = "uid-renter",
-                lenderUid = user.uid,
-                days = setOf(LocalDate.of(2026, 11, 13)),
-                id = "booking",
-            )
-        )
-    setContent(FakeAuthRepository(currentUser = user))
-    openProfile()
-    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
-    assertOnListingDetail("Bosch drill set")
-
-    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON).performClick()
-
-    composeTestRule.waitUntil {
-      composeTestRule
-          .onAllNodesWithTag(BookingListScreenTags.STATUS)
-          .fetchSemanticsNodes()
-          .isNotEmpty()
-    }
-    composeTestRule.onNodeWithTag(BookingListScreenTags.SCREEN).assertIsDisplayed()
-    assertCurrentRoute(Routes.LENDER_BOOKINGS, Routes.LISTING_ID, "drill")
-    assertBottomBarHidden()
-    composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
-    assertOnListingDetail("Bosch drill set")
   }
 
   @Test

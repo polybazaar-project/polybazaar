@@ -93,6 +93,7 @@ object ListingDetailScreenTags {
   const val CHOOSE_DATES_BUTTON = "listing_detail_choose_dates_button"
   const val BOOKING_NOTE = "listing_detail_booking_note"
   const val EDIT_BUTTON = "listing_detail_edit_button"
+  const val BOOKING_REQUESTS_BUTTON = "listing_detail_booking_requests_button"
   const val OWNER_MENU_BUTTON = "listing_detail_owner_menu_button"
   const val PAUSE_ITEM = "listing_detail_pause_item"
   const val RESUME_ITEM = "listing_detail_resume_item"
@@ -108,7 +109,6 @@ object ListingDetailScreenTags {
   const val PAUSED_BADGE = "listing_detail_paused_badge"
   const val PAUSED_NOTICE = "listing_detail_paused_notice"
   const val OWNER_ACTION_ERROR = "listing_detail_owner_action_error"
-  const val BOOKING_REQUESTS_BUTTON = "listing_detail_booking_requests_button"
 }
 
 /**
@@ -116,7 +116,7 @@ object ListingDetailScreenTags {
  * not here: they stay inside the screen, so [ListingDetailScreen] wires them to the ViewModel.
  *
  * @property onEdit opens the "Edit listing" screen for the listing with this id (owner only).
- * @property onOpenBookings opens the booking requests of the listing with this id (owner only).
+ * @property onOpenRequests opens the booking requests on the listing with this id (owner only).
  * @property onDeleted leaves the screen once the owner deleted the listing.
  */
 class ListingDetailActions(
@@ -125,7 +125,7 @@ class ListingDetailActions(
     val onMessageLender: () -> Unit = {},
     val onChooseDates: () -> Unit = {},
     val onEdit: (String) -> Unit = {},
-    val onOpenBookings: (String) -> Unit = {},
+    val onOpenRequests: (String) -> Unit = {},
     val onDeleted: () -> Unit = {},
 )
 
@@ -585,6 +585,12 @@ private fun BookingBar(
               .padding(start = PageMargin, end = PageMargin, top = 14.dp, bottom = 9.dp),
       verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
+    // Saved listings always have an id. Still shown while paused: requests made before the pause
+    // can still be accepted.
+    val ownedListingId = listing.listingId
+    if (uiState.isOwner && ownedListingId != null) {
+      BookingRequestsButton(onClick = { actions.onOpenRequests(ownedListingId) })
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -609,20 +615,6 @@ private fun BookingBar(
             enabled = uiState.canContactLender,
             tag = ListingDetailScreenTags.CHOOSE_DATES_BUTTON,
             onClick = actions.onChooseDates,
-        )
-      }
-    }
-    val ownedListingId = listing.listingId
-    if (uiState.isOwner && ownedListingId != null) {
-      TextButton(
-          onClick = { actions.onOpenBookings(ownedListingId) },
-          modifier =
-              Modifier.fillMaxWidth().testTag(ListingDetailScreenTags.BOOKING_REQUESTS_BUTTON),
-      ) {
-        Text(
-            text = stringResource(R.string.lender_bookings_title),
-            color = AuthColors.Accent,
-            fontWeight = FontWeight.Bold,
         )
       }
     }
