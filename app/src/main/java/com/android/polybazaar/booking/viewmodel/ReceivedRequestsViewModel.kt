@@ -35,8 +35,12 @@ import kotlinx.coroutines.launch
  * @property isLoading true while the bookings are being read.
  * @property acceptingId the id of the request being accepted, or null. Nothing else can be accepted
  *   meanwhile.
+ * @property cancellingId the id of the accepted booking whose cancellation is being queued, or
+ *   null. Nothing else can be accepted or cancelled meanwhile.
  * @property error why the bookings or the listing could not be read, or null.
  * @property acceptError why the last accept failed, or null. Cleared when the lender tries again.
+ * @property cancelError why the last cancellation failed, or null. Cleared when the lender tries
+ *   again.
  */
 data class ReceivedRequestsUiState(
     val requests: List<Booking> = emptyList(),
@@ -46,9 +50,15 @@ data class ReceivedRequestsUiState(
     val hasLoaded: Boolean = false,
     val isLoading: Boolean = false,
     val acceptingId: String? = null,
+    val cancellingId: String? = null,
     val error: AppError? = null,
     val acceptError: AppError? = null,
+    val cancelError: AppError? = null,
 ) {
+  /** Whether an accept or a cancellation is running, so that no other one can start. */
+  val isAnswering: Boolean
+    get() = acceptingId != null || cancellingId != null
+
   /**
    * Whether [request] can be accepted: every one of its days is still offered on the listing, as
    * the rules require. A request stays listed without Accept when the owner no longer offers one of
@@ -67,7 +77,8 @@ private val Booking.firstDay: LocalDate
   get() = days.min()
 
 /**
- * Loads the bookings of the listing [listingId] for its owner, and accepts the one they choose.
+ * Loads the bookings of the listing [listingId] for its owner, accepts the requests they choose and
+ * cancels the bookings they no longer want to lend.
  *
  * @param listingRepository reads the days the listing still offers, which decide what can be
  *   accepted.
@@ -93,11 +104,12 @@ class ReceivedRequestsViewModel(
 
   /**
    * Reads the bookings and the listing's offered days again, for example after a failure (Retry).
-   * Ignored while a read or an accept is running. On failure what is already shown stays shown.
+   * Ignored while a read, an accept or a cancellation is running. On failure what is already shown
+   * stays shown.
    */
   fun loadRequests() {
     val state = _uiState.value
-    if (state.isLoading || state.acceptingId != null) return
+    if (state.isLoading || state.isAnswering) return
     _uiState.update { it.copy(isLoading = true, error = null) }
     viewModelScope.launch {
       try {
@@ -117,14 +129,14 @@ class ReceivedRequestsViewModel(
 
   /**
    * Accepts [request], which cancels the other requests sharing one of its days (see
-   * [BookingRepository.acceptBooking]). Ignored while a read or another accept is running, for a
-   * booking that is not waiting for an answer, and for one that [ReceivedRequestsUiState.canAccept]
-   * refuses. On failure the requests stay as they were and [ReceivedRequestsUiState.acceptError]
-   * says why.
+   * [BookingRepository.acceptBooking]). Ignored while a read, another accept or a cancellation is
+   * running, for a booking that is not waiting for an answer, and for one that
+   * [ReceivedRequestsUiState.canAccept] refuses. On failure the requests stay as they were and
+   * [ReceivedRequestsUiState.acceptError] says why.
    */
   fun accept(request: Booking) {
     val state = _uiState.value
-    if (state.isLoading || state.acceptingId != null) return
+    if (state.isLoading || state.isAnswering) return
     if (state.requests.none { it.id == request.id } || !state.canAccept(request)) return
     // Set before launching, so a second tap in the same frame is already refused.
     _uiState.update { it.copy(acceptingId = request.id, acceptError = null) }
@@ -154,6 +166,50 @@ class ReceivedRequestsViewModel(
         _uiState.update { it.copy(acceptingId = null) }
       }
       loadRequests()
+    }
+  }
+
+  /**
+   * Cancels [booking], one of the accepted bookings, and takes it off the list as soon as the
+   * cancellation is queued, also offline. If the server later refuses it, the booking comes back
+   * and [ReceivedRequestsUiState.cancelError] says why. Its days stay off the listing: the lender
+   * adds them back in "Edit listing" to lend them again. Ignored while a read, an accept or another
+   * cancellation is running, and for a booking that is not accepted.
+   */
+  fun cancel(booking: Booking) {
+    val state = _uiState.value
+    if (state.isLoading || state.isAnswering) return
+    if (state.accepted.none { it.id == booking.id }) return
+    // Set before launching, so a second tap in the same frame is already refused.
+    _uiState.update { it.copy(cancellingId = booking.id, cancelError = null) }
+    viewModelScope.launch {
+      // The failure can arrive while the cancellation is still being queued: then the booking
+      // must stay listed rather than be removed after it was put back.
+      var rejected = false
+      try {
+        bookingRepository.cancelBooking(booking.id) { exception ->
+          rejected = true
+          _uiState.update {
+            it.copy(
+                accepted =
+                    if (it.accepted.any { kept -> kept.id == booking.id }) it.accepted
+                    else (it.accepted + booking).sortedBy(Booking::firstDay),
+                cancelError = exception.toAppError(),
+            )
+          }
+        }
+        if (!rejected) {
+          _uiState.update {
+            it.copy(accepted = it.accepted.filterNot { kept -> kept.id == booking.id })
+          }
+        }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        _uiState.update { it.copy(cancelError = exception.toAppError()) }
+      } finally {
+        // Also on cancellation, as in loadRequests.
+        _uiState.update { it.copy(cancellingId = null) }
+      }
     }
   }
 

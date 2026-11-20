@@ -17,7 +17,8 @@ import kotlinx.coroutines.currentCoroutineContext
  * with [loadFailure] when set. [acceptBooking] changes [listingBookings] as the real repository
  * does: the booking is confirmed and the other requests sharing a day with it cancelled. It waits
  * for [acceptGate] when set and fails with [acceptFailure] when set, leaving [listingBookings]
- * unchanged.
+ * unchanged. [cancelBooking] records the id in [cancelledIds] and, unless it fails, cancels that
+ * booking in [listingBookings].
  *
  * [getBookingsForLender] returns [lenderBookings], or throws [lenderLoadFailure], after
  * [pendingLenderLoad]; it has its own fields so that a screen loading both kinds of bookings can
@@ -41,6 +42,7 @@ class FakeBookingRepository : BookingRepository {
   var loadFailure: Exception? = null
   var loadCount = 0
   var cancellationCount = 0
+  val cancelledIds = mutableListOf<String>()
   var cancelFailure: Exception? = null
   var pendingCancel: CompletableDeferred<Unit>? = null
   var cancelWriteFailure: ((Exception) -> Unit)? = null
@@ -98,9 +100,16 @@ class FakeBookingRepository : BookingRepository {
 
   override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
     cancellationCount++
+    cancelledIds += id
     cancelWriteFailure = onWriteFailure
     pendingCancel?.await()
-    immediateCancelWriteFailure?.let(onWriteFailure)
+    immediateCancelWriteFailure?.let {
+      onWriteFailure(it)
+      return
+    }
     cancelFailure?.let { throw it }
+    listingBookings = listingBookings.map {
+      if (it.id == id) it.copy(status = BookingStatus.CANCELLED) else it
+    }
   }
 }

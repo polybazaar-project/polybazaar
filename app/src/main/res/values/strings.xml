@@ -310,6 +310,10 @@
     </plurals>
     <string name="received_requests_accept">Accept</string>
     <string name="received_requests_cancel">Cancel</string>
+    <string name="received_requests_cancel_booking">Cancel booking</string>
+    <string name="received_requests_cancel_title">Cancel this booking?</string>
+    <string name="received_requests_cancel_text">%1$s will no longer have %2$s. These days stay off your listing: add them back in Edit listing to lend them again.</string>
+    <string name="received_requests_keep">Keep booking</string>
     <string name="received_requests_confirm_title">Accept this request?</string>
     <string name="received_requests_confirm_text">%1$s gets %2$s. No one else can request these days.</string>
     <plurals name="received_requests_confirm_cancels">

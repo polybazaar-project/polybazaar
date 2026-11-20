@@ -54,6 +54,19 @@ class ReceivedRequestsScreenTest {
   private val bob = booking("bob", "uid-bob", days(21..22))
   private val cy = booking("cy", "uid-cy", days(28..28), BookingStatus.CONFIRMED)
 
+  /** The listing the requests are on, offering every day they ask for. */
+  private val drill =
+      ItemListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 8.0,
+          title = "Drill",
+          description = "Cordless drill.",
+          refundValue = 120.0,
+          listingId = "drill",
+          ownerUid = "lender",
+          availableDates = days(17..30),
+      )
+
   private val loaded =
       ReceivedRequestsUiState(
           requests = listOf(ann, bob),
@@ -180,23 +193,80 @@ class ReceivedRequestsScreenTest {
   }
 
   @Test
+  fun cancel_asksFirst_sayingTheDaysStayOffTheListing() {
+    val cancelled = mutableListOf<Booking>()
+    setContent(loaded, ReceivedRequestsActions(onCancel = { cancelled += it }))
+
+    node(ReceivedRequestsScreenTags.cancelButton("cy")).assertIsEnabled().performClick()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG_TEXT)
+        .assertTextEquals(
+            "cy will no longer have 28 Nov. These days stay off your listing: " +
+                "add them back in Edit listing to lend them again."
+        )
+    assertEquals(emptyList<Booking>(), cancelled)
+    node(ReceivedRequestsScreenTags.CANCEL_CONFIRM).performClick()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
+    assertEquals(listOf(cy), cancelled)
+  }
+
+  @Test
+  fun keepingTheBooking_cancelsNothing() {
+    val cancelled = mutableListOf<Booking>()
+    setContent(loaded, ReceivedRequestsActions(onCancel = { cancelled += it }))
+
+    node(ReceivedRequestsScreenTags.cancelButton("cy")).performClick()
+    node(ReceivedRequestsScreenTags.CANCEL_KEEP).performClick()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
+    assertEquals(emptyList<Booking>(), cancelled)
+  }
+
+  @Test
+  fun onlyAcceptedBookings_canBeCancelled() {
+    setContent(loaded)
+
+    node(ReceivedRequestsScreenTags.cancelButton("ann")).assertDoesNotExist()
+    node(ReceivedRequestsScreenTags.cancelButton("cy")).assertIsDisplayed()
+  }
+
+  @Test
+  fun whileACancelRuns_everyAnswerIsDisabled_andAFailureIsShown() {
+    setContent(loaded.copy(cancellingId = "cy", cancelError = AppError.NETWORK))
+
+    node(ReceivedRequestsScreenTags.cancelButton("cy")).assertIsNotEnabled()
+    node(ReceivedRequestsScreenTags.acceptButton("ann")).assertIsNotEnabled()
+    node(ReceivedRequestsScreenTags.CANCEL_ERROR)
+        .assertTextEquals(context.getString(R.string.error_network))
+  }
+
+  @Test
+  fun withTheViewModel_cancellingRemovesTheAcceptedBooking() {
+    val bookings = FakeBookingRepository().apply { listingBookings = listOf(ann, cy) }
+    val viewModel =
+        ReceivedRequestsViewModel(
+            "drill",
+            bookings,
+            FakeListingRepository(listOf(drill)),
+            FakeProfileRepository(emptyMap()),
+            LocalDate.of(2026, 11, 18),
+        )
+    composeTestRule.setContent { ReceivedRequestsScreen(viewModel = viewModel, onBack = {}) }
+
+    node(ReceivedRequestsScreenTags.cancelButton("cy")).performClick()
+    node(ReceivedRequestsScreenTags.CANCEL_CONFIRM).performClick()
+
+    node(ReceivedRequestsScreenTags.accepted("cy")).assertDoesNotExist()
+    node(ReceivedRequestsScreenTags.request("ann")).assertIsDisplayed()
+    assertEquals(listOf("cy"), bookings.cancelledIds)
+    assertEquals(BookingStatus.CANCELLED, bookings.listingBookings.single { it.id == "cy" }.status)
+  }
+
+  @Test
   fun withTheViewModel_acceptingMovesTheRequest_andRemovesTheOverlappingOne() {
     val bookings = FakeBookingRepository().apply { listingBookings = listOf(ann, bob) }
-    val listings =
-        FakeListingRepository(
-            listOf(
-                ItemListing(
-                    category = ListingCategory.ITEM_TOOLS,
-                    price = 8.0,
-                    title = "Drill",
-                    description = "Cordless drill.",
-                    refundValue = 120.0,
-                    listingId = "drill",
-                    ownerUid = "lender",
-                    availableDates = days(17..30),
-                )
-            )
-        )
+    val listings = FakeListingRepository(listOf(drill))
     val profiles =
         FakeProfileRepository(
             mapOf("uid-ann" to User(uid = "uid-ann", email = "", username = "ann_m"))
