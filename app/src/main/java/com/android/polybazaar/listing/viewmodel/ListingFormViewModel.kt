@@ -34,6 +34,7 @@ import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.LocationRepository
+import com.android.polybazaar.map.model.PlaceNameRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -57,6 +58,9 @@ import kotlinx.coroutines.launch
  * @property location where the listing is offered, picked on the map, or null for none.
  * @property locationNameTouched whether the user has left the location's name field, like
  *   [priceTouched]: a missing name is only flagged after that.
+ * @property locationNameSuggested whether the location's name was suggested for its point (a
+ *   campus, or the place found off campus) rather than typed by the lender, so that moving the
+ *   point suggests a new one instead of keeping it.
  * @property suggestedPoint where the map picker opens: the chosen location, else the lender's
  *   position once found, else EPFL.
  * @property availableDates the days the owner offers the listing on, chosen in the calendar.
@@ -86,6 +90,7 @@ data class ListingFormUiState(
     val maxRentalDays: Int? = null,
     val location: ListingLocation? = null,
     val locationNameTouched: Boolean = false,
+    val locationNameSuggested: Boolean = false,
     val suggestedPoint: Coordinates = Campus.EPFL.centre,
     val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = false,
@@ -191,6 +196,8 @@ private fun formFor(listing: Listing, today: LocalDate) =
  *   camera app is in front. Pass `createSavedStateHandle()` from the factory: a handle made by hand
  *   is not saved by Android.
  * @param locationRepository finds the lender, to open the map picker where they are.
+ * @param placeNameRepository names the neighbourhood and town of a point picked off campus, to
+ *   suggest it as the location's name.
  * @param connectivityRepository tells whether the device is online, see
  *   [ListingFormUiState.isOnline].
  * @param today the current day, to leave past available days out of an edited listing.
@@ -201,6 +208,7 @@ class ListingFormViewModel(
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
     private val locationRepository: LocationRepository,
+    private val placeNameRepository: PlaceNameRepository,
     connectivityRepository: ConnectivityRepository,
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
@@ -225,6 +233,9 @@ class ListingFormViewModel(
 
   /** The running request for the lender's position, see [locateLender]. */
   private var locateJob: Job? = null
+
+  /** The running request for the name of the picked point's town, see [setLocationPoint]. */
+  private var geocodeJob: Job? = null
 
   /** The photo the camera app is taking, until it closes. */
   private var pendingPhoto: Uri?
@@ -344,24 +355,64 @@ class ListingFormViewModel(
   }
 
   /**
-   * Sets the location to [point] picked on the map. A point on a campus is named after it;
-   * otherwise the name typed for the previous point is kept, or left blank for the lender to fill.
-   * A campus name is not kept: it would mislabel a point off that campus.
+   * Sets the location to [point] picked on the map. A point on a campus is named after it.
+   * Otherwise the name the lender typed for the previous point is kept; a suggested or campus name
+   * is not, as it would mislabel the new point. The name is then left blank and the place [point]
+   * is in is suggested once found. If it cannot be found, for example offline, the name stays blank
+   * for the lender to fill and no error is shown.
    */
-  fun setLocationPoint(point: Coordinates) = changeForm {
-    val previous = it.location?.name?.takeUnless(ListingLocations::isCampusName) ?: ""
-    val name = ListingLocations.campusNameFor(point) ?: previous
-    it.copy(
-        location = ListingLocation(point.latitude, point.longitude, name),
-        suggestedPoint = point,
-    )
+  fun setLocationPoint(point: Coordinates) {
+    if (!_uiState.value.canEdit) return
+    // A town found for an earlier point would name this one wrongly.
+    geocodeJob?.cancel()
+    val campusName = ListingLocations.campusNameFor(point)
+    val previous = _uiState.value.location?.name ?: ""
+    val keepTyped =
+        previous.isNotBlank() &&
+            !_uiState.value.locationNameSuggested &&
+            !ListingLocations.isCampusName(previous)
+    val name = campusName ?: previous.takeIf { keepTyped } ?: ""
+    updateState {
+      it.copy(
+          location = ListingLocation(point.latitude, point.longitude, name),
+          locationNameSuggested = campusName != null,
+          suggestedPoint = point,
+      )
+    }
+    if (campusName == null && !keepTyped) suggestTownName(point)
   }
 
-  /** Ignored while no location is set: the name belongs to a point on the map. */
-  fun updateLocationName(name: String) = changeForm {
-    it.copy(
-        location = it.location?.copy(name = AuthRules.limitInput(name, MAX_LOCATION_NAME_LENGTH))
-    )
+  /** Names the location after the place [point] is in, unless it moved or was named meanwhile. */
+  private fun suggestTownName(point: Coordinates) {
+    geocodeJob = viewModelScope.launch {
+      placeNameRepository.townName(point).onSuccess { town ->
+        // Only for the same point, still unnamed: the lender may have moved it meanwhile.
+        updateState { state ->
+          val location = state.location
+          val unnamedSamePoint =
+              location != null &&
+                  Coordinates(location.latitude, location.longitude) == point &&
+                  location.name.isBlank()
+          if (unnamedSamePoint) {
+            state.copy(location = location.copy(name = town), locationNameSuggested = true)
+          } else state
+        }
+      }
+    }
+  }
+
+  /**
+   * Ignored while no location is set: the name belongs to a point on the map. A town still being
+   * looked up is no longer suggested: the lender's name comes first.
+   */
+  fun updateLocationName(name: String) {
+    geocodeJob?.cancel()
+    changeForm {
+      it.copy(
+          location = it.location?.copy(name = AuthRules.limitInput(name, MAX_LOCATION_NAME_LENGTH)),
+          locationNameSuggested = false,
+      )
+    }
   }
 
   fun leaveLocationNameField() = changeForm { it.copy(locationNameTouched = true) }
@@ -370,7 +421,12 @@ class ListingFormViewModel(
    * Removes the location, so the listing is saved without one. A location picked again later starts
    * without a name error.
    */
-  fun clearLocation() = changeForm { it.copy(location = null, locationNameTouched = false) }
+  fun clearLocation() {
+    geocodeJob?.cancel()
+    changeForm {
+      it.copy(location = null, locationNameTouched = false, locationNameSuggested = false)
+    }
+  }
 
   /**
    * Adds photos picked in the gallery, skipping duplicates and those beyond [MAX_PHOTOS], kept
@@ -528,6 +584,7 @@ class ListingFormViewModel(
     const val LOCATION_LONGITUDE = "locationLongitude"
     const val LOCATION_NAME = "locationName"
     const val LOCATION_NAME_TOUCHED = "locationNameTouched"
+    const val LOCATION_NAME_SUGGESTED = "locationNameSuggested"
     const val SUGGESTED_LATITUDE = "suggestedLatitude"
     const val SUGGESTED_LONGITUDE = "suggestedLongitude"
     const val PENDING_PHOTO = "pendingPhoto"
@@ -555,6 +612,7 @@ class ListingFormViewModel(
       set(LOCATION_LONGITUDE, state.location?.longitude)
       set(LOCATION_NAME, state.location?.name)
       set(LOCATION_NAME_TOUCHED, state.locationNameTouched)
+      set(LOCATION_NAME_SUGGESTED, state.locationNameSuggested)
       set(SUGGESTED_LATITUDE, state.suggestedPoint.latitude)
       set(SUGGESTED_LONGITUDE, state.suggestedPoint.longitude)
       // As days since 1970: a LongArray survives the app being killed, a set of dates might not.
@@ -596,6 +654,7 @@ class ListingFormViewModel(
             maxRentalDays = get(MAX_RENTAL_DAYS),
             location = restoreLocation(),
             locationNameTouched = get(LOCATION_NAME_TOUCHED) ?: false,
+            locationNameSuggested = get(LOCATION_NAME_SUGGESTED) ?: false,
             suggestedPoint = restoreSuggestedPoint(),
             availableDates =
                 upcomingDays(

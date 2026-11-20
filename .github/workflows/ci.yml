@@ -46,6 +46,7 @@ jobs:
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          GEOCODING_API_KEY: ${{ secrets.GEOCODING_API_KEY }}
         run: |
           echo "$GOOGLE_SERVICES" | base64 --decode > ./app/google-services.json
           # The secret is the base64 of a local.properties file. Only its MAPS_API_KEY line is used, so
@@ -63,6 +64,11 @@ jobs:
             else
               echo "::warning::The MAPS_API_KEY secret has no MAPS_API_KEY line; using the placeholder key."
             fi
+          fi
+          # The raw Geocoding key, so the uploaded APK suggests town names. Without the secret,
+          # secrets.defaults.properties supplies a placeholder and no name is suggested.
+          if [ -n "$GEOCODING_API_KEY" ]; then
+            echo "GEOCODING_API_KEY=$GEOCODING_API_KEY" >> local.properties
           fi
 
       # Caching is a very useful part of a CI, as a workflow is executed in a clean environment every time,
