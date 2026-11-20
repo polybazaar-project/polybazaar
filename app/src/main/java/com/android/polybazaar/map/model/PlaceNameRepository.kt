@@ -2,7 +2,7 @@
 package com.android.polybazaar.map.model
 
 /** Names the place a point is in, to suggest a name for a listing's location off campus (#395). */
-interface PlaceNameRepository {
+fun interface PlaceNameRepository {
 
   /**
    * The name of the town or city [point] is in, for example "Morges", led by its neighbourhood when
