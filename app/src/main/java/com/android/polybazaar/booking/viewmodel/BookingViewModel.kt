@@ -10,13 +10,11 @@ import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ListingRepository
-import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -33,20 +31,17 @@ data class BookingUiState(
      * Titles of the booked listings by listing id, filled in once read; a missing one is unknown.
      */
     val listingTitles: Map<String, String> = emptyMap(),
-    /** Usernames of the renters by uid, filled in once read; a missing one is unknown. */
-    val renterNames: Map<String, String> = emptyMap(),
     val error: AppError? = null,
 )
 
 /**
- * Submits a booking request through [bookingRepository] and lists bookings. [listingRepository] and
- * [profileRepository] only name the bookings (listing titles for a renter, renter usernames for a
- * lender); when a name cannot be read, the booking is listed without it.
+ * Submits a booking request through [bookingRepository] and lists the renter's bookings.
+ * [listingRepository] only names the bookings after their listing; when a title cannot be read, the
+ * booking is listed without it.
  */
 class BookingViewModel(
     private val bookingRepository: BookingRepository,
     private val listingRepository: ListingRepository? = null,
-    private val profileRepository: ProfileRepository? = null,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(BookingUiState())
@@ -86,13 +81,6 @@ class BookingViewModel(
           name = { bookings -> nameListings(bookings) },
       )
 
-  /** Loads the bookings of [listingId] for the signed-in lender, with their renters' names. */
-  fun loadListingBookings(listingId: String) =
-      loadBookings(
-          load = { bookingRepository.getBookingsForListing(listingId) },
-          name = { bookings -> nameRenters(bookings) },
-      )
-
   private fun loadBookings(
       load: suspend () -> List<Booking>,
       name: suspend (List<Booking>) -> Unit,
@@ -124,15 +112,6 @@ class BookingViewModel(
           ?.let { titles[listingId] = it.title }
     }
     _uiState.update { it.copy(listingTitles = it.listingTitles + titles) }
-  }
-
-  private suspend fun nameRenters(bookings: List<Booking>) {
-    val repository = profileRepository ?: return
-    val names = mutableMapOf<String, String>()
-    for (uid in bookings.map { it.renterUid }.distinct()) {
-      readOrNull { repository.observeProfile(uid).first() }?.let { names[uid] = it.username }
-    }
-    _uiState.update { it.copy(renterNames = it.renterNames + names) }
   }
 
   /** A failed read is no error to show: the booking is simply listed without the name. */

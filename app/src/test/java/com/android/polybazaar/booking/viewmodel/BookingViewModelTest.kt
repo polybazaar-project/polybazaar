@@ -4,7 +4,6 @@
 package com.android.polybazaar.booking.viewmodel
 
 import androidx.lifecycle.ViewModelStore
-import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.FakeBookingRepository
@@ -13,7 +12,6 @@ import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
-import com.android.polybazaar.profile.model.FakeProfileRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -173,23 +171,6 @@ class BookingViewModelTest {
   }
 
   @Test
-  fun loadListingBookings_exposesResultsAndFailures() = runTest {
-    val expected = listOf(booking.copy(id = "booking-id"))
-    repository.listingBookings = expected
-    val viewModel = BookingViewModel(repository)
-
-    viewModel.loadListingBookings("listing")
-    testDispatcher.scheduler.advanceUntilIdle()
-    assertEquals(expected, viewModel.uiState.value.bookings)
-
-    repository.loadFailure = AppException(AppError.PERMISSION_DENIED)
-    viewModel.loadListingBookings("listing")
-    testDispatcher.scheduler.advanceUntilIdle()
-    assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.error)
-    assertFalse(viewModel.uiState.value.isLoadingBookings)
-  }
-
-  @Test
   fun loadRenterBookings_sortsByEarliestDayAndNamesListings() = runTest {
     val drill =
         ItemListing(
@@ -214,22 +195,6 @@ class BookingViewModelTest {
 
     assertEquals(listOf("earlier", "later"), viewModel.uiState.value.bookings.map { it.id })
     assertEquals(mapOf("listing" to "Bosch drill set"), viewModel.uiState.value.listingTitles)
-  }
-
-  @Test
-  fun loadListingBookings_namesRentersAndSkipsUnreadableProfiles() = runTest {
-    val james = User(uid = "renter", email = "j@epfl.ch", username = "James Richard")
-    val profiles = FakeProfileRepository(mapOf("renter" to james)).apply { failingUids += "other" }
-    repository.listingBookings =
-        listOf(booking.copy(id = "a"), booking.copy(id = "b", renterUid = "other"))
-    val viewModel = BookingViewModel(repository, profileRepository = profiles)
-
-    viewModel.loadListingBookings("listing")
-    testDispatcher.scheduler.advanceUntilIdle()
-
-    assertEquals(mapOf("renter" to "James Richard"), viewModel.uiState.value.renterNames)
-    assertEquals(2, viewModel.uiState.value.bookings.size)
-    assertEquals(null, viewModel.uiState.value.error)
   }
 
   @Test

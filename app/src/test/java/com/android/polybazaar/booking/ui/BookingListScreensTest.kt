@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.ui
 
 import androidx.compose.ui.test.assertCountEquals
@@ -43,7 +44,6 @@ class BookingListScreensTest {
       onBack: () -> Unit = {},
       onRetry: () -> Unit = {},
       onCancel: (String) -> Unit = {},
-      showRenter: Boolean = false,
   ) {
     composeTestRule.setContent {
       BookingListContent(
@@ -52,7 +52,6 @@ class BookingListScreensTest {
           onBack = onBack,
           onRetry = onRetry,
           onCancel = onCancel,
-          showRenter = showRenter,
       )
     }
   }
@@ -72,25 +71,10 @@ class BookingListScreensTest {
         BookingUiState(
             bookings = listOf(booking("a")),
             listingTitles = mapOf("listing" to "Bosch drill set"),
-            renterNames = mapOf("renter" to "James Richard"),
         )
     )
 
     composeTestRule.onNodeWithTag(BookingListScreenTags.LABEL).assertTextEquals("Bosch drill set")
-  }
-
-  @Test
-  fun lenderScreen_namesBookingsAfterTheirRenter() {
-    show(
-        BookingUiState(
-            bookings = listOf(booking("a")),
-            listingTitles = mapOf("listing" to "Bosch drill set"),
-            renterNames = mapOf("renter" to "James Richard"),
-        ),
-        showRenter = true,
-    )
-
-    composeTestRule.onNodeWithTag(BookingListScreenTags.LABEL).assertTextEquals("James Richard")
   }
 
   @Test
@@ -180,37 +164,6 @@ class BookingListScreensTest {
     composeTestRule.onNodeWithTag(BookingListScreenTags.EMPTY).assertIsDisplayed()
     composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
 
-    assertEquals(1, backs)
-  }
-
-  @Test
-  fun lenderBookingsScreen_retriesLoadAndCancelsBooking() {
-    val repository =
-        FakeBookingRepository().apply {
-          loadFailure = AppException(AppError.NETWORK)
-          listingBookings = listOf(booking("a"))
-        }
-    val viewModel = BookingViewModel(repository)
-    var backs = 0
-    composeTestRule.setContent {
-      LenderBookingsScreen(
-          listingId = "listing",
-          viewModel = viewModel,
-          onBack = { backs++ },
-      )
-    }
-    composeTestRule.waitUntil { viewModel.uiState.value.error != null }
-    repository.loadFailure = null
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
-
-    composeTestRule.waitUntil { viewModel.uiState.value.bookings.isNotEmpty() }
-    assertEquals(2, repository.loadCount)
-
-    composeTestRule.onNodeWithTag(BookingListScreenTags.CANCEL_BUTTON).performClick()
-    composeTestRule.waitUntil {
-      viewModel.uiState.value.bookings.single().status == BookingStatus.CANCELLED
-    }
-    composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
     assertEquals(1, backs)
   }
 

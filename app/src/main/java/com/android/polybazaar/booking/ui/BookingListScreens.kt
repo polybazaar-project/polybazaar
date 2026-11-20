@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.ui
 
 import androidx.compose.foundation.background
@@ -68,29 +69,12 @@ fun RenterBookingsScreen(viewModel: BookingViewModel, onBack: () -> Unit) {
   )
 }
 
-/** The bookings of [listingId] as its lender sees them, each cancellable while still active. */
-@Composable
-fun LenderBookingsScreen(listingId: String, viewModel: BookingViewModel, onBack: () -> Unit) {
-  val uiState by viewModel.uiState.collectAsState()
-  LaunchedEffect(viewModel, listingId) { viewModel.loadListingBookings(listingId) }
-  BookingListContent(
-      title = stringResource(R.string.lender_bookings_title),
-      uiState = uiState,
-      onBack = onBack,
-      onRetry = { viewModel.loadListingBookings(listingId) },
-      onCancel = viewModel::cancelBooking,
-      showRenter = true,
-  )
-}
-
 /**
  * Loading, error with Retry, empty and list states of bookings. A cancelled booking stays listed as
  * cancelled; a booking whose cancellation is being queued shows "Cancelling…". An error from a
  * cancellation the server rejected shows above the list, which keeps the restored booking; its
  * Retry cancels that booking again instead of reloading. A booking whose days are all before
  * [today] is history and cannot be cancelled.
- *
- * @param showRenter names each booking after its renter (the lender's view) instead of its listing.
  */
 @Composable
 fun BookingListContent(
@@ -99,7 +83,6 @@ fun BookingListContent(
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onCancel: (String) -> Unit,
-    showRenter: Boolean = false,
     today: LocalDate = LocalDate.now(),
 ) {
   Column(
@@ -169,9 +152,7 @@ fun BookingListContent(
             items(uiState.bookings, key = { it.id }) { booking ->
               BookingRow(
                   booking = booking,
-                  label =
-                      if (showRenter) uiState.renterNames[booking.renterUid]
-                      else uiState.listingTitles[booking.listingId],
+                  label = uiState.listingTitles[booking.listingId],
                   isCancelling = booking.id in uiState.cancellingBookingIds,
                   canCancel =
                       booking.status != BookingStatus.CANCELLED && !booking.isFinished(today),
