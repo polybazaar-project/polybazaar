@@ -3,13 +3,21 @@ package com.android.polybazaar.map.model
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.listing.model.ListingRules.MAX_LOCATION_NAME_LENGTH
+import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpServer
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.URL
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -69,14 +77,31 @@ class GoogleGeocodingRepositoryTest {
     val lausanne = component("Lausanne", "locality", "political")
     assertEquals("Ouchy, Lausanne", townFor(eachInAResult(ouchy, lausanne)).getOrThrow())
 
-    val sublocality = component("Sous-Gare", "sublocality", "political")
+    val sublocality = component("Sous-Gare", "sublocality", "sublocality_level_1", "political")
     assertEquals("Sous-Gare, Lausanne", townFor(eachInAResult(sublocality, lausanne)).getOrThrow())
+  }
+
+  @Test
+  fun townName_prefersTheMostSpecificTypeOfName() = runTest {
+    val sublocality = component("Sous-Gare", "sublocality", "sublocality_level_1")
+    val ouchy = component("Ouchy", "neighborhood")
+    val lausanne = component("Lausanne", "locality")
+    assertEquals(
+        "Ouchy, Lausanne",
+        townFor(eachInAResult(sublocality, ouchy, lausanne)).getOrThrow(),
+    )
+
+    val london = component("London", "postal_town")
+    assertEquals(
+        "Morges",
+        townFor(eachInAResult(london, component("Morges", "locality"))).getOrThrow(),
+    )
   }
 
   @Test
   fun townName_withOnlyOneName_isThatName() = runTest {
     // A neighbourhood named like its town is not repeated.
-    val sameName = component("Lausanne", "sublocality_level_1")
+    val sameName = component("Lausanne", "sublocality", "sublocality_level_1")
     val lausanne = component("Lausanne", "locality")
     assertEquals("Lausanne", townFor(eachInAResult(sameName, lausanne)).getOrThrow())
 
@@ -168,13 +193,20 @@ class GoogleGeocodingRepositoryTest {
   }
 
   /** Runs [block] on the URL of a local server answering every GET with [code] and [body]. */
-  private fun withServer(code: Int, body: String, block: suspend (URL) -> Unit) = runTest {
+  private fun withServer(code: Int, body: String, block: suspend TestScope.(URL) -> Unit) =
+      withServer(
+          { exchange ->
+            val bytes = body.toByteArray()
+            exchange.sendResponseHeaders(code, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+          },
+          block,
+      )
+
+  /** Runs [block] on the URL of a local server handling every request with [handler]. */
+  private fun withServer(handler: HttpHandler, block: suspend TestScope.(URL) -> Unit) = runTest {
     val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-    server.createContext("/") { exchange ->
-      val bytes = body.toByteArray()
-      exchange.sendResponseHeaders(code, bytes.size.toLong())
-      exchange.responseBody.use { it.write(bytes) }
-    }
+    server.createContext("/", handler)
     server.start()
     try {
       block(URL("http://127.0.0.1:${server.address.port}/geocode"))
@@ -196,4 +228,25 @@ class GoogleGeocodingRepositoryTest {
         assertTrue(error is IOException)
         assertEquals("HTTP 403", error?.message)
       }
+
+  @Test
+  fun httpGet_whenCancelled_stopsWithoutWaitingForTheResponse() {
+    val received = CountDownLatch(1)
+    val respond = CountDownLatch(1)
+    withServer({
+      received.countDown()
+      respond.await()
+    }) { url ->
+      // The server stops only once its handler returns.
+      try {
+        val call = async { httpGet(url) }
+        withContext(Dispatchers.IO) { received.await() }
+        val millis = measureTimeMillis { call.cancelAndJoin() }
+        assertTrue(runCatching { call.await() }.exceptionOrNull() is CancellationException)
+        assertTrue("took $millis ms", millis < 5_000)
+      } finally {
+        respond.countDown()
+      }
+    }
+  }
 }

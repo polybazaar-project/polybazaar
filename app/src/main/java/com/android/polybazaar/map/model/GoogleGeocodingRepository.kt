@@ -9,8 +9,11 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import org.json.JSONObject
 
 /**
@@ -44,8 +47,8 @@ class GoogleGeocodingRepository(
 
   /**
    * Only neighbourhoods and towns are asked for, named in the device's language when Google has
-   * that name. The point is rounded to about 100 m: enough for a town, and Google never learns
-   * exactly where the lender is.
+   * that name. The point is rounded to about 100 m: enough for a neighbourhood, and Google never
+   * learns exactly where the lender is.
    */
   private fun urlFor(point: Coordinates): URL {
     val latLng = String.format(Locale.ROOT, "%.3f,%.3f", point.latitude, point.longitude)
@@ -79,7 +82,7 @@ class GoogleGeocodingRepository(
         component.optString("long_name").trim().takeIf { hasType && it.isNotEmpty() }
       }
     }
-    val neighbourhood = named("neighborhood", "sublocality", "sublocality_level_1")
+    val neighbourhood = named("neighborhood", "sublocality_level_1", "sublocality")
     val town = named("locality", "postal_town")
     return when {
       neighbourhood != null && town != null && neighbourhood != town -> "$neighbourhood, $town"
@@ -100,18 +103,31 @@ class GoogleGeocodingRepository(
 /** How long [httpGet] waits to connect, then for the response. */
 private const val TIMEOUT_MILLIS = 10_000
 
-/** The body of a GET to [url]; throws [IOException] on a response other than 2xx. */
+/**
+ * The body of a GET to [url], read on [dispatcher]; throws [IOException] on a response other than
+ * 2xx. Cancelling the caller disconnects, which unblocks a read in progress and frees its thread.
+ */
 @VisibleForTesting
-internal suspend fun httpGet(url: URL): String =
-    withContext(Dispatchers.IO) {
+internal suspend fun httpGet(url: URL, dispatcher: CoroutineDispatcher = Dispatchers.IO): String =
+    coroutineScope {
       val connection = url.openConnection() as HttpURLConnection
+      val body =
+          async(dispatcher) {
+            try {
+              connection.connectTimeout = TIMEOUT_MILLIS
+              connection.readTimeout = TIMEOUT_MILLIS
+              if (connection.responseCode !in 200..299) {
+                throw IOException("HTTP ${connection.responseCode}")
+              }
+              connection.inputStream.bufferedReader().use { it.readText() }
+            } catch (e: Exception) {
+              // Disconnecting on cancellation fails the read: report the cancellation instead.
+              ensureActive()
+              throw e
+            }
+          }
       try {
-        connection.connectTimeout = TIMEOUT_MILLIS
-        connection.readTimeout = TIMEOUT_MILLIS
-        if (connection.responseCode !in 200..299) {
-          throw IOException("HTTP ${connection.responseCode}")
-        }
-        connection.inputStream.bufferedReader().use { it.readText() }
+        body.await()
       } finally {
         connection.disconnect()
       }
