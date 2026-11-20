@@ -61,6 +61,7 @@ import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
 import com.android.polybazaar.map.model.FakeLocationRepository
+import com.android.polybazaar.map.model.FakePlaceNameRepository
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import java.time.LocalDate
@@ -388,6 +389,7 @@ class ListingLocationFieldTest {
           ),
           SavedStateHandle(),
           FakeLocationRepository(lausanne),
+          FakePlaceNameRepository(),
           FakeConnectivityRepository(),
       ) {
         today

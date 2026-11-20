@@ -28,6 +28,8 @@ Run from the repo root with the Gradle wrapper, exactly as CI does:
 
 A Google Maps key goes in `local.properties` as `MAPS_API_KEY=...` (gitignored; get it from a teammate). Without it the app still builds but map tiles stay blank. CI reads it from the `MAPS_API_KEY` secret, which holds the base64 of a `local.properties` file; CI keeps only its `MAPS_API_KEY` line.
 
+A `GEOCODING_API_KEY=...` line in `local.properties` (gitignored; get it from a teammate) enables town-name suggestions for off-campus listing locations; without it no name is suggested. That key is restricted to the Geocoding API, with no application restriction. CI reads it from the `GEOCODING_API_KEY` secret, which holds the raw key.
+
 ## Definition of done
 
 - The behavior works and matches the task's acceptance criteria.
