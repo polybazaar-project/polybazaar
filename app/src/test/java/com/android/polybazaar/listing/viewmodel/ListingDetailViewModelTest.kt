@@ -508,6 +508,23 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun lenderWithoutAnEmail_isShown_withoutError() {
+    // Another user's public profile has no email; the lender still shows. The failure itself was in
+    // FirebaseProfileRepository.toUser, guarded by FirebaseProfileRepositoryTest.
+    val publicLender = lender.copy(email = "", photoPath = "users/lender/profile.jpg")
+    profiles.profile(lender.uid).value = publicLender
+    profiles.photos["users/lender/profile.jpg"] = photoBytes
+
+    val state = loadedViewModel().uiState.value
+
+    assertEquals(publicLender, state.lender)
+    assertTrue(photoBytes.contentEquals(state.lenderPhoto))
+    assertNull(state.lenderError)
+    assertNull(state.error)
+    assertEquals(listing, state.listing)
+  }
+
+  @Test
   fun lenderProfileChanges_areShown() {
     val viewModel = loadedViewModel()
 
