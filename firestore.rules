@@ -146,13 +146,36 @@ service cloud.firestore {
             && !getAfter(listingPath).data.get('availableDates', []).hasAny(resource.data.days);
       }
 
+      // Each party can only set its own step to true, in order. Missing fields on older bookings
+      // mean false. Repeating an already completed step is harmless.
+      function isConfirmation(field, uid, previousComplete) {
+        return resource.data.status == 'CONFIRMED'
+            && request.auth.uid == uid
+            && previousComplete
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([field])
+            && request.resource.data.get(field, false) == true;
+      }
+
+      function isHandoverOrReturn() {
+        return isConfirmation('lenderHandoverConfirmed', resource.data.lenderUid, true)
+            || isConfirmation('renterHandoverConfirmed', resource.data.renterUid,
+                resource.data.get('lenderHandoverConfirmed', false) == true)
+            || isConfirmation('renterReturnConfirmed', resource.data.renterUid,
+                resource.data.get('lenderHandoverConfirmed', false) == true
+                && resource.data.get('renterHandoverConfirmed', false) == true)
+            || isConfirmation('lenderReturnConfirmed', resource.data.lenderUid,
+                resource.data.get('lenderHandoverConfirmed', false) == true
+                && resource.data.get('renterHandoverConfirmed', false) == true
+                && resource.data.get('renterReturnConfirmed', false) == true);
+      }
+
       allow read: if isVerified()
           && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid);
       allow create: if isVerified() && validBooking(request.resource.data);
-      // Only the status changes.
       allow update: if isVerified()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && (isCancel() || isAccept());
+          && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+              && (isCancel() || isAccept()))
+              || isHandoverOrReturn());
       allow delete: if false;
     }
 

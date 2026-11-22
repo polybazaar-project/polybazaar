@@ -103,4 +103,47 @@ class FakeBookingRepository : BookingRepository {
     immediateCancelWriteFailure?.let(onWriteFailure)
     cancelFailure?.let { throw it }
   }
+
+  override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) =
+      updateConfirmation(id, onWriteFailure, { true }) { it.copy(lenderHandoverConfirmed = true) }
+
+  override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) =
+      updateConfirmation(id, onWriteFailure, { it.lenderHandoverConfirmed }) {
+        it.copy(renterHandoverConfirmed = true)
+      }
+
+  override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) =
+      updateConfirmation(
+          id,
+          onWriteFailure,
+          { it.lenderHandoverConfirmed && it.renterHandoverConfirmed },
+      ) {
+        it.copy(renterReturnConfirmed = true)
+      }
+
+  override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) =
+      updateConfirmation(
+          id,
+          onWriteFailure,
+          { it.lenderHandoverConfirmed && it.renterHandoverConfirmed && it.renterReturnConfirmed },
+      ) {
+        it.copy(lenderReturnConfirmed = true)
+      }
+
+  private fun updateConfirmation(
+      id: String,
+      onWriteFailure: (Exception) -> Unit,
+      ready: (Booking) -> Boolean,
+      update: (Booking) -> Booking,
+  ) {
+    val booking = (listingBookings + lenderBookings + renterBookings).firstOrNull { it.id == id }
+    if (booking == null || booking.status != BookingStatus.CONFIRMED || !ready(booking)) {
+      onWriteFailure(IllegalStateException("Booking cannot advance"))
+      return
+    }
+    fun List<Booking>.updated() = map { if (it.id == id) update(it) else it }
+    listingBookings = listingBookings.updated()
+    lenderBookings = lenderBookings.updated()
+    renterBookings = renterBookings.updated()
+  }
 }

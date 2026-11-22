@@ -162,6 +162,87 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
+  fun getBookingsDecodesConfirmationsAndRejectsInvalidValues() = runTest {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
+    whenever(lenderQuery.get()).thenReturn(Tasks.forResult(snapshot))
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+    whenever(stored.getString("status")).thenReturn("CONFIRMED")
+    whenever(stored.id).thenReturn("booking-id")
+    val fields =
+        listOf(
+            "lenderHandoverConfirmed",
+            "renterHandoverConfirmed",
+            "renterReturnConfirmed",
+            "lenderReturnConfirmed",
+        )
+    fields.forEach {
+      whenever(stored.contains(it)).thenReturn(true)
+      whenever(stored.get(it)).thenReturn(true)
+    }
+
+    assertEquals(
+        booking.copy(
+            status = BookingStatus.CONFIRMED,
+            id = "booking-id",
+            lenderHandoverConfirmed = true,
+            renterHandoverConfirmed = true,
+            renterReturnConfirmed = true,
+            lenderReturnConfirmed = true,
+        ),
+        repository.getBookingsForListing("listing").single(),
+    )
+    whenever(stored.get("renterReturnConfirmed")).thenReturn("true")
+    assertTrue(
+        runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
+            is IllegalStateException
+    )
+  }
+
+  @Test
+  fun confirmationOperationsQueueTheirOwnFieldsAndReportWriteFailures() = runTest {
+    val pending = TaskCompletionSource<Void>()
+    whenever(document.update(any<String>(), eq(true))).thenReturn(pending.task)
+    var logged: Exception? = null
+    var reported: Exception? = null
+    val repository = FirebaseBookingRepository(firestore, auth) { logged = it }
+
+    withTimeout(1_000) {
+      repository.notifyHandover("booking-id") { reported = it }
+      repository.confirmHandover("booking-id")
+      repository.notifyReturn("booking-id")
+      repository.confirmReturn("booking-id")
+    }
+    verify(document).update("lenderHandoverConfirmed", true)
+    verify(document).update("renterHandoverConfirmed", true)
+    verify(document).update("renterReturnConfirmed", true)
+    verify(document).update("lenderReturnConfirmed", true)
+    assertFalse(pending.task.isComplete)
+    val failure = IllegalStateException("Write rejected")
+    pending.setException(failure)
+    assertSame(failure, logged)
+    assertSame(failure, reported)
+  }
+
+  @Test
+  fun confirmationRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val failure = runCatching { repository.notifyHandover("booking-id") }.exceptionOrNull()
+    assertTrue(failure is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (failure as FirebaseFirestoreException).code,
+    )
+    verify(document, never()).update(any<String>(), any())
+  }
+
+  @Test
   fun getBookingsPropagatesMalformedBookingDocuments() = runTest {
     val lender = mock<FirebaseUser>()
     whenever(lender.uid).thenReturn("lender")

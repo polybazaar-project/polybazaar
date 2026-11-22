@@ -33,6 +33,22 @@ interface BookingRepository {
   suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit = {})
 
   /**
+   * Queues one confirmation without waiting for server acknowledgement. Only confirmed bookings can
+   * advance: the lender notifies handover, the renter confirms it, the renter notifies return, and
+   * the lender confirms it. Rejections are reported through [onWriteFailure].
+   */
+  suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit = {})
+
+  /** Queues the renter's handover confirmation. */
+  suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit = {})
+
+  /** Queues the renter's return notification. */
+  suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit = {})
+
+  /** Queues the lender's return confirmation. */
+  suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit = {})
+
+  /**
    * Accepts [booking], a request on one of the signed-in lender's listings, in a single write: it
    * becomes [BookingStatus.CONFIRMED], its days are taken off the listing's available days so no
    * one can request them again, and every other request on the listing that asks for one of those
