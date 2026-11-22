@@ -30,6 +30,7 @@ import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
 import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
 import com.android.polybazaar.listing.model.ListingType
+import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.Coordinates
@@ -70,6 +71,9 @@ import kotlinx.coroutines.launch
  * @property loadError why the edited listing could not be loaded, or null. The form cannot be saved
  *   until a Retry succeeds.
  * @property savedListing the saved listing, until the screen has handled it.
+ * @property queuedListing the listing created offline and kept as a draft to publish later, until
+ *   the screen has handled it. Its camera photos have already been deleted, so only its presence is
+ *   meaningful.
  * @property saveError why the last save failed, or null.
  * @property isOnline whether the device is online, which choosing a location on the map needs.
  *   Followed live, never saved with the form.
@@ -96,6 +100,7 @@ data class ListingFormUiState(
     val isLoading: Boolean = false,
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
+    val queuedListing: Listing? = null,
     val isSaving: Boolean = false,
     val saveError: AppError? = null,
     val isOnline: Boolean = true,
@@ -200,6 +205,7 @@ private fun formFor(listing: Listing, today: LocalDate) =
  *   suggest it as the location's name.
  * @param connectivityRepository tells whether the device is online, see
  *   [ListingFormUiState.isOnline].
+ * @param pendingListingQueue keeps a listing created offline as a draft, to publish later.
  * @param today the current day, to leave past available days out of an edited listing.
  */
 class ListingFormViewModel(
@@ -210,6 +216,7 @@ class ListingFormViewModel(
     private val locationRepository: LocationRepository,
     private val placeNameRepository: PlaceNameRepository,
     connectivityRepository: ConnectivityRepository,
+    private val pendingListingQueue: PendingListingQueue,
     private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
@@ -493,7 +500,11 @@ class ListingFormViewModel(
     (before + photo - after.toSet()).forEach(photoStorage::delete)
   }
 
-  /** Creates the listing, or saves the changes to the edited one. */
+  /**
+   * Creates the listing, or saves the changes to the edited one. Offline, a new listing is kept as
+   * a draft instead, see [ListingFormUiState.queuedListing]: uploading it would wait for the
+   * connection.
+   */
   fun save() {
     if (!_uiState.value.canSave) return
     // The form may have been open since an earlier day: the days now past are not saved.
@@ -508,9 +519,21 @@ class ListingFormViewModel(
     pendingPhoto = null
     retakeIndex = null
 
-    updateState { it.copy(savedListing = null, isSaving = true, saveError = null) }
+    updateState {
+      it.copy(savedListing = null, queuedListing = null, isSaving = true, saveError = null)
+    }
     viewModelScope.launch {
       try {
+        if (!state.isEditing && !state.isOnline) {
+          pendingListingQueue.enqueue(listingRepository.newListingId(), listing)
+          // Copied with the draft, so the camera photos are no longer needed here.
+          listing.images.forEach(photoStorage::delete)
+          updateState {
+            ListingFormUiState(today = today())
+                .copy(queuedListing = listing, isOnline = it.isOnline)
+          }
+          return@launch
+        }
         val savedListing =
             if (state.isEditing) listingRepository.updateListing(listing)
             else listingRepository.createListing(listing)
@@ -535,6 +558,8 @@ class ListingFormViewModel(
   }
 
   fun clearSavedListing() = updateState { it.copy(savedListing = null) }
+
+  fun clearQueuedListing() = updateState { it.copy(queuedListing = null) }
 
   /**
    * Downloads the saved photo at [path], one of [ListingFormUiState.storedPhotos], into
