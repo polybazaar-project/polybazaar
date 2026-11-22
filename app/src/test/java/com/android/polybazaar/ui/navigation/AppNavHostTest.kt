@@ -90,8 +90,10 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.listing.ui.ListingDetailScreenTags
+import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.map.model.FakePlaceNameRepository
+import com.android.polybazaar.map.ui.MapLocationTags
 import com.android.polybazaar.map.ui.MapScreenTags
 import com.android.polybazaar.map.ui.MapSlot
 import com.android.polybazaar.map.viewmodel.MapUiState
@@ -1756,6 +1758,34 @@ class AppNavHostTest {
     composeTestRule.waitForIdle()
 
     assertEquals(listOf("drill", "tent"), mapState?.markers?.map { it.id })
+  }
+
+  @Test
+  fun mapTab_markerPreview_opensTheListingDetail_andBackKeepsThePreview() {
+    listingRepository.allListings =
+        listOf(
+            gracesDrill.copy(location = ListingLocation(46.5185, 6.5683, "Rolex Learning Center"))
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openMap()
+    // Robolectric has no location permission: say "Not now" and pick EPFL, so the location card
+    // doesn't cover the bottom of the map where the preview shows.
+    composeTestRule.onNodeWithTag(MapLocationTags.NOT_NOW_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(MapLocationTags.campusButton(Campus.EPFL)).performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(mapMarkerTag("drill")).performClick()
+    composeTestRule.onNodeWithTag(MapScreenTags.PREVIEW).performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.TITLE).assertTextEquals(gracesDrill.title)
+
+    // The map's ViewModel stays on the back stack, so the renter finds the same preview.
+    Espresso.pressBack()
+    composeTestRule.waitForIdle()
+    assertEquals(Routes.MAP, navController.currentBackStackEntry?.destination?.route)
+    composeTestRule.onNodeWithTag(MapScreenTags.PREVIEW).assertIsDisplayed()
   }
 
   @Test

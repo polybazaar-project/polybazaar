@@ -573,7 +573,12 @@ fun AppNavHost(
           // Coming back to the tab shows listings created or paused meanwhile. On opening, the
           // ViewModel ignores this call while its first load runs.
           LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { mapViewModel.loadListings() }
-          MapScreen(viewModel = mapViewModel, map = listingsMap)
+          MapScreen(
+              viewModel = mapViewModel,
+              // Back from the detail returns to the map, with the same preview open (#342).
+              onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+              map = listingsMap,
+          )
         }
         composable(Routes.INBOX) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
