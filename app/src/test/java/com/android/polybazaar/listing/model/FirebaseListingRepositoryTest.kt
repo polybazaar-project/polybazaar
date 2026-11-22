@@ -120,6 +120,14 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
+  fun newListingId_isAnIdGeneratedForANewListingsDocument_withoutWriting() {
+    assertEquals(listingId, repository.newListingId())
+
+    verify(listings).document()
+    verify(newDocument, never()).set(any<Map<String, Any>>())
+  }
+
+  @Test
   fun createListing_uploadsImagesAndStoresItemData() = runTest {
     val imageUri = Uri.parse("content://images/0")
     val uploadTask = mock<UploadTask>()

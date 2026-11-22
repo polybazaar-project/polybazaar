@@ -47,6 +47,8 @@ class FirebaseListingRepository(
     }
   }
 
+  override fun newListingId(): String = firestore.collection(LISTINGS_COLLECTION).document().id
+
   override suspend fun updateListing(listing: Listing): Listing {
     val ownerUid = auth.currentUser?.uid ?: throw unauthenticated()
     val listingId =

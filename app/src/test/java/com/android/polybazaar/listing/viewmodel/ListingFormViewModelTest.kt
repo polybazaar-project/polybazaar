@@ -9,6 +9,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
@@ -61,6 +63,7 @@ class ListingFormViewModelTest {
   private val locationRepository = FakeLocationRepository()
   private val placeNameRepository = FakePlaceNameRepository()
   private val connectivity = FakeConnectivityRepository()
+  private val pendingQueue = FakePendingListingQueue()
   private lateinit var viewModel: ListingFormViewModel
 
   private val listing =
@@ -94,6 +97,7 @@ class ListingFormViewModelTest {
           locationRepository,
           placeNameRepository,
           connectivity,
+          pendingQueue,
           today,
       )
 
@@ -1024,6 +1028,8 @@ class ListingFormViewModelTest {
       return pendingResult?.await() ?: requireNotNull(result) { "Set a result before creating" }
     }
 
+    override fun newListingId(): String = "listing-1"
+
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
 
     override suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>> =
@@ -1753,16 +1759,113 @@ class ListingFormViewModelTest {
 
   @Test
   fun isOnline_isKeptWhenTheFormResetsAfterSaving() = runTest {
-    repository.result = listing
-    testDispatcher.scheduler.advanceUntilIdle()
-    connectivity.isOnline.value = false
-    testDispatcher.scheduler.advanceUntilIdle()
+    // Created offline, a listing is queued instead: the connection drops during the upload.
+    repository.pendingResult = CompletableDeferred()
     fillForm()
 
     viewModel.save()
     testDispatcher.scheduler.advanceUntilIdle()
+    connectivity.isOnline.value = false
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.pendingResult!!.complete(listing)
+    testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(listing, viewModel.uiState.value.savedListing)
     assertFalse(viewModel.uiState.value.isOnline)
+  }
+
+  // Offline creation (#409)
+
+  /** Fills the form with [listing] and two photos, offline, then saves it. */
+  private fun saveOffline() {
+    connectivity.isOnline.value = false
+    testDispatcher.scheduler.advanceUntilIdle()
+    fillForm()
+    viewModel.addPhotos(uris(2))
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+  }
+
+  @Test
+  fun create_offline_queuesTheListingUnderANewIdInsteadOfUploading() = runTest {
+    saveOffline()
+
+    val draft = pendingQueue.pending.value.single()
+    assertEquals("listing-1", draft.id)
+    assertEquals(listing.copy(images = uris(2)), draft.listing)
+    assertEquals(0, repository.calls)
+    assertNull(repository.createdListing)
+  }
+
+  @Test
+  fun create_offline_resetsTheFormDeletesThePhotosAndExposesTheQueuedListing() = runTest {
+    saveOffline()
+
+    assertEquals(uris(2), photoStorage.deleted)
+    assertEquals(
+        ListingFormUiState(
+            today = today,
+            queuedListing = listing.copy(images = uris(2)),
+            isOnline = false,
+        ),
+        viewModel.uiState.value,
+    )
+    assertNull(viewModel.uiState.value.savedListing)
+  }
+
+  @Test
+  fun clearQueuedListing_removesTheHandledDraft() = runTest {
+    saveOffline()
+
+    viewModel.clearQueuedListing()
+
+    assertNull(viewModel.uiState.value.queuedListing)
+    assertEquals(1, pendingQueue.pending.value.size)
+  }
+
+  @Test
+  fun create_offline_failedQueueKeepsTheFormAndPhotosAndShowsTheError() = runTest {
+    pendingQueue.failure = AppException(AppError.UNAUTHENTICATED)
+
+    saveOffline()
+
+    val state = viewModel.uiState.value
+    assertEquals(AppError.UNAUTHENTICATED, state.saveError)
+    assertFalse(state.isSaving)
+    assertNull(state.queuedListing)
+    assertEquals("Math tutoring", state.title)
+    assertEquals(uris(2), state.photos)
+    assertTrue(photoStorage.deleted.isEmpty())
+    assertTrue(pendingQueue.pending.value.isEmpty())
+  }
+
+  @Test
+  fun create_online_isUploadedAndNotQueued() = runTest {
+    repository.result = listing
+
+    fillForm()
+    viewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listing, repository.createdListing)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+    assertNull(viewModel.uiState.value.queuedListing)
+  }
+
+  @Test
+  fun edit_offline_isStillSavedThroughTheRepository() = runTest {
+    val editViewModel = editForm()
+    connectivity.isOnline.value = false
+    testDispatcher.scheduler.advanceUntilIdle()
+    editViewModel.updatePrice("15")
+    repository.result = storedItem.copy(price = 15.0)
+
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(15.0, repository.updatedListings.single().price, 0.0)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+    assertNull(editViewModel.uiState.value.queuedListing)
+    assertEquals(storedItem.copy(price = 15.0), editViewModel.uiState.value.savedListing)
   }
 }

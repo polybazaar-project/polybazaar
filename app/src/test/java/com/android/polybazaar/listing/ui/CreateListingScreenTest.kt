@@ -46,6 +46,7 @@ import com.android.polybazaar.R
 import com.android.polybazaar.booking.ui.AvailabilityCalendarSheetTags
 import com.android.polybazaar.booking.ui.AvailabilityCalendarTags
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
@@ -103,6 +104,7 @@ class CreateListingScreenTest {
             FakeLocationRepository(),
             FakePlaceNameRepository(),
             FakeConnectivityRepository(),
+            FakePendingListingQueue(),
             today,
         )
     setContentWithRegistry(registry) {
@@ -893,6 +895,7 @@ class CreateListingScreenTest {
             FakeLocationRepository(),
             FakePlaceNameRepository(),
             FakeConnectivityRepository(),
+            FakePendingListingQueue(),
         )
     var createdCount = 0
     val owner =
@@ -916,6 +919,43 @@ class CreateListingScreenTest {
     assertEquals(1, createdCount)
     assertNull(viewModel.uiState.value.savedListing)
     node(CreateListingScreenTags.photo(1)).assertExists()
+  }
+
+  /** Offline, saving keeps a draft: the screen reports it once and the form is not uploaded. */
+  @Test
+  fun queuedListing_offline_isReportedOnceAndCleared() {
+    val repository = RecordingListingRepository()
+    val queue = FakePendingListingQueue()
+    val viewModel =
+        ListingFormViewModel(
+            null,
+            repository,
+            createStorage(),
+            SavedStateHandle(),
+            FakeLocationRepository(),
+            FakePlaceNameRepository(),
+            FakeConnectivityRepository(online = false),
+            queue,
+        )
+    var queuedCount = 0
+    var createdCount = 0
+    setContentWithRegistry(FakePickerRegistry()) {
+      CreateListingScreen(
+          listingViewModel = viewModel,
+          onListingCreated = { createdCount++ },
+          onListingQueued = { queuedCount++ },
+      )
+    }
+
+    fillForm("Drill", "Works well", "5", "Tools")
+    node(CreateListingScreenTags.CREATE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(1, queuedCount)
+    assertEquals(0, createdCount)
+    assertNull(repository.received)
+    assertNull(viewModel.uiState.value.queuedListing)
+    assertEquals("Drill", queue.pending.value.single().listing.title)
   }
 
   @Test
@@ -1082,6 +1122,8 @@ class CreateListingScreenTest {
             listing.copy(listingId = "listing-1", images = emptyList(), imagePaths = uploaded)
       }
     }
+
+    override fun newListingId(): String = "listing-1"
 
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
 

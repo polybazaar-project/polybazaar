@@ -112,6 +112,10 @@ class FakeListingRepository(
     return created
   }
 
+  private var newListingIds = 0
+
+  override fun newListingId(): String = "new-${newListingIds++}"
+
   override suspend fun getMyListings(): Result<List<Listing>> {
     getMyListingsCalls++
     return answer(myListings)
