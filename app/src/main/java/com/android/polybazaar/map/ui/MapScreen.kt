@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -49,6 +50,24 @@ object MapScreenTags {
   const val ERROR = "map_listings_error"
   const val RETRY_BUTTON = "map_retry_button"
   const val EMPTY = "map_no_listings"
+  const val PREVIEW = "map_marker_preview"
+  const val PREVIEW_CLOSE = "map_marker_preview_close"
+}
+
+/**
+ * What the map reports: a marker tapped, or the map tapped outside the markers. Both do nothing by
+ * default.
+ */
+class MapActions(val onMarkerClick: (String) -> Unit = {}, val onMapClick: () -> Unit = {})
+
+/**
+ * Draws the map for the state and reports taps through the actions: the Google map, or a stand-in.
+ */
+typealias MapSlot = @Composable (uiState: MapUiState, actions: MapActions) -> Unit
+
+/** The Google map, the map used in the app. */
+val GoogleListingsMap: MapSlot = { uiState, actions ->
+  ListingsMap(centre = uiState.centre, markers = uiState.markers, actions = actions)
 }
 
 /** Where the map's camera points and how close. */
@@ -98,22 +117,32 @@ internal fun markerDescription(type: ListingType): Int =
 
 /**
  * The Map tab (#341): the listings around the renter or their campus on a map, item and skill
- * markers drawn differently, with the location layer (#340) over it.
+ * markers drawn differently, with the location layer (#340) over it. Tapping a marker previews its
+ * listing at the bottom (#342), and the preview opens it.
  *
- * @param map draws the map for the state; the Google map by default, a stand-in in tests.
+ * @param onOpenListing opens the detail of the listing with this id.
+ * @param map draws the map; the Google map by default, a stand-in in tests.
  */
 @Composable
 fun MapScreen(
     viewModel: MapViewModel,
     modifier: Modifier = Modifier,
-    map: @Composable (MapUiState) -> Unit = { ListingsMap(it.centre, it.markers) },
+    onOpenListing: (String) -> Unit = {},
+    map: MapSlot = GoogleListingsMap,
 ) {
   val uiState by viewModel.uiState.collectAsState()
+  // Remembered: a plain class of lambdas, so a new one on every redraw would redraw the map too.
+  val actions =
+      remember(viewModel) {
+        MapActions(onMarkerClick = viewModel::selectMarker, onMapClick = viewModel::clearSelection)
+      }
   MapContent(
       uiState = uiState,
       onRetry = viewModel::loadListings,
-      map = { map(uiState) },
+      map = { map(uiState, actions) },
       locationLayer = { MapLocationLayer(viewModel) },
+      onOpenListing = onOpenListing,
+      onClosePreview = viewModel::clearSelection,
       modifier = modifier,
   )
 }
@@ -124,6 +153,8 @@ fun MapScreen(
  * [locationLayer] on top.
  *
  * @param onRetry reloads the listings after a failure.
+ * @param onOpenListing opens the previewed listing's detail.
+ * @param onClosePreview closes the preview.
  */
 @Composable
 fun MapContent(
@@ -132,10 +163,23 @@ fun MapContent(
     map: @Composable () -> Unit,
     locationLayer: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenListing: (String) -> Unit = {},
+    onClosePreview: () -> Unit = {},
 ) {
   Box(modifier = modifier.fillMaxSize().testTag(MapScreenTags.SCREEN)) {
     map()
-    ListingsStatus(uiState, onRetry)
+    // The preview takes the bottom of the map, where the listings' state would show; a tapped
+    // marker means listings are shown anyway.
+    val selected = uiState.selectedMarker
+    if (selected != null) {
+      MarkerPreview(
+          marker = selected,
+          onOpen = { onOpenListing(selected.id) },
+          onClose = onClosePreview,
+      )
+    } else {
+      ListingsStatus(uiState, onRetry)
+    }
     // Last, so its cards and their dim cover the status too.
     locationLayer()
   }

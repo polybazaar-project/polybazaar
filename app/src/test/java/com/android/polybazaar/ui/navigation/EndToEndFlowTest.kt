@@ -91,7 +91,7 @@ class EndToEndFlowTest {
           bookingRepository = FakeBookingRepository(),
           locationRepository = FakeLocationRepository(),
           placeNameRepository = FakePlaceNameRepository(),
-          listingsMap = {},
+          listingsMap = { _, _ -> },
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
