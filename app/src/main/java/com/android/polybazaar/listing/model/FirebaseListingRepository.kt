@@ -13,6 +13,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.MetadataChanges
+import com.google.firebase.firestore.Source
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageReference
 import java.time.LocalDate
@@ -42,18 +43,42 @@ class FirebaseListingRepository(
 
   override fun newListingId(): String = firestore.collection(LISTINGS_COLLECTION).document().id
 
+  override suspend fun publishListing(listingId: String, listing: Listing) {
+    val ownerUid = auth.currentUser?.uid ?: throw unauthenticated()
+    ListingRules.errorFor(listing)?.let { throw IllegalArgumentException(it) }
+    val document = firestore.collection(LISTINGS_COLLECTION).document(listingId)
+    // A set() queued by an earlier publish cut short must reach the server before the check below:
+    // otherwise the listing would look unpublished, and writing it again could undo an edit or a
+    // pause the user made since.
+    firestore.waitForPendingWrites().await()
+    // From the server: the cache may not know of a publish whose answer the device never got.
+    val stored = document.get(Source.SERVER).await()
+    if (!stored.exists()) {
+      // Photos are kept on failure: a set() cut short may still reach the server and point to them,
+      // and a retry overwrites them, their paths being fixed by the listing id.
+      create(document, ownerUid, listing, keepPhotosOnFailure = true)
+    } else if (stored.get("ownerUid") != ownerUid) {
+      throw FirebaseFirestoreException(
+          "Listing $listingId belongs to another user",
+          FirebaseFirestoreException.Code.PERMISSION_DENIED,
+      )
+    }
+  }
+
   /**
    * Uploads [listing]'s photos and saves it as [document], owned by [ownerUid]. The photos uploaded
-   * are deleted if saving fails.
+   * are deleted if saving fails, unless [keepPhotosOnFailure].
    */
   private suspend fun create(
       document: DocumentReference,
       ownerUid: String,
       listing: Listing,
+      keepPhotosOnFailure: Boolean = false,
   ): Listing {
     val imagePaths = listing.images.indices.map { listingImagePath(ownerUid, document.id, it) }
+    val keepOnFailure = if (keepPhotosOnFailure) imagePaths.toSet() else emptySet()
 
-    return uploadThenSave(listing.images, imagePaths) {
+    return uploadThenSave(listing.images, imagePaths, keepOnFailure) {
       // A new listing is always active: only setPaused pauses it.
       document.set(listing.toFirestoreData(ownerUid, imagePaths) + (PAUSED to false)).await()
       // Points to the uploaded photos: the local ones may be deleted once the listing is saved.
