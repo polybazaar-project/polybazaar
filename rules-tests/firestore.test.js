@@ -476,6 +476,50 @@ describe("listings", () => {
       await assertSucceeds(updateDoc(doc(verified(ALICE), "bookings/lender-confirmed"), { status: "CANCELLED" }));
     });
 
+    test("handover and return advance in order, by the responsible party, on legacy bookings", async () => {
+      await seed("bookings/b1", booking({ status: "CONFIRMED" }));
+      const lender = doc(verified(ALICE), "bookings/b1");
+      const renter = doc(verified(BOB), "bookings/b1");
+      const outsiderBooking = doc(verified(EVE), "bookings/b1");
+
+      await assertFails(updateDoc(renter, { renterHandoverConfirmed: true }));
+      await assertFails(updateDoc(renter, { renterReturnConfirmed: true }));
+      await assertFails(updateDoc(lender, { lenderReturnConfirmed: true }));
+      await assertFails(updateDoc(renter, { lenderHandoverConfirmed: true }));
+      await assertFails(updateDoc(outsiderBooking, { lenderHandoverConfirmed: true }));
+      await assertFails(updateDoc(doc(unverified(ALICE), "bookings/b1"), { lenderHandoverConfirmed: true }));
+      await assertFails(updateDoc(lender, { lenderHandoverConfirmed: true, renterHandoverConfirmed: true }));
+
+      await assertSucceeds(updateDoc(lender, { lenderHandoverConfirmed: true }));
+      await assertSucceeds(updateDoc(lender, { lenderHandoverConfirmed: true }));
+      await assertFails(updateDoc(lender, { status: "CANCELLED" }));
+      await assertFails(updateDoc(renter, { status: "CANCELLED" }));
+      await assertFails(updateDoc(lender, { lenderHandoverConfirmed: false }));
+      await assertFails(updateDoc(renter, { renterReturnConfirmed: true }));
+      await assertFails(updateDoc(lender, { renterHandoverConfirmed: true }));
+      await assertSucceeds(updateDoc(renter, { renterHandoverConfirmed: true }));
+      await assertFails(updateDoc(lender, { lenderReturnConfirmed: true }));
+      await assertSucceeds(updateDoc(renter, { renterReturnConfirmed: true }));
+      await assertFails(updateDoc(renter, { lenderReturnConfirmed: true }));
+      await assertSucceeds(updateDoc(lender, { lenderReturnConfirmed: true }));
+      await assertFails(updateDoc(renter, { status: "CANCELLED" }));
+
+      const saved = (await getDoc(lender)).data();
+      assert.equal(saved.lenderHandoverConfirmed, true);
+      assert.equal(saved.renterHandoverConfirmed, true);
+      assert.equal(saved.renterReturnConfirmed, true);
+      assert.equal(saved.lenderReturnConfirmed, true);
+    });
+
+    test("confirmations cannot be set on requests or cancelled bookings, or on creation", async () => {
+      await seed("listings/l1", offering(days(day0, day0 + 2)));
+      await seed("bookings/requested", booking());
+      await seed("bookings/cancelled", booking({ status: "CANCELLED" }));
+      await assertFails(updateDoc(doc(verified(ALICE), "bookings/requested"), { lenderHandoverConfirmed: true }));
+      await assertFails(updateDoc(doc(verified(ALICE), "bookings/cancelled"), { lenderHandoverConfirmed: true }));
+      await assertFails(setDoc(doc(verified(BOB), "bookings/new"), booking({ lenderHandoverConfirmed: true })));
+    });
+
     test("cancellation requires a verified renter or lender", async () => {
       await seed("bookings/requested", booking());
 
