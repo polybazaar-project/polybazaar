@@ -119,8 +119,8 @@ service cloud.firestore {
             && data.status == 'REQUESTED';
       }
 
-      // Either party cancels a request, or a confirmed booking. Accepting a request also cancels
-      // the other requests for its days, through this rule.
+      // Either party cancels a request, or a confirmed booking before handover. Accepting a
+      // request also cancels the other requests for its days, through this rule.
       function isCancel() {
         return (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid)
             && request.resource.data.status == 'CANCELLED'
@@ -128,6 +128,7 @@ service cloud.firestore {
             // a request while the lender's accept is cancelling it too, and the accept must not fail.
             && (resource.data.status == 'CANCELLED'
                 || (resource.data.status in ['REQUESTED', 'CONFIRMED']
+                    && resource.data.get('lenderHandoverConfirmed', false) == false
                     // A finished booking is history. The app stores the days earliest first, so the
                     // last one decides; it must not be before today by server time.
                     && resource.data.days[resource.data.days.size() - 1] >= request.time.toMillis() / 86400000));
@@ -146,13 +147,36 @@ service cloud.firestore {
             && !getAfter(listingPath).data.get('availableDates', []).hasAny(resource.data.days);
       }
 
+      // Each party can only set its own step to true, in order. Missing fields on older bookings
+      // mean false. Repeating an already completed step is harmless.
+      function isConfirmation(field, uid, previousComplete) {
+        return resource.data.status == 'CONFIRMED'
+            && request.auth.uid == uid
+            && previousComplete
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([field])
+            && request.resource.data.get(field, false) == true;
+      }
+
+      function isHandoverOrReturn() {
+        return isConfirmation('lenderHandoverConfirmed', resource.data.lenderUid, true)
+            || isConfirmation('renterHandoverConfirmed', resource.data.renterUid,
+                resource.data.get('lenderHandoverConfirmed', false) == true)
+            || isConfirmation('renterReturnConfirmed', resource.data.renterUid,
+                resource.data.get('lenderHandoverConfirmed', false) == true
+                && resource.data.get('renterHandoverConfirmed', false) == true)
+            || isConfirmation('lenderReturnConfirmed', resource.data.lenderUid,
+                resource.data.get('lenderHandoverConfirmed', false) == true
+                && resource.data.get('renterHandoverConfirmed', false) == true
+                && resource.data.get('renterReturnConfirmed', false) == true);
+      }
+
       allow read: if isVerified()
           && (resource.data.lenderUid == request.auth.uid || resource.data.renterUid == request.auth.uid);
       allow create: if isVerified() && validBooking(request.resource.data);
-      // Only the status changes.
       allow update: if isVerified()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && (isCancel() || isAccept());
+          && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+              && (isCancel() || isAccept()))
+              || isHandoverOrReturn());
       allow delete: if false;
     }
 

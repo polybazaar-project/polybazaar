@@ -97,6 +97,28 @@ class FirebaseBookingRepository(
         }
   }
 
+  override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) =
+      queueConfirmation(id, LENDER_HANDOVER_CONFIRMED, onWriteFailure)
+
+  override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) =
+      queueConfirmation(id, RENTER_HANDOVER_CONFIRMED, onWriteFailure)
+
+  override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) =
+      queueConfirmation(id, RENTER_RETURN_CONFIRMED, onWriteFailure)
+
+  override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) =
+      queueConfirmation(id, LENDER_RETURN_CONFIRMED, onWriteFailure)
+
+  private fun queueConfirmation(id: String, field: String, onWriteFailure: (Exception) -> Unit) {
+    signedInUid("Sign in to confirm a booking")
+    firestore.collection(BOOKINGS).document(id).update(field, true).addOnFailureListener(
+        Executor { it.run() }
+    ) {
+      logWriteFailure(it)
+      onWriteFailure(it)
+    }
+  }
+
   override suspend fun acceptBooking(booking: Booking) {
     signedInUid("Sign in to accept a booking")
     require(booking.status == BookingStatus.REQUESTED) { "Only a request can be accepted" }
@@ -139,6 +161,12 @@ class FirebaseBookingRepository(
   private fun DocumentSnapshot.toBooking(): Booking {
     fun string(field: String): String =
         getString(field) ?: throw IllegalStateException("Booking $id is missing $field")
+    fun confirmation(field: String): Boolean {
+      if (!contains(field)) return false
+      return get(field) as? Boolean
+          ?: throw IllegalStateException("Booking $id has an invalid $field")
+    }
+
     fun days(): Set<LocalDate> {
       val epochDays =
           (get(DAYS) as? List<*>)?.takeIf { it.isNotEmpty() }
@@ -161,12 +189,21 @@ class FirebaseBookingRepository(
         days = days(),
         status = BookingStatus.valueOf(string(STATUS)),
         id = id,
+        handoverNotified = confirmation(LENDER_HANDOVER_CONFIRMED),
+        renterHandoverConfirmed = confirmation(RENTER_HANDOVER_CONFIRMED),
+        returnNotified = confirmation(RENTER_RETURN_CONFIRMED),
+        lenderReturnConfirmed = confirmation(LENDER_RETURN_CONFIRMED),
     )
   }
 
   private companion object {
     const val BOOKINGS = "bookings"
     const val STATUS = "status"
+    // Keep the original Firestore field names for bookings written by earlier clients.
+    const val LENDER_HANDOVER_CONFIRMED = "lenderHandoverConfirmed"
+    const val RENTER_HANDOVER_CONFIRMED = "renterHandoverConfirmed"
+    const val RENTER_RETURN_CONFIRMED = "renterReturnConfirmed"
+    const val LENDER_RETURN_CONFIRMED = "lenderReturnConfirmed"
 
     /** The booked days, as epoch days. */
     const val DAYS = "days"
