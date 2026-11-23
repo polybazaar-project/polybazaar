@@ -145,6 +145,19 @@ class FilePendingListingQueueTest {
   }
 
   @Test
+  fun loading_deletesAFolderWhoseSaveWasCutShort() = runTest {
+    newQueue().enqueue("good", service)
+    // Photos copied but no draft.json yet, as when the app is killed mid-save.
+    val unfinished = File(directory, "unfinished").apply { mkdirs() }
+    File(unfinished, "photo_0.jpg").writeBytes(byteArrayOf(1))
+    File(unfinished, "draft.json.tmp").writeText("{")
+
+    assertEquals(listOf("good"), newQueue().pending.value.map { it.id })
+    assertFalse(unfinished.exists())
+    assertTrue(File(directory, "good").exists())
+  }
+
+  @Test
   fun enqueue_withNobodySignedIn_throwsUnauthenticatedAndKeepsNothing() = runTest {
     val queue = newQueue(uid = null)
 

@@ -90,7 +90,7 @@ class FilePendingListingQueue(
         // Right after the rename, with no suspension between: a draft on disk is always listed.
         _pending.update { drafts -> drafts.filterNot { it.id == id } + draft }
       } catch (exception: Exception) {
-        // Also on cancellation: a draft only partly copied must not be loaded later.
+        // A photo or the draft could not be written: nothing of this draft is kept.
         folder.deleteRecursively()
         throw exception
       }
@@ -120,13 +120,21 @@ class FilePendingListingQueue(
     return Uri.fromFile(target)
   }
 
-  /** Every draft that can be read. One that cannot is skipped, never crashing the app. */
+  /**
+   * Every draft that can be read. One that cannot is skipped, never crashing the app. A folder
+   * without `draft.json` is a save cut short, by the app being killed say, as the draft is written
+   * last: it is deleted.
+   */
   private fun loadAll(): List<PendingListing> =
       directory
           .listFiles()
           .orEmpty()
           .filter { it.isDirectory }
           .mapNotNull { folder ->
+            if (!File(folder, DRAFT_FILE).isFile) {
+              folder.deleteRecursively()
+              return@mapNotNull null
+            }
             try {
               read(folder)
             } catch (exception: Exception) {
