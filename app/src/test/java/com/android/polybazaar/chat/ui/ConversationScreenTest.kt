@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.view.View
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
@@ -18,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -45,6 +47,7 @@ import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
@@ -55,6 +58,9 @@ import androidx.compose.ui.test.swipe
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityOptionsCompat
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -150,8 +156,10 @@ class ConversationScreenTest {
       onLoadPhoto: (String) -> Unit = {},
       onRetryPhoto: (String) -> Unit = {},
       onDiscardPhoto: (String) -> Unit = {},
+      onComposeView: (View) -> Unit = {},
   ) {
     composeTestRule.setContent {
+      onComposeView(LocalView.current)
       ConversationContent(
           uiState = uiState,
           onBack = onBack,
@@ -501,6 +509,32 @@ class ConversationScreenTest {
     setContent(loaded.copy(messages = listOf(question, answer, long)))
 
     assertFullyInTheList(text("You · 09:20"))
+  }
+
+  @Test
+  fun keyboardOpen_keepsTheHeaderAndPutsTheComposerAboveIt() {
+    lateinit var composeView: View
+    setContent(loaded, onComposeView = { composeView = it })
+    val keyboard = 300.dp
+    val keyboardPx = with(composeTestRule.density) { keyboard.roundToPx() }
+
+    // Straight to the Compose view: the test activity's window fits system windows, so an inset
+    // sent to it would never reach Compose.
+    composeTestRule.runOnUiThread {
+      ViewCompat.dispatchApplyWindowInsets(
+          composeView,
+          WindowInsetsCompat.Builder()
+              .setInsets(WindowInsetsCompat.Type.ime(), Insets.of(0, 0, 0, keyboardPx))
+              .setVisible(WindowInsetsCompat.Type.ime(), true)
+              .build(),
+      )
+    }
+
+    node(ConversationScreenTags.BACK_BUTTON).assertIsDisplayed()
+    node(ConversationScreenTags.LISTING_TITLE).assertIsDisplayed()
+    val field = node(ConversationScreenTags.MESSAGE_FIELD).getBoundsInRoot()
+    val screen = composeTestRule.onRoot().getBoundsInRoot()
+    assertTrue(field.bottom <= screen.bottom - keyboard)
   }
 
   @Test
