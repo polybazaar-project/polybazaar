@@ -315,6 +315,21 @@ class MapViewModelTest {
   }
 
   @Test
+  fun failedReload_keepsThePreview() {
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+    viewModel.selectMarker("drill")
+
+    // Offline: the reload fails, but the listing is still on the map, so its preview stays.
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+    viewModel.loadListings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("drill", viewModel.uiState.value.selectedMarker?.id)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
   fun loadListings_whileALoadIsRunning_isIgnored() {
     listings.gate = CompletableDeferred()
     val viewModel = viewModel()
@@ -334,5 +349,70 @@ class MapViewModelTest {
 
     assertNull(viewModel.uiState.value.error)
     assertFalse(viewModel.uiState.value.isLoading)
+  }
+
+  // ---- Marker preview (#342) ----
+
+  @Test
+  fun selectMarker_previewsThatListing() {
+    listings.allListings =
+        listOf(item("drill", ownerUid = "lender"), item("tent", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+
+    viewModel.selectMarker("tent")
+
+    assertEquals("tent", viewModel.uiState.value.selectedMarker?.id)
+  }
+
+  @Test
+  fun selectMarker_withAnIdTheMapDoesNotShow_isIgnored() {
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+
+    viewModel.selectMarker("mine")
+
+    assertNull(viewModel.uiState.value.selectedMarkerId)
+  }
+
+  @Test
+  fun clearSelection_closesThePreview() {
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+    viewModel.selectMarker("drill")
+
+    viewModel.clearSelection()
+
+    assertNull(viewModel.uiState.value.selectedMarker)
+  }
+
+  @Test
+  fun reload_withoutTheSelectedListing_closesThePreview_forGood() {
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+    viewModel.selectMarker("drill")
+
+    // Paused or deleted meanwhile.
+    listings.allListings = emptyList()
+    viewModel.loadListings()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertNull(viewModel.uiState.value.selectedMarkerId)
+
+    // Back later: the preview doesn't reopen by itself.
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    viewModel.loadListings()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertNull(viewModel.uiState.value.selectedMarker)
+  }
+
+  @Test
+  fun reload_keepingTheSelectedListing_keepsThePreview() {
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+    viewModel.selectMarker("drill")
+
+    viewModel.loadListings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("drill", viewModel.uiState.value.selectedMarker?.id)
   }
 }
