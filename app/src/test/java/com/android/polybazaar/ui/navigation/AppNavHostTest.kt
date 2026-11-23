@@ -110,6 +110,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -145,7 +146,8 @@ class AppNavHostTest {
   private val bookingRepository = FakeBookingRepository()
   private val locationRepository = FakeLocationRepository()
   private val connectivity = FakeConnectivityRepository()
-  private val pendingQueue = FakePendingListingQueue()
+  // Drafts kept on the device belong to the signed-in user, as with the real queue.
+  private val pendingQueue = FakePendingListingQueue(ownerUid = user.uid)
 
   /** What the Map tab last gave its map: the stand-in records it, since it draws no markers. */
   private var mapState: MapUiState? = null
@@ -498,6 +500,112 @@ class AppNavHostTest {
         .assertIsDisplayed()
     assertEquals("Bosch drill set", pendingQueue.pending.value.single().listing.title)
     assertTrue(listingRepository.allListings.isEmpty())
+  }
+
+  private suspend fun keepDraft(id: String, title: String) {
+    pendingQueue.enqueue(
+        id,
+        ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, title, "One-hour session"),
+    )
+  }
+
+  private fun draftsPublishedMessage(count: Int) =
+      context.resources.getQuantityString(R.plurals.listing_drafts_published, count, count)
+
+  private fun draftsFailedMessage(count: Int) =
+      context.resources.getQuantityString(R.plurals.listing_drafts_failed, count, count)
+
+  @Test
+  fun draftsKeptOffline_arePublishedWhenTheAppStartsOnline_withAMessage() {
+    runBlocking {
+      keepDraft("d1", "Math tutoring")
+      keepDraft("d2", "Physics tutoring")
+    }
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText(draftsPublishedMessage(2))
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertEquals("2 listings created offline were published.", draftsPublishedMessage(2))
+    assertEquals(listOf("d1", "d2"), listingRepository.publishedListingIds)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+  }
+
+  @Test
+  fun draftKeptOffline_isPublishedWhenTheConnectionReturns_withAMessage() {
+    connectivity.isOnline.value = false
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+
+    connectivity.isOnline.value = true
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText("Your listing created offline was published.")
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertEquals(listOf("d1"), listingRepository.publishedListingIds)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+  }
+
+  @Test
+  fun draftThatCannotBePublished_staysOnTheDevice_withAMessage() {
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    listingRepository.failingPublishIds += "d1"
+    setContent(FakeAuthRepository(currentUser = user))
+
+    val message = "A listing created offline couldn’t be published. We’ll try again later."
+    composeTestRule.waitUntil {
+      composeTestRule.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty()
+    }
+    assertEquals(message, draftsFailedMessage(1))
+    assertEquals(listOf("d1"), pendingQueue.pending.value.map { it.id })
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+  }
+
+  @Test
+  fun draftsPartlyPublished_tellBothOutcomesInOneMessage() {
+    runBlocking {
+      keepDraft("d1", "Math tutoring")
+      keepDraft("d2", "Physics tutoring")
+      keepDraft("d3", "Chemistry tutoring")
+    }
+    listingRepository.failingPublishIds += setOf("d2", "d3")
+    setContent(FakeAuthRepository(currentUser = user))
+
+    val message = "${draftsPublishedMessage(1)} ${draftsFailedMessage(2)}"
+    composeTestRule.waitUntil {
+      composeTestRule.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty()
+    }
+    assertEquals(
+        "Your listing created offline was published. 2 listings created offline couldn’t be " +
+            "published. We’ll try again later.",
+        message,
+    )
+    assertEquals(listOf("d2", "d3"), pendingQueue.pending.value.map { it.id })
+  }
+
+  @Test
+  fun draftsOfAnUnverifiedUser_areNotPublished() {
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+    assertEquals(listOf("d1"), pendingQueue.pending.value.map { it.id })
+    composeTestRule.onNodeWithText(draftsPublishedMessage(1)).assertDoesNotExist()
   }
 
   @Test

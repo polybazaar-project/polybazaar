@@ -84,6 +84,7 @@ import com.android.polybazaar.listing.ui.EditListingScreen
 import com.android.polybazaar.listing.ui.ListingDetailActions
 import com.android.polybazaar.listing.ui.ListingDetailScreen
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
+import com.android.polybazaar.listing.viewmodel.ListingDraftPublisherViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.LocationRepository
 import com.android.polybazaar.map.model.PlaceNameRepository
@@ -170,6 +171,45 @@ fun AppNavHost(
   }
 
   LaunchedEffect(Unit) { authViewModel.restoreSession() }
+
+  // Outside the NavHost, so the drafts are published whichever screen is open.
+  val draftPublisher: ListingDraftPublisherViewModel =
+      viewModel(
+          factory =
+              viewModelFactory {
+                initializer {
+                  ListingDraftPublisherViewModel(
+                      pendingListingQueue,
+                      listingRepository,
+                      connectivityRepository,
+                  )
+                }
+              }
+      )
+  // Only a verified user can publish: the security rules refuse the others' listings.
+  val publisherUid = uiState.user?.takeIf { it.isEmailVerified }?.uid
+  LaunchedEffect(publisherUid) { draftPublisher.setSignedInUser(publisherUid) }
+  val draftNotice by draftPublisher.notice.collectAsState()
+  val resources = LocalContext.current.resources
+  LaunchedEffect(draftNotice) {
+    val notice = draftNotice ?: return@LaunchedEffect
+    val published =
+        resources.getQuantityString(
+            R.plurals.listing_drafts_published,
+            notice.published,
+            notice.published,
+        )
+    val failed =
+        resources.getQuantityString(R.plurals.listing_drafts_failed, notice.failed, notice.failed)
+    showMessage(
+        listOfNotNull(
+                published.takeIf { notice.published > 0 },
+                failed.takeIf { notice.failed > 0 },
+            )
+            .joinToString(" ")
+    )
+    draftPublisher.clearNotice()
+  }
 
   LaunchedEffect(uiState.sessionChecked, uiState.user) {
     val route = navController.currentBackStackEntry?.destination?.route
