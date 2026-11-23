@@ -38,12 +38,13 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     // With edge-to-edge and adjustResize (manifest), Compose receives the keyboard's insets and
-    // the screens shrink above it. The bars keep dark icons and a light scrim in dark mode too,
-    // because the screens stay light; auto keeps the system's contrast scrim for 3-button nav.
+    // the screens shrink above it. The bars keep dark icons in dark mode too, because the screens
+    // stay light. Auto leaves the 3-button nav bar's contrast scrim to the system from API 29; on
+    // API 28 it draws LIGHT_SCRIM, as dark mode is never detected.
     enableEdgeToEdge(
         statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
         navigationBarStyle =
-            SystemBarStyle.auto(LIGHT_SCRIM, DARK_SCRIM, detectDarkMode = { false }),
+            SystemBarStyle.auto(LIGHT_SCRIM, LIGHT_SCRIM, detectDarkMode = { false }),
     )
     setContent {
       PolyBazaarTheme {
@@ -104,8 +105,7 @@ class MainActivity : ComponentActivity() {
      */
     var connectivity: ConnectivityRepository? = null
 
-    // The activity library's default nav bar scrims.
+    // The activity library's default light nav bar scrim.
     val LIGHT_SCRIM = Color.argb(0xe6, 0xff, 0xff, 0xff)
-    val DARK_SCRIM = Color.argb(0x80, 0x1b, 0x1b, 0x1b)
   }
 }
