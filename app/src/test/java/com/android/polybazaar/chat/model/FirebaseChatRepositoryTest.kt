@@ -55,6 +55,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mockito
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyVararg
 import org.mockito.kotlin.argumentCaptor
@@ -319,7 +320,17 @@ class FirebaseChatRepositoryTest {
   @Test
   fun sendMessageCommitsTextsInTheOrderTheyAreSentWithoutWaitingForTheServer() = runTest {
     // Offline: the server never confirms, so each commit stays queued on the device.
-    whenever(batch.commit()).thenReturn(TaskCompletionSource<Void>().task)
+    val neverDone = TaskCompletionSource<Void>().task
+    // Each send gets its own batch; RETURNS_SELF lets its chained set calls return it.
+    val firstBatch =
+        mock<WriteBatch>(defaultAnswer = Mockito.RETURNS_SELF) {
+          on { commit() } doReturn neverDone
+        }
+    val secondBatch =
+        mock<WriteBatch>(defaultAnswer = Mockito.RETURNS_SELF) {
+          on { commit() } doReturn neverDone
+        }
+    whenever(firestore.batch()).thenReturn(firstBatch, secondBatch)
 
     withTimeout(1_000) {
       repository.sendMessage(replied, "First")
@@ -328,11 +339,11 @@ class FirebaseChatRepositoryTest {
 
     fun textFields(text: String) =
         mapOf("senderUid" to "renter", "text" to text, "sentAt" to FieldValue.serverTimestamp())
-    val order = inOrder(batch)
-    order.verify(batch).set(eq(messageRef), eq(textFields("First")))
-    order.verify(batch).commit()
-    order.verify(batch).set(eq(messageRef), eq(textFields("Second")))
-    order.verify(batch).commit()
+    val order = inOrder(firstBatch, secondBatch)
+    order.verify(firstBatch).set(eq(messageRef), eq(textFields("First")))
+    order.verify(firstBatch).commit()
+    order.verify(secondBatch).set(eq(messageRef), eq(textFields("Second")))
+    order.verify(secondBatch).commit()
   }
 
   @Test
