@@ -79,7 +79,9 @@ import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.FakeProfileRepository
@@ -87,6 +89,7 @@ import com.android.polybazaar.profile.ui.redPhoto
 import java.io.File
 import java.net.UnknownHostException
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -133,9 +136,13 @@ class ConversationScreenTest {
           conversation = conversation,
           listingTitle = "Bosch drill set",
           listingStatus = ConversationListingStatus.ACTIVE,
+          isRenter = true,
           otherUser = james,
           isLoading = false,
       )
+
+  /** The time the tests look at the screen: the day of [question] and [answer]. */
+  private val now = Instant.parse("2026-11-11T12:00:00Z")
 
   private fun setContent(
       uiState: ConversationUiState,
@@ -166,6 +173,7 @@ class ConversationScreenTest {
           onRetryPhoto = onRetryPhoto,
           onDiscardPhoto = onDiscardPhoto,
           zone = ZoneOffset.UTC,
+          now = now,
       )
     }
   }
@@ -258,6 +266,20 @@ class ConversationScreenTest {
       composeTestRule.onAllNodes(
           hasAnyAncestor(hasTestTag(ConversationScreenTags.EMPTY_STATE)) and
               SemanticsMatcher.keyIsDefined(SemanticsProperties.Text),
+          useUnmergedTree = true,
+      )
+
+  /** Every text of the listing summary. */
+  private fun summaryTexts() =
+      composeTestRule.onAllNodes(
+          hasAnyAncestor(hasTestTag(ConversationScreenTags.LISTING_SUMMARY)) and
+              SemanticsMatcher.keyIsDefined(SemanticsProperties.Text),
+          useUnmergedTree = true,
+      )
+
+  private fun pill() =
+      composeTestRule.onNodeWithTag(
+          ConversationScreenTags.LISTING_STATUS_PILL,
           useUnmergedTree = true,
       )
 
@@ -410,6 +432,9 @@ class ConversationScreenTest {
     text(string(R.string.conversation_empty_title, "james")).assertIsDisplayed()
     text("No messages yet. Ask about “Bosch drill set”, its availability or a good time to meet.")
         .assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.EMPTY_TAGLINE, useUnmergedTree = true)
+        .assertTextEquals("Good tools. Great neighbours.")
     node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
   }
 
@@ -531,8 +556,9 @@ class ConversationScreenTest {
     arrive(ChatMessage("m50", "renter", "On my way", manyStart))
 
     assertFullyInTheList(node(ConversationScreenTags.myMessage("m50")))
-    // The oldest message was only out of view: the list holds it last, newest first.
-    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(50)
+    // The oldest message was only out of view, at the top of the list.
+    node(ConversationScreenTags.MESSAGE_LIST)
+        .performScrollToNode(hasTestTag(ConversationScreenTags.myMessage("m0")))
     node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
   }
 
@@ -841,7 +867,8 @@ class ConversationScreenTest {
     setContent(loaded, onBack = { backs++ })
 
     node(ConversationScreenTags.LISTING_TITLE).assertTextEquals("Bosch drill set")
-    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@james")
+    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@james · Lender")
+    node(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
     node(ConversationScreenTags.PAUSED_NOTICE).assertDoesNotExist()
     node(ConversationScreenTags.DELETED_NOTICE).assertDoesNotExist()
     node(ConversationScreenTags.BACK_BUTTON).performClick()
@@ -1247,6 +1274,175 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.SEND_ERROR).assertDoesNotExist()
     node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft("Is it free on Saturday?!"))
+  }
+
+  @Test
+  fun summary_forAnItem_showsTheLenderThePricePerDayAndThePlace_asARental() {
+    setContent(
+        loaded.copy(listing = drill.copy(location = ListingLocation(46.54, 6.58, "Renens VD")))
+    )
+
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertIsDisplayed()
+        .assertContentDescriptionEquals(
+            string(R.string.conversation_summary_spoken_lender, "james")
+        )
+    text("CHF 8 / day · Renens VD").assertIsDisplayed()
+    pill().assertTextEquals("Rental")
+  }
+
+  @Test
+  fun summary_forAService_showsThePriceAlone_asAService() {
+    val tutoring =
+        ServiceListing(
+            ListingCategory.SERVICE_TUTORING,
+            25.0,
+            "Calculus tutoring",
+            "Analysis I and II.",
+            listingId = "tutoring",
+            ownerUid = james.uid,
+        )
+
+    setContent(loaded.copy(listingTitle = "Calculus tutoring", listing = tutoring))
+
+    text("CHF 25").assertIsDisplayed()
+    pill().assertTextEquals("Service")
+  }
+
+  @Test
+  fun summary_followsTheListingStatus() {
+    var uiState by mutableStateOf(loaded.copy(listing = drill))
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+    pill().assertTextEquals("Rental")
+
+    uiState =
+        uiState.copy(
+            listing = drill.copy(isPaused = true),
+            listingStatus = ConversationListingStatus.PAUSED,
+        )
+    pill().assertTextEquals("Paused")
+
+    uiState = uiState.copy(listingStatus = ConversationListingStatus.DELETED)
+    pill().assertTextEquals("Deleted")
+  }
+
+  @Test
+  fun summary_ofAListingDeletedBeforeTheScreenOpened_showsOnlyTheLenderAndTheStatus() {
+    setContent(loaded.copy(listing = null, listingStatus = ConversationListingStatus.DELETED))
+
+    // The lender is spoken through its content description, so the status is the only text.
+    summaryTexts().assertCountEquals(1)
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(
+            string(R.string.conversation_summary_spoken_lender, "james")
+        )
+    pill().assertTextEquals("Deleted")
+  }
+
+  @Test
+  fun lender_seesThemselvesAsTheLender_andTheOtherPersonAsTheRenter() {
+    val remi = User(uid = "renter", email = "remi@epfl.ch", username = "remi")
+
+    setContent(loaded.copy(myUid = james.uid, isRenter = false, otherUser = remi, listing = drill))
+
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(string(R.string.conversation_summary_spoken_mine))
+    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@remi · Renter")
+  }
+
+  @Test
+  fun summary_isHiddenWhileTheListingIsUnknown() {
+    setContent(ConversationUiState(myUid = "renter"))
+
+    node(ConversationScreenTags.LISTING_SUMMARY).assertDoesNotExist()
+    node(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
+  }
+
+  @Test
+  fun notices_showTheirIcons() {
+    var uiState by mutableStateOf(loaded.copy(listingStatus = ConversationListingStatus.PAUSED))
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.NOTICE_ICON, useUnmergedTree = true)
+        .assertIsDisplayed()
+
+    uiState = uiState.copy(listingStatus = ConversationListingStatus.DELETED)
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.NOTICE_ICON, useUnmergedTree = true)
+        .assertIsDisplayed()
+  }
+
+  @Test
+  fun loadError_showsItsIcon() {
+    setContent(ConversationUiState(myUid = "renter", loadError = AppError.NETWORK))
+
+    node(ConversationScreenTags.LOAD_ERROR_ICON).assertIsDisplayed()
+  }
+
+  @Test
+  // Tall enough for every message and divider to be laid out.
+  @Config(qualifiers = "w412dp-h1400dp")
+  fun dayDividers_nameEachDay_aboveItsFirstMessage() {
+    fun message(id: String, at: String) =
+        ChatMessage(id, "renter", "Message $id", Instant.parse(at))
+    val lastYear = message("m1", "2025-12-31T18:00:00Z")
+    val earlier = message("m2", "2026-11-09T10:00:00Z")
+    val yesterdayFirst = message("m3", "2026-11-10T08:00:00Z")
+    val yesterdayLast = message("m4", "2026-11-10T20:00:00Z")
+    val today = message("m5", "2026-11-11T09:00:00Z")
+
+    setContent(
+        loaded.copy(messages = listOf(lastYear, earlier, yesterdayFirst, yesterdayLast, today))
+    )
+
+    fun divider(date: String) = node(ConversationScreenTags.dayDivider(LocalDate.parse(date)))
+    divider("2025-12-31").assertTextEquals("31 Dec 2025")
+    divider("2026-11-09").assertTextEquals("9 Nov")
+    divider("2026-11-10").assertTextEquals("Yesterday")
+    divider("2026-11-11").assertTextEquals("Today")
+    val above = node(ConversationScreenTags.myMessage("m2")).getBoundsInRoot()
+    val yesterday = divider("2026-11-10").getBoundsInRoot()
+    val first = node(ConversationScreenTags.myMessage("m3")).getBoundsInRoot()
+    val last = node(ConversationScreenTags.myMessage("m4")).getBoundsInRoot()
+    assertTrue(above.bottom <= yesterday.top)
+    assertTrue(yesterday.bottom <= first.top)
+    assertTrue(first.bottom <= last.top)
+  }
+
+  @Test
+  fun messageWithTheIdOfADayKey_showsBesideThatDaysDivider() {
+    // A message id can look like a day key with another separator; the "/" in the divider's key
+    // keeps them apart.
+    val odd =
+        ChatMessage("day:2026-11-11", "renter", "Odd id", Instant.parse("2026-11-11T10:00:00Z"))
+
+    setContent(loaded.copy(messages = listOf(question, odd)))
+
+    node(ConversationScreenTags.myMessage("day:2026-11-11")).assertIsDisplayed()
+    node(ConversationScreenTags.dayDivider(LocalDate.parse("2026-11-11"))).assertTextEquals("Today")
+  }
+
+  @Test
+  fun listingSummary_tellsTalkBackWhoseListingItIs() {
+    var uiState by mutableStateOf(loaded.copy(listing = drill))
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+    // The merged card: who it belongs to, then the details and the status, without the bare name.
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(
+            string(R.string.conversation_summary_spoken_lender, "james")
+        )
+        .assertTextEquals("CHF 8 / day", "Rental")
+
+    uiState = uiState.copy(myUid = james.uid, isRenter = false)
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(string(R.string.conversation_summary_spoken_mine))
+        .assertTextEquals("CHF 8 / day", "Rental")
   }
 
   // Photo button and attached photo

@@ -315,6 +315,21 @@ class MapViewModelTest {
   }
 
   @Test
+  fun failedReload_keepsThePreview() {
+    listings.allListings = listOf(item("drill", ownerUid = "lender"))
+    val viewModel = loadedViewModel()
+    viewModel.selectMarker("drill")
+
+    // Offline: the reload fails, but the listing is still on the map, so its preview stays.
+    listings.failure = UnknownHostException("firestore.googleapis.com")
+    viewModel.loadListings()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("drill", viewModel.uiState.value.selectedMarker?.id)
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+  }
+
+  @Test
   fun loadListings_whileALoadIsRunning_isIgnored() {
     listings.gate = CompletableDeferred()
     val viewModel = viewModel()

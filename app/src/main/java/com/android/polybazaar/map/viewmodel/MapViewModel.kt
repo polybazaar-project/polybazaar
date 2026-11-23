@@ -50,8 +50,8 @@ sealed interface MapCentre {
  * @property isLoading true while the listings are being loaded.
  * @property error why the listings could not be loaded, or null. The markers already shown are
  *   kept.
- * @property selectedMarkerId the listing whose marker the renter tapped, previewed at the bottom of
- *   the map (#342), or null.
+ * @property selectedMarkerId the listing whose marker the renter tapped (#342), or null. The
+ *   ViewModel's record of the selection: the screen reads [selectedMarker] instead.
  */
 data class MapUiState(
     val centre: MapCentre = MapCentre.Undecided,
@@ -60,7 +60,11 @@ data class MapUiState(
     val error: AppError? = null,
     val selectedMarkerId: String? = null,
 ) {
-  /** The previewed listing's marker, or null when none is selected or it is no longer shown. */
+  /**
+   * The listing to preview at the bottom of the map, or null: what the screen reads.
+   * [MapViewModel.loadListings] already clears an id the map no longer shows; looking the id up in
+   * [markers] is a safety net, so the screen can never preview a listing that isn't on the map.
+   */
   val selectedMarker: MapMarker?
     get() = selectedMarkerId?.let { id -> markers.firstOrNull { it.id == id } }
 }
