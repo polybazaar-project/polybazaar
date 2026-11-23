@@ -1,12 +1,16 @@
 // Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.booking.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.booking.model.Booking
@@ -113,6 +117,105 @@ class BookingListScreensTest {
         .assertTextEquals("Return notified")
     composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION).performClick()
     assertEquals(listOf("a" to ConfirmationAction.CONFIRM_RETURN), actions)
+  }
+
+  @Test
+  fun bothPartiesSeeTheCorrectStatusAndActionAtEveryStage() {
+    data class Scenario(
+        val booking: Booking,
+        val lender: Boolean,
+        val step: Int,
+        val status: String,
+        val label: String? = null,
+        val action: ConfirmationAction? = null,
+    )
+
+    val confirmed = booking("a", BookingStatus.CONFIRMED)
+    val handover = confirmed.copy(handoverNotified = true)
+    val received = handover.copy(renterHandoverConfirmed = true)
+    val returning = received.copy(returnNotified = true)
+    val completed = returning.copy(lenderReturnConfirmed = true)
+    val scenarios =
+        listOf(
+            Scenario(
+                confirmed,
+                true,
+                1,
+                "Ready for handover",
+                "Notify handover",
+                ConfirmationAction.NOTIFY_HANDOVER,
+            ),
+            Scenario(confirmed, false, 1, "Waiting for handover"),
+            Scenario(handover, true, 2, "Waiting for renter"),
+            Scenario(
+                handover,
+                false,
+                2,
+                "Handover notified",
+                "Confirm handover",
+                ConfirmationAction.CONFIRM_HANDOVER,
+            ),
+            Scenario(received, true, 3, "Waiting for return"),
+            Scenario(
+                received,
+                false,
+                3,
+                "Ready to return",
+                "Notify return",
+                ConfirmationAction.NOTIFY_RETURN,
+            ),
+            Scenario(
+                returning,
+                true,
+                4,
+                "Return notified",
+                "Confirm return",
+                ConfirmationAction.CONFIRM_RETURN,
+            ),
+            Scenario(returning, false, 4, "Waiting for lender"),
+            Scenario(completed, true, 5, "Return completed"),
+            Scenario(completed, false, 5, "Return completed"),
+        )
+    var current by mutableStateOf(scenarios.first())
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    composeTestRule.setContent {
+      BookingListContent(
+          title = "Bookings",
+          uiState = BookingUiState(bookings = listOf(current.booking)),
+          onBack = {},
+          onRetry = {},
+          onCancel = {},
+          showRenter = current.lender,
+          onConfirm = { id, action -> actions += id to action },
+      )
+    }
+
+    for (scenario in scenarios) {
+      composeTestRule.runOnIdle { current = scenario }
+      composeTestRule
+          .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+          .assertTextEquals(scenario.status)
+      composeTestRule.onNodeWithText("Step ${scenario.step} of 5").assertIsDisplayed()
+      if (scenario.action == null) {
+        composeTestRule
+            .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+            .assertCountEquals(0)
+      } else {
+        composeTestRule
+            .onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+            .assertTextEquals(scenario.label!!)
+            .performClick()
+      }
+    }
+    assertEquals(
+        listOf(
+            "a" to ConfirmationAction.NOTIFY_HANDOVER,
+            "a" to ConfirmationAction.CONFIRM_HANDOVER,
+            "a" to ConfirmationAction.NOTIFY_RETURN,
+            "a" to ConfirmationAction.CONFIRM_RETURN,
+        ),
+        actions,
+    )
   }
 
   @Test

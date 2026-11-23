@@ -308,6 +308,52 @@ class BookingViewModelTest {
   }
 
   @Test
+  fun bookingObservationCanRetryAfterALoadFailure() = runTest {
+    val expected = booking.copy(id = "a")
+    repository.renterBookings = listOf(expected)
+    repository.loadFailure = AppException(AppError.NETWORK)
+    val viewModel = BookingViewModel(repository)
+
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    assertFalse(viewModel.uiState.value.isLoadingBookings)
+
+    repository.loadFailure = null
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(listOf(expected), viewModel.uiState.value.bookings)
+    assertEquals(null, viewModel.uiState.value.error)
+    assertEquals(2, repository.loadCount)
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
+  fun immediateConfirmationFailureCanBeRetried() = runTest {
+    val handover = booking.copy(id = "a", status = BookingStatus.CONFIRMED, handoverNotified = true)
+    repository.renterBookings = listOf(handover)
+    repository.immediateConfirmationFailure = AppException(AppError.NETWORK)
+    val viewModel = BookingViewModel(repository)
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.submittingConfirmations.isEmpty())
+    assertEquals(
+        ConfirmationFailure(ConfirmationAction.CONFIRM_HANDOVER, AppError.NETWORK),
+        viewModel.uiState.value.confirmationFailures["a"],
+    )
+
+    repository.immediateConfirmationFailure = null
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(listOf("a", "a"), repository.handoverConfirmations)
+    assertTrue(viewModel.uiState.value.confirmationFailures.isEmpty())
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
   fun listingNamesAreCachedAndSnapshotsDoNotOverlapInFlightReads() = runTest {
     val first =
         ItemListing(
