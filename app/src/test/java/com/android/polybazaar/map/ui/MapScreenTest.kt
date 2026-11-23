@@ -14,6 +14,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -255,6 +256,26 @@ class MapScreenTest {
     composeTestRule.onNodeWithText(context.getString(R.string.map_preview_item)).assertIsDisplayed()
     // The bottom of the map holds one thing at a time: the preview, not the loading pill.
     node(MapScreenTags.LOADING).assertDoesNotExist()
+  }
+
+  @Test
+  fun preview_withAFailedReload_showsTheErrorAboveIt_andRetryStillWorks() {
+    var retried = false
+    // Offline: the reload failed, but the previewed listing is still on the map.
+    setContent(
+        MapUiState(markers = listOf(drill), selectedMarkerId = "drill", error = AppError.NETWORK),
+        onRetry = { retried = true },
+    )
+
+    node(MapScreenTags.PREVIEW).assertIsDisplayed()
+    node(MapScreenTags.ERROR).assertIsDisplayed()
+    // Stacked, not overlapping: the error pill ends above the card.
+    assertTrue(
+        node(MapScreenTags.ERROR).getBoundsInRoot().bottom <=
+            node(MapScreenTags.PREVIEW).getBoundsInRoot().top
+    )
+    node(MapScreenTags.RETRY_BUTTON).performClick()
+    assertTrue(retried)
   }
 
   @Test

@@ -7,7 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
+import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.map.model.Campus
@@ -168,17 +169,26 @@ fun MapContent(
 ) {
   Box(modifier = modifier.fillMaxSize().testTag(MapScreenTags.SCREEN)) {
     map()
-    // The preview takes the bottom of the map, where the listings' state would show; a tapped
-    // marker means listings are shown anyway.
-    val selected = uiState.selectedMarker
-    if (selected != null) {
-      MarkerPreview(
-          marker = selected,
-          onOpen = { onOpenListing(selected.id) },
-          onClose = onClosePreview,
-      )
-    } else {
-      ListingsStatus(uiState, onRetry)
+    // One column at the bottom of the map, so the preview and the error pill stack instead of
+    // overlapping.
+    Column(
+        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      val selected = uiState.selectedMarker
+      if (selected != null) {
+        // A reload that fails (offline) keeps the previewed listing, as it is still on the map,
+        // but the renter must still see the error and be able to retry: the pill goes above it.
+        uiState.error?.let { ErrorPill(it, onRetry) }
+        MarkerPreview(
+            marker = selected,
+            onOpen = { onOpenListing(selected.id) },
+            onClose = onClosePreview,
+        )
+      } else {
+        ListingsStatus(uiState, onRetry)
+      }
     }
     // Last, so its cards and their dim cover the status too.
     locationLayer()
@@ -190,29 +200,10 @@ fun MapContent(
  * are shown (the tab coming back) shows nothing, so the map doesn't flicker.
  */
 @Composable
-private fun BoxScope.ListingsStatus(uiState: MapUiState, onRetry: () -> Unit) {
+private fun ListingsStatus(uiState: MapUiState, onRetry: () -> Unit) {
   val error = uiState.error
   when {
-    error != null ->
-        BottomPill(MapScreenTags.ERROR) {
-          Text(
-              text = error.message(),
-              color = AuthColors.Danger,
-              fontSize = 12.sp,
-              modifier = Modifier.weight(1f, fill = false),
-          )
-          TextButton(
-              onClick = onRetry,
-              modifier = Modifier.heightIn(min = 48.dp).testTag(MapScreenTags.RETRY_BUTTON),
-          ) {
-            Text(
-                text = stringResource(R.string.map_retry),
-                color = AuthColors.Accent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-          }
-        }
+    error != null -> ErrorPill(error, onRetry)
     uiState.isLoading && uiState.markers.isEmpty() ->
         BottomPill(MapScreenTags.LOADING) {
           CircularProgressIndicator(
@@ -239,13 +230,36 @@ private fun BoxScope.ListingsStatus(uiState: MapUiState, onRetry: () -> Unit) {
   }
 }
 
+/** Why the listings could not be loaded, with Retry. */
+@Composable
+private fun ErrorPill(error: AppError, onRetry: () -> Unit) {
+  BottomPill(MapScreenTags.ERROR) {
+    Text(
+        text = error.message(),
+        color = AuthColors.Danger,
+        fontSize = 12.sp,
+        modifier = Modifier.weight(1f, fill = false),
+    )
+    TextButton(
+        onClick = onRetry,
+        modifier = Modifier.heightIn(min = 48.dp).testTag(MapScreenTags.RETRY_BUTTON),
+    ) {
+      Text(
+          text = stringResource(R.string.map_retry),
+          color = AuthColors.Accent,
+          fontSize = 12.sp,
+          fontWeight = FontWeight.SemiBold,
+      )
+    }
+  }
+}
+
 /** A pill at the bottom of the map, styled like the location pills at the top. */
 @Composable
-private fun BoxScope.BottomPill(tag: String, content: @Composable RowScope.() -> Unit) {
+private fun BottomPill(tag: String, content: @Composable RowScope.() -> Unit) {
   Row(
       modifier =
-          Modifier.align(Alignment.BottomCenter)
-              .padding(start = 18.dp, end = 18.dp, bottom = 16.dp)
+          Modifier.padding(horizontal = 18.dp)
               .shadow(2.dp, RoundedCornerShape(24.dp))
               .background(AuthColors.CardBackground, RoundedCornerShape(24.dp))
               .border(1.dp, AuthColors.Outline, RoundedCornerShape(24.dp))

@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Haiku 5.5
 // Co-authored-by: Copilot (GPT-5.6 Terra)
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.booking.model
 
 import java.time.LocalDate
@@ -21,6 +22,10 @@ enum class BookingStatus {
  *   can be one booking.
  * @property status where the booking is in its lifecycle, starting at [BookingStatus.REQUESTED].
  * @property id Firestore document ID, populated when the booking is read.
+ * @property handoverNotified whether the lender has notified the handover.
+ * @property renterHandoverConfirmed whether the renter has confirmed the handover.
+ * @property returnNotified whether the renter has notified the return.
+ * @property lenderReturnConfirmed whether the lender has confirmed the return.
  */
 data class Booking(
     val listingId: String,
@@ -29,6 +34,10 @@ data class Booking(
     val days: Set<LocalDate>,
     val status: BookingStatus = BookingStatus.REQUESTED,
     val id: String = "",
+    val handoverNotified: Boolean = false,
+    val renterHandoverConfirmed: Boolean = false,
+    val returnNotified: Boolean = false,
+    val lenderReturnConfirmed: Boolean = false,
 )
 
 /** Whether this booking and [other] share at least one day. */

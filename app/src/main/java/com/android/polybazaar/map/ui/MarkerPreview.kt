@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,13 +38,12 @@ import com.android.polybazaar.map.viewmodel.MapMarker
  * a skill, its title and its price per day. The whole card opens the listing; the cross closes it.
  */
 @Composable
-internal fun BoxScope.MarkerPreview(marker: MapMarker, onOpen: () -> Unit, onClose: () -> Unit) {
+internal fun MarkerPreview(marker: MapMarker, onOpen: () -> Unit, onClose: () -> Unit) {
   val shape = RoundedCornerShape(20.dp)
   Row(
       modifier =
-          Modifier.align(Alignment.BottomCenter)
-              .fillMaxWidth()
-              .padding(start = 18.dp, end = 18.dp, bottom = 16.dp)
+          Modifier.fillMaxWidth()
+              .padding(horizontal = 18.dp)
               .shadow(4.dp, shape)
               .background(AuthColors.CardBackground, shape)
               .border(1.dp, AuthColors.Outline, shape)

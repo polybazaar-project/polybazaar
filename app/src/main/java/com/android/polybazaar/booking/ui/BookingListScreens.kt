@@ -174,7 +174,9 @@ fun BookingListContent(
                       else uiState.listingTitles[booking.listingId],
                   isCancelling = booking.id in uiState.cancellingBookingIds,
                   canCancel =
-                      booking.status != BookingStatus.CANCELLED && !booking.isFinished(today),
+                      booking.status != BookingStatus.CANCELLED &&
+                          !booking.handoverNotified &&
+                          !booking.isFinished(today),
                   onCancel = { onCancel(booking.id) },
               )
             }
