@@ -317,6 +317,25 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun sendMessageCommitsTextsInTheOrderTheyAreSentWithoutWaitingForTheServer() = runTest {
+    // Offline: the server never confirms, so each commit stays queued on the device.
+    whenever(batch.commit()).thenReturn(TaskCompletionSource<Void>().task)
+
+    withTimeout(1_000) {
+      repository.sendMessage(replied, "First")
+      repository.sendMessage(replied, "Second")
+    }
+
+    fun textFields(text: String) =
+        mapOf("senderUid" to "renter", "text" to text, "sentAt" to FieldValue.serverTimestamp())
+    val order = inOrder(batch)
+    order.verify(batch).set(eq(messageRef), eq(textFields("First")))
+    order.verify(batch).commit()
+    order.verify(batch).set(eq(messageRef), eq(textFields("Second")))
+    order.verify(batch).commit()
+  }
+
+  @Test
   fun sendMessageReportsLaterWriteFailures() = runTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(batch.commit()).thenReturn(pendingWrite.task)
