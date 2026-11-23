@@ -21,6 +21,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
@@ -1600,6 +1601,7 @@ class FirebaseChatRepositoryTest {
         whenever(it.getString("imagePath")).thenReturn(imagePath)
         whenever(it.getBoolean("photoPending")).thenReturn(photoPending)
         whenever(timestampOf(it, "sentAt")).thenReturn(Timestamp(sentAt, 0))
+        whenever(it.metadata).thenReturn(mock<SnapshotMetadata>())
       }
 
   /** Emits [document] as the only message of the conversation and returns what is observed. */
@@ -1621,7 +1623,8 @@ class FirebaseChatRepositoryTest {
 
   private fun captureMessagesListener(): () -> EventListener<QuerySnapshot> {
     val captor = argumentCaptor<EventListener<QuerySnapshot>>()
-    whenever(orderedMessages.addSnapshotListener(captor.capture())).thenReturn(registration)
+    whenever(orderedMessages.addSnapshotListener(eq(MetadataChanges.INCLUDE), captor.capture()))
+        .thenReturn(registration)
     return { captor.firstValue }
   }
 

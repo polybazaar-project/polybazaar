@@ -15,6 +15,7 @@ import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.Source
@@ -203,22 +204,25 @@ class FirebaseChatRepository(
 
   override fun observeMessages(id: String): Flow<List<ChatMessage>> = callbackFlow {
     val listener =
-        conversationDocument(id).collection(MESSAGES).orderBy("sentAt").addSnapshotListener {
-            snapshot,
-            error ->
-          when {
-            error != null -> close(error)
-            snapshot == null -> close(IllegalStateException("Messages snapshot was null"))
-            else -> {
-              try {
-                val result = trySend(snapshot.documents.map { it.toChatMessage() })
-                result.exceptionOrNull()?.let { close(it) }
-              } catch (e: Exception) {
-                close(e)
+        conversationDocument(id)
+            .collection(MESSAGES)
+            .orderBy("sentAt")
+            // The server acknowledging a queued message only changes its metadata: without this,
+            // that snapshot isn't delivered and the message would look like it is still sending.
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+              when {
+                error != null -> close(error)
+                snapshot == null -> close(IllegalStateException("Messages snapshot was null"))
+                else -> {
+                  try {
+                    val result = trySend(snapshot.documents.map { it.toChatMessage() })
+                    result.exceptionOrNull()?.let { close(it) }
+                  } catch (e: Exception) {
+                    close(e)
+                  }
+                }
               }
             }
-          }
-        }
 
     awaitClose { listener.remove() }
   }
@@ -437,6 +441,7 @@ class FirebaseChatRepository(
         imagePath = imagePath,
         // Photos sent before the flag existed have none, and were uploaded.
         photoPending = getBoolean(PHOTO_PENDING) ?: false,
+        sending = metadata.hasPendingWrites(),
     )
   }
 
