@@ -71,9 +71,8 @@ import kotlinx.coroutines.launch
  * @property loadError why the edited listing could not be loaded, or null. The form cannot be saved
  *   until a Retry succeeds.
  * @property savedListing the saved listing, until the screen has handled it.
- * @property queuedListing the listing created offline and kept as a draft to publish later, until
- *   the screen has handled it. Its camera photos have already been deleted, so only its presence is
- *   meaningful.
+ * @property isQueued true once the listing created offline is kept as a draft to publish later,
+ *   until the screen has handled it.
  * @property saveError why the last save failed, or null.
  * @property isOnline whether the device is online, which choosing a location on the map needs.
  *   Followed live, never saved with the form.
@@ -100,7 +99,7 @@ data class ListingFormUiState(
     val isLoading: Boolean = false,
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
-    val queuedListing: Listing? = null,
+    val isQueued: Boolean = false,
     val isSaving: Boolean = false,
     val saveError: AppError? = null,
     val isOnline: Boolean = true,
@@ -502,8 +501,7 @@ class ListingFormViewModel(
 
   /**
    * Creates the listing, or saves the changes to the edited one. Offline, a new listing is kept as
-   * a draft instead, see [ListingFormUiState.queuedListing]: uploading it would wait for the
-   * connection.
+   * a draft instead, see [ListingFormUiState.isQueued]: uploading it would wait for the connection.
    */
   fun save() {
     if (!_uiState.value.canSave) return
@@ -520,7 +518,7 @@ class ListingFormViewModel(
     retakeIndex = null
 
     updateState {
-      it.copy(savedListing = null, queuedListing = null, isSaving = true, saveError = null)
+      it.copy(savedListing = null, isQueued = false, isSaving = true, saveError = null)
     }
     viewModelScope.launch {
       try {
@@ -529,8 +527,7 @@ class ListingFormViewModel(
           // Copied with the draft, so the camera photos are no longer needed here.
           listing.images.forEach(photoStorage::delete)
           updateState {
-            ListingFormUiState(today = today())
-                .copy(queuedListing = listing, isOnline = it.isOnline)
+            ListingFormUiState(today = today()).copy(isQueued = true, isOnline = it.isOnline)
           }
           return@launch
         }
@@ -559,7 +556,7 @@ class ListingFormViewModel(
 
   fun clearSavedListing() = updateState { it.copy(savedListing = null) }
 
-  fun clearQueuedListing() = updateState { it.copy(queuedListing = null) }
+  fun clearQueued() = updateState { it.copy(isQueued = false) }
 
   /**
    * Downloads the saved photo at [path], one of [ListingFormUiState.storedPhotos], into

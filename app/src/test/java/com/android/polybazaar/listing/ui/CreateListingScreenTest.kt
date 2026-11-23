@@ -923,7 +923,7 @@ class CreateListingScreenTest {
 
   /** Offline, saving keeps a draft: the screen reports it once and the form is not uploaded. */
   @Test
-  fun queuedListing_offline_isReportedOnceAndCleared() {
+  fun isQueued_offline_isReportedOnceAndCleared() {
     val repository = RecordingListingRepository()
     val queue = FakePendingListingQueue()
     val viewModel =
@@ -954,7 +954,7 @@ class CreateListingScreenTest {
     assertEquals(1, queuedCount)
     assertEquals(0, createdCount)
     assertNull(repository.received)
-    assertNull(viewModel.uiState.value.queuedListing)
+    assertFalse(viewModel.uiState.value.isQueued)
     assertEquals("Drill", queue.pending.value.single().listing.title)
   }
 

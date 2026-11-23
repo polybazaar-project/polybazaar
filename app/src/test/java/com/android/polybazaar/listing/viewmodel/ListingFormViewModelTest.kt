@@ -1798,14 +1798,14 @@ class ListingFormViewModelTest {
   }
 
   @Test
-  fun create_offline_resetsTheFormDeletesThePhotosAndExposesTheQueuedListing() = runTest {
+  fun create_offline_resetsTheFormDeletesThePhotosAndReportsItQueued() = runTest {
     saveOffline()
 
     assertEquals(uris(2), photoStorage.deleted)
     assertEquals(
         ListingFormUiState(
             today = today,
-            queuedListing = listing.copy(images = uris(2)),
+            isQueued = true,
             isOnline = false,
         ),
         viewModel.uiState.value,
@@ -1814,12 +1814,12 @@ class ListingFormViewModelTest {
   }
 
   @Test
-  fun clearQueuedListing_removesTheHandledDraft() = runTest {
+  fun clearQueued_clearsTheEventAndKeepsTheDraft() = runTest {
     saveOffline()
 
-    viewModel.clearQueuedListing()
+    viewModel.clearQueued()
 
-    assertNull(viewModel.uiState.value.queuedListing)
+    assertFalse(viewModel.uiState.value.isQueued)
     assertEquals(1, pendingQueue.pending.value.size)
   }
 
@@ -1832,7 +1832,7 @@ class ListingFormViewModelTest {
     val state = viewModel.uiState.value
     assertEquals(AppError.UNAUTHENTICATED, state.saveError)
     assertFalse(state.isSaving)
-    assertNull(state.queuedListing)
+    assertFalse(state.isQueued)
     assertEquals("Math tutoring", state.title)
     assertEquals(uris(2), state.photos)
     assertTrue(photoStorage.deleted.isEmpty())
@@ -1849,7 +1849,7 @@ class ListingFormViewModelTest {
 
     assertEquals(listing, repository.createdListing)
     assertTrue(pendingQueue.pending.value.isEmpty())
-    assertNull(viewModel.uiState.value.queuedListing)
+    assertFalse(viewModel.uiState.value.isQueued)
   }
 
   @Test
@@ -1865,7 +1865,7 @@ class ListingFormViewModelTest {
 
     assertEquals(15.0, repository.updatedListings.single().price, 0.0)
     assertTrue(pendingQueue.pending.value.isEmpty())
-    assertNull(editViewModel.uiState.value.queuedListing)
+    assertFalse(editViewModel.uiState.value.isQueued)
     assertEquals(storedItem.copy(price = 15.0), editViewModel.uiState.value.savedListing)
   }
 }

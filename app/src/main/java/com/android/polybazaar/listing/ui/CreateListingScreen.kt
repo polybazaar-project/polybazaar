@@ -208,10 +208,10 @@ fun CreateListingScreen(
       listingViewModel.clearSavedListing()
     }
   }
-  LaunchedEffect(uiState.queuedListing) {
-    if (uiState.queuedListing != null) {
+  LaunchedEffect(uiState.isQueued) {
+    if (uiState.isQueued) {
       onListingQueued()
-      listingViewModel.clearQueuedListing()
+      listingViewModel.clearQueued()
     }
   }
 
