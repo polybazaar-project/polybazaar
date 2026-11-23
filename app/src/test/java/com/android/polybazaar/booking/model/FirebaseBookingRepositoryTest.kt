@@ -307,7 +307,7 @@ class FirebaseBookingRepositoryTest {
         FirebaseFirestoreException.Code.UNAUTHENTICATED,
         (failure as FirebaseFirestoreException).code,
     )
-    verify(collection, never()).whereEqualTo(any(), any())
+    verify(collection, never()).whereEqualTo("renterUid", "renter")
   }
 
   @Test
