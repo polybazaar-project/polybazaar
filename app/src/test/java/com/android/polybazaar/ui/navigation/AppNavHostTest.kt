@@ -181,8 +181,8 @@ class AppNavHostTest {
             locationRepository = locationRepository,
             placeNameRepository = FakePlaceNameRepository(),
             // Google Maps can't run under Robolectric: a stand-in that shows the markers.
-            listingsMap = {
-              mapState = it
+            listingsMap = { state, _ ->
+              mapState = state
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
             connectivityRepository = FakeConnectivityRepository(),
@@ -231,8 +231,8 @@ class AppNavHostTest {
             locationRepository = locationRepository,
             placeNameRepository = FakePlaceNameRepository(),
             // Google Maps can't run under Robolectric: a stand-in that shows the markers.
-            listingsMap = {
-              mapState = it
+            listingsMap = { state, _ ->
+              mapState = state
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
             connectivityRepository = FakeConnectivityRepository(),
@@ -715,7 +715,7 @@ class AppNavHostTest {
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
-          listingsMap = { mapState = it },
+          listingsMap = { state, _ -> mapState = state },
       )
     }
 
@@ -1550,7 +1550,7 @@ class AppNavHostTest {
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
-          listingsMap = { mapState = it },
+          listingsMap = { state, _ -> mapState = state },
       )
     }
     openProfile()
@@ -1630,7 +1630,7 @@ class AppNavHostTest {
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
-          listingsMap = { mapState = it },
+          listingsMap = { state, _ -> mapState = state },
       )
     }
     composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()

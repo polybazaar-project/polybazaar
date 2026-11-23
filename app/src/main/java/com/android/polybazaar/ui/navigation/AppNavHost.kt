@@ -90,9 +90,9 @@ import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.LocationRepository
 import com.android.polybazaar.map.model.PlaceNameRepository
-import com.android.polybazaar.map.ui.ListingsMap
+import com.android.polybazaar.map.ui.GoogleListingsMap
 import com.android.polybazaar.map.ui.MapScreen
-import com.android.polybazaar.map.viewmodel.MapUiState
+import com.android.polybazaar.map.ui.MapSlot
 import com.android.polybazaar.map.viewmodel.MapViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
@@ -153,7 +153,7 @@ fun AppNavHost(
     placeNameRepository: PlaceNameRepository,
     connectivityRepository: ConnectivityRepository,
     navController: NavHostController = rememberNavController(),
-    listingsMap: @Composable (MapUiState) -> Unit = { ListingsMap(it.centre, it.markers) },
+    listingsMap: MapSlot = GoogleListingsMap,
 ) {
   val uiState by authViewModel.uiState.collectAsState()
   val snackbarHostState = remember { SnackbarHostState() }
