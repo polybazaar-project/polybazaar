@@ -14,6 +14,8 @@ import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
+import com.android.polybazaar.booking.viewmodel.ConfirmationAction
+import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import java.time.LocalDate
@@ -44,6 +46,7 @@ class BookingListScreensTest {
       onRetry: () -> Unit = {},
       onCancel: (String) -> Unit = {},
       showRenter: Boolean = false,
+      onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
   ) {
     composeTestRule.setContent {
       BookingListContent(
@@ -53,6 +56,7 @@ class BookingListScreensTest {
           onRetry = onRetry,
           onCancel = onCancel,
           showRenter = showRenter,
+          onConfirm = onConfirm,
       )
     }
   }
@@ -74,6 +78,104 @@ class BookingListScreensTest {
 
     statuses().assertCountEquals(2)
     composeTestRule.onAllNodesWithTag(BookingListScreenTags.CANCEL_BUTTON).assertCountEquals(1)
+  }
+
+  @Test
+  fun renterCanConfirmNotifiedHandover() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(bookings = listOf(handover)),
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Handover notified")
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
+  }
+
+  @Test
+  fun lenderCanConfirmNotifiedReturn() {
+    val returning =
+        booking("a", BookingStatus.CONFIRMED)
+            .copy(handoverNotified = true, renterHandoverConfirmed = true, returnNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(bookings = listOf(returning)),
+        showRenter = true,
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Return notified")
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_RETURN), actions)
+  }
+
+  @Test
+  fun pendingConfirmationDoesNotOfferAnotherActionOrClaimCompletion() {
+    val returning =
+        booking("a", BookingStatus.CONFIRMED)
+            .copy(
+                handoverNotified = true,
+                renterHandoverConfirmed = true,
+                returnNotified = true,
+                lenderReturnConfirmed = true,
+            )
+    show(BookingUiState(bookings = listOf(returning), pendingBookingIds = setOf("a")))
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Pending sync")
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_PENDING).assertIsDisplayed()
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  fun submissionIsNotDescribedAsSavedBeforeItIsQueued() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            submittingConfirmations = mapOf("a" to ConfirmationAction.CONFIRM_HANDOVER),
+        )
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Saving…")
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  fun rejectedConfirmationShowsRetryForTheSameAction() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.PERMISSION_DENIED,
+                        )
+                ),
+        ),
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_RETRY).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
   }
 
   @Test

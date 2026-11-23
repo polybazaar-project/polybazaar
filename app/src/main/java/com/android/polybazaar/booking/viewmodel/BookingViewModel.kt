@@ -7,18 +7,57 @@ import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingRepository
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ObservedBookings
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+enum class BookingParty {
+  LENDER,
+  RENTER,
+}
+
+enum class ConfirmationAction {
+  NOTIFY_HANDOVER,
+  CONFIRM_HANDOVER,
+  NOTIFY_RETURN,
+  CONFIRM_RETURN,
+}
+
+data class ConfirmationFailure(val action: ConfirmationAction, val error: AppError)
+
+/** The action available to this party at the current stage, if any. */
+fun Booking.confirmationAction(party: BookingParty): ConfirmationAction? {
+  if (status != BookingStatus.CONFIRMED) return null
+  return when {
+    !handoverNotified -> ConfirmationAction.NOTIFY_HANDOVER.takeIf { party == BookingParty.LENDER }
+    !renterHandoverConfirmed ->
+        ConfirmationAction.CONFIRM_HANDOVER.takeIf { party == BookingParty.RENTER }
+    !returnNotified -> ConfirmationAction.NOTIFY_RETURN.takeIf { party == BookingParty.RENTER }
+    !lenderReturnConfirmed ->
+        ConfirmationAction.CONFIRM_RETURN.takeIf { party == BookingParty.LENDER }
+    else -> null
+  }
+}
+
+private fun ConfirmationAction.isRecorded(booking: Booking): Boolean =
+    when (this) {
+      ConfirmationAction.NOTIFY_HANDOVER -> booking.handoverNotified
+      ConfirmationAction.CONFIRM_HANDOVER -> booking.renterHandoverConfirmed
+      ConfirmationAction.NOTIFY_RETURN -> booking.returnNotified
+      ConfirmationAction.CONFIRM_RETURN -> booking.lenderReturnConfirmed
+    }
 
 data class BookingUiState(
     val isSubmitting: Boolean = false,
@@ -27,6 +66,9 @@ data class BookingUiState(
     val bookings: List<Booking> = emptyList(),
     val isLoadingBookings: Boolean = false,
     val cancellingBookingIds: Set<String> = emptySet(),
+    val pendingBookingIds: Set<String> = emptySet(),
+    val submittingConfirmations: Map<String, ConfirmationAction> = emptyMap(),
+    val confirmationFailures: Map<String, ConfirmationFailure> = emptyMap(),
     /** The booking whose cancellation the server refused or that failed, so Retry can redo it. */
     val failedCancelId: String? = null,
     /**
@@ -51,6 +93,8 @@ class BookingViewModel(
 
   private val _uiState = MutableStateFlow(BookingUiState())
   val uiState: StateFlow<BookingUiState> = _uiState.asStateFlow()
+  private var bookingObservation: Job? = null
+  private var party: BookingParty? = null
 
   /**
    * Queues [booking] once. A queued request is not yet confirmed by the server or accepted by the
@@ -92,6 +136,108 @@ class BookingViewModel(
           load = { bookingRepository.getBookingsForListing(listingId) },
           name = { bookings -> nameRenters(bookings) },
       )
+
+  fun observeRenterBookings() {
+    party = BookingParty.RENTER
+    observeBookings(
+        observe = bookingRepository::observeBookingsForRenter,
+        name = { nameListings(it) },
+    )
+  }
+
+  fun observeListingBookings(listingId: String) {
+    party = BookingParty.LENDER
+    observeBookings(
+        observe = { bookingRepository.observeBookingsForListing(listingId) },
+        name = { nameRenters(it) },
+    )
+  }
+
+  fun stopObservingBookings() {
+    bookingObservation?.cancel()
+    bookingObservation = null
+  }
+
+  private fun observeBookings(
+      observe: () -> Flow<ObservedBookings>,
+      name: suspend (List<Booking>) -> Unit,
+  ) {
+    stopObservingBookings()
+    _uiState.update { it.copy(isLoadingBookings = true, failedCancelId = null, error = null) }
+    bookingObservation = viewModelScope.launch {
+      try {
+        observe().collect { observed ->
+          val bookings =
+              observed.bookings.sortedWith(
+                  compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id })
+              )
+          _uiState.update { state ->
+            state.copy(
+                bookings = bookings,
+                pendingBookingIds = observed.pendingIds,
+                isLoadingBookings = false,
+                submittingConfirmations =
+                    state.submittingConfirmations.filter { (id, action) ->
+                      bookings.any { it.id == id && !action.isRecorded(it) }
+                    },
+                confirmationFailures =
+                    state.confirmationFailures.filter { (id, failure) ->
+                      bookings.any {
+                        it.id == id && (id in observed.pendingIds || !failure.action.isRecorded(it))
+                      }
+                    },
+            )
+          }
+          viewModelScope.launch { name(bookings) }
+        }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        _uiState.update { it.copy(isLoadingBookings = false, error = exception.toAppError()) }
+      }
+    }
+  }
+
+  fun confirmBooking(id: String, action: ConfirmationAction) {
+    val state = _uiState.value
+    val booking = state.bookings.firstOrNull { it.id == id } ?: return
+    val currentParty = party ?: return
+    if (
+        booking.confirmationAction(currentParty) != action ||
+            id in state.pendingBookingIds ||
+            id in state.submittingConfirmations
+    )
+        return
+
+    _uiState.update {
+      it.copy(
+          submittingConfirmations = it.submittingConfirmations + (id to action),
+          confirmationFailures = it.confirmationFailures - id,
+      )
+    }
+    fun failed(exception: Exception) {
+      _uiState.update {
+        it.copy(
+            submittingConfirmations = it.submittingConfirmations - id,
+            confirmationFailures =
+                it.confirmationFailures +
+                    (id to ConfirmationFailure(action, exception.toAppError())),
+        )
+      }
+    }
+    viewModelScope.launch {
+      try {
+        when (action) {
+          ConfirmationAction.NOTIFY_HANDOVER -> bookingRepository.notifyHandover(id, ::failed)
+          ConfirmationAction.CONFIRM_HANDOVER -> bookingRepository.confirmHandover(id, ::failed)
+          ConfirmationAction.NOTIFY_RETURN -> bookingRepository.notifyReturn(id, ::failed)
+          ConfirmationAction.CONFIRM_RETURN -> bookingRepository.confirmReturn(id, ::failed)
+        }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        failed(exception)
+      }
+    }
+  }
 
   private fun loadBookings(
       load: suspend () -> List<Booking>,

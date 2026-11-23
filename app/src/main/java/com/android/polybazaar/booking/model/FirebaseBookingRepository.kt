@@ -9,9 +9,14 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
+import com.google.firebase.firestore.Query
 import java.time.DateTimeException
 import java.time.LocalDate
 import java.util.concurrent.Executor
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
 class FirebaseBookingRepository(
@@ -83,6 +88,47 @@ class FirebaseBookingRepository(
         .await()
         .documents
         .map { it.toBooking() }
+  }
+
+  override fun observeBookingsForListing(listingId: String): Flow<ObservedBookings> =
+      observeBookings {
+        val uid = signedInUid("Sign in to read bookings")
+        firestore
+            .collection(BOOKINGS)
+            .whereEqualTo("listingId", listingId)
+            .whereEqualTo("lenderUid", uid)
+      }
+
+  override fun observeBookingsForRenter(): Flow<ObservedBookings> = observeBookings {
+    val uid = signedInUid("Sign in to read bookings")
+    firestore.collection(BOOKINGS).whereEqualTo("renterUid", uid)
+  }
+
+  private fun observeBookings(query: () -> Query): Flow<ObservedBookings> = callbackFlow {
+    val listener =
+        query().addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+          when {
+            error != null -> close(error)
+            snapshot == null -> close(IllegalStateException("Booking snapshot was null"))
+            else -> {
+              try {
+                val documents = snapshot.documents
+                trySend(
+                    ObservedBookings(
+                        bookings = documents.map { it.toBooking() },
+                        pendingIds =
+                            documents
+                                .filter { it.metadata.hasPendingWrites() }
+                                .mapTo(mutableSetOf()) { it.id },
+                    )
+                )
+              } catch (exception: Exception) {
+                close(exception)
+              }
+            }
+          }
+        }
+    awaitClose { listener.remove() }
   }
 
   override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {

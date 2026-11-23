@@ -2,6 +2,7 @@
 package com.android.polybazaar.booking.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,11 +14,15 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -36,8 +41,12 @@ import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
 import com.android.polybazaar.booking.model.isFinished
+import com.android.polybazaar.booking.viewmodel.BookingParty
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
+import com.android.polybazaar.booking.viewmodel.ConfirmationAction
+import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
+import com.android.polybazaar.booking.viewmodel.confirmationAction
 import com.android.polybazaar.error.ui.message
 import java.time.LocalDate
 
@@ -52,19 +61,28 @@ object BookingListScreenTags {
   const val CANCEL_BUTTON = "booking_list_cancel_button"
   const val CANCELLING = "booking_list_cancelling"
   const val LABEL = "booking_list_label"
+  const val CONFIRMATION_STATUS = "booking_confirmation_status"
+  const val CONFIRMATION_ACTION = "booking_confirmation_action"
+  const val CONFIRMATION_PENDING = "booking_confirmation_pending"
+  const val CONFIRMATION_ERROR = "booking_confirmation_error"
+  const val CONFIRMATION_RETRY = "booking_confirmation_retry"
 }
 
 /** The renter's own bookings, loaded by [viewModel], each cancellable while still active. */
 @Composable
 fun RenterBookingsScreen(viewModel: BookingViewModel, onBack: () -> Unit) {
   val uiState by viewModel.uiState.collectAsState()
-  LaunchedEffect(viewModel) { viewModel.loadRenterBookings() }
+  DisposableEffect(viewModel) {
+    viewModel.observeRenterBookings()
+    onDispose { viewModel.stopObservingBookings() }
+  }
   BookingListContent(
       title = stringResource(R.string.renter_bookings_title),
       uiState = uiState,
       onBack = onBack,
-      onRetry = viewModel::loadRenterBookings,
+      onRetry = viewModel::observeRenterBookings,
       onCancel = viewModel::cancelBooking,
+      onConfirm = viewModel::confirmBooking,
   )
 }
 
@@ -72,13 +90,17 @@ fun RenterBookingsScreen(viewModel: BookingViewModel, onBack: () -> Unit) {
 @Composable
 fun LenderBookingsScreen(listingId: String, viewModel: BookingViewModel, onBack: () -> Unit) {
   val uiState by viewModel.uiState.collectAsState()
-  LaunchedEffect(viewModel, listingId) { viewModel.loadListingBookings(listingId) }
+  DisposableEffect(viewModel, listingId) {
+    viewModel.observeListingBookings(listingId)
+    onDispose { viewModel.stopObservingBookings() }
+  }
   BookingListContent(
       title = stringResource(R.string.lender_bookings_title),
       uiState = uiState,
       onBack = onBack,
-      onRetry = { viewModel.loadListingBookings(listingId) },
+      onRetry = { viewModel.observeListingBookings(listingId) },
       onCancel = viewModel::cancelBooking,
+      onConfirm = viewModel::confirmBooking,
       showRenter = true,
   )
 }
@@ -101,6 +123,7 @@ fun BookingListContent(
     onCancel: (String) -> Unit,
     showRenter: Boolean = false,
     today: LocalDate = LocalDate.now(),
+    onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
 ) {
   Column(
       modifier =
@@ -173,11 +196,16 @@ fun BookingListContent(
                       if (showRenter) uiState.renterNames[booking.renterUid]
                       else uiState.listingTitles[booking.listingId],
                   isCancelling = booking.id in uiState.cancellingBookingIds,
+                  party = if (showRenter) BookingParty.LENDER else BookingParty.RENTER,
+                  pending = booking.id in uiState.pendingBookingIds,
+                  submitting = booking.id in uiState.submittingConfirmations,
+                  failure = uiState.confirmationFailures[booking.id],
                   canCancel =
                       booking.status != BookingStatus.CANCELLED &&
                           !booking.handoverNotified &&
                           !booking.isFinished(today),
                   onCancel = { onCancel(booking.id) },
+                  onConfirm = { action -> onConfirm(booking.id, action) },
               )
             }
           }
@@ -190,57 +218,192 @@ private fun BookingRow(
     booking: Booking,
     label: String?,
     isCancelling: Boolean,
+    party: BookingParty,
+    pending: Boolean,
+    submitting: Boolean,
+    failure: ConfirmationFailure?,
     canCancel: Boolean,
     onCancel: () -> Unit,
+    onConfirm: (ConfirmationAction) -> Unit,
 ) {
-  Row(
-      modifier = Modifier.fillMaxWidth().background(AuthColors.CardBackground).padding(14.dp),
-      verticalAlignment = Alignment.CenterVertically,
+  Column(
+      modifier =
+          Modifier.fillMaxWidth()
+              .background(AuthColors.CardBackground, RoundedCornerShape(20.dp))
+              .border(1.dp, AuthColors.Outline, RoundedCornerShape(20.dp))
+              .padding(14.dp),
   ) {
-    Column(modifier = Modifier.weight(1f)) {
-      if (label != null) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(modifier = Modifier.weight(1f)) {
+        if (label != null) {
+          Text(
+              text = label,
+              color = AuthColors.TextPrimary,
+              fontWeight = FontWeight.Bold,
+              fontSize = 15.sp,
+              modifier = Modifier.testTag(BookingListScreenTags.LABEL),
+          )
+        }
         Text(
-            text = label,
+            text = formatRuns(groupIntoRuns(booking.days)),
             color = AuthColors.TextPrimary,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-            modifier = Modifier.testTag(BookingListScreenTags.LABEL),
+            fontWeight = if (label == null) FontWeight.Bold else FontWeight.Normal,
+            fontSize = if (label == null) 15.sp else 13.sp,
+        )
+        Text(
+            text = stringResource(booking.status.labelRes),
+            color =
+                if (booking.status == BookingStatus.CANCELLED) AuthColors.Danger
+                else AuthColors.TextSecondary,
+            fontSize = 13.sp,
+            modifier = Modifier.testTag(BookingListScreenTags.STATUS),
         )
       }
-      Text(
-          text = formatRuns(groupIntoRuns(booking.days)),
-          color = AuthColors.TextPrimary,
-          fontWeight = if (label == null) FontWeight.Bold else FontWeight.Normal,
-          fontSize = if (label == null) 15.sp else 13.sp,
-      )
-      Text(
-          text = stringResource(booking.status.labelRes),
-          color =
-              if (booking.status == BookingStatus.CANCELLED) AuthColors.Danger
-              else AuthColors.TextSecondary,
-          fontSize = 13.sp,
-          modifier = Modifier.testTag(BookingListScreenTags.STATUS),
-      )
-    }
-    when {
-      isCancelling ->
-          Text(
-              text = stringResource(R.string.bookings_cancelling),
-              color = AuthColors.TextSecondary,
-              fontSize = 13.sp,
-              modifier = Modifier.testTag(BookingListScreenTags.CANCELLING),
-          )
-      canCancel ->
-          TextButton(
-              onClick = onCancel,
-              modifier = Modifier.testTag(BookingListScreenTags.CANCEL_BUTTON),
-          ) {
+      when {
+        isCancelling ->
             Text(
-                text = stringResource(R.string.bookings_cancel),
-                color = AuthColors.Danger,
-                fontWeight = FontWeight.Bold,
+                text = stringResource(R.string.bookings_cancelling),
+                color = AuthColors.TextSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.testTag(BookingListScreenTags.CANCELLING),
             )
-          }
+        canCancel ->
+            TextButton(
+                onClick = onCancel,
+                modifier = Modifier.testTag(BookingListScreenTags.CANCEL_BUTTON),
+            ) {
+              Text(
+                  text = stringResource(R.string.bookings_cancel),
+                  color = AuthColors.Danger,
+                  fontWeight = FontWeight.Bold,
+              )
+            }
+      }
+    }
+    if (booking.status == BookingStatus.CONFIRMED) {
+      ConfirmationContent(booking, party, pending, submitting, failure, onConfirm)
+    }
+  }
+}
+
+@Composable
+private fun ConfirmationContent(
+    booking: Booking,
+    party: BookingParty,
+    pending: Boolean,
+    submitting: Boolean,
+    failure: ConfirmationFailure?,
+    onConfirm: (ConfirmationAction) -> Unit,
+) {
+  val lender = party == BookingParty.LENDER
+  val step =
+      when {
+        !booking.handoverNotified -> 1
+        !booking.renterHandoverConfirmed -> 2
+        !booking.returnNotified -> 3
+        !booking.lenderReturnConfirmed -> 4
+        else -> 5
+      }
+  val status =
+      when (step) {
+        1 -> if (lender) R.string.booking_ready_handover else R.string.booking_wait_handover
+        2 -> if (lender) R.string.booking_wait_renter else R.string.booking_handover_notified
+        3 -> if (lender) R.string.booking_wait_return else R.string.booking_ready_return
+        4 -> if (lender) R.string.booking_return_notified else R.string.booking_wait_lender
+        else -> R.string.booking_return_completed
+      }
+  val help =
+      when (step) {
+        1 ->
+            if (lender) R.string.booking_handover_lender_help
+            else R.string.booking_handover_renter_wait_help
+        2 ->
+            if (lender) R.string.booking_handover_lender_wait_help
+            else R.string.booking_handover_renter_help
+        3 ->
+            if (lender) R.string.booking_return_lender_wait_help
+            else R.string.booking_return_renter_help
+        4 ->
+            if (lender) R.string.booking_return_lender_help
+            else R.string.booking_return_renter_wait_help
+        else -> R.string.booking_completed_help
+      }
+  val action = booking.confirmationAction(party)
+  HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = AuthColors.Outline)
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    Text(
+        text = stringResource(R.string.booking_handover_return),
+        color = AuthColors.TextSecondary,
+        fontWeight = FontWeight.Bold,
+        fontSize = 11.sp,
+        modifier = Modifier.weight(1f),
+    )
+    Text(
+        stringResource(R.string.booking_step, step),
+        color = AuthColors.TextSecondary,
+        fontSize = 11.sp,
+    )
+  }
+  Text(
+      text =
+          stringResource(
+              when {
+                pending -> R.string.booking_pending_sync
+                submitting -> R.string.booking_saving_confirmation
+                else -> status
+              }
+          ),
+      color = AuthColors.TextPrimary,
+      fontWeight = FontWeight.Bold,
+      fontSize = 16.sp,
+      modifier = Modifier.padding(top = 8.dp).testTag(BookingListScreenTags.CONFIRMATION_STATUS),
+  )
+  Text(
+      text =
+          stringResource(
+              when {
+                pending -> R.string.booking_pending_sync_help
+                submitting -> R.string.booking_saving_confirmation_help
+                else -> help
+              }
+          ),
+      color = AuthColors.TextSecondary,
+      fontSize = 13.sp,
+      modifier =
+          Modifier.padding(top = 4.dp)
+              .then(
+                  if (pending) Modifier.testTag(BookingListScreenTags.CONFIRMATION_PENDING)
+                  else Modifier
+              ),
+  )
+  if (failure != null && !pending && !submitting) {
+    Text(
+        text = failure.error.message(),
+        color = AuthColors.Danger,
+        fontSize = 13.sp,
+        modifier = Modifier.padding(top = 8.dp).testTag(BookingListScreenTags.CONFIRMATION_ERROR),
+    )
+  }
+  if (action != null && !pending && !submitting) {
+    val label =
+        when (action) {
+          ConfirmationAction.NOTIFY_HANDOVER -> R.string.booking_notify_handover
+          ConfirmationAction.CONFIRM_HANDOVER -> R.string.booking_confirm_handover
+          ConfirmationAction.NOTIFY_RETURN -> R.string.booking_notify_return
+          ConfirmationAction.CONFIRM_RETURN -> R.string.booking_confirm_return
+        }
+    Button(
+        onClick = { onConfirm(action) },
+        colors = ButtonDefaults.buttonColors(containerColor = AuthColors.Accent),
+        modifier =
+            Modifier.fillMaxWidth()
+                .padding(top = 12.dp)
+                .testTag(
+                    if (failure?.action == action) BookingListScreenTags.CONFIRMATION_RETRY
+                    else BookingListScreenTags.CONFIRMATION_ACTION
+                ),
+    ) {
+      Text(stringResource(if (failure?.action == action) R.string.booking_request_retry else label))
     }
   }
 }

@@ -8,6 +8,7 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.FakeBookingRepository
+import com.android.polybazaar.booking.model.ObservedBookings
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -170,6 +171,160 @@ class BookingViewModelTest {
 
     assertEquals(expected, viewModel.uiState.value.bookings)
     assertFalse(viewModel.uiState.value.isLoadingBookings)
+  }
+
+  @Test
+  fun confirmationActionsFollowRolesAndHandoverReturnOrder() {
+    val confirmed = booking.copy(status = BookingStatus.CONFIRMED)
+    val notified = confirmed.copy(handoverNotified = true)
+    val handedOver = notified.copy(renterHandoverConfirmed = true)
+    val returning = handedOver.copy(returnNotified = true)
+    val completed = returning.copy(lenderReturnConfirmed = true)
+
+    assertEquals(
+        ConfirmationAction.NOTIFY_HANDOVER,
+        confirmed.confirmationAction(BookingParty.LENDER),
+    )
+    assertEquals(null, confirmed.confirmationAction(BookingParty.RENTER))
+    assertEquals(
+        ConfirmationAction.CONFIRM_HANDOVER,
+        notified.confirmationAction(BookingParty.RENTER),
+    )
+    assertEquals(null, notified.confirmationAction(BookingParty.LENDER))
+    assertEquals(
+        ConfirmationAction.NOTIFY_RETURN,
+        handedOver.confirmationAction(BookingParty.RENTER),
+    )
+    assertEquals(null, handedOver.confirmationAction(BookingParty.LENDER))
+    assertEquals(
+        ConfirmationAction.CONFIRM_RETURN,
+        returning.confirmationAction(BookingParty.LENDER),
+    )
+    assertEquals(null, returning.confirmationAction(BookingParty.RENTER))
+    assertEquals(null, completed.confirmationAction(BookingParty.LENDER))
+    assertEquals(null, booking.confirmationAction(BookingParty.LENDER))
+  }
+
+  @Test
+  fun eachPartyQueuesTheMatchingConfirmationOperation() = runTest {
+    val base = booking.copy(id = "a", status = BookingStatus.CONFIRMED)
+    val stages =
+        listOf(
+            Triple(BookingParty.LENDER, base, ConfirmationAction.NOTIFY_HANDOVER),
+            Triple(
+                BookingParty.RENTER,
+                base.copy(handoverNotified = true),
+                ConfirmationAction.CONFIRM_HANDOVER,
+            ),
+            Triple(
+                BookingParty.RENTER,
+                base.copy(handoverNotified = true, renterHandoverConfirmed = true),
+                ConfirmationAction.NOTIFY_RETURN,
+            ),
+            Triple(
+                BookingParty.LENDER,
+                base.copy(
+                    handoverNotified = true,
+                    renterHandoverConfirmed = true,
+                    returnNotified = true,
+                ),
+                ConfirmationAction.CONFIRM_RETURN,
+            ),
+        )
+    for ((party, current, action) in stages) {
+      repository.renterBookings = listOf(current)
+      repository.listingBookings = listOf(current)
+      val viewModel = BookingViewModel(repository)
+      if (party == BookingParty.RENTER) viewModel.observeRenterBookings()
+      else viewModel.observeListingBookings("listing")
+      testDispatcher.scheduler.runCurrent()
+      viewModel.confirmBooking("a", action)
+      testDispatcher.scheduler.runCurrent()
+      viewModel.stopObservingBookings()
+    }
+
+    assertEquals(listOf("a"), repository.handoverNotifications)
+    assertEquals(listOf("a"), repository.handoverConfirmations)
+    assertEquals(listOf("a"), repository.returnNotifications)
+    assertEquals(listOf("a"), repository.returnConfirmations)
+  }
+
+  @Test
+  fun confirmationTracksPendingSnapshotsAndReportsRejectionForRetry() = runTest {
+    val confirmed =
+        booking.copy(id = "a", status = BookingStatus.CONFIRMED, handoverNotified = true)
+    repository.renterBookings = listOf(confirmed)
+    val viewModel = BookingViewModel(repository)
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.confirmBooking("a", ConfirmationAction.NOTIFY_RETURN)
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(listOf("a"), repository.handoverConfirmations)
+    assertTrue("a" in viewModel.uiState.value.submittingConfirmations)
+
+    val optimistic = confirmed.copy(renterHandoverConfirmed = true)
+    repository.bookingUpdates.emit(ObservedBookings(listOf(optimistic), setOf("a")))
+    testDispatcher.scheduler.runCurrent()
+    assertTrue("a" in viewModel.uiState.value.pendingBookingIds)
+    assertTrue(viewModel.uiState.value.submittingConfirmations.isEmpty())
+    viewModel.confirmBooking("a", ConfirmationAction.NOTIFY_RETURN)
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(repository.returnNotifications.isEmpty())
+
+    repository.confirmationWriteFailure?.invoke(AppException(AppError.PERMISSION_DENIED))
+    repository.bookingUpdates.emit(ObservedBookings(listOf(confirmed)))
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(
+        ConfirmationFailure(ConfirmationAction.CONFIRM_HANDOVER, AppError.PERMISSION_DENIED),
+        viewModel.uiState.value.confirmationFailures["a"],
+    )
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(listOf("a", "a"), repository.handoverConfirmations)
+    assertTrue(viewModel.uiState.value.confirmationFailures.isEmpty())
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
+  fun observationUpdatesOtherPartyAndClearsPendingOnAcknowledgement() = runTest {
+    val original = booking.copy(id = "a", status = BookingStatus.CONFIRMED)
+    repository.renterBookings = listOf(original)
+    val viewModel = BookingViewModel(repository)
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+
+    val changed = original.copy(handoverNotified = true)
+    repository.bookingUpdates.emit(ObservedBookings(listOf(changed), setOf("a")))
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(changed, viewModel.uiState.value.bookings.single())
+    assertEquals(setOf("a"), viewModel.uiState.value.pendingBookingIds)
+    repository.bookingUpdates.emit(ObservedBookings(listOf(changed)))
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.pendingBookingIds.isEmpty())
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
+  fun confirmedRemoteUpdateClearsAnOutdatedFailure() = runTest {
+    val original = booking.copy(id = "a", status = BookingStatus.CONFIRMED, handoverNotified = true)
+    repository.renterBookings = listOf(original)
+    val viewModel = BookingViewModel(repository)
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    testDispatcher.scheduler.runCurrent()
+    repository.confirmationWriteFailure?.invoke(AppException(AppError.PERMISSION_DENIED))
+    assertTrue("a" in viewModel.uiState.value.confirmationFailures)
+
+    repository.bookingUpdates.emit(
+        ObservedBookings(listOf(original.copy(renterHandoverConfirmed = true)))
+    )
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(viewModel.uiState.value.confirmationFailures.isEmpty())
+    viewModel.stopObservingBookings()
   }
 
   @Test
