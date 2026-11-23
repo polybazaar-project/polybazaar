@@ -7,6 +7,7 @@ import android.net.Uri
 import com.android.polybazaar.photo.PhotoCompressor
 import com.android.polybazaar.photo.PhotoStorage
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -36,7 +37,20 @@ class FirebaseListingRepository(
     ListingRules.errorFor(listing)?.let { throw IllegalArgumentException(it) }
     // Creates a reference to a new Firestore document.
     // Represents where we want to store the listing.
-    val document = firestore.collection(LISTINGS_COLLECTION).document()
+    return create(firestore.collection(LISTINGS_COLLECTION).document(), ownerUid, listing)
+  }
+
+  override fun newListingId(): String = firestore.collection(LISTINGS_COLLECTION).document().id
+
+  /**
+   * Uploads [listing]'s photos and saves it as [document], owned by [ownerUid]. The photos uploaded
+   * are deleted if saving fails.
+   */
+  private suspend fun create(
+      document: DocumentReference,
+      ownerUid: String,
+      listing: Listing,
+  ): Listing {
     val imagePaths = listing.images.indices.map { listingImagePath(ownerUid, document.id, it) }
 
     return uploadThenSave(listing.images, imagePaths) {
@@ -46,8 +60,6 @@ class FirebaseListingRepository(
       listing.saved(document.id, imagePaths, ownerUid, isPaused = false)
     }
   }
-
-  override fun newListingId(): String = firestore.collection(LISTINGS_COLLECTION).document().id
 
   override suspend fun updateListing(listing: Listing): Listing {
     val ownerUid = auth.currentUser?.uid ?: throw unauthenticated()
