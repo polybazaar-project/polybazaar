@@ -194,38 +194,6 @@ class FirebaseBookingRepositoryTest {
       whenever(stored.get(it)).thenReturn(true)
     }
 
-    @Test
-    fun observeBookingsEmitsPendingAndAcknowledgedChangesAndRemovesListener() = runTest {
-      val registration = mock<ListenerRegistration>()
-      val metadata = mock<SnapshotMetadata>()
-      val listener = argumentCaptor<EventListener<QuerySnapshot>>()
-      whenever(renterQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
-          .thenReturn(registration)
-      whenever(snapshot.documents).thenReturn(listOf(stored))
-      whenever(stored.id).thenReturn("booking-id")
-      whenever(stored.metadata).thenReturn(metadata)
-      whenever(stored.getString("listingId")).thenReturn(booking.listingId)
-      whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
-      whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
-      whenever(stored.getString("status")).thenReturn("CONFIRMED")
-      whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
-      val results = mutableListOf<ObservedBookings>()
-      val job = launch { repository.observeBookingsForRenter().take(2).toList(results) }
-      runCurrent()
-
-      whenever(metadata.hasPendingWrites()).thenReturn(true)
-      listener.firstValue.onEvent(snapshot, null)
-      runCurrent()
-      whenever(metadata.hasPendingWrites()).thenReturn(false)
-      listener.firstValue.onEvent(snapshot, null)
-      job.join()
-
-      assertEquals(setOf("booking-id"), results[0].pendingIds)
-      assertEquals(emptySet<String>(), results[1].pendingIds)
-      assertEquals(BookingStatus.CONFIRMED, results[1].bookings.single().status)
-      verify(registration).remove()
-    }
-
     assertEquals(
         booking.copy(
             status = BookingStatus.CONFIRMED,
@@ -242,6 +210,38 @@ class FirebaseBookingRepositoryTest {
         runCatching { repository.getBookingsForListing("listing") }.exceptionOrNull()
             is IllegalStateException
     )
+  }
+
+  @Test
+  fun observeBookingsEmitsPendingAndAcknowledgedChangesAndRemovesListener() = runTest {
+    val registration = mock<ListenerRegistration>()
+    val metadata = mock<SnapshotMetadata>()
+    val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(renterQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+        .thenReturn(registration)
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.id).thenReturn("booking-id")
+    whenever(stored.metadata).thenReturn(metadata)
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getString("status")).thenReturn("CONFIRMED")
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+    val results = mutableListOf<ObservedBookings>()
+    val job = launch { repository.observeBookingsForRenter().take(2).toList(results) }
+    runCurrent()
+
+    whenever(metadata.hasPendingWrites()).thenReturn(true)
+    listener.firstValue.onEvent(snapshot, null)
+    runCurrent()
+    whenever(metadata.hasPendingWrites()).thenReturn(false)
+    listener.firstValue.onEvent(snapshot, null)
+    job.join()
+
+    assertEquals(setOf("booking-id"), results[0].pendingIds)
+    assertEquals(emptySet<String>(), results[1].pendingIds)
+    assertEquals(BookingStatus.CONFIRMED, results[1].bookings.single().status)
+    verify(registration).remove()
   }
 
   @Test

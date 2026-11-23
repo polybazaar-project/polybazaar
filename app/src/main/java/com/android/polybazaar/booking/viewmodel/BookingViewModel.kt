@@ -15,6 +15,7 @@ import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class BookingParty {
   LENDER,
@@ -95,6 +98,7 @@ class BookingViewModel(
   val uiState: StateFlow<BookingUiState> = _uiState.asStateFlow()
   private var bookingObservation: Job? = null
   private var party: BookingParty? = null
+  private val namingMutex = Mutex()
 
   /**
    * Queues [booking] once. A queued request is not yet confirmed by the server or accepted by the
@@ -127,20 +131,21 @@ class BookingViewModel(
   fun loadRenterBookings() =
       loadBookings(
           load = { bookingRepository.getBookingsForRenter() },
-          name = { bookings -> nameListings(bookings) },
+          name = { bookings -> nameListings(bookings.mapTo(mutableSetOf()) { it.listingId }) },
       )
 
   /** Loads the bookings of [listingId] for the signed-in lender, with their renters' names. */
   fun loadListingBookings(listingId: String) =
       loadBookings(
           load = { bookingRepository.getBookingsForListing(listingId) },
-          name = { bookings -> nameRenters(bookings) },
+          name = { bookings -> nameRenters(bookings.mapTo(mutableSetOf()) { it.renterUid }) },
       )
 
   fun observeRenterBookings() {
     party = BookingParty.RENTER
     observeBookings(
         observe = bookingRepository::observeBookingsForRenter,
+        nameId = { it.listingId },
         name = { nameListings(it) },
     )
   }
@@ -149,6 +154,7 @@ class BookingViewModel(
     party = BookingParty.LENDER
     observeBookings(
         observe = { bookingRepository.observeBookingsForListing(listingId) },
+        nameId = { it.renterUid },
         name = { nameRenters(it) },
     )
   }
@@ -160,35 +166,45 @@ class BookingViewModel(
 
   private fun observeBookings(
       observe: () -> Flow<ObservedBookings>,
-      name: suspend (List<Booking>) -> Unit,
+      nameId: (Booking) -> String,
+      name: suspend (Set<String>) -> Unit,
   ) {
     stopObservingBookings()
     _uiState.update { it.copy(isLoadingBookings = true, failedCancelId = null, error = null) }
     bookingObservation = viewModelScope.launch {
       try {
-        observe().collect { observed ->
-          val bookings =
-              observed.bookings.sortedWith(
-                  compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id })
-              )
-          _uiState.update { state ->
-            state.copy(
-                bookings = bookings,
-                pendingBookingIds = observed.pendingIds,
-                isLoadingBookings = false,
-                submittingConfirmations =
-                    state.submittingConfirmations.filter { (id, action) ->
-                      bookings.any { it.id == id && !action.isRecorded(it) }
-                    },
-                confirmationFailures =
-                    state.confirmationFailures.filter { (id, failure) ->
-                      bookings.any {
-                        it.id == id && (id in observed.pendingIds || !failure.action.isRecorded(it))
-                      }
-                    },
-            )
+        coroutineScope {
+          val ids = MutableStateFlow<Set<String>>(emptySet())
+          val nameJob = launch { ids.collect { name(it) } }
+          try {
+            observe().collect { observed ->
+              val bookings =
+                  observed.bookings.sortedWith(
+                      compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id })
+                  )
+              _uiState.update { state ->
+                state.copy(
+                    bookings = bookings,
+                    pendingBookingIds = observed.pendingIds,
+                    isLoadingBookings = false,
+                    submittingConfirmations =
+                        state.submittingConfirmations.filter { (id, action) ->
+                          bookings.any { it.id == id && !action.isRecorded(it) }
+                        },
+                    confirmationFailures =
+                        state.confirmationFailures.filter { (id, failure) ->
+                          bookings.any {
+                            it.id == id &&
+                                (id in observed.pendingIds || !failure.action.isRecorded(it))
+                          }
+                        },
+                )
+              }
+              ids.value = bookings.mapTo(mutableSetOf(), nameId)
+            }
+          } finally {
+            nameJob.cancel()
           }
-          viewModelScope.launch { name(bookings) }
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
@@ -262,23 +278,28 @@ class BookingViewModel(
     }
   }
 
-  private suspend fun nameListings(bookings: List<Booking>) {
+  private suspend fun nameListings(ids: Set<String>) = namingMutex.withLock {
     val repository = listingRepository ?: return
-    val titles = mutableMapOf<String, String>()
-    for (listingId in bookings.map { it.listingId }.distinct()) {
+    for (listingId in ids) {
+      if (listingId in _uiState.value.listingTitles) continue
       readOrNull { repository.getListing(listingId).getOrNull() }
-          ?.let { titles[listingId] = it.title }
+          ?.let { listing ->
+            _uiState.update {
+              it.copy(listingTitles = it.listingTitles + (listingId to listing.title))
+            }
+          }
     }
-    _uiState.update { it.copy(listingTitles = it.listingTitles + titles) }
   }
 
-  private suspend fun nameRenters(bookings: List<Booking>) {
+  private suspend fun nameRenters(ids: Set<String>) = namingMutex.withLock {
     val repository = profileRepository ?: return
-    val names = mutableMapOf<String, String>()
-    for (uid in bookings.map { it.renterUid }.distinct()) {
-      readOrNull { repository.observeProfile(uid).first() }?.let { names[uid] = it.username }
+    for (uid in ids) {
+      if (uid in _uiState.value.renterNames) continue
+      readOrNull { repository.observeProfile(uid).first() }
+          ?.let { user ->
+            _uiState.update { it.copy(renterNames = it.renterNames + (uid to user.username)) }
+          }
     }
-    _uiState.update { it.copy(renterNames = it.renterNames + names) }
   }
 
   /** A failed read is no error to show: the booking is simply listed without the name. */

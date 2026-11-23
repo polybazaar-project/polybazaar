@@ -308,6 +308,86 @@ class BookingViewModelTest {
   }
 
   @Test
+  fun listingNamesAreCachedAndSnapshotsDoNotOverlapInFlightReads() = runTest {
+    val first =
+        ItemListing(
+            category = ListingCategory.ITEM_TOOLS,
+            price = 8.0,
+            title = "Drill",
+            description = "Cordless drill",
+            refundValue = 100.0,
+            listingId = "listing",
+            ownerUid = "lender",
+        )
+    val second = first.copy(listingId = "second", title = "Saw")
+    val gate = CompletableDeferred<Unit>()
+    val listings = FakeListingRepository(listOf(first, second)).apply { this.gate = gate }
+    val original = booking.copy(id = "a")
+    repository.renterBookings = listOf(original)
+    val viewModel = BookingViewModel(repository, listingRepository = listings)
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(1, listings.getListingCalls)
+
+    repository.bookingUpdates.emit(ObservedBookings(listOf(original), setOf("a")))
+    testDispatcher.scheduler.runCurrent()
+    val added = original.copy(id = "b", listingId = "second")
+    repository.bookingUpdates.emit(ObservedBookings(listOf(original, added)))
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(1, listings.getListingCalls)
+    assertEquals(2, viewModel.uiState.value.bookings.size)
+
+    gate.complete(Unit)
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(2, listings.getListingCalls)
+    assertEquals(
+        mapOf("listing" to "Drill", "second" to "Saw"),
+        viewModel.uiState.value.listingTitles,
+    )
+    repository.bookingUpdates.emit(ObservedBookings(listOf(original, added), setOf("a")))
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(2, listings.getListingCalls)
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
+  fun renterNamesAreCachedAndFailedNamesRetryOnReobservation() = runTest {
+    val james = User(uid = "renter", email = "j@epfl.ch", username = "James")
+    val other = User(uid = "other", email = "o@epfl.ch", username = "Olivia")
+    val profiles = FakeProfileRepository(mapOf("renter" to james, "other" to other))
+    val original = booking.copy(id = "a")
+    repository.listingBookings = listOf(original)
+    val viewModel = BookingViewModel(repository, profileRepository = profiles)
+    viewModel.observeListingBookings("listing")
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(mapOf("renter" to 1), profiles.lookups)
+
+    repository.bookingUpdates.emit(ObservedBookings(listOf(original), setOf("a")))
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(mapOf("renter" to 1), profiles.lookups)
+
+    val added = original.copy(id = "b", renterUid = "other")
+    profiles.failingUids += "other"
+    repository.bookingUpdates.emit(ObservedBookings(listOf(original, added)))
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(mapOf("renter" to 1, "other" to 1), profiles.lookups)
+    repository.bookingUpdates.emit(ObservedBookings(listOf(original, added), setOf("b")))
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(mapOf("renter" to 1, "other" to 1), profiles.lookups)
+
+    profiles.failingUids.clear()
+    repository.listingBookings = listOf(original, added)
+    viewModel.observeListingBookings("listing")
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(mapOf("renter" to 1, "other" to 2), profiles.lookups)
+    assertEquals(
+        mapOf("renter" to "James", "other" to "Olivia"),
+        viewModel.uiState.value.renterNames,
+    )
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
   fun confirmedRemoteUpdateClearsAnOutdatedFailure() = runTest {
     val original = booking.copy(id = "a", status = BookingStatus.CONFIRMED, handoverNotified = true)
     repository.renterBookings = listOf(original)
