@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -190,24 +191,25 @@ fun AppNavHost(
   val publisherUid = uiState.user?.takeIf { it.isEmailVerified }?.uid
   LaunchedEffect(publisherUid) { draftPublisher.setSignedInUser(publisherUid) }
   val draftNotice by draftPublisher.notice.collectAsState()
-  val resources = LocalContext.current.resources
-  LaunchedEffect(draftNotice) {
-    val notice = draftNotice ?: return@LaunchedEffect
-    val published =
-        resources.getQuantityString(
-            R.plurals.listing_drafts_published,
-            notice.published,
-            notice.published,
+  // Read while composing, so the text follows a configuration change such as the language.
+  val draftMessage = draftNotice?.let { notice ->
+    listOfNotNull(
+            if (notice.published > 0) {
+              pluralStringResource(
+                  R.plurals.listing_drafts_published,
+                  notice.published,
+                  notice.published,
+              )
+            } else null,
+            if (notice.failed > 0) {
+              pluralStringResource(R.plurals.listing_drafts_failed, notice.failed, notice.failed)
+            } else null,
         )
-    val failed =
-        resources.getQuantityString(R.plurals.listing_drafts_failed, notice.failed, notice.failed)
-    showMessage(
-        listOfNotNull(
-                published.takeIf { notice.published > 0 },
-                failed.takeIf { notice.failed > 0 },
-            )
-            .joinToString(" ")
-    )
+        .joinToString(" ")
+  }
+  LaunchedEffect(draftNotice) {
+    val message = draftMessage ?: return@LaunchedEffect
+    showMessage(message)
     draftPublisher.clearNotice()
   }
 
