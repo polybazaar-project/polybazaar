@@ -29,7 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,7 +60,6 @@ import com.android.polybazaar.chat.viewmodel.InboxViewModel
 import com.android.polybazaar.chat.viewmodel.ListingStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
-import com.android.polybazaar.listing.ui.decodePhotoPreview
 import java.time.Duration
 import java.time.Instant
 
@@ -119,15 +117,6 @@ internal fun inboxBody(state: InboxUiState): InboxBody =
 
 /** Side margin of the page, the x of the header and the rows in the Figma. */
 private val PageMargin = 18.dp
-
-/** Text of the "Listing paused" badge, from the Figma. */
-private val PausedBadgeText = Color(0xFF8C491F)
-
-/** Fill of the "Listing deleted" badge, from the Figma. */
-private val DeletedBadgeBackground = Color(0xFFF2EAE5)
-
-/** Text of the "Listing deleted" badge, from the Figma. */
-private val DeletedBadgeText = Color(0xFF67564D)
 
 /**
  * The inbox screen: loads the conversations of [myUid], the signed-in user, into [viewModel] and
@@ -360,7 +349,7 @@ private fun ConversationRow(
       horizontalArrangement = Arrangement.spacedBy(12.dp),
       verticalAlignment = Alignment.CenterVertically,
   ) {
-    ListingPhoto(photo = rememberPhoto(row.listingPhotoPath?.let { photos[it] }))
+    ListingPhoto(photo = rememberPhoto(row.listingPhotoPath?.let { photos[it] }), size = 48.dp)
     Column(
         modifier = Modifier.weight(1f),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -464,35 +453,6 @@ private fun UnreadDot(isUnread: Boolean) {
   }
 }
 
-/** The listing's photo, or a placeholder with an image icon while it is missing. */
-@Composable
-private fun ListingPhoto(photo: ImageBitmap?) {
-  Box(
-      modifier =
-          Modifier.size(48.dp)
-              .clip(RoundedCornerShape(12.dp))
-              .background(AuthColors.AccentContainer),
-      contentAlignment = Alignment.Center,
-  ) {
-    if (photo != null) {
-      // Decorative: the title next to it names the listing.
-      Image(
-          painter = BitmapPainter(photo),
-          contentDescription = null,
-          contentScale = ContentScale.Crop,
-          modifier = Modifier.size(48.dp),
-      )
-    } else {
-      Icon(
-          painter = painterResource(R.drawable.ic_image),
-          contentDescription = null,
-          tint = AuthColors.TextSecondary,
-          modifier = Modifier.size(20.dp),
-      )
-    }
-  }
-}
-
 /**
  * The other person's photo (the default one while missing) and "@username". Without a profile, only
  * the default photo shows.
@@ -578,16 +538,6 @@ private fun Footer() {
       textAlign = TextAlign.Center,
       modifier = Modifier.fillMaxWidth().padding(horizontal = PageMargin, vertical = 24.dp),
   )
-}
-
-/** Decodes the downloaded [photo] off the main thread. Null while missing or decoding. */
-@Composable
-private fun rememberPhoto(photo: ByteArray?): ImageBitmap? {
-  val decoded by
-      produceState<ImageBitmap?>(initialValue = null, photo) {
-        value = photo?.let { decodePhotoPreview(it) }
-      }
-  return decoded
 }
 
 /**
