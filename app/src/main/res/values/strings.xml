@@ -102,6 +102,7 @@
     <string name="conversation_empty_tagline">Good tools. Great neighbours.</string>
     <string name="conversation_my_message_footer">You · %1$s</string>
     <string name="conversation_their_message_footer">%1$s · %2$s</string>
+    <string name="conversation_message_sending">Sending…</string>
     <string name="conversation_placeholder">Write a message…</string>
     <string name="conversation_placeholder_closed">Conversation closed</string>
     <string name="conversation_send">Send</string>
