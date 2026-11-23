@@ -269,7 +269,10 @@ class FirebaseBookingRepositoryTest {
   @Test
   fun observeBookingsPropagatesListenerErrorsAndMalformedSnapshots() = runTest {
     val listenerError =
-        FirebaseFirestoreException("Permission denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+        FirebaseFirestoreException(
+            "Permission denied",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
     val malformed = mock<QuerySnapshot>()
     whenever(malformed.documents).thenReturn(listOf(stored))
     val events = listOf(null to listenerError, null to null, malformed to null)
@@ -281,15 +284,15 @@ class FirebaseBookingRepositoryTest {
       whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(query)
       whenever(query.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
           .thenReturn(registration)
-      val result =
-          async {
-            runCatching { repository.observeBookingsForRenter().first() }.exceptionOrNull()
-          }
+      val result = async {
+        runCatching { repository.observeBookingsForRenter().first() }.exceptionOrNull()
+      }
       runCurrent()
       listener.firstValue.onEvent(value, error)
       val failure = result.await()
 
-      if (error != null) assertSame(error, failure) else assertTrue(failure is IllegalStateException)
+      if (error != null) assertSame(error, failure)
+      else assertTrue(failure is IllegalStateException)
       verify(registration).remove()
     }
   }
