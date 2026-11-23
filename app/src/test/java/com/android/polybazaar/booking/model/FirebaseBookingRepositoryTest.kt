@@ -190,9 +190,9 @@ class FirebaseBookingRepositoryTest {
         booking.copy(
             status = BookingStatus.CONFIRMED,
             id = "booking-id",
-            lenderHandoverConfirmed = true,
+            handoverNotified = true,
             renterHandoverConfirmed = true,
-            renterReturnConfirmed = true,
+            returnNotified = true,
             lenderReturnConfirmed = true,
         ),
         repository.getBookingsForListing("listing").single(),

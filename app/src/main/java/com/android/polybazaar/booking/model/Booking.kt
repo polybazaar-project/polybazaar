@@ -22,9 +22,9 @@ enum class BookingStatus {
  *   can be one booking.
  * @property status where the booking is in its lifecycle, starting at [BookingStatus.REQUESTED].
  * @property id Firestore document ID, populated when the booking is read.
- * @property lenderHandoverConfirmed whether the lender has notified the handover.
+ * @property handoverNotified whether the lender has notified the handover.
  * @property renterHandoverConfirmed whether the renter has confirmed the handover.
- * @property renterReturnConfirmed whether the renter has notified the return.
+ * @property returnNotified whether the renter has notified the return.
  * @property lenderReturnConfirmed whether the lender has confirmed the return.
  */
 data class Booking(
@@ -34,9 +34,9 @@ data class Booking(
     val days: Set<LocalDate>,
     val status: BookingStatus = BookingStatus.REQUESTED,
     val id: String = "",
-    val lenderHandoverConfirmed: Boolean = false,
+    val handoverNotified: Boolean = false,
     val renterHandoverConfirmed: Boolean = false,
-    val renterReturnConfirmed: Boolean = false,
+    val returnNotified: Boolean = false,
     val lenderReturnConfirmed: Boolean = false,
 )
 

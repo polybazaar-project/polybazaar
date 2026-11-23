@@ -492,6 +492,8 @@ describe("listings", () => {
 
       await assertSucceeds(updateDoc(lender, { lenderHandoverConfirmed: true }));
       await assertSucceeds(updateDoc(lender, { lenderHandoverConfirmed: true }));
+      await assertFails(updateDoc(lender, { status: "CANCELLED" }));
+      await assertFails(updateDoc(renter, { status: "CANCELLED" }));
       await assertFails(updateDoc(lender, { lenderHandoverConfirmed: false }));
       await assertFails(updateDoc(renter, { renterReturnConfirmed: true }));
       await assertFails(updateDoc(lender, { renterHandoverConfirmed: true }));
@@ -500,6 +502,7 @@ describe("listings", () => {
       await assertSucceeds(updateDoc(renter, { renterReturnConfirmed: true }));
       await assertFails(updateDoc(renter, { lenderReturnConfirmed: true }));
       await assertSucceeds(updateDoc(lender, { lenderReturnConfirmed: true }));
+      await assertFails(updateDoc(renter, { status: "CANCELLED" }));
 
       const saved = (await getDoc(lender)).data();
       assert.equal(saved.lenderHandoverConfirmed, true);

@@ -21,7 +21,7 @@ import kotlinx.coroutines.currentCoroutineContext
  *
  * [getBookingsForLender] returns [lenderBookings], or throws [lenderLoadFailure], after
  * [pendingLenderLoad]; it has its own fields so that a screen loading both kinds of bookings can
- * fail one alone.
+ * fail one alone. Handover and return operations record their booking IDs without enforcing rules.
  */
 class FakeBookingRepository : BookingRepository {
   var requestedBooking: Booking? = null
@@ -45,6 +45,10 @@ class FakeBookingRepository : BookingRepository {
   var pendingCancel: CompletableDeferred<Unit>? = null
   var cancelWriteFailure: ((Exception) -> Unit)? = null
   var immediateCancelWriteFailure: Exception? = null
+  val handoverNotifications = mutableListOf<String>()
+  val handoverConfirmations = mutableListOf<String>()
+  val returnNotifications = mutableListOf<String>()
+  val returnConfirmations = mutableListOf<String>()
 
   val accepted = mutableListOf<Booking>()
   var acceptGate: CompletableDeferred<Unit>? = null
@@ -104,46 +108,19 @@ class FakeBookingRepository : BookingRepository {
     cancelFailure?.let { throw it }
   }
 
-  override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) =
-      updateConfirmation(id, onWriteFailure, { true }) { it.copy(lenderHandoverConfirmed = true) }
+  override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) {
+    handoverNotifications += id
+  }
 
-  override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) =
-      updateConfirmation(id, onWriteFailure, { it.lenderHandoverConfirmed }) {
-        it.copy(renterHandoverConfirmed = true)
-      }
+  override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) {
+    handoverConfirmations += id
+  }
 
-  override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) =
-      updateConfirmation(
-          id,
-          onWriteFailure,
-          { it.lenderHandoverConfirmed && it.renterHandoverConfirmed },
-      ) {
-        it.copy(renterReturnConfirmed = true)
-      }
+  override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) {
+    returnNotifications += id
+  }
 
-  override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) =
-      updateConfirmation(
-          id,
-          onWriteFailure,
-          { it.lenderHandoverConfirmed && it.renterHandoverConfirmed && it.renterReturnConfirmed },
-      ) {
-        it.copy(lenderReturnConfirmed = true)
-      }
-
-  private fun updateConfirmation(
-      id: String,
-      onWriteFailure: (Exception) -> Unit,
-      ready: (Booking) -> Boolean,
-      update: (Booking) -> Booking,
-  ) {
-    val booking = (listingBookings + lenderBookings + renterBookings).firstOrNull { it.id == id }
-    if (booking == null || booking.status != BookingStatus.CONFIRMED || !ready(booking)) {
-      onWriteFailure(IllegalStateException("Booking cannot advance"))
-      return
-    }
-    fun List<Booking>.updated() = map { if (it.id == id) update(it) else it }
-    listingBookings = listingBookings.updated()
-    lenderBookings = lenderBookings.updated()
-    renterBookings = renterBookings.updated()
+  override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) {
+    returnConfirmations += id
   }
 }

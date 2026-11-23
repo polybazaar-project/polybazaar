@@ -189,9 +189,9 @@ class FirebaseBookingRepository(
         days = days(),
         status = BookingStatus.valueOf(string(STATUS)),
         id = id,
-        lenderHandoverConfirmed = confirmation(LENDER_HANDOVER_CONFIRMED),
+        handoverNotified = confirmation(LENDER_HANDOVER_CONFIRMED),
         renterHandoverConfirmed = confirmation(RENTER_HANDOVER_CONFIRMED),
-        renterReturnConfirmed = confirmation(RENTER_RETURN_CONFIRMED),
+        returnNotified = confirmation(RENTER_RETURN_CONFIRMED),
         lenderReturnConfirmed = confirmation(LENDER_RETURN_CONFIRMED),
     )
   }
@@ -199,6 +199,7 @@ class FirebaseBookingRepository(
   private companion object {
     const val BOOKINGS = "bookings"
     const val STATUS = "status"
+    // Keep the original Firestore field names for bookings written by earlier clients.
     const val LENDER_HANDOVER_CONFIRMED = "lenderHandoverConfirmed"
     const val RENTER_HANDOVER_CONFIRMED = "renterHandoverConfirmed"
     const val RENTER_RETURN_CONFIRMED = "renterReturnConfirmed"
