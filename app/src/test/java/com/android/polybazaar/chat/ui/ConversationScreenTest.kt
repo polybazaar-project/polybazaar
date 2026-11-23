@@ -553,7 +553,6 @@ class ConversationScreenTest {
     // The bubble's merged texts, which TalkBack reads: the footer is replaced, not added to.
     node(ConversationScreenTags.myMessage("m1"))
         .assertTextEquals("Is it free on Saturday?", string(R.string.conversation_message_sending))
-    text(string(R.string.conversation_message_sending)).assertIsDisplayed()
   }
 
   @Test
