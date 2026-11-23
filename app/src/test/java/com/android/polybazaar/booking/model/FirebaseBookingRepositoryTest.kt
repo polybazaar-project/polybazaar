@@ -21,6 +21,8 @@ import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.firestore.WriteBatch
 import java.time.LocalDate
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -242,6 +244,67 @@ class FirebaseBookingRepositoryTest {
     assertEquals(emptySet<String>(), results[1].pendingIds)
     assertEquals(BookingStatus.CONFIRMED, results[1].bookings.single().status)
     verify(registration).remove()
+  }
+
+  @Test
+  fun observeListingBookingsUsesSignedInLenderAndRemovesListener() = runTest {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
+    val registration = mock<ListenerRegistration>()
+    val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(lenderQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+        .thenReturn(registration)
+    whenever(snapshot.documents).thenReturn(emptyList())
+
+    val result = async { repository.observeBookingsForListing("listing").first() }
+    runCurrent()
+    listener.firstValue.onEvent(snapshot, null)
+
+    assertEquals(ObservedBookings(emptyList()), result.await())
+    verify(listingQuery).whereEqualTo("lenderUid", "lender")
+    verify(registration).remove()
+  }
+
+  @Test
+  fun observeBookingsPropagatesListenerErrorsAndMalformedSnapshots() = runTest {
+    val listenerError =
+        FirebaseFirestoreException("Permission denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    val malformed = mock<QuerySnapshot>()
+    whenever(malformed.documents).thenReturn(listOf(stored))
+    val events = listOf(null to listenerError, null to null, malformed to null)
+
+    for ((value, error) in events) {
+      val query = mock<Query>()
+      val registration = mock<ListenerRegistration>()
+      val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+      whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(query)
+      whenever(query.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+          .thenReturn(registration)
+      val result =
+          async {
+            runCatching { repository.observeBookingsForRenter().first() }.exceptionOrNull()
+          }
+      runCurrent()
+      listener.firstValue.onEvent(value, error)
+      val failure = result.await()
+
+      if (error != null) assertSame(error, failure) else assertTrue(failure is IllegalStateException)
+      verify(registration).remove()
+    }
+  }
+
+  @Test
+  fun observeBookingsRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val failure = runCatching { repository.observeBookingsForRenter().first() }.exceptionOrNull()
+    assertTrue(failure is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (failure as FirebaseFirestoreException).code,
+    )
+    verify(collection, never()).whereEqualTo(any(), any())
   }
 
   @Test
