@@ -67,10 +67,12 @@ import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.chat.model.ChatRepository
+import com.android.polybazaar.chat.model.PhotoOutbox
 import com.android.polybazaar.chat.ui.ConversationScreen
 import com.android.polybazaar.chat.ui.InboxScreen
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
+import com.android.polybazaar.chat.viewmodel.PhotoOutboxSenderViewModel
 import com.android.polybazaar.chat.viewmodel.photoUploadScope
 import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
@@ -134,6 +136,7 @@ object AppNavHostTags {
  *   off campus.
  * @param connectivityRepository tells the listing forms and the conversations whether the device is
  *   online.
+ * @param photoOutbox keeps the chat photos sent offline, sent from any screen once back online.
  */
 @Composable
 fun AppNavHost(
@@ -148,6 +151,7 @@ fun AppNavHost(
     locationRepository: LocationRepository,
     placeNameRepository: PlaceNameRepository,
     connectivityRepository: ConnectivityRepository,
+    photoOutbox: PhotoOutbox,
     navController: NavHostController = rememberNavController(),
     listingsMap: MapSlot = GoogleListingsMap,
 ) {
@@ -167,6 +171,14 @@ fun AppNavHost(
   }
 
   LaunchedEffect(Unit) { authViewModel.restoreSession() }
+
+  // Outside the NavHost, so the queued photos are sent whichever screen is open.
+  SendQueuedPhotosWhenOnline(
+      user = uiState.user,
+      photoOutbox = photoOutbox,
+      chatRepository = chatRepository,
+      connectivityRepository = connectivityRepository,
+  )
 
   LaunchedEffect(uiState.sessionChecked, uiState.user) {
     val route = navController.currentBackStackEntry?.destination?.route
@@ -765,6 +777,30 @@ private fun NavHostController.navigateToTab(route: String) {
  */
 private fun NavHostController.openNewBrowse() {
   navigate(Routes.BROWSE) { popUpTo(Routes.BROWSE) { inclusive = true } }
+}
+
+/**
+ * Sends [user]'s chat photos kept in [photoOutbox] whenever the device is online. Only a verified
+ * user sends: the security rules refuse the others' messages.
+ */
+@Composable
+private fun SendQueuedPhotosWhenOnline(
+    user: User?,
+    photoOutbox: PhotoOutbox,
+    chatRepository: ChatRepository,
+    connectivityRepository: ConnectivityRepository,
+) {
+  val photoSender: PhotoOutboxSenderViewModel =
+      viewModel(
+          factory =
+              viewModelFactory {
+                initializer {
+                  PhotoOutboxSenderViewModel(photoOutbox, chatRepository, connectivityRepository)
+                }
+              }
+      )
+  val senderUid = user?.takeIf { it.isEmailVerified }?.uid
+  LaunchedEffect(senderUid) { photoSender.setSignedInUser(senderUid) }
 }
 
 @Composable

@@ -18,7 +18,9 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.booking.model.FirebaseBookingRepository
+import com.android.polybazaar.chat.model.FilePhotoOutbox
 import com.android.polybazaar.chat.model.FirebaseChatRepository
+import com.android.polybazaar.chat.model.PhotoOutbox
 import com.android.polybazaar.connectivity.model.AndroidConnectivityRepository
 import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -30,6 +32,7 @@ import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
 import com.android.polybazaar.ui.theme.PolyBazaarTheme
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.auth.FirebaseAuth
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,6 +79,7 @@ class MainActivity : ComponentActivity() {
               placeNameRepository =
                   remember { GoogleGeocodingRepository(BuildConfig.GEOCODING_API_KEY) },
               connectivityRepository = connectivityRepository(),
+              photoOutbox = photoOutbox(),
           )
         }
       }
@@ -86,11 +90,27 @@ class MainActivity : ComponentActivity() {
   private fun connectivityRepository(): ConnectivityRepository =
       connectivity ?: AndroidConnectivityRepository(applicationContext).also { connectivity = it }
 
+  /** The app's [PhotoOutbox], created on first use. */
+  private fun photoOutbox(): PhotoOutbox =
+      outbox
+          ?: FilePhotoOutbox(
+                  applicationContext,
+                  currentUid = { FirebaseAuth.getInstance().currentUser?.uid },
+              )
+              .also { outbox = it }
+
   private companion object {
     /**
      * One for the whole process, never released: the listing forms' ViewModels outlive a rotated
      * activity and keep using it, and its network callback is registered only once.
      */
     var connectivity: ConnectivityRepository? = null
+
+    /**
+     * One for the whole process, like [connectivity]: the conversations and the photo sender
+     * outlive a rotated activity, and must all see the same queued photos, so that a photo is never
+     * sent twice at once.
+     */
+    var outbox: PhotoOutbox? = null
   }
 }

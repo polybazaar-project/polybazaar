@@ -75,6 +75,7 @@ import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
@@ -186,6 +187,7 @@ class AppNavHostTest {
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
             connectivityRepository = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(),
             navController = navController,
         )
       }
@@ -236,6 +238,7 @@ class AppNavHostTest {
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
             connectivityRepository = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(),
             navController = navController,
         )
       }
@@ -714,6 +717,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           navController = navController,
           listingsMap = { state, _ -> mapState = state },
       )
@@ -1549,6 +1553,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           navController = navController,
           listingsMap = { state, _ -> mapState = state },
       )
@@ -1629,6 +1634,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           navController = navController,
           listingsMap = { state, _ -> mapState = state },
       )
