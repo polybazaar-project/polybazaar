@@ -187,10 +187,11 @@ class FilePhotoOutbox(
   }
 
   /**
-   * Every queued photo that can be read, oldest first. One that cannot is skipped, never crashing
-   * the app. A folder without `entry.json` is an enqueue cut short, by the app being killed say, as
-   * the entry is written last: it is deleted. A missing photo file is not checked here: its send
-   * fails as for any unreadable photo, and the user can remove it.
+   * Every queued photo that can be read, oldest first. A folder without `entry.json` is an enqueue
+   * cut short, by the app being killed say, as the entry is written last: it is deleted. A folder
+   * whose entry cannot be read is deleted too, never crashing the app: its photo could never be
+   * sent, nor shown in its conversation to be removed. A missing photo file is not checked here:
+   * its send fails as for any unreadable photo, and the user can remove it.
    */
   private fun loadAll(): List<QueuedPhoto> =
       directory
@@ -205,7 +206,8 @@ class FilePhotoOutbox(
             try {
               read(folder)
             } catch (exception: Exception) {
-              Log.w(LOG_TAG, "Skipped unreadable queued photo ${folder.name}", exception)
+              Log.w(LOG_TAG, "Deleted unreadable queued photo ${folder.name}", exception)
+              folder.deleteRecursively()
               null
             }
           }
