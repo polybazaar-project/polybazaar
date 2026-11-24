@@ -87,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
@@ -1842,7 +1843,7 @@ internal fun ConversationQueuedPhotosPreview() {
                           messageId = "4",
                           conversationId = "drill_renter",
                           senderUid = "renter",
-                          photo = Uri.parse("file:///preview/photo_4.jpg"),
+                          photo = "file:///preview/photo_4.jpg".toUri(),
                           caption = "The bits I have",
                           error = AppError.PERMISSION_DENIED,
                       ),
@@ -1850,7 +1851,7 @@ internal fun ConversationQueuedPhotosPreview() {
                           messageId = "5",
                           conversationId = "drill_renter",
                           senderUid = "renter",
-                          photo = Uri.parse("file:///preview/photo_5.jpg"),
+                          photo = "file:///preview/photo_5.jpg".toUri(),
                           caption = null,
                       ),
                   ),
