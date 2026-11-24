@@ -547,6 +547,40 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun myMessageStillSending_saysSendingInsteadOfTheTime_toTalkBackToo() {
+    setContent(loaded.copy(messages = listOf(question.copy(sending = true), answer)))
+
+    // The bubble's merged texts, which TalkBack reads: the footer is replaced, not added to.
+    node(ConversationScreenTags.myMessage("m1"))
+        .assertTextEquals("Is it free on Saturday?", string(R.string.conversation_message_sending))
+  }
+
+  @Test
+  fun myMessageReachingTheServer_showsWhoSentItAndWhenAgain() {
+    val change = showChanging(loaded.copy(messages = listOf(question.copy(sending = true))))
+    text(string(R.string.conversation_message_sending)).assertIsDisplayed()
+
+    change { it.copy(messages = listOf(question)) }
+
+    node(ConversationScreenTags.myMessage("m1"))
+        .assertTextEquals(
+            "Is it free on Saturday?",
+            string(R.string.conversation_my_message_footer, "09:12"),
+        )
+  }
+
+  @Test
+  fun theirMessageMarkedSending_stillSaysWhoSentItAndWhen() {
+    setContent(loaded.copy(messages = listOf(question, answer.copy(sending = true))))
+
+    node(ConversationScreenTags.theirMessage("m2"))
+        .assertTextEquals(
+            "Yes, from ten.",
+            string(R.string.conversation_their_message_footer, "james", "09:14"),
+        )
+  }
+
+  @Test
   fun manyMessages_openOnTheLatest_andFollowANewOne() {
     val arrive = showManyMessages()
 
