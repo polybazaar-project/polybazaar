@@ -12,7 +12,14 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
@@ -49,7 +56,7 @@ class FilePhotoOutboxTest {
   }
 
   /** The photos given to [photoCompressor], in order. */
-  private val compressedPhotos = mutableListOf<Uri>()
+  private val compressedPhotos: MutableList<Uri> = Collections.synchronizedList(mutableListOf())
 
   /**
    * What [photoCompressor] returns for a photo. By default the photo's bytes as they are, so a test
@@ -65,12 +72,15 @@ class FilePhotoOutboxTest {
   }
 
   /** A new outbox on the same folder, as after the app is restarted, with [uid] signed in. */
-  private fun newOutbox(uid: String? = "renter") =
+  private fun newOutbox(
+      uid: String? = "renter",
+      ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(),
+  ) =
       FilePhotoOutbox(
           context,
           photoCompressor = photoCompressor,
           currentUid = { uid },
-          ioDispatcher = UnconfinedTestDispatcher(),
+          ioDispatcher = ioDispatcher,
           now = { clock },
       )
 
@@ -79,6 +89,10 @@ class FilePhotoOutboxTest {
   private fun copyOf(messageId: String) = Uri.fromFile(File(folder(messageId), "photo.jpg"))
 
   private fun ids(outbox: PhotoOutbox) = outbox.queued.value.map { it.messageId }
+
+  /** When the photo of [messageId] was queued, as saved in its entry. */
+  private fun queuedAtOf(messageId: String) =
+      JSONObject(File(folder(messageId), "entry.json").readText()).getLong("queuedAt")
 
   @Test
   fun enqueue_keepsACopyOfThePhotoWithItsEntry_forTheSignedInUser() = runTest {
@@ -333,5 +347,64 @@ class FilePhotoOutboxTest {
     }
     assertFalse(outside.exists())
     assertTrue(outbox.queued.value.isEmpty())
+  }
+
+  @Test
+  fun photosQueuedInTheSameMillisecond_comeBackInTheOrderTheyWereQueued() = runTest {
+    val outbox = newOutbox()
+
+    // The clock stays at 1_000; "b" is queued first though "a" comes first by name.
+    outbox.enqueue("drill_renter", "b", galleryPhoto, null)
+    outbox.enqueue("drill_renter", "a", Uri.fromFile(cameraFile), null)
+
+    assertEquals(listOf("b", "a"), ids(outbox))
+    assertTrue(queuedAtOf("b") < queuedAtOf("a"))
+    assertEquals(listOf("b", "a"), ids(newOutbox()))
+  }
+
+  @Test
+  fun aPhotoQueuedAfterARestart_comesAfterThoseOnDisk_evenWithTheClockMovedBack() = runTest {
+    clock = 5_000
+    newOutbox().enqueue("drill_renter", "b", galleryPhoto, null)
+
+    // Restarted, with the phone's clock set back.
+    clock = 1_000
+    val restarted = newOutbox()
+    restarted.enqueue("drill_renter", "a", Uri.fromFile(cameraFile), null)
+
+    assertEquals(listOf("b", "a"), ids(restarted))
+    assertTrue(queuedAtOf("b") < queuedAtOf("a"))
+    assertEquals(listOf("b", "a"), ids(newOutbox()))
+  }
+
+  @Test
+  fun aPhotoQueuedAfterARestart_inTheSameMillisecond_comesAfterThoseOnDisk() = runTest {
+    newOutbox().enqueue("drill_renter", "b", galleryPhoto, null)
+
+    newOutbox().enqueue("drill_renter", "a", Uri.fromFile(cameraFile), null)
+
+    assertEquals(listOf("b", "a"), ids(newOutbox()))
+  }
+
+  @Test
+  fun twoPhotosQueuedAtOnce_getDifferentTimes_andBothSurviveARestart() = runTest {
+    // Each compression waits for the other to start, so both enqueues run at the same time, on
+    // two threads, with the clock fixed.
+    val bothStarted = CountDownLatch(2)
+    compress = { photo ->
+      bothStarted.countDown()
+      check(bothStarted.await(5, TimeUnit.SECONDS)) { "The other enqueue never started" }
+      context.contentResolver.openInputStream(photo)!!.use { it.readBytes() }
+    }
+    val outbox = newOutbox(ioDispatcher = Dispatchers.IO)
+
+    awaitAll(
+        async { outbox.enqueue("drill_renter", "m1", Uri.fromFile(cameraFile), null) },
+        async { outbox.enqueue("drill_renter", "m2", Uri.fromFile(cameraFile), null) },
+    )
+
+    assertEquals(setOf("m1", "m2"), ids(outbox).toSet())
+    assertTrue(queuedAtOf("m1") != queuedAtOf("m2"))
+    assertEquals(setOf("m1", "m2"), ids(newOutbox()).toSet())
   }
 }
