@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
 
 /**
  * A [BookingRepository] in memory, for tests. It records the last booking requested and how many
@@ -54,6 +55,7 @@ class FakeBookingRepository : BookingRepository {
   val returnNotifications = mutableListOf<String>()
   val returnConfirmations = mutableListOf<String>()
   val bookingUpdates = MutableSharedFlow<ObservedBookings>(extraBufferCapacity = 1)
+  var bookingUpdateFailure: Exception? = null
   var confirmationWriteFailure: ((Exception) -> Unit)? = null
   var immediateConfirmationFailure: Exception? = null
 
@@ -109,12 +111,12 @@ class FakeBookingRepository : BookingRepository {
 
   override fun observeBookingsForListing(listingId: String): Flow<ObservedBookings> = flow {
     emit(ObservedBookings(getBookingsForListing(listingId)))
-    emitAll(bookingUpdates)
+    emitAll(bookingUpdates.onEach { bookingUpdateFailure?.let { throw it } })
   }
 
   override fun observeBookingsForRenter(): Flow<ObservedBookings> = flow {
     emit(ObservedBookings(getBookingsForRenter()))
-    emitAll(bookingUpdates)
+    emitAll(bookingUpdates.onEach { bookingUpdateFailure?.let { throw it } })
   }
 
   override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {

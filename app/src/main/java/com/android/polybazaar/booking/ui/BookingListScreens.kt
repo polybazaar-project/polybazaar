@@ -46,7 +46,9 @@ import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.booking.viewmodel.ConfirmationAction
 import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
+import com.android.polybazaar.booking.viewmodel.ConfirmationStage
 import com.android.polybazaar.booking.viewmodel.confirmationAction
+import com.android.polybazaar.booking.viewmodel.confirmationStage
 import com.android.polybazaar.error.ui.message
 import java.time.LocalDate
 
@@ -56,6 +58,8 @@ object BookingListScreenTags {
   const val LOADING_INDICATOR = "booking_list_loading_indicator"
   const val ERROR_MESSAGE = "booking_list_error_message"
   const val RETRY_BUTTON = "booking_list_retry_button"
+  const val OBSERVATION_ERROR = "booking_list_observation_error"
+  const val OBSERVATION_RETRY = "booking_list_observation_retry"
   const val EMPTY = "booking_list_empty"
   const val STATUS = "booking_list_status"
   const val CANCEL_BUTTON = "booking_list_cancel_button"
@@ -145,6 +149,30 @@ fun BookingListContent(
         modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
     )
     val error = uiState.error
+    uiState.observationError?.let { observationError ->
+      Row(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+            text = stringResource(R.string.booking_observation_failed, observationError.message()),
+            color = AuthColors.Danger,
+            fontSize = 14.sp,
+            modifier = Modifier.weight(1f).testTag(BookingListScreenTags.OBSERVATION_ERROR),
+        )
+        TextButton(
+            onClick = onRetry,
+            enabled = !uiState.isLoadingBookings,
+            modifier = Modifier.testTag(BookingListScreenTags.OBSERVATION_RETRY),
+        ) {
+          Text(
+              text = stringResource(R.string.booking_request_retry),
+              color = AuthColors.Accent,
+              fontWeight = FontWeight.Bold,
+          )
+        }
+      }
+    }
     if (error != null) {
       Row(
           modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
@@ -176,7 +204,7 @@ fun BookingListContent(
                 modifier = Modifier.size(32.dp).testTag(BookingListScreenTags.LOADING_INDICATOR),
             )
           }
-      uiState.bookings.isEmpty() && error == null ->
+      uiState.bookings.isEmpty() && error == null && uiState.observationError == null ->
           Text(
               text = stringResource(R.string.bookings_empty),
               color = AuthColors.TextSecondary,
@@ -199,6 +227,8 @@ fun BookingListContent(
                   party = if (showRenter) BookingParty.LENDER else BookingParty.RENTER,
                   pending = booking.id in uiState.pendingBookingIds,
                   submitting = booking.id in uiState.submittingConfirmations,
+                  observationUnavailable =
+                      uiState.observationError != null || uiState.isLoadingBookings,
                   failure = uiState.confirmationFailures[booking.id],
                   canCancel =
                       booking.status != BookingStatus.CANCELLED &&
@@ -221,6 +251,7 @@ private fun BookingRow(
     party: BookingParty,
     pending: Boolean,
     submitting: Boolean,
+    observationUnavailable: Boolean,
     failure: ConfirmationFailure?,
     canCancel: Boolean,
     onCancel: () -> Unit,
@@ -281,7 +312,9 @@ private fun BookingRow(
       }
     }
     if (booking.status == BookingStatus.CONFIRMED) {
-      ConfirmationContent(booking, party, pending, submitting, failure, onConfirm)
+      ConfirmationContent(
+          booking, party, pending, submitting, observationUnavailable, failure, onConfirm
+      )
     }
   }
 }
@@ -292,41 +325,39 @@ private fun ConfirmationContent(
     party: BookingParty,
     pending: Boolean,
     submitting: Boolean,
+    observationUnavailable: Boolean,
     failure: ConfirmationFailure?,
     onConfirm: (ConfirmationAction) -> Unit,
 ) {
   val lender = party == BookingParty.LENDER
-  val step =
-      when {
-        !booking.handoverNotified -> 1
-        !booking.renterHandoverConfirmed -> 2
-        !booking.returnNotified -> 3
-        !booking.lenderReturnConfirmed -> 4
-        else -> 5
-      }
+  val stage = booking.confirmationStage
   val status =
-      when (step) {
-        1 -> if (lender) R.string.booking_ready_handover else R.string.booking_wait_handover
-        2 -> if (lender) R.string.booking_wait_renter else R.string.booking_handover_notified
-        3 -> if (lender) R.string.booking_wait_return else R.string.booking_ready_return
-        4 -> if (lender) R.string.booking_return_notified else R.string.booking_wait_lender
-        else -> R.string.booking_return_completed
+      when (stage) {
+        ConfirmationStage.HANDOVER ->
+            if (lender) R.string.booking_ready_handover else R.string.booking_wait_handover
+        ConfirmationStage.HANDOVER_CONFIRMATION ->
+            if (lender) R.string.booking_wait_renter else R.string.booking_handover_notified
+        ConfirmationStage.RETURN ->
+            if (lender) R.string.booking_wait_return else R.string.booking_ready_return
+        ConfirmationStage.RETURN_CONFIRMATION ->
+            if (lender) R.string.booking_return_notified else R.string.booking_wait_lender
+        ConfirmationStage.COMPLETED -> R.string.booking_return_completed
       }
   val help =
-      when (step) {
-        1 ->
+      when (stage) {
+        ConfirmationStage.HANDOVER ->
             if (lender) R.string.booking_handover_lender_help
             else R.string.booking_handover_renter_wait_help
-        2 ->
+        ConfirmationStage.HANDOVER_CONFIRMATION ->
             if (lender) R.string.booking_handover_lender_wait_help
             else R.string.booking_handover_renter_help
-        3 ->
+        ConfirmationStage.RETURN ->
             if (lender) R.string.booking_return_lender_wait_help
             else R.string.booking_return_renter_help
-        4 ->
+        ConfirmationStage.RETURN_CONFIRMATION ->
             if (lender) R.string.booking_return_lender_help
             else R.string.booking_return_renter_wait_help
-        else -> R.string.booking_completed_help
+        ConfirmationStage.COMPLETED -> R.string.booking_completed_help
       }
   val action = booking.confirmationAction(party)
   HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = AuthColors.Outline)
@@ -338,16 +369,19 @@ private fun ConfirmationContent(
         fontSize = 11.sp,
         modifier = Modifier.weight(1f),
     )
-    Text(
-        stringResource(R.string.booking_step, step),
-        color = AuthColors.TextSecondary,
-        fontSize = 11.sp,
-    )
+    if (!observationUnavailable) {
+      Text(
+          stringResource(R.string.booking_step, stage.step),
+          color = AuthColors.TextSecondary,
+          fontSize = 11.sp,
+      )
+    }
   }
   Text(
       text =
           stringResource(
               when {
+                observationUnavailable -> R.string.booking_updates_unavailable
                 pending -> R.string.booking_pending_sync
                 submitting -> R.string.booking_saving_confirmation
                 else -> status
@@ -362,6 +396,7 @@ private fun ConfirmationContent(
       text =
           stringResource(
               when {
+                observationUnavailable -> R.string.booking_updates_unavailable_help
                 pending -> R.string.booking_pending_sync_help
                 submitting -> R.string.booking_saving_confirmation_help
                 else -> help
@@ -376,7 +411,7 @@ private fun ConfirmationContent(
                   else Modifier
               ),
   )
-  if (failure != null && !pending && !submitting) {
+  if (failure != null && !observationUnavailable && !pending && !submitting) {
     Text(
         text = failure.error.message(),
         color = AuthColors.Danger,
@@ -384,7 +419,7 @@ private fun ConfirmationContent(
         modifier = Modifier.padding(top = 8.dp).testTag(BookingListScreenTags.CONFIRMATION_ERROR),
     )
   }
-  if (action != null && !pending && !submitting) {
+  if (action != null && !observationUnavailable && !pending && !submitting) {
     val label =
         when (action) {
           ConfirmationAction.NOTIFY_HANDOVER -> R.string.booking_notify_handover

@@ -338,11 +338,40 @@ class BookingListScreensTest {
   @Test
   fun retryAfterLoadError_reloads() {
     var reloads = 0
-    show(BookingUiState(error = AppError.NETWORK), onRetry = { reloads++ })
+    show(BookingUiState(observationError = AppError.NETWORK), onRetry = { reloads++ })
 
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).performClick()
 
     assertEquals(1, reloads)
+  }
+
+  @Test
+  fun listenerAndCancellationErrorsHaveSeparateRetriesAndHideStaleConfirmation() {
+    val cancelled = mutableListOf<String>()
+    var reloads = 0
+    val stale = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    show(
+        BookingUiState(
+            bookings = listOf(stale),
+            observationError = AppError.NETWORK,
+            error = AppError.PERMISSION_DENIED,
+            failedCancelId = "a",
+        ),
+        onRetry = { reloads++ },
+        onCancel = { cancelled += it },
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_ERROR).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Updates unavailable")
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).performClick()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+    assertEquals(1, reloads)
+    assertEquals(listOf("a"), cancelled)
   }
 
   private fun statuses() = composeTestRule.onAllNodesWithTag(BookingListScreenTags.STATUS)
@@ -381,10 +410,10 @@ class BookingListScreensTest {
 
   @Test
   fun loadError_showsMessageAndRetry() {
-    show(BookingUiState(error = AppError.NETWORK))
+    show(BookingUiState(observationError = AppError.NETWORK))
 
-    composeTestRule.onNodeWithTag(BookingListScreenTags.ERROR_MESSAGE).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).assertIsDisplayed()
   }
 
   @Test
@@ -414,9 +443,9 @@ class BookingListScreensTest {
           onBack = { backs++ },
       )
     }
-    composeTestRule.waitUntil { viewModel.uiState.value.error != null }
+    composeTestRule.waitUntil { viewModel.uiState.value.observationError != null }
     repository.loadFailure = null
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).performClick()
 
     composeTestRule.waitUntil { viewModel.uiState.value.bookings.isNotEmpty() }
     assertEquals(2, repository.loadCount)

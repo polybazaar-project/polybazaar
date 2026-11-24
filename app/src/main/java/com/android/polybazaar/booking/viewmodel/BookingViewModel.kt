@@ -38,20 +38,35 @@ enum class ConfirmationAction {
   CONFIRM_RETURN,
 }
 
+enum class ConfirmationStage(
+    val step: Int,
+    val party: BookingParty?,
+    val action: ConfirmationAction?,
+) {
+  HANDOVER(1, BookingParty.LENDER, ConfirmationAction.NOTIFY_HANDOVER),
+  HANDOVER_CONFIRMATION(2, BookingParty.RENTER, ConfirmationAction.CONFIRM_HANDOVER),
+  RETURN(3, BookingParty.RENTER, ConfirmationAction.NOTIFY_RETURN),
+  RETURN_CONFIRMATION(4, BookingParty.LENDER, ConfirmationAction.CONFIRM_RETURN),
+  COMPLETED(5, null, null),
+}
+
 data class ConfirmationFailure(val action: ConfirmationAction, val error: AppError)
+
+val Booking.confirmationStage: ConfirmationStage
+  get() =
+      when {
+        !handoverNotified -> ConfirmationStage.HANDOVER
+        !renterHandoverConfirmed -> ConfirmationStage.HANDOVER_CONFIRMATION
+        !returnNotified -> ConfirmationStage.RETURN
+        !lenderReturnConfirmed -> ConfirmationStage.RETURN_CONFIRMATION
+        else -> ConfirmationStage.COMPLETED
+      }
 
 /** The action available to this party at the current stage, if any. */
 fun Booking.confirmationAction(party: BookingParty): ConfirmationAction? {
   if (status != BookingStatus.CONFIRMED) return null
-  return when {
-    !handoverNotified -> ConfirmationAction.NOTIFY_HANDOVER.takeIf { party == BookingParty.LENDER }
-    !renterHandoverConfirmed ->
-        ConfirmationAction.CONFIRM_HANDOVER.takeIf { party == BookingParty.RENTER }
-    !returnNotified -> ConfirmationAction.NOTIFY_RETURN.takeIf { party == BookingParty.RENTER }
-    !lenderReturnConfirmed ->
-        ConfirmationAction.CONFIRM_RETURN.takeIf { party == BookingParty.LENDER }
-    else -> null
-  }
+  val stage = confirmationStage
+  return stage.action.takeIf { stage.party == party }
 }
 
 private fun ConfirmationAction.isRecorded(booking: Booking): Boolean =
@@ -68,6 +83,7 @@ data class BookingUiState(
     val isQueued: Boolean = false,
     val bookings: List<Booking> = emptyList(),
     val isLoadingBookings: Boolean = false,
+    val observationError: AppError? = null,
     val cancellingBookingIds: Set<String> = emptySet(),
     val pendingBookingIds: Set<String> = emptySet(),
     val submittingConfirmations: Map<String, ConfirmationAction> = emptyMap(),
@@ -128,19 +144,6 @@ class BookingViewModel(
   }
 
   /** Loads bookings made by the signed-in renter, with the titles of their listings. */
-  fun loadRenterBookings() =
-      loadBookings(
-          load = { bookingRepository.getBookingsForRenter() },
-          name = { bookings -> nameListings(bookings.mapTo(mutableSetOf()) { it.listingId }) },
-      )
-
-  /** Loads the bookings of [listingId] for the signed-in lender, with their renters' names. */
-  fun loadListingBookings(listingId: String) =
-      loadBookings(
-          load = { bookingRepository.getBookingsForListing(listingId) },
-          name = { bookings -> nameRenters(bookings.mapTo(mutableSetOf()) { it.renterUid }) },
-      )
-
   fun observeRenterBookings() {
     party = BookingParty.RENTER
     observeBookings(
@@ -170,7 +173,7 @@ class BookingViewModel(
       name: suspend (Set<String>) -> Unit,
   ) {
     stopObservingBookings()
-    _uiState.update { it.copy(isLoadingBookings = true, failedCancelId = null, error = null) }
+    _uiState.update { it.copy(isLoadingBookings = true) }
     bookingObservation = viewModelScope.launch {
       try {
         coroutineScope {
@@ -187,6 +190,7 @@ class BookingViewModel(
                     bookings = bookings,
                     pendingBookingIds = observed.pendingIds,
                     isLoadingBookings = false,
+                    observationError = null,
                     submittingConfirmations =
                         state.submittingConfirmations.filter { (id, action) ->
                           bookings.any { it.id == id && !action.isRecorded(it) }
@@ -208,7 +212,14 @@ class BookingViewModel(
         }
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
-        _uiState.update { it.copy(isLoadingBookings = false, error = exception.toAppError()) }
+        _uiState.update {
+          it.copy(
+              isLoadingBookings = false,
+              observationError = exception.toAppError(),
+              pendingBookingIds = emptySet(),
+              submittingConfirmations = emptyMap(),
+          )
+        }
       }
     }
   }
@@ -219,6 +230,8 @@ class BookingViewModel(
     val currentParty = party ?: return
     if (
         booking.confirmationAction(currentParty) != action ||
+            state.observationError != null ||
+            state.isLoadingBookings ||
             id in state.pendingBookingIds ||
             id in state.submittingConfirmations
     )
@@ -255,30 +268,7 @@ class BookingViewModel(
     }
   }
 
-  private fun loadBookings(
-      load: suspend () -> List<Booking>,
-      name: suspend (List<Booking>) -> Unit,
-  ) {
-    if (_uiState.value.isLoadingBookings) return
-    _uiState.update { it.copy(isLoadingBookings = true, failedCancelId = null, error = null) }
-    viewModelScope.launch {
-      try {
-        // Earliest first; the ID only keeps the order stable between bookings of the same day.
-        val bookings =
-            load().sortedWith(compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id }))
-        _uiState.update { it.copy(bookings = bookings, isLoadingBookings = false) }
-        name(bookings)
-      } catch (exception: Exception) {
-        if (exception is CancellationException) {
-          _uiState.update { it.copy(isLoadingBookings = false) }
-          throw exception
-        }
-        _uiState.update { it.copy(isLoadingBookings = false, error = exception.toAppError()) }
-      }
-    }
-  }
-
-  private suspend fun nameListings(ids: Set<String>) = namingMutex.withLock {
+  private suspend fun nameListings(ids: Set<String>): Unit = namingMutex.withLock {
     val repository = listingRepository ?: return
     for (listingId in ids) {
       if (listingId in _uiState.value.listingTitles) continue
@@ -291,7 +281,7 @@ class BookingViewModel(
     }
   }
 
-  private suspend fun nameRenters(ids: Set<String>) = namingMutex.withLock {
+  private suspend fun nameRenters(ids: Set<String>): Unit = namingMutex.withLock {
     val repository = profileRepository ?: return
     for (uid in ids) {
       if (uid in _uiState.value.renterNames) continue
