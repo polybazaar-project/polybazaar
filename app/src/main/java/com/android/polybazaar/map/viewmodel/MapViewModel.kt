@@ -50,13 +50,24 @@ sealed interface MapCentre {
  * @property isLoading true while the listings are being loaded.
  * @property error why the listings could not be loaded, or null. The markers already shown are
  *   kept.
+ * @property selectedMarkerId the listing whose marker the renter tapped (#342), or null. The
+ *   ViewModel's record of the selection: the screen reads [selectedMarker] instead.
  */
 data class MapUiState(
     val centre: MapCentre = MapCentre.Undecided,
     val markers: List<MapMarker> = emptyList(),
     val isLoading: Boolean = false,
     val error: AppError? = null,
-)
+    val selectedMarkerId: String? = null,
+) {
+  /**
+   * The listing to preview at the bottom of the map, or null: what the screen reads.
+   * [MapViewModel.loadListings] already clears an id the map no longer shows; looking the id up in
+   * [markers] is a safety net, so the screen can never preview a listing that isn't on the map.
+   */
+  val selectedMarker: MapMarker?
+    get() = selectedMarkerId?.let { id -> markers.firstOrNull { it.id == id } }
+}
 
 /**
  * Centres the map on the renter's approximate location, or on a campus they pick when they don't
@@ -101,7 +112,15 @@ class MapViewModel(
             .onSuccess { listings ->
               val markers =
                   listings.filter { it.ownerUid != currentUid }.mapNotNull { it.toMapMarker() }
-              _uiState.update { it.copy(markers = markers) }
+              _uiState.update {
+                it.copy(
+                    markers = markers,
+                    // A listing deleted or paused since it was selected loses its preview, and it
+                    // doesn't come back by itself if the listing reappears later.
+                    selectedMarkerId =
+                        it.selectedMarkerId?.takeIf { id -> markers.any { m -> m.id == id } },
+                )
+              }
             }
             .onFailure { exception ->
               // Cancellation means the map was closed: it is not an error to show.
@@ -148,6 +167,18 @@ class MapViewModel(
           // the renter just gets their campus, or picks one.
           .onFailure { showIfStillLocating(campusOrChoice()) }
     }
+  }
+
+  /** Previews the listing whose marker was tapped (#342); an id the map doesn't show is ignored. */
+  fun selectMarker(id: String) {
+    _uiState.update { state ->
+      if (state.markers.any { it.id == id }) state.copy(selectedMarkerId = id) else state
+    }
+  }
+
+  /** Closes the preview: its close button, or a tap on the map outside the markers. */
+  fun clearSelection() {
+    _uiState.update { it.copy(selectedMarkerId = null) }
   }
 
   /** Centres the map on [campus] and remembers it for the session. */

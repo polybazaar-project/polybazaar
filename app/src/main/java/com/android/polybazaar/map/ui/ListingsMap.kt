@@ -38,6 +38,7 @@ private fun Coordinates.toLatLng() = LatLng(latitude, longitude)
 internal fun ListingsMap(
     centre: MapCentre,
     markers: List<MapMarker>,
+    actions: MapActions = MapActions(),
     onMapReady: () -> Unit = {},
 ) {
   val camera = cameraFor(centre)
@@ -56,6 +57,8 @@ internal fun ListingsMap(
       // The location layer and the bottom bar already cover the edges: keep the map's own
       // controls out of their way.
       uiSettings = MapUiSettings(zoomControlsEnabled = false, mapToolbarEnabled = false),
+      // A tap outside the markers closes the preview.
+      onMapClick = { actions.onMapClick() },
   ) {
     // Once the map exists, whether or not its tiles can load: lets the instrumented test wait for
     // the map instead of sleeping.
@@ -69,6 +72,11 @@ internal fun ListingsMap(
             keys = arrayOf<Any>(marker.id, marker.type),
             state = rememberUpdatedMarkerState(position = marker.coordinates.toLatLng()),
             title = markerLabel(marker),
+            // true: handled here, so Google Maps doesn't open its own info bubble or recentre.
+            onClick = {
+              actions.onMarkerClick(marker.id)
+              true
+            },
         ) {
           MarkerPin(icon = markerIcon(marker.type))
         }

@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,12 +34,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,13 +53,19 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -66,6 +76,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -92,21 +103,34 @@ import com.android.polybazaar.chat.viewmodel.PendingPhoto
 import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.model.ItemListing
+import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
+import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.listing.model.formatChf
 import com.android.polybazaar.listing.ui.CameraPermissionDialog
 import com.android.polybazaar.listing.ui.decodePhotoPreview
 import com.android.polybazaar.listing.ui.loadPhotoPreview
 import com.android.polybazaar.listing.ui.rememberPhotoCamera
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 object ConversationScreenTags {
   const val SCREEN = "conversation_screen"
   const val BACK_BUTTON = "conversation_back_button"
   const val LISTING_TITLE = "conversation_listing_title"
   const val OTHER_USERNAME = "conversation_other_username"
+  const val OTHER_AVATAR = "conversation_other_avatar"
+  const val LISTING_SUMMARY = "conversation_listing_summary"
+  const val LISTING_STATUS_PILL = "conversation_listing_status_pill"
+  const val NOTICE_ICON = "conversation_notice_icon"
+  const val LOAD_ERROR_ICON = "conversation_load_error_icon"
+  const val EMPTY_TAGLINE = "conversation_empty_tagline"
   const val PAUSED_NOTICE = "conversation_paused_notice"
   const val DELETED_NOTICE = "conversation_deleted_notice"
   const val LOADING_INDICATOR = "conversation_loading_indicator"
@@ -124,12 +148,16 @@ object ConversationScreenTags {
   const val CHOOSE_PHOTO = "conversation_choose_photo"
   const val ATTACHED_PHOTO = "conversation_attached_photo"
   const val REMOVE_ATTACHED_PHOTO = "conversation_remove_attached_photo"
+  const val NEW_MESSAGE_HINT = "conversation_new_message_hint"
 
   /** Tag of the bubble of the signed-in user's message with [id]. */
   fun myMessage(id: String) = "conversation_my_message_$id"
 
   /** Tag of the bubble of the other participant's message with [id]. */
   fun theirMessage(id: String) = "conversation_their_message_$id"
+
+  /** Tag of the divider above the messages sent on [date]. */
+  fun dayDivider(date: LocalDate) = "conversation_day_divider_$date"
 
   /** Tag of the photo of the message with [id], or of its placeholder while it loads. */
   fun messagePhoto(id: String) = "conversation_message_photo_$id"
@@ -168,6 +196,47 @@ internal fun conversationBody(state: ConversationUiState): ConversationBody =
       state.isLoading -> ConversationBody.LOADING
       else -> ConversationBody.EMPTY
     }
+
+/** How the message list answers a change in what it shows, decided by [messageListChange]. */
+internal enum class MessageListChange {
+  /** Scroll to the bottom: on opening, and for the user's own message or photo. */
+  FOLLOW,
+  /** A message from the other participant came after the newest one. */
+  THEIRS_ARRIVED,
+  /** Nothing arrived, so the list stays where it is. */
+  NONE,
+}
+
+/**
+ * Classifies the change from [previousNewestId] and [previousPendingIds] to the shown [messages],
+ * oldest first, and the [pendingIds] of the photos being sent. A message arrived only when it comes
+ * after the previous newest one, which a deletion's new newest does not. A photo's message that was
+ * pending did not arrive either: it takes the place of its pending bubble.
+ *
+ * @param firstLoad true until the list has shown anything.
+ */
+internal fun messageListChange(
+    messages: List<ChatMessage>,
+    pendingIds: List<String>,
+    myUid: String,
+    previousNewestId: String?,
+    previousPendingIds: List<String>,
+    firstLoad: Boolean,
+): MessageListChange {
+  if (firstLoad) return MessageListChange.FOLLOW
+  val sentId = pendingIds.lastOrNull()
+  if (sentId != null && sentId !in previousPendingIds) return MessageListChange.FOLLOW
+  val newest = messages.lastOrNull() ?: return MessageListChange.NONE
+  val arrived =
+      newest.id != previousNewestId &&
+          (previousNewestId == null || messages.any { it.id == previousNewestId }) &&
+          newest.id !in previousPendingIds
+  return when {
+    !arrived -> MessageListChange.NONE
+    newest.senderUid == myUid -> MessageListChange.FOLLOW
+    else -> MessageListChange.THEIRS_ARRIVED
+  }
+}
 
 /** Side margin of the page, the same as on the listing detail. */
 private val PageMargin = 18.dp
@@ -260,7 +329,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  *   user taps a photo that failed to load.
  * @param onRetryPhoto called with the message ID of a failed photo when the user taps Retry.
  * @param onDiscardPhoto called with the message ID of a failed photo when the user taps Remove.
- * @param zone time zone of the message times.
+ * @param zone time zone of the message times and days.
+ * @param now the current time, which the day dividers count "Today" and "Yesterday" from.
  */
 @Composable
 fun ConversationContent(
@@ -277,6 +347,7 @@ fun ConversationContent(
     onRetryPhoto: (String) -> Unit = {},
     onDiscardPhoto: (String) -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
+    now: Instant = Instant.now(),
 ) {
   val body = conversationBody(uiState)
   val deleted = uiState.listingStatus == ConversationListingStatus.DELETED
@@ -296,7 +367,18 @@ fun ConversationContent(
               .safeDrawingPadding()
               .testTag(ConversationScreenTags.SCREEN)
   ) {
-    Header(listingTitle = uiState.listingTitle, otherUser = uiState.otherUser, onBack = onBack)
+    Header(
+        listingTitle = uiState.listingTitle,
+        otherUser = uiState.otherUser,
+        otherUserPhoto = rememberPhoto(uiState.otherUserPhoto),
+        isRenter = uiState.isRenter,
+        onBack = onBack,
+    )
+    val listingPhoto = rememberPhoto(uiState.listingPhoto)
+    uiState.listingStatus?.let {
+      ListingSummary(uiState = uiState, status = it, photo = listingPhoto)
+    }
+    HorizontalDivider(color = AuthColors.Outline)
     uiState.listingStatus?.let { ListingNotice(it, uiState.firstMessageBlockedByPause) }
     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
       when (body) {
@@ -313,6 +395,7 @@ fun ConversationContent(
             MessageList(
                 uiState = uiState,
                 zone = zone,
+                today = now.atZone(zone).toLocalDate(),
                 onRetry = onRetry,
                 photoActions = PhotoActions(onLoadPhoto, onRetryPhoto, onDiscardPhoto),
             )
@@ -341,9 +424,18 @@ fun ConversationContent(
   }
 }
 
-/** Back, then the listing's title with the other participant's username under it. */
+/**
+ * Back, the listing's title with the other participant's username and role under it, then their
+ * photo.
+ */
 @Composable
-private fun Header(listingTitle: String?, otherUser: User?, onBack: () -> Unit) {
+private fun Header(
+    listingTitle: String?,
+    otherUser: User?,
+    otherUserPhoto: ImageBitmap?,
+    isRenter: Boolean,
+    onBack: () -> Unit,
+) {
   Row(
       modifier = Modifier.fillMaxWidth().padding(horizontal = PageMargin, vertical = 8.dp),
       horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -364,8 +456,15 @@ private fun Header(listingTitle: String?, otherUser: User?, onBack: () -> Unit) 
           modifier = Modifier.testTag(ConversationScreenTags.LISTING_TITLE),
       )
       otherUser?.let {
+        val role =
+            if (isRenter) R.string.conversation_role_lender else R.string.conversation_role_renter
         Text(
-            text = stringResource(R.string.conversation_other_username, it.username),
+            text =
+                stringResource(
+                    R.string.conversation_other_username,
+                    it.username,
+                    stringResource(role),
+                ),
             color = AuthColors.TextSecondary,
             fontSize = 12.sp,
             maxLines = 1,
@@ -374,9 +473,133 @@ private fun Header(listingTitle: String?, otherUser: User?, onBack: () -> Unit) 
         )
       }
     }
+    // Decorative: the username next to it says who it is.
+    Image(
+        painter =
+            otherUserPhoto?.let { BitmapPainter(it) }
+                ?: painterResource(R.drawable.default_profile_photo),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier =
+            Modifier.size(38.dp).clip(CircleShape).testTag(ConversationScreenTags.OTHER_AVATAR),
+    )
   }
-  HorizontalDivider(color = AuthColors.Outline)
 }
+
+/**
+ * The listing the conversation is about: its photo, its lender, its price and place, and whether it
+ * is a rental or a service, paused or deleted. Without the listing, as when it was deleted before
+ * the screen opened, only the lender and the status show.
+ */
+@Composable
+private fun ListingSummary(
+    uiState: ConversationUiState,
+    status: ConversationListingStatus,
+    photo: ImageBitmap?,
+) {
+  val listing = uiState.listing
+  // The other participant is the lender when the signed-in user is the renter.
+  val lender =
+      if (uiState.isRenter) uiState.otherUser?.username
+      else stringResource(R.string.conversation_summary_you)
+  // Replaces the lender's name in the card's merged semantics, so TalkBack says whose listing it
+  // is,
+  // then its details, without also saying the bare name.
+  val spokenLender =
+      if (uiState.isRenter)
+          uiState.otherUser?.let {
+            stringResource(R.string.conversation_summary_spoken_lender, it.username)
+          }
+      else stringResource(R.string.conversation_summary_spoken_mine)
+  val perDay = stringResource(R.string.browse_price_per_day)
+  // Only items are rented by the day; a service has a price alone.
+  val details = listing?.let {
+    val price = if (it is ItemListing) "${formatChf(it.price)} $perDay" else formatChf(it.price)
+    listOfNotNull(price, it.location?.name).joinToString(" · ")
+  }
+  val shape = RoundedCornerShape(14.dp)
+  Row(
+      modifier =
+          Modifier.fillMaxWidth()
+              .padding(start = PageMargin, end = PageMargin, top = 4.dp, bottom = 12.dp)
+              .background(AuthColors.CardBackground, shape)
+              .border(1.dp, AuthColors.Outline, shape)
+              .padding(10.dp)
+              // One TalkBack item for the whole card.
+              .semantics(mergeDescendants = true) {}
+              .testTag(ConversationScreenTags.LISTING_SUMMARY),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    ListingPhoto(photo = photo, size = 46.dp)
+    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      lender?.let {
+        Text(
+            text = it,
+            color = AuthColors.TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier =
+                Modifier.clearAndSetSemantics { spokenLender?.let { contentDescription = it } },
+        )
+      }
+      details?.let {
+        Text(
+            text = it,
+            color = AuthColors.TextSecondary,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+    StatusPill(status = status, isService = listing is ServiceListing)
+  }
+}
+
+/** Rental or Service while the listing is active, else Paused or Deleted. */
+@Composable
+private fun StatusPill(status: ConversationListingStatus, isService: Boolean) {
+  val (text, background, color) =
+      when (status) {
+        ConversationListingStatus.ACTIVE ->
+            PillStyle(
+                stringResource(
+                    if (isService) R.string.conversation_status_service
+                    else R.string.conversation_status_rental
+                ),
+                AuthColors.AccentContainer,
+                AuthColors.Accent,
+            )
+        ConversationListingStatus.PAUSED ->
+            PillStyle(
+                stringResource(R.string.conversation_status_paused),
+                AuthColors.AccentContainer,
+                PausedBadgeText,
+            )
+        ConversationListingStatus.DELETED ->
+            PillStyle(
+                stringResource(R.string.conversation_status_deleted),
+                DeletedBadgeBackground,
+                DeletedBadgeText,
+            )
+      }
+  Text(
+      text = text,
+      color = color,
+      fontSize = 11.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier =
+          Modifier.background(background, RoundedCornerShape(12.dp))
+              .padding(horizontal = 9.dp, vertical = 5.dp)
+              .testTag(ConversationScreenTags.LISTING_STATUS_PILL),
+  )
+}
+
+/** The text and colors of the listing's status pill. */
+private data class PillStyle(val text: String, val background: Color, val color: Color)
 
 /**
  * What happened to the listing, while it is paused or deleted. [firstMessageBlockedByPause] adds
@@ -396,40 +619,77 @@ private fun ListingNotice(status: ConversationListingStatus, firstMessageBlocked
                   stringResource(R.string.conversation_paused_first_message_body)
                 } else null,
             tag = ConversationScreenTags.PAUSED_NOTICE,
+            icon = R.drawable.ic_pause_circle,
+            iconTint = AuthColors.Accent,
+            background = AuthColors.AccentContainer,
         )
     ConversationListingStatus.DELETED ->
         Notice(
             title = stringResource(R.string.conversation_deleted_title),
             body = stringResource(R.string.conversation_deleted_body),
             tag = ConversationScreenTags.DELETED_NOTICE,
+            icon = R.drawable.ic_archive,
+            iconTint = DeletedBadgeText,
+            background = DeletedBadgeBackground,
         )
   }
 }
 
 @Composable
-private fun Notice(title: String, body: String?, tag: String) {
+private fun Notice(
+    title: String,
+    body: String?,
+    tag: String,
+    @DrawableRes icon: Int,
+    iconTint: Color,
+    background: Color,
+) {
   val shape = RoundedCornerShape(14.dp)
-  Column(
+  Row(
       modifier =
           Modifier.fillMaxWidth()
               .padding(start = PageMargin, end = PageMargin, top = 10.dp)
-              .background(AuthColors.CardBackground, shape)
-              .border(1.dp, AuthColors.Outline, shape)
-              .padding(horizontal = 14.dp, vertical = 10.dp)
+              .background(background, shape)
+              .padding(12.dp)
               // One TalkBack announcement for the title and its explanation.
               .semantics(mergeDescendants = true) {}
               .testTag(tag),
-      verticalArrangement = Arrangement.spacedBy(2.dp),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Text(
-        text = title,
-        color = AuthColors.TextPrimary,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold,
+    // Decorative: the title says what happened to the listing.
+    Icon(
+        painter = painterResource(icon),
+        contentDescription = null,
+        tint = iconTint,
+        modifier = Modifier.size(18.dp).testTag(ConversationScreenTags.NOTICE_ICON),
     )
-    body?.let {
-      Text(text = it, color = AuthColors.TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+      Text(
+          text = title,
+          color = AuthColors.TextPrimary,
+          fontSize = 13.sp,
+          fontWeight = FontWeight.SemiBold,
+      )
+      body?.let {
+        Text(text = it, color = AuthColors.TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+      }
     }
+  }
+}
+
+/** A decorative [icon] in a tinted circle, above the text of an empty or failed conversation. */
+@Composable
+private fun CircledIcon(@DrawableRes icon: Int, modifier: Modifier = Modifier) {
+  Box(
+      modifier = modifier.size(64.dp).background(AuthColors.AccentContainer, CircleShape),
+      contentAlignment = Alignment.Center,
+  ) {
+    Icon(
+        painter = painterResource(icon),
+        contentDescription = null,
+        tint = AuthColors.Accent,
+        modifier = Modifier.size(28.dp),
+    )
   }
 }
 
@@ -451,6 +711,11 @@ private fun LoadError(text: String, onRetry: () -> Unit) {
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
   ) {
+    // Decorative: the title under it says what failed.
+    CircledIcon(
+        icon = R.drawable.ic_wifi_off,
+        modifier = Modifier.testTag(ConversationScreenTags.LOAD_ERROR_ICON),
+    )
     Text(
         text = stringResource(R.string.conversation_load_error_title),
         color = AuthColors.TextPrimary,
@@ -495,12 +760,7 @@ private fun EmptyState(
       verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
   ) {
     // Decorative: the text under it says what the empty conversation is for.
-    Icon(
-        painter = painterResource(R.drawable.ic_message_circle),
-        contentDescription = null,
-        tint = AuthColors.Accent,
-        modifier = Modifier.size(32.dp),
-    )
+    CircledIcon(icon = R.drawable.ic_message_circle)
     if (invites) {
       Text(
           text =
@@ -523,6 +783,15 @@ private fun EmptyState(
         lineHeight = 18.sp,
         textAlign = TextAlign.Center,
     )
+    if (invites) {
+      Text(
+          text = stringResource(R.string.conversation_empty_tagline),
+          color = AuthColors.Accent,
+          fontSize = 12.sp,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.padding(top = 8.dp).testTag(ConversationScreenTags.EMPTY_TAGLINE),
+      )
+    }
   }
 }
 
@@ -533,65 +802,187 @@ private class PhotoActions(
     val discard: (messageId: String) -> Unit,
 )
 
+/** Key of [pending]'s item, prefixed: once sent, a photo's message arrives with the same ID. */
+private fun pendingPhotoKey(pending: PendingPhoto) = "pending_${pending.messageId}"
+
 /**
- * The messages, oldest at the top, then the photos being sent, with the load error and Retry above
- * them when a reload failed.
+ * The messages, oldest at the top, under the day they were sent on, then the photos being sent,
+ * with the load error and Retry above them when a reload failed, and a hint over the bottom while a
+ * message has arrived below the view.
  */
 @Composable
 private fun MessageList(
     uiState: ConversationUiState,
     zone: ZoneId,
+    today: LocalDate,
     onRetry: () -> Unit,
     photoActions: PhotoActions,
 ) {
   val messages = uiState.shownMessages
   val pendingPhotos = uiState.pendingPhotos
+  val items = remember(messages, zone) { conversationItems(messages, zone).asReversed() }
+  val newest = messages.lastOrNull()
+  val pendingIds = pendingPhotos.map { it.messageId }
+  // Item 0, at the bottom of the reversed list: a day's divider sits above its messages.
+  val bottomKey = pendingPhotos.lastOrNull()?.let(::pendingPhotoKey) ?: newest?.id
   val listState = rememberLazyListState()
+  val scope = rememberCoroutineScope()
   // Decoded above the list: a bubble that scrolls out of view and back shows its photo at once.
   val decodedPhotos = rememberDecodedPhotos(uiState.messagePhotos)
-  // The list keeps its place by key, so a new message or photo would arrive below the view without
-  // this.
-  LaunchedEffect(messages.lastOrNull()?.id, pendingPhotos.lastOrNull()?.messageId) {
-    listState.scrollToItem(0)
+  // What the list showed at the last change, and whether a message is waiting below the view.
+  // Saved across recreation, as the list's position is; the ids in an ArrayList, which it can save.
+  var previousNewestId by rememberSaveable { mutableStateOf<String?>(null) }
+  var previousPendingIds by rememberSaveable { mutableStateOf(ArrayList<String>()) }
+  var previousBottomKey by rememberSaveable { mutableStateOf<String?>(null) }
+  var newestUnseen by rememberSaveable { mutableStateOf(false) }
+  // The list keeps its place by key, so an arrival lands below the view unless this follows it.
+  // One from the other participant is followed only when the previous bottom item's bottom edge is
+  // on screen: then the user is reading the end of the conversation. Looked up by key, that item is
+  // found whether or not the new one is laid out yet.
+  // requestScrollToItem takes no scroll lock, so a finger on the list cannot cancel the follow.
+  LaunchedEffect(newest?.id, pendingIds) {
+    val change =
+        messageListChange(
+            messages = messages,
+            pendingIds = pendingIds,
+            myUid = uiState.myUid,
+            previousNewestId = previousNewestId,
+            previousPendingIds = previousPendingIds,
+            firstLoad = previousBottomKey == null,
+        )
+    val previousBottom = previousBottomKey
+    previousNewestId = newest?.id
+    previousPendingIds = ArrayList(pendingIds)
+    previousBottomKey = bottomKey
+    when (change) {
+      MessageListChange.FOLLOW -> listState.requestScrollToItem(0)
+      MessageListChange.THEIRS_ARRIVED -> {
+        val layout = listState.layoutInfo
+        val atTheEnd =
+            layout.visibleItemsInfo.any {
+              it.key == previousBottom && it.offset >= layout.viewportStartOffset
+            }
+        if (atTheEnd) listState.requestScrollToItem(0) else newestUnseen = true
+      }
+      MessageListChange.NONE -> Unit
+    }
+  }
+  // The hint goes once the newest message, or a photo being sent under it, is in view; a tap whose
+  // scroll is cut short leaves it up. Looked up by key, which holds whether or not the new message
+  // is laid out yet.
+  val endKeys by
+      rememberUpdatedState(setOfNotNull(newest?.id) + pendingPhotos.map(::pendingPhotoKey))
+  LaunchedEffect(listState) {
+    snapshotFlow {
+      if (!newestUnseen) return@snapshotFlow false
+      val layout = listState.layoutInfo
+      layout.visibleItemsInfo.any {
+        it.key in endKeys &&
+            it.offset + it.size > layout.viewportStartOffset &&
+            it.offset < layout.viewportEndOffset
+      }
+    }
+        .collect { seen -> if (seen) newestUnseen = false }
   }
   Column(modifier = Modifier.fillMaxSize()) {
     uiState.loadError?.let { LoadErrorRow(text = it.message(), onRetry = onRetry) }
-    // Laid out from the bottom, newest first, so the newest message stays in view, footer
-    // included, however long it is and whatever shrinks the list.
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.weight(1f).fillMaxWidth().testTag(ConversationScreenTags.MESSAGE_LIST),
-        contentPadding = PaddingValues(horizontal = PageMargin, vertical = 12.dp),
-        reverseLayout = true,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      // Prefixed: once sent, a photo's message arrives with the same ID.
-      items(pendingPhotos.asReversed(), key = { "pending_${it.messageId}" }) { pending ->
-        PendingPhotoBubble(
-            pending = pending,
-            onRetry = { photoActions.retry(pending.messageId) },
-            onDiscard = { photoActions.discard(pending.messageId) },
-        )
+    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+      // Laid out from the bottom, newest first, so the newest message stays in view, footer
+      // included, however long it is and whatever shrinks the list.
+      LazyColumn(
+          state = listState,
+          modifier = Modifier.fillMaxSize().testTag(ConversationScreenTags.MESSAGE_LIST),
+          contentPadding = PaddingValues(horizontal = PageMargin, vertical = 12.dp),
+          reverseLayout = true,
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        items(pendingPhotos.asReversed(), key = ::pendingPhotoKey) { pending ->
+          PendingPhotoBubble(
+              pending = pending,
+              onRetry = { photoActions.retry(pending.messageId) },
+              onDiscard = { photoActions.discard(pending.messageId) },
+          )
+        }
+        items(
+            items,
+            key = { item ->
+              when (item) {
+                is ConversationItem.Message -> item.message.id
+                // Firestore document ids cannot contain "/", so a day never shares a message's key.
+                is ConversationItem.DayDivider -> "day/${item.date}"
+              }
+            },
+        ) { item ->
+          when (item) {
+            is ConversationItem.Message -> {
+              val message = item.message
+              MessageBubble(
+                  message = message,
+                  isMine = message.senderUid == uiState.myUid,
+                  otherUsername = uiState.otherUser?.username,
+                  zone = zone,
+                  photo =
+                      message.imagePath?.let { path ->
+                        MessagePhoto(
+                            downloaded = path in uiState.messagePhotos,
+                            decoded = decodedPhotos[path] ?: DecodedPhoto.Loading,
+                            loadError = uiState.photoLoadErrors[path],
+                            pending = message.photoPending,
+                            load = { photoActions.load(path) },
+                        )
+                      },
+              )
+            }
+            is ConversationItem.DayDivider -> DayDivider(date = item.date, today = today)
+          }
+        }
       }
-      items(messages.asReversed(), key = { it.id }) { message ->
-        MessageBubble(
-            message = message,
-            isMine = message.senderUid == uiState.myUid,
-            otherUsername = uiState.otherUser?.username,
-            zone = zone,
-            photo =
-                message.imagePath?.let { path ->
-                  MessagePhoto(
-                      downloaded = path in uiState.messagePhotos,
-                      decoded = decodedPhotos[path] ?: DecodedPhoto.Loading,
-                      loadError = uiState.photoLoadErrors[path],
-                      pending = message.photoPending,
-                      load = { photoActions.load(path) },
-                  )
-                },
+      if (newestUnseen) {
+        NewMessageHint(
+            onClick = { scope.launch { listState.animateScrollToItem(0) } },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
         )
       }
     }
+  }
+}
+
+/** The day the messages under it were sent on: "Today", "Yesterday" or the date. */
+@Composable
+private fun DayDivider(date: LocalDate, today: LocalDate) {
+  Text(
+      text = conversationDay(date, today).label(),
+      color = AuthColors.TextSecondary,
+      fontSize = 12.sp,
+      textAlign = TextAlign.Center,
+      modifier =
+          Modifier.fillMaxWidth()
+              .padding(vertical = 4.dp)
+              .semantics { heading() }
+              .testTag(ConversationScreenTags.dayDivider(date)),
+  )
+}
+
+/** Says a message arrived below the view; tapping it scrolls down to the bottom. */
+@Composable
+private fun NewMessageHint(onClick: () -> Unit, modifier: Modifier = Modifier) {
+  OutlinedButton(
+      onClick = onClick,
+      modifier =
+          modifier
+              // Announced when it appears: TalkBack's focus is on the older message being read.
+              .semantics { liveRegion = LiveRegionMode.Polite }
+              .testTag(ConversationScreenTags.NEW_MESSAGE_HINT),
+      shape = RoundedCornerShape(20.dp),
+      border = BorderStroke(1.dp, AuthColors.Outline),
+      colors = ButtonDefaults.outlinedButtonColors(containerColor = AuthColors.CardBackground),
+  ) {
+    Text(
+        text = stringResource(R.string.conversation_new_message),
+        color = AuthColors.Accent,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
   }
 }
 
@@ -1223,11 +1614,15 @@ private fun MessageField(
   )
 }
 
-/** A paused listing with a few messages, for the IDE preview. Internal so a test can render it. */
+/**
+ * A paused listing with messages over two days, for the IDE preview. Internal so a test can render
+ * it.
+ */
 @Preview(showBackground = true, widthDp = 412, heightDp = 917)
 @Composable
 internal fun ConversationContentPreview() {
   val start = Instant.parse("2026-05-04T09:12:00Z")
+  val nextDay = start.plusSeconds(24 * 60 * 60)
   ConversationContent(
       uiState =
           ConversationUiState(
@@ -1241,7 +1636,7 @@ internal fun ConversationContentPreview() {
                           "Yes, from 10:00. I can add a second battery if you need one.",
                           start.plusSeconds(120),
                       ),
-                      ChatMessage("3", "renter", "Perfect, see you then.", start.plusSeconds(300)),
+                      ChatMessage("3", "renter", "Perfect, see you then.", nextDay),
                   ),
               conversation =
                   Conversation(
@@ -1249,14 +1644,27 @@ internal fun ConversationContentPreview() {
                       listingTitle = "Bosch drill set",
                       renterUid = "renter",
                       lenderUid = "lender",
-                      lastMessageAt = start.plusSeconds(300),
+                      lastMessageAt = nextDay,
                   ),
               listingTitle = "Bosch drill set",
               listingStatus = ConversationListingStatus.PAUSED,
+              listing =
+                  ItemListing(
+                      ListingCategory.ITEM_TOOLS,
+                      8.0,
+                      "Bosch drill set",
+                      "Cordless drill with bits.",
+                      listingId = "drill",
+                      ownerUid = "lender",
+                      isPaused = true,
+                      location = ListingLocation(46.5376, 6.5804, "Renens VD"),
+                  ),
+              isRenter = true,
               otherUser = User(uid = "lender", email = "", username = "james"),
               isLoading = false,
           ),
       zone = ZoneOffset.UTC,
+      now = nextDay,
   )
 }
 
