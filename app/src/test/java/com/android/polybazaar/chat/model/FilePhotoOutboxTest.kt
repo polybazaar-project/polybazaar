@@ -184,17 +184,28 @@ class FilePhotoOutboxTest {
   }
 
   @Test
-  fun loading_skipsUnreadableEntriesAndKeepsTheOthers() = runTest {
+  fun loading_deletesUnreadableEntriesWithTheirPhoto_andKeepsTheOthers() = runTest {
     val outbox = newOutbox()
     outbox.enqueue("drill_renter", "corrupt", galleryPhoto, null)
     outbox.enqueue("drill_renter", "noSender", Uri.fromFile(cameraFile), null)
-    outbox.enqueue("drill_renter", "good", Uri.fromFile(cameraFile), null)
+    outbox.enqueue("drill_renter", "good", Uri.fromFile(cameraFile), "Kept")
     File(folder("corrupt"), "entry.json").writeText("{ not json")
     val noSender = File(folder("noSender"), "entry.json")
     noSender.writeText(JSONObject(noSender.readText()).apply { remove("senderUid") }.toString())
-    // A stray file next to the photo folders is not a photo.
-    File(directory, "stray.txt").writeText("?")
+    // A stray file next to the photo folders is not a photo, and not the outbox's to delete.
+    val stray = File(directory, "stray.txt").apply { writeText("?") }
 
+    val reloaded = newOutbox().queued.value
+
+    assertEquals(
+        listOf(QueuedPhoto("good", "drill_renter", "renter", copyOf("good"), "Kept")),
+        reloaded,
+    )
+    assertFalse(folder("corrupt").exists())
+    assertFalse(folder("noSender").exists())
+    assertArrayEquals(cameraBytes, File(copyOf("good").path!!).readBytes())
+    assertTrue(stray.isFile)
+    // Deleted once: the next start finds only the readable photo.
     assertEquals(listOf("good"), ids(newOutbox()))
   }
 
