@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.browse.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +32,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -46,6 +49,7 @@ import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.browse.viewmodel.BrowseUiState
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
+import com.android.polybazaar.chat.ui.rememberPhoto
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 
@@ -55,6 +59,7 @@ object BrowseScreenTags {
   const val HEADER = "browse_header"
   const val CATEGORY_SELECTOR = "browse_category_selector"
   const val LISTING_CARD = "browse_listing_card"
+  const val LISTING_PHOTO = "browse_listing_photo"
   const val LOADING_INDICATOR = "browse_loading_indicator"
   const val ERROR = "browse_error"
   const val RETRY_BUTTON = "browse_retry_button"
@@ -147,7 +152,11 @@ fun BrowseContent(
           modifier =
               Modifier.padding(start = 24.dp, end = 24.dp, top = if (index == 0) 0.dp else 14.dp)
       ) {
-        ListingCard(listing = listing, onClick = { onOpenListing(listing.id) })
+        ListingCard(
+            listing = listing,
+            photo = listing.photoPath?.let { uiState.photos[it] },
+            onClick = { onOpenListing(listing.id) },
+        )
       }
     }
   }
@@ -291,10 +300,16 @@ internal fun CategorySelector(
 /**
  * A listing's card in Browse.
  *
+ * @param photo the listing's first photo, downloaded; null shows a placeholder icon instead, for a
+ *   listing without photos or while the photo is downloading.
  * @param onClick called when the user taps the card, or null for a card that cannot be tapped.
  */
 @Composable
-internal fun ListingCard(listing: BrowseListing, onClick: (() -> Unit)? = null) {
+internal fun ListingCard(
+    listing: BrowseListing,
+    photo: ByteArray? = null,
+    onClick: (() -> Unit)? = null,
+) {
   val shape = RoundedCornerShape(28.dp)
   val openLabel = stringResource(R.string.open_listing)
   // Clipped first, so the ripple follows the card's rounded corners.
@@ -315,17 +330,28 @@ internal fun ListingCard(listing: BrowseListing, onClick: (() -> Unit)? = null) 
               .testTag(BrowseScreenTags.LISTING_CARD),
       verticalAlignment = Alignment.CenterVertically,
   ) {
+    val decoded = rememberPhoto(photo)
     Box(
         modifier =
-            Modifier.size(90.dp).background(AuthColors.Background, RoundedCornerShape(18.dp)),
+            Modifier.size(90.dp).clip(RoundedCornerShape(18.dp)).background(AuthColors.Background),
         contentAlignment = Alignment.Center,
     ) {
-      androidx.compose.material3.Icon(
-          painter = painterResource(R.drawable.ic_item),
-          contentDescription = null,
-          tint = AuthColors.TextPrimary,
-          modifier = Modifier.size(36.dp),
-      )
+      if (decoded != null) {
+        // Decorative: the title next to it names the listing.
+        Image(
+            painter = BitmapPainter(decoded),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().testTag(BrowseScreenTags.LISTING_PHOTO),
+        )
+      } else {
+        androidx.compose.material3.Icon(
+            painter = painterResource(R.drawable.ic_item),
+            contentDescription = null,
+            tint = AuthColors.TextPrimary,
+            modifier = Modifier.size(36.dp),
+        )
+      }
     }
     Spacer(modifier = Modifier.width(18.dp))
     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
