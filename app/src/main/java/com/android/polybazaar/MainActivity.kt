@@ -23,8 +23,10 @@ import com.android.polybazaar.chat.model.FirebaseChatRepository
 import com.android.polybazaar.chat.model.PhotoOutbox
 import com.android.polybazaar.connectivity.model.AndroidConnectivityRepository
 import com.android.polybazaar.connectivity.model.ConnectivityRepository
+import com.android.polybazaar.listing.model.FilePendingListingQueue
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.FirebaseListingRepository
+import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.map.model.FusedLocationRepository
 import com.android.polybazaar.map.model.GoogleGeocodingRepository
 import com.android.polybazaar.photo.JpegPhotoCompressor
@@ -80,6 +82,7 @@ class MainActivity : ComponentActivity() {
                   remember { GoogleGeocodingRepository(BuildConfig.GEOCODING_API_KEY) },
               connectivityRepository = connectivityRepository(),
               photoOutbox = photoOutbox(),
+              pendingListingQueue = pendingListingQueue(),
           )
         }
       }
@@ -95,9 +98,14 @@ class MainActivity : ComponentActivity() {
       outbox
           ?: FilePhotoOutbox(
                   applicationContext,
+                  photoCompressor = JpegPhotoCompressor(applicationContext.contentResolver),
                   currentUid = { FirebaseAuth.getInstance().currentUser?.uid },
               )
               .also { outbox = it }
+
+  /** The app's [PendingListingQueue], created on first use. */
+  private fun pendingListingQueue(): PendingListingQueue =
+      pendingListings ?: FilePendingListingQueue(applicationContext).also { pendingListings = it }
 
   private companion object {
     /**
@@ -112,5 +120,8 @@ class MainActivity : ComponentActivity() {
      * sent twice at once.
      */
     var outbox: PhotoOutbox? = null
+
+    /** One for the whole process, like [connectivity], so every screen sees the same drafts. */
+    var pendingListings: PendingListingQueue? = null
   }
 }

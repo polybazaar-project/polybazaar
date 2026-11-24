@@ -79,6 +79,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.ui.CreateListingScreen
 import com.android.polybazaar.listing.ui.EditListingScreen
@@ -137,6 +138,7 @@ object AppNavHostTags {
  * @param connectivityRepository tells the listing forms whether the device is online, and the photo
  *   sender when to send.
  * @param photoOutbox keeps the chat photos sent offline, sent from any screen once back online.
+ * @param pendingListingQueue keeps the listings created offline, to publish once back online.
  */
 @Composable
 fun AppNavHost(
@@ -152,6 +154,7 @@ fun AppNavHost(
     placeNameRepository: PlaceNameRepository,
     connectivityRepository: ConnectivityRepository,
     photoOutbox: PhotoOutbox,
+    pendingListingQueue: PendingListingQueue,
     navController: NavHostController = rememberNavController(),
     listingsMap: MapSlot = GoogleListingsMap,
 ) {
@@ -334,15 +337,21 @@ fun AppNavHost(
                               locationRepository = locationRepository,
                               placeNameRepository = placeNameRepository,
                               connectivityRepository = connectivityRepository,
+                              pendingListingQueue = pendingListingQueue,
                           )
                         }
                       }
               )
           // Leaves like a tab switch, so an unfinished form is still there on coming back.
           BackHandler { navController.navigateToTab(Routes.BROWSE) }
+          val queuedMessage = stringResource(R.string.listing_saved_offline)
           CreateListingScreen(
               listingViewModel = listingViewModel,
               onListingCreated = { navController.openNewBrowse() },
+              onListingQueued = {
+                showMessage(queuedMessage)
+                navController.openNewBrowse()
+              },
           )
         }
         composable(
@@ -363,6 +372,7 @@ fun AppNavHost(
                               locationRepository = locationRepository,
                               placeNameRepository = placeNameRepository,
                               connectivityRepository = connectivityRepository,
+                              pendingListingQueue = pendingListingQueue,
                           )
                         }
                       }

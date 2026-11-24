@@ -1,14 +1,15 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.model
 
-import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.photo.PhotoCompressor
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +25,7 @@ import org.json.JSONObject
  * @property messageId the ID of its message, reused by every send so it is never sent twice.
  * @property conversationId the conversation it is sent in.
  * @property senderUid the user who sent it.
- * @property photo the copy of the photo kept in the outbox.
+ * @property photo the compressed copy of the photo kept in the outbox.
  * @property caption the trimmed caption, or null for a photo alone.
  * @property sending true while it is being sent; only kept in memory, so it is false again after
  *   the app is restarted.
@@ -48,10 +49,12 @@ interface PhotoOutbox {
   val queued: StateFlow<List<QueuedPhoto>>
 
   /**
-   * Keeps [photo] to send later in [conversationId] under [messageId], for the signed-in user. The
-   * photo is copied, so it no longer depends on the camera file or a gallery read grant.
+   * Keeps [photo] to send later in [conversationId] under [messageId], for the signed-in user. A
+   * compressed copy of the photo is kept, so it takes little space and no longer depends on the
+   * camera file or a gallery read grant.
    *
-   * Throws when nobody is signed in or the photo cannot be copied; nothing is kept then.
+   * Throws when nobody is signed in or the photo cannot be read or compressed; nothing is kept
+   * then.
    */
   suspend fun enqueue(conversationId: String, messageId: String, photo: Uri, caption: String?)
 
@@ -79,22 +82,35 @@ interface PhotoOutbox {
  * Keeps each photo in its own folder of app storage: `photo_outbox/<messageId>/` holds `entry.json`
  * and `photo.jpg`.
  *
+ * @param photoCompressor turns the photo into the JPEG kept in `photo.jpg`, a few hundred KB
+ *   instead of a camera photo of several MB.
  * @param currentUid the signed-in user's uid, or null when nobody is signed in.
  * @param ioDispatcher runs the disk work.
- * @param now the current time in milliseconds, to keep the photos in the order they were queued.
+ * @param now the current time in milliseconds, to keep the photos in the order they were queued. A
+ *   photo is always given a later time than the one before it, even queued in the same millisecond
+ *   or after the clock was moved back.
  */
 class FilePhotoOutbox(
     context: Context,
+    private val photoCompressor: PhotoCompressor,
     private val currentUid: () -> String?,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = System::currentTimeMillis,
 ) : PhotoOutbox {
 
-  private val contentResolver: ContentResolver = context.contentResolver
   private val directory = File(context.filesDir, DIRECTORY)
 
-  // Read at once: a few small files, and the queue must be known before the sender starts.
-  private val _queued = MutableStateFlow(loadAll())
+  /** When the newest photo was queued, on disk or since; the next one is queued after it. */
+  private val lastQueuedAt: AtomicLong
+  private val _queued: MutableStateFlow<List<QueuedPhoto>>
+
+  init {
+    // Read at once: a few small files, and the queue must be known before the sender starts.
+    val entries = loadAll()
+    lastQueuedAt = AtomicLong(entries.maxOfOrNull { it.queuedAt } ?: Long.MIN_VALUE)
+    _queued = MutableStateFlow(entries.map { it.photo })
+  }
+
   override val queued: StateFlow<List<QueuedPhoto>> = _queued.asStateFlow()
 
   override suspend fun enqueue(
@@ -109,19 +125,17 @@ class FilePhotoOutbox(
       try {
         if (!folder.mkdirs() && !folder.isDirectory) throw IOException("Cannot create $folder")
         val copy = File(folder, PHOTO_FILE)
-        val input =
-            contentResolver.openInputStream(photo) ?: throw IOException("Cannot read $photo")
-        input.use { source -> copy.outputStream().use { source.copyTo(it) } }
+        copy.writeBytes(photoCompressor.compress(photo))
         val entry =
             Entry(
                 QueuedPhoto(messageId, conversationId, senderUid, Uri.fromFile(copy), caption),
-                queuedAt = now(),
+                queuedAt = nextQueuedAt(),
             )
         write(folder, entry)
         // Right after the rename, with no suspension between: a photo on disk is always listed.
         _queued.update { photos -> photos.filterNot { it.messageId == messageId } + entry.photo }
       } catch (exception: Exception) {
-        // The photo or its entry could not be written: nothing of it is kept.
+        // The photo could not be compressed, or it or its entry written: nothing of it is kept.
         folder.deleteRecursively()
         throw exception
       }
@@ -178,6 +192,12 @@ class FilePhotoOutbox(
     return true
   }
 
+  /**
+   * A time later than every photo already queued, so the order is exact: [now], or one millisecond
+   * after the last photo when [now] is not later. Atomic, as two photos can be queued at once.
+   */
+  private fun nextQueuedAt(): Long = lastQueuedAt.updateAndGet { last -> maxOf(now(), last + 1) }
+
   /** The folder of [messageId], refusing an ID that could point outside [directory]. */
   private fun folderOf(messageId: String): File {
     require(messageId.matches(SAFE_ID)) { "Invalid message id" }
@@ -185,12 +205,13 @@ class FilePhotoOutbox(
   }
 
   /**
-   * Every queued photo that can be read, oldest first. One that cannot is skipped, never crashing
-   * the app. A folder without `entry.json` is an enqueue cut short, by the app being killed say, as
-   * the entry is written last: it is deleted. A missing photo file is not checked here: its send
-   * fails as for any unreadable photo, and the user can remove it.
+   * The entry of every queued photo that can be read, oldest first. A folder without `entry.json`
+   * is an enqueue cut short, by the app being killed say, as the entry is written last: it is
+   * deleted. A folder whose entry cannot be read is deleted too, never crashing the app: its photo
+   * could never be sent, nor shown in its conversation to be removed. A missing photo file is not
+   * checked here: its send fails as for any unreadable photo, and the user can remove it.
    */
-  private fun loadAll(): List<QueuedPhoto> =
+  private fun loadAll(): List<Entry> =
       directory
           .listFiles()
           .orEmpty()
@@ -203,12 +224,12 @@ class FilePhotoOutbox(
             try {
               read(folder)
             } catch (exception: Exception) {
-              Log.w(LOG_TAG, "Skipped unreadable queued photo ${folder.name}", exception)
+              Log.w(LOG_TAG, "Deleted unreadable queued photo ${folder.name}", exception)
+              folder.deleteRecursively()
               null
             }
           }
           .sortedBy { it.queuedAt }
-          .map { it.photo }
 
   /** Writes [entry] aside, then renames it, so a crash never leaves a half-written entry. */
   private fun write(folder: File, entry: Entry) {

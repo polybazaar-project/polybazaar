@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.photo.PhotoCompressor
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileNotFoundException
@@ -45,10 +46,16 @@ class FilePhotoOutboxTest {
         .registerInputStream(galleryPhoto, ByteArrayInputStream(galleryBytes))
   }
 
+  /** Keeps the photo's bytes as they are, so a test can tell which photo was kept. */
+  private val photoCompressor = PhotoCompressor { photo ->
+    context.contentResolver.openInputStream(photo)!!.use { it.readBytes() }
+  }
+
   /** A new outbox on the same folder, as after the app is restarted, with [uid] signed in. */
   private fun newOutbox(uid: String? = "renter") =
       FilePhotoOutbox(
           context,
+          photoCompressor = photoCompressor,
           currentUid = { uid },
           ioDispatcher = UnconfinedTestDispatcher(),
           now = { clock },
@@ -114,10 +121,11 @@ class FilePhotoOutboxTest {
   @Test
   fun photos_surviveARestart_oldestFirst_andNoneIsStillSending() = runTest {
     val outbox = newOutbox()
-    clock = 2_000
-    outbox.enqueue("drill_renter", "newer", galleryPhoto, "Second")
+    // Queued in this order, though "newer" comes first by name.
     clock = 1_000
     outbox.enqueue("bike_renter", "older", Uri.fromFile(cameraFile), null)
+    clock = 2_000
+    outbox.enqueue("drill_renter", "newer", galleryPhoto, "Second")
     // The app is killed while the older one is being sent.
     assertTrue(outbox.claim("older"))
 
