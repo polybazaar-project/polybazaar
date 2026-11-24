@@ -50,6 +50,7 @@ import com.android.polybazaar.R
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
@@ -391,6 +392,7 @@ class ListingLocationFieldTest {
           FakeLocationRepository(lausanne),
           FakePlaceNameRepository(),
           FakeConnectivityRepository(),
+          FakePendingListingQueue(),
       ) {
         today
       }
