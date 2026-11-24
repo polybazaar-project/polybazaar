@@ -18,6 +18,16 @@ interface ListingRepository {
   fun newListingId(): String
 
   /**
+   * Publishes a draft created offline under [listingId], the id it was given on the device by
+   * [newListingId], like [createListing] otherwise.
+   *
+   * If the signed-in user already has a listing with that id, from an earlier publish the device
+   * did not record, succeeds without uploading or writing anything, so a draft is never published
+   * twice. Fails with a Firestore `PERMISSION_DENIED` error when another user has one.
+   */
+  suspend fun publishListing(listingId: String, listing: Listing)
+
+  /**
    * Returns the listings created by the signed-in user, for the Toolbox (#20).
    *
    * Fails when nobody is signed in or Firestore cannot answer; the caller maps the failure with
