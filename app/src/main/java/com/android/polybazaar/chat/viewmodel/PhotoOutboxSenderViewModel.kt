@@ -96,27 +96,26 @@ class PhotoOutboxSenderViewModel(
   private suspend fun send(photo: QueuedPhoto): AppError? {
     val messageId = photo.messageId
     if (!outbox.claim(messageId)) return null
-    var sent = false
-    var failure: AppError? = null
-    try {
-      val conversation =
-          chatRepository.observeConversation(photo.conversationId).first()
-              ?: throw AppException(AppError.NOT_FOUND)
-      chatRepository.sendPhoto(conversation, messageId, photo.photo, photo.caption)
-      sent = true
-    } catch (exception: Exception) {
-      if (exception is CancellationException) throw exception
-      val error = exception.toAppError()
-      failure = error
-      Log.w(LOG_TAG, "Could not send queued photo $messageId", exception)
-      if (error !in KEPT_FOR_LATER) outbox.markFailed(messageId, error)
-    } finally {
-      // Also when cancelled: the photo stays queued, to be sent with the same ID next time.
-      outbox.release(messageId)
-    }
+    val failure: AppError? =
+        try {
+          val conversation =
+              chatRepository.observeConversation(photo.conversationId).first()
+                  ?: throw AppException(AppError.NOT_FOUND)
+          chatRepository.sendPhoto(conversation, messageId, photo.photo, photo.caption)
+          null
+        } catch (exception: Exception) {
+          if (exception is CancellationException) throw exception
+          val error = exception.toAppError()
+          Log.w(LOG_TAG, "Could not send queued photo $messageId", exception)
+          if (error !in KEPT_FOR_LATER) outbox.markFailed(messageId, error)
+          error
+        } finally {
+          // Also when cancelled: the photo stays queued, to be sent with the same ID next time.
+          outbox.release(messageId)
+        }
     // Released first, as a photo being sent cannot be removed. Cancelled before this, it stays
     // queued, and its next send finds it already on the server.
-    if (sent) outbox.remove(messageId)
+    if (failure == null) outbox.remove(messageId)
     return failure
   }
 
