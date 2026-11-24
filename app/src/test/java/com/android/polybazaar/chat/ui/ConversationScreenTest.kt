@@ -68,12 +68,12 @@ import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.PendingPhoto
 import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
-import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -315,7 +315,7 @@ class ConversationScreenTest {
             photoStorage = photoStorage,
             savedStateHandle = SavedStateHandle(),
             uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-            connectivity = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(senderUid = "renter"),
         )
     val launcherOwner =
         object : ActivityResultRegistryOwner {
