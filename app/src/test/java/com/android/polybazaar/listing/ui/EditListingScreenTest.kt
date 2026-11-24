@@ -29,6 +29,7 @@ import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
@@ -103,6 +104,7 @@ class EditListingScreenTest {
             FakeLocationRepository(),
             FakePlaceNameRepository(),
             FakeConnectivityRepository(),
+            FakePendingListingQueue(),
         )
     composeTestRule.setContent {
       EditListingScreen(
@@ -349,6 +351,7 @@ class EditListingScreenTest {
             FakeLocationRepository(),
             FakePlaceNameRepository(),
             FakeConnectivityRepository(),
+            FakePendingListingQueue(),
         )
     composeTestRule.setContent {
       dispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
