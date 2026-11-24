@@ -1,12 +1,12 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.chat.model
 
-import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.photo.PhotoCompressor
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,7 +24,7 @@ import org.json.JSONObject
  * @property messageId the ID of its message, reused by every send so it is never sent twice.
  * @property conversationId the conversation it is sent in.
  * @property senderUid the user who sent it.
- * @property photo the copy of the photo kept in the outbox.
+ * @property photo the compressed copy of the photo kept in the outbox.
  * @property caption the trimmed caption, or null for a photo alone.
  * @property sending true while it is being sent; only kept in memory, so it is false again after
  *   the app is restarted.
@@ -48,10 +48,12 @@ interface PhotoOutbox {
   val queued: StateFlow<List<QueuedPhoto>>
 
   /**
-   * Keeps [photo] to send later in [conversationId] under [messageId], for the signed-in user. The
-   * photo is copied, so it no longer depends on the camera file or a gallery read grant.
+   * Keeps [photo] to send later in [conversationId] under [messageId], for the signed-in user. A
+   * compressed copy of the photo is kept, so it takes little space and no longer depends on the
+   * camera file or a gallery read grant.
    *
-   * Throws when nobody is signed in or the photo cannot be copied; nothing is kept then.
+   * Throws when nobody is signed in or the photo cannot be read or compressed; nothing is kept
+   * then.
    */
   suspend fun enqueue(conversationId: String, messageId: String, photo: Uri, caption: String?)
 
@@ -79,18 +81,20 @@ interface PhotoOutbox {
  * Keeps each photo in its own folder of app storage: `photo_outbox/<messageId>/` holds `entry.json`
  * and `photo.jpg`.
  *
+ * @param photoCompressor turns the photo into the JPEG kept in `photo.jpg`, a few hundred KB
+ *   instead of a camera photo of several MB.
  * @param currentUid the signed-in user's uid, or null when nobody is signed in.
  * @param ioDispatcher runs the disk work.
  * @param now the current time in milliseconds, to keep the photos in the order they were queued.
  */
 class FilePhotoOutbox(
     context: Context,
+    private val photoCompressor: PhotoCompressor,
     private val currentUid: () -> String?,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = System::currentTimeMillis,
 ) : PhotoOutbox {
 
-  private val contentResolver: ContentResolver = context.contentResolver
   private val directory = File(context.filesDir, DIRECTORY)
 
   // Read at once: a few small files, and the queue must be known before the sender starts.
@@ -109,9 +113,7 @@ class FilePhotoOutbox(
       try {
         if (!folder.mkdirs() && !folder.isDirectory) throw IOException("Cannot create $folder")
         val copy = File(folder, PHOTO_FILE)
-        val input =
-            contentResolver.openInputStream(photo) ?: throw IOException("Cannot read $photo")
-        input.use { source -> copy.outputStream().use { source.copyTo(it) } }
+        copy.writeBytes(photoCompressor.compress(photo))
         val entry =
             Entry(
                 QueuedPhoto(messageId, conversationId, senderUid, Uri.fromFile(copy), caption),
@@ -121,7 +123,7 @@ class FilePhotoOutbox(
         // Right after the rename, with no suspension between: a photo on disk is always listed.
         _queued.update { photos -> photos.filterNot { it.messageId == messageId } + entry.photo }
       } catch (exception: Exception) {
-        // The photo or its entry could not be written: nothing of it is kept.
+        // The photo could not be compressed, or it or its entry written: nothing of it is kept.
         folder.deleteRecursively()
         throw exception
       }

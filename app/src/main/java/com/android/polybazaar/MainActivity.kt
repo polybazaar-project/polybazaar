@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
       outbox
           ?: FilePhotoOutbox(
                   applicationContext,
+                  photoCompressor = JpegPhotoCompressor(applicationContext.contentResolver),
                   currentUid = { FirebaseAuth.getInstance().currentUser?.uid },
               )
               .also { outbox = it }
