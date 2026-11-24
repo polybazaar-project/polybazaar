@@ -11,6 +11,7 @@ import com.android.polybazaar.photo.PhotoCompressor
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -18,6 +19,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -46,9 +48,20 @@ class FilePhotoOutboxTest {
         .registerInputStream(galleryPhoto, ByteArrayInputStream(galleryBytes))
   }
 
-  /** Keeps the photo's bytes as they are, so a test can tell which photo was kept. */
-  private val photoCompressor = PhotoCompressor { photo ->
+  /** The photos given to [photoCompressor], in order. */
+  private val compressedPhotos = mutableListOf<Uri>()
+
+  /**
+   * What [photoCompressor] returns for a photo. By default the photo's bytes as they are, so a test
+   * can tell which photo was kept.
+   */
+  private var compress: (Uri) -> ByteArray = { photo ->
     context.contentResolver.openInputStream(photo)!!.use { it.readBytes() }
+  }
+
+  private val photoCompressor = PhotoCompressor { photo ->
+    compressedPhotos += photo
+    compress(photo)
   }
 
   /** A new outbox on the same folder, as after the app is restarted, with [uid] signed in. */
@@ -92,6 +105,36 @@ class FilePhotoOutboxTest {
     val photo = outbox.queued.value.single().photo
     assertEquals(copyOf("m1"), photo)
     assertArrayEquals(cameraBytes, File(photo.path!!).readBytes())
+  }
+
+  @Test
+  fun enqueue_keepsWhatTheCompressorReturns_notTheOriginalPhoto() = runTest {
+    val compressed = byteArrayOf(7, 7, 7, 7)
+    compress = { compressed }
+    val outbox = newOutbox()
+
+    outbox.enqueue("drill_renter", "m1", galleryPhoto, null)
+
+    assertEquals(listOf(galleryPhoto), compressedPhotos)
+    assertArrayEquals(compressed, File(copyOf("m1").path!!).readBytes())
+    assertArrayEquals(compressed, File(newOutbox().queued.value.single().photo.path!!).readBytes())
+  }
+
+  @Test
+  fun enqueue_whenCompressionFails_throwsItAndKeepsNothing_andLeavesTheOtherPhotos() = runTest {
+    val outbox = newOutbox()
+    outbox.enqueue("drill_renter", "kept", Uri.fromFile(cameraFile), null)
+    val before = outbox.queued.value
+    val failure = IOException("Cannot decode the photo")
+    compress = { throw failure }
+
+    val error = runCatching { outbox.enqueue("drill_renter", "m2", galleryPhoto, null) }
+
+    assertSame(failure, error.exceptionOrNull())
+    assertFalse(folder("m2").exists())
+    assertEquals(before, outbox.queued.value)
+    assertArrayEquals(cameraBytes, File(copyOf("kept").path!!).readBytes())
+    assertEquals(listOf("kept"), ids(newOutbox()))
   }
 
   @Test
