@@ -3,11 +3,18 @@ package com.android.polybazaar.map.ui
 
 import android.content.Context
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -33,6 +40,7 @@ import com.android.polybazaar.map.viewmodel.MapViewModel
 import java.net.UnknownHostException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -51,13 +59,20 @@ class MapScreenTest {
   private fun node(tag: String) = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
 
   /** The map tab with a stand-in map, since Google Maps can't run in unit tests. */
-  private fun setContent(uiState: MapUiState, onRetry: () -> Unit = {}) {
+  private fun setContent(
+      uiState: MapUiState,
+      onRetry: () -> Unit = {},
+      onOpenListing: (String) -> Unit = {},
+      onClosePreview: () -> Unit = {},
+  ) {
     composeTestRule.setContent {
       MapContent(
           uiState = uiState,
           onRetry = onRetry,
           map = { Box(Modifier.fillMaxSize().testTag("map")) },
           locationLayer = { Box(Modifier.fillMaxSize().testTag("location_layer")) },
+          onOpenListing = onOpenListing,
+          onClosePreview = onClosePreview,
       )
     }
   }
@@ -205,7 +220,7 @@ class MapScreenTest {
     viewModel.chooseCampus(Campus.EPFL)
     var shown = emptyList<MapMarker>()
 
-    composeTestRule.setContent { MapScreen(viewModel, map = { shown = it.markers }) }
+    composeTestRule.setContent { MapScreen(viewModel, map = { state, _ -> shown = state.markers }) }
     composeTestRule.waitForIdle()
     assertEquals(emptyList<String>(), shown.map { it.id })
     node(MapLocationTags.CAMPUS_PILL).assertIsDisplayed()
@@ -216,5 +231,154 @@ class MapScreenTest {
 
     assertEquals(listOf("drill"), shown.map { it.id })
     node(MapScreenTags.ERROR).assertDoesNotExist()
+  }
+
+  // ---- Marker preview (#342) ----
+
+  private val skill =
+      MapMarker(
+          "tutor",
+          "Calculus tutoring",
+          ListingType.SERVICE,
+          Coordinates(46.52, 6.56),
+          "CHF 25",
+      )
+
+  @Test
+  fun preview_showsTheSelectedListing_andReplacesTheStatus() {
+    setContent(MapUiState(markers = listOf(drill), selectedMarkerId = "drill", isLoading = true))
+
+    node(MapScreenTags.PREVIEW).assertIsDisplayed()
+    composeTestRule.onNodeWithText("Bosch drill set").assertIsDisplayed()
+    composeTestRule
+        .onNodeWithText("CHF 8 ${context.getString(R.string.browse_price_per_day)}")
+        .assertIsDisplayed()
+    composeTestRule.onNodeWithText(context.getString(R.string.map_preview_item)).assertIsDisplayed()
+    // The bottom of the map holds one thing at a time: the preview, not the loading pill.
+    node(MapScreenTags.LOADING).assertDoesNotExist()
+  }
+
+  @Test
+  fun preview_withAFailedReload_showsTheErrorAboveIt_andRetryStillWorks() {
+    var retried = false
+    // Offline: the reload failed, but the previewed listing is still on the map.
+    setContent(
+        MapUiState(markers = listOf(drill), selectedMarkerId = "drill", error = AppError.NETWORK),
+        onRetry = { retried = true },
+    )
+
+    node(MapScreenTags.PREVIEW).assertIsDisplayed()
+    node(MapScreenTags.ERROR).assertIsDisplayed()
+    // Stacked, not overlapping: the error pill ends above the card.
+    assertTrue(
+        node(MapScreenTags.ERROR).getBoundsInRoot().bottom <=
+            node(MapScreenTags.PREVIEW).getBoundsInRoot().top
+    )
+    node(MapScreenTags.RETRY_BUTTON).performClick()
+    assertTrue(retried)
+  }
+
+  @Test
+  fun preview_ofASkill_saysSkill() {
+    setContent(MapUiState(markers = listOf(skill), selectedMarkerId = "tutor"))
+
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.map_preview_skill))
+        .assertIsDisplayed()
+  }
+
+  @Test
+  fun preview_isNotShown_withoutASelection() {
+    setContent(MapUiState(markers = listOf(drill)))
+
+    node(MapScreenTags.PREVIEW).assertDoesNotExist()
+  }
+
+  @Test
+  fun preview_tapped_opensTheListing_andTalkBackSaysWhich() {
+    var opened: String? = null
+    setContent(
+        MapUiState(markers = listOf(drill), selectedMarkerId = "drill"),
+        onOpenListing = { opened = it },
+    )
+
+    node(MapScreenTags.PREVIEW)
+        // TalkBack says "Open Bosch drill set" rather than just "double tap to activate".
+        .assert(
+            SemanticsMatcher("click label opens the listing") {
+              it.config[SemanticsActions.OnClick].label ==
+                  context.getString(R.string.map_preview_open, "Bosch drill set")
+            }
+        )
+        .performClick()
+
+    assertEquals("drill", opened)
+  }
+
+  @Test
+  fun preview_close_closesItWithoutOpening() {
+    var opened: String? = null
+    var closed = false
+    setContent(
+        MapUiState(markers = listOf(drill), selectedMarkerId = "drill"),
+        onOpenListing = { opened = it },
+        onClosePreview = { closed = true },
+    )
+
+    node(MapScreenTags.PREVIEW_CLOSE).assertHeightIsAtLeast(48.dp).performClick()
+
+    assertTrue(closed)
+    assertNull(opened)
+  }
+
+  @Test
+  fun mapScreen_markerTapped_showsItsPreview_mapTapped_closesIt() {
+    val listings =
+        FakeListingRepository(
+            listOf(
+                ItemListing(
+                    category = ListingCategory.ITEM_TOOLS,
+                    price = 8.0,
+                    title = "Bosch drill set",
+                    description = "With bits",
+                    listingId = "drill",
+                    ownerUid = "lender",
+                    location = ListingLocation(46.519, 6.567, "Rolex Learning Center"),
+                )
+            )
+        )
+    val viewModel = MapViewModel(FakeLocationRepository(), listings, "renter", SavedStateHandle())
+    viewModel.chooseCampus(Campus.EPFL)
+    var opened: String? = null
+    composeTestRule.setContent {
+      MapScreen(
+          viewModel,
+          onOpenListing = { opened = it },
+          // A stand-in that taps like the Google map: one button per marker, and the map itself.
+          map = { state, actions ->
+            Column {
+              Button(onClick = actions.onMapClick, modifier = Modifier.testTag("map")) {
+                Text("map")
+              }
+              state.markers.forEach { marker ->
+                Button(
+                    onClick = { actions.onMarkerClick(marker.id) },
+                    modifier = Modifier.testTag("marker_${marker.id}"),
+                ) {
+                  Text(marker.id)
+                }
+              }
+            }
+          },
+      )
+    }
+    composeTestRule.waitForIdle()
+
+    node("marker_drill").performClick()
+    node(MapScreenTags.PREVIEW).assertIsDisplayed().performClick()
+    assertEquals("drill", opened)
+
+    node("map").performClick()
+    node(MapScreenTags.PREVIEW).assertDoesNotExist()
   }
 }
