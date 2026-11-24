@@ -185,33 +185,7 @@ class BookingViewModel(
                   observed.bookings.sortedWith(
                       compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id })
                   )
-              _uiState.update { state ->
-                val cancellationObsolete =
-                    state.failedCancelId != null &&
-                        bookings.any {
-                          it.id == state.failedCancelId &&
-                              (it.status == BookingStatus.CANCELLED || it.handoverNotified)
-                        }
-                state.copy(
-                    bookings = bookings,
-                    pendingBookingIds = observed.pendingIds,
-                    isLoadingBookings = false,
-                    observationError = null,
-                    failedCancelId = if (cancellationObsolete) null else state.failedCancelId,
-                    error = if (cancellationObsolete) null else state.error,
-                    submittingConfirmations =
-                        state.submittingConfirmations.filter { (id, action) ->
-                          bookings.any { it.id == id && !action.isRecorded(it) }
-                        },
-                    confirmationFailures =
-                        state.confirmationFailures.filter { (id, failure) ->
-                          bookings.any {
-                            it.id == id &&
-                                (id in observed.pendingIds || !failure.action.isRecorded(it))
-                          }
-                        },
-                )
-              }
+              _uiState.update { it.withObservedBookings(observed, bookings) }
               ids.value = bookings.mapTo(mutableSetOf(), nameId)
             }
           } finally {
@@ -230,6 +204,36 @@ class BookingViewModel(
         }
       }
     }
+  }
+
+  private fun BookingUiState.withObservedBookings(
+      observed: ObservedBookings,
+      bookings: List<Booking>,
+  ): BookingUiState {
+    val cancellationObsolete =
+        failedCancelId != null &&
+            bookings.any {
+              it.id == failedCancelId &&
+                  (it.status == BookingStatus.CANCELLED || it.handoverNotified)
+            }
+    return copy(
+        bookings = bookings,
+        pendingBookingIds = observed.pendingIds,
+        isLoadingBookings = false,
+        observationError = null,
+        failedCancelId = if (cancellationObsolete) null else failedCancelId,
+        error = if (cancellationObsolete) null else error,
+        submittingConfirmations =
+            submittingConfirmations.filter { (id, action) ->
+              bookings.any { it.id == id && !action.isRecorded(it) }
+            },
+        confirmationFailures =
+            confirmationFailures.filter { (id, failure) ->
+              bookings.any {
+                it.id == id && (id in observed.pendingIds || !failure.action.isRecorded(it))
+              }
+            },
+    )
   }
 
   fun confirmBooking(id: String, action: ConfirmationAction) {
