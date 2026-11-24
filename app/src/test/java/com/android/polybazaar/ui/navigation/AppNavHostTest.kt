@@ -1809,7 +1809,11 @@ class AppNavHostTest {
     Espresso.pressBack()
     composeTestRule.waitForIdle()
     assertEquals(Routes.MAP, navController.currentBackStackEntry?.destination?.route)
-    composeTestRule.onNodeWithTag(MapScreenTags.PREVIEW).assertIsDisplayed()
+    // The same listing's preview, not just any preview.
+    composeTestRule
+        .onNodeWithTag(MapScreenTags.PREVIEW)
+        .assertIsDisplayed()
+        .assert(hasText(gracesDrill.title))
   }
 
   @Test
