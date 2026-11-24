@@ -9,7 +9,6 @@ import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.photo.PhotoCompressor
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -100,14 +99,20 @@ class FilePhotoOutbox(
 
   private val directory = File(context.filesDir, DIRECTORY)
 
-  /** When the newest photo was queued, on disk or since; the next one is queued after it. */
-  private val lastQueuedAt: AtomicLong
+  /** Held while a photo is timed, saved and listed, see [enqueue]. */
+  private val enqueueLock = Any()
+
+  /**
+   * When the newest photo was queued, on disk or since; the next one is queued after it. Only used
+   * under [enqueueLock].
+   */
+  private var lastQueuedAt: Long
   private val _queued: MutableStateFlow<List<QueuedPhoto>>
 
   init {
     // Read at once: a few small files, and the queue must be known before the sender starts.
     val entries = loadAll()
-    lastQueuedAt = AtomicLong(entries.maxOfOrNull { it.queuedAt } ?: Long.MIN_VALUE)
+    lastQueuedAt = entries.maxOfOrNull { it.queuedAt } ?: Long.MIN_VALUE
     _queued = MutableStateFlow(entries.map { it.photo })
   }
 
@@ -126,14 +131,15 @@ class FilePhotoOutbox(
         if (!folder.mkdirs() && !folder.isDirectory) throw IOException("Cannot create $folder")
         val copy = File(folder, PHOTO_FILE)
         copy.writeBytes(photoCompressor.compress(photo))
-        val entry =
-            Entry(
-                QueuedPhoto(messageId, conversationId, senderUid, Uri.fromFile(copy), caption),
-                queuedAt = nextQueuedAt(),
-            )
-        write(folder, entry)
-        // Right after the rename, with no suspension between: a photo on disk is always listed.
-        _queued.update { photos -> photos.filterNot { it.messageId == messageId } + entry.photo }
+        val queuedPhoto =
+            QueuedPhoto(messageId, conversationId, senderUid, Uri.fromFile(copy), caption)
+        // Timed, saved and listed at once: two photos queued together are listed in the order of
+        // their queuedAt, the order they load in after a restart. The entry is a few bytes.
+        synchronized(enqueueLock) {
+          write(folder, Entry(queuedPhoto, queuedAt = nextQueuedAt()))
+          // Right after the rename, with no suspension between: a photo on disk is always listed.
+          _queued.update { photos -> photos.filterNot { it.messageId == messageId } + queuedPhoto }
+        }
       } catch (exception: Exception) {
         // The photo could not be compressed, or it or its entry written: nothing of it is kept.
         folder.deleteRecursively()
@@ -194,9 +200,9 @@ class FilePhotoOutbox(
 
   /**
    * A time later than every photo already queued, so the order is exact: [now], or one millisecond
-   * after the last photo when [now] is not later. Atomic, as two photos can be queued at once.
+   * after the last photo when [now] is not later. Called under [enqueueLock].
    */
-  private fun nextQueuedAt(): Long = lastQueuedAt.updateAndGet { last -> maxOf(now(), last + 1) }
+  private fun nextQueuedAt(): Long = maxOf(now(), lastQueuedAt + 1).also { lastQueuedAt = it }
 
   /** The folder of [messageId], refusing an ID that could point outside [directory]. */
   private fun folderOf(messageId: String): File {

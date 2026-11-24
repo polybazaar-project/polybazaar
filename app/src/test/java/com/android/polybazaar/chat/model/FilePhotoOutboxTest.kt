@@ -387,7 +387,7 @@ class FilePhotoOutboxTest {
   }
 
   @Test
-  fun twoPhotosQueuedAtOnce_getDifferentTimes_andBothSurviveARestart() = runTest {
+  fun twoPhotosQueuedAtOnce_getDifferentTimes_andKeepTheirOrderAfterARestart() = runTest {
     // Each compression waits for the other to start, so both enqueues run at the same time, on
     // two threads, with the clock fixed.
     val bothStarted = CountDownLatch(2)
@@ -405,6 +405,8 @@ class FilePhotoOutboxTest {
 
     assertEquals(setOf("m1", "m2"), ids(outbox).toSet())
     assertTrue(queuedAtOf("m1") != queuedAtOf("m2"))
-    assertEquals(setOf("m1", "m2"), ids(newOutbox()).toSet())
+    // Listed in the order of their times, which is the order they load in after a restart.
+    assertEquals(ids(outbox).sortedBy(::queuedAtOf), ids(outbox))
+    assertEquals(ids(outbox), ids(newOutbox()))
   }
 }
