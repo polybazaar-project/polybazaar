@@ -82,6 +82,7 @@ import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
@@ -147,6 +148,8 @@ class AppNavHostTest {
   private val chatRepository = FakeChatRepository()
   private val bookingRepository = FakeBookingRepository()
   private val locationRepository = FakeLocationRepository()
+  private val connectivity = FakeConnectivityRepository()
+  private val pendingQueue = FakePendingListingQueue()
 
   /** What the Map tab last gave its map, recorded by [mapStandIn]. */
   private var mapState: MapUiState? = null
@@ -203,7 +206,8 @@ class AppNavHostTest {
             locationRepository = locationRepository,
             placeNameRepository = FakePlaceNameRepository(),
             listingsMap = mapStandIn,
-            connectivityRepository = FakeConnectivityRepository(),
+            connectivityRepository = connectivity,
+            pendingListingQueue = pendingQueue,
             navController = navController,
         )
       }
@@ -250,6 +254,7 @@ class AppNavHostTest {
             placeNameRepository = FakePlaceNameRepository(),
             listingsMap = mapStandIn,
             connectivityRepository = FakeConnectivityRepository(),
+            pendingListingQueue = FakePendingListingQueue(),
             navController = navController,
         )
       }
@@ -494,6 +499,22 @@ class AppNavHostTest {
   }
 
   @Test
+  fun createListing_offline_isKeptAsADraft_withAMessage_andOpensBrowse() {
+    connectivity.isOnline.value = false
+    setContent(FakeAuthRepository(currentUser = user))
+    openCreateListing()
+
+    publishListing("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.listing_saved_offline))
+        .assertIsDisplayed()
+    assertEquals("Bosch drill set", pendingQueue.pending.value.single().listing.title)
+    assertTrue(listingRepository.allListings.isEmpty())
+  }
+
+  @Test
   fun noPersistedUser_startsOnSignIn() {
     setContent(FakeAuthRepository(currentUser = null))
 
@@ -728,6 +749,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = mapStandIn,
       )
@@ -1563,6 +1585,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = mapStandIn,
       )
@@ -1643,6 +1666,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = mapStandIn,
       )

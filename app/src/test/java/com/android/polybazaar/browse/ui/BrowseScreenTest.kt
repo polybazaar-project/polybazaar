@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Opus 5.5
 package com.android.polybazaar.browse.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.testing.hasClickLabel
+import java.io.ByteArrayOutputStream
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
@@ -484,6 +486,73 @@ class BrowseScreenTest {
 
   private fun clickCategory(category: String) {
     categoryChip(category).performClick()
+  }
+
+  private fun jpeg(): ByteArray {
+    val bitmap = Bitmap.createBitmap(40, 40, Bitmap.Config.ARGB_8888)
+    return ByteArrayOutputStream().use {
+      bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)
+      it.toByteArray()
+    }
+  }
+
+  // Decoding a real photo needs Robolectric's native graphics. The photo is decoded on
+  // Dispatchers.IO, which the test clock does not wait for, so the tests poll for it.
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun listingCard_withAPhoto_showsIt() {
+    val listing = BrowseListing("id1", "Test Item", "Tools", null, "CHF 15", "listings/id1/0")
+    composeTestRule.setContent { ListingCard(listing, photo = jpeg()) }
+
+    composeTestRule.waitUntil(5_000) {
+      composeTestRule
+          .onAllNodes(hasTestTag(BrowseScreenTags.LISTING_PHOTO))
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_PHOTO).assertIsDisplayed()
+  }
+
+  @Test
+  fun listingCard_withoutAPhoto_showsNoPhoto() {
+    val listing = BrowseListing("id1", "Test Item", "Tools", null, "CHF 15", "listings/id1/0")
+    composeTestRule.setContent { ListingCard(listing) }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_PHOTO).assertDoesNotExist()
+    composeTestRule.onNodeWithText("Test Item").assertIsDisplayed()
+  }
+
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun browseScreen_showsTheDownloadedPhotoOnItsCard() {
+    val repository =
+        FakeListingRepository(
+            listOf(
+                ItemListing(
+                    ListingCategory.ITEM_TOOLS,
+                    8.0,
+                    "Bosch drill set",
+                    "",
+                    listingId = "drill",
+                    imagePaths = listOf("listings/drill/0"),
+                )
+            )
+        )
+    repository.images["listings/drill/0"] = jpeg()
+    val viewModel = BrowseViewModel(repository, currentUid)
+    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
+
+    composeTestRule.waitUntil(5_000) {
+      composeTestRule
+          .onAllNodes(hasTestTag(BrowseScreenTags.LISTING_PHOTO), useUnmergedTree = true)
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    // The card is clickable, so it merges its children: the photo is in the unmerged tree only.
+    composeTestRule
+        .onNodeWithTag(BrowseScreenTags.LISTING_PHOTO, useUnmergedTree = true)
+        .assertIsDisplayed()
   }
 }
 

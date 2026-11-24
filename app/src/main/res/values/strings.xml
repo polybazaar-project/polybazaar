@@ -32,6 +32,9 @@
     <string name="lender_profile_no_listings">This lender has no listings yet.</string>
     <string name="lender_profile_not_found">This profile no longer exists.</string>
 
+    <!-- Create listing screen -->
+    <string name="listing_saved_offline">Saved offline. Your listing will be published when you’re back online.</string>
+
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
     <string name="listing_detail_description_title">DESCRIPTION</string>
