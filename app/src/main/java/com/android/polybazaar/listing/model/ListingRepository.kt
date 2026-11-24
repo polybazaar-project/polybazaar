@@ -12,6 +12,12 @@ interface ListingRepository {
   suspend fun createListing(listing: Listing): Listing
 
   /**
+   * Returns a new, unused id to publish a listing under later, for example once a listing created
+   * offline can be uploaded. Works offline: the id is generated on the device.
+   */
+  fun newListingId(): String
+
+  /**
    * Returns the listings created by the signed-in user, for the Toolbox (#20).
    *
    * Fails when nobody is signed in or Firestore cannot answer; the caller maps the failure with
