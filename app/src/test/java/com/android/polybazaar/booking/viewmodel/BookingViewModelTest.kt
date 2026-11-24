@@ -339,7 +339,8 @@ class BookingViewModelTest {
             returnNotified = true,
             lenderReturnConfirmed = true,
         )
-    val submitting = booking.copy(id = "b", status = BookingStatus.CONFIRMED, handoverNotified = true)
+    val submitting =
+        booking.copy(id = "b", status = BookingStatus.CONFIRMED, handoverNotified = true)
     val cancellable = booking.copy(id = "c")
     repository.renterBookings = listOf(pending, submitting, cancellable)
     val viewModel = BookingViewModel(repository)

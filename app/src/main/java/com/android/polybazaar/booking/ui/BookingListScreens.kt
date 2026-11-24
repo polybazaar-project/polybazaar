@@ -313,7 +313,13 @@ private fun BookingRow(
     }
     if (booking.status == BookingStatus.CONFIRMED) {
       ConfirmationContent(
-          booking, party, pending, submitting, observationUnavailable, failure, onConfirm
+          booking,
+          party,
+          pending,
+          submitting,
+          observationUnavailable,
+          failure,
+          onConfirm,
       )
     }
   }
