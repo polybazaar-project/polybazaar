@@ -15,6 +15,7 @@ import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
 import com.android.polybazaar.chat.model.FakePhotoOutbox
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -25,6 +26,7 @@ import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
+import java.io.IOException
 import java.net.UnknownHostException
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
@@ -33,7 +35,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
@@ -1944,6 +1950,256 @@ class ConversationViewModelTest {
 
     assertEquals(emptyList<Uri>(), photoStorage.deleted)
     assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+  }
+
+  // Queued photos
+
+  private val offline = AppException(AppError.NETWORK)
+
+  /** My photo [messageId] of the drill conversation in the outbox, as [QueuedPhoto]. */
+  private fun queuedPhoto(
+      messageId: String,
+      photo: Uri = galleryPhoto,
+      caption: String? = null,
+      conversationId: String = conversation.id,
+      senderUid: String = renter.uid,
+  ) = QueuedPhoto(messageId, conversationId, senderUid, photo, caption)
+
+  /** Remi's message "m1" already written on the server, its photo not uploaded yet. */
+  private val pendingPhotoMessage =
+      ChatMessage(
+          "m1",
+          renter.uid,
+          "",
+          Instant.ofEpochSecond(300),
+          imagePath = "chats/drill_renter/m1.jpg",
+          photoPending = true,
+      )
+
+  @Test
+  fun sendPhoto_offline_queuesItWithItsIdAndCaption_andItIsNoLongerPending() {
+    val viewModel = inConversation()
+    chat.sendFailure = offline
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.onDraftChange("  The bits ")
+    viewModel.send()
+    advance()
+
+    val queued = listOf(queuedPhoto("m1", caption = "The bits"))
+    assertEquals(queued, photoOutbox.queued.value)
+    val state = viewModel.uiState.value
+    assertEquals(emptyList<PendingPhoto>(), state.pendingPhotos)
+    assertEquals(queued, state.queuedPhotos)
+    assertNull(state.sendError)
+    // A gallery photo is not the app's to delete.
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun sendPhoto_offline_deletesTheTakenFile_onceQueued() {
+    val viewModel = inConversation()
+    chat.sendFailure = offline
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    assertEquals(listOf("m1"), photoOutbox.queued.value.map { it.messageId })
+    assertEquals(listOf(taken), photoStorage.deleted)
+  }
+
+  @Test
+  fun sendPhoto_offline_movesFromPendingToQueuedInOneUpdate() {
+    val viewModel = inConversation()
+    val states = mutableListOf<ConversationUiState>()
+    // Unconfined: records every state the ViewModel sets, not just the latest.
+    val recorder = CoroutineScope(UnconfinedTestDispatcher(testDispatcher.scheduler))
+    recorder.launch { viewModel.uiState.collect { states += it } }
+    chat.sendFailure = offline
+    viewModel.attachPhoto(galleryPhoto)
+    viewModel.send()
+    advance()
+    recorder.cancel()
+
+    val shown = states.map { state ->
+      state.pendingPhotos.count { it.messageId == "m1" } +
+          state.queuedPhotos.count { it.messageId == "m1" }
+    }
+    // Once it appears, it shows exactly once: never twice, and never not at all.
+    assertEquals(listOf(1), shown.dropWhile { it == 0 }.distinct())
+    assertEquals(1, states.last().queuedPhotos.size)
+  }
+
+  @Test
+  fun closing_whileAPhotoUploads_queuesItWhenItFailsOffline_insteadOfAbandoningIt() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    val sending = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+    chat.sendFailure = offline
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(listOf(queuedPhoto("m1", photo = sending)), photoOutbox.queued.value)
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+    assertEquals(listOf(sending), photoStorage.deleted)
+  }
+
+  @Test
+  fun sendPhoto_offline_whenItCannotBeQueued_failsWithNetwork_andKeepsTheTakenFile() {
+    val viewModel = inConversation()
+    photoOutbox.failure = IOException("Disk full")
+    chat.sendFailure = offline
+    val taken = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    assertEquals(
+        listOf(PendingPhoto("m1", taken, null, PendingPhotoStatus.FAILED, AppError.NETWORK)),
+        viewModel.uiState.value.pendingPhotos,
+    )
+    assertEquals(emptyList<QueuedPhoto>(), viewModel.uiState.value.queuedPhotos)
+    // Retry still needs it.
+    assertEquals(emptyList<Uri>(), photoStorage.deleted)
+  }
+
+  @Test
+  fun closing_whileAPhotoUploads_abandonsItWhenItFailsOfflineAndCannotBeQueued() {
+    val viewModel = inConversation()
+    chat.gate = CompletableDeferred()
+    val sending = viewModel.takePhoto()
+    viewModel.send()
+    advance()
+
+    viewModel.close()
+    photoOutbox.failure = IOException("Disk full")
+    chat.sendFailure = offline
+    chat.gate!!.complete(Unit)
+    advance()
+
+    assertEquals(emptyList<QueuedPhoto>(), photoOutbox.queued.value)
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+    assertEquals(listOf(sending), photoStorage.deleted)
+  }
+
+  @Test
+  fun sendPhoto_refused_isNotQueued() {
+    val viewModel = failedPhotoSend(refused)
+
+    assertEquals(emptyList<QueuedPhoto>(), photoOutbox.queued.value)
+    assertEquals(
+        listOf(PendingPhotoStatus.FAILED),
+        viewModel.uiState.value.pendingPhotos.map { it.status },
+    )
+  }
+
+  @Test
+  fun queuedPhotos_holdOnlyMyPhotosOfThisConversation_andFollowTheOutbox() {
+    photoOutbox.add(queuedPhoto("mine"))
+    photoOutbox.add(queuedPhoto("otherChat", conversationId = "bike_renter"))
+    photoOutbox.add(queuedPhoto("theirs", senderUid = lender.uid))
+    val viewModel = inConversation()
+    assertEquals(listOf(queuedPhoto("mine")), viewModel.uiState.value.queuedPhotos)
+
+    photoOutbox.add(queuedPhoto("later", caption = "Again"))
+    advance()
+    assertEquals(
+        listOf(queuedPhoto("mine"), queuedPhoto("later", caption = "Again")),
+        viewModel.uiState.value.queuedPhotos,
+    )
+
+    photoOutbox.claim("mine")
+    advance()
+    assertTrue(viewModel.uiState.value.queuedPhotos.first().sending)
+  }
+
+  @Test
+  fun queuedPhotos_seenByTheOtherParticipant_areNotTheirs() {
+    photoOutbox.add(queuedPhoto("mine"))
+
+    val viewModel = inConversation(myUid = lender.uid)
+
+    assertEquals(emptyList<QueuedPhoto>(), viewModel.uiState.value.queuedPhotos)
+  }
+
+  @Test
+  fun queuedPhoto_hidesItsMessage_untilSent_thenTheMessageShowsInstead() {
+    photoOutbox.add(queuedPhoto("m1"))
+    givenConversation(messages = arrayOf(hi, pendingPhotoMessage))
+    val viewModel = loadedViewModel()
+    assertEquals(listOf(hi, pendingPhotoMessage), viewModel.uiState.value.messages)
+    assertEquals(listOf(hi), viewModel.uiState.value.shownMessages)
+
+    // The sender sends it: the message is marked uploaded and the photo leaves the outbox.
+    val sent = pendingPhotoMessage.copy(photoPending = false)
+    chat.messages.value = mapOf(conversation.id to listOf(hi, sent))
+    runBlockingRemove("m1")
+    advance()
+
+    assertEquals(emptyList<QueuedPhoto>(), viewModel.uiState.value.queuedPhotos)
+    assertEquals(listOf(hi, sent), viewModel.uiState.value.shownMessages)
+  }
+
+  @Test
+  fun removeQueuedPhoto_removesItAndDeletesItsMessage() {
+    photoOutbox.add(queuedPhoto("m1"))
+    givenConversation(messages = arrayOf(hi, pendingPhotoMessage))
+    val viewModel = loadedViewModel()
+
+    viewModel.removeQueuedPhoto("m1")
+    advance()
+
+    assertEquals(emptyList<QueuedPhoto>(), photoOutbox.queued.value)
+    assertEquals(emptyList<QueuedPhoto>(), viewModel.uiState.value.queuedPhotos)
+    assertEquals(listOf(conversation.id to "m1"), chat.deletedPhotoMessages)
+    assertEquals(listOf(hi), viewModel.uiState.value.shownMessages)
+  }
+
+  @Test
+  fun removeQueuedPhoto_whileTheSenderSendsIt_isIgnored() {
+    photoOutbox.add(queuedPhoto("m1"))
+    val viewModel = inConversation()
+    photoOutbox.claim("m1")
+    advance()
+
+    viewModel.removeQueuedPhoto("m1")
+    advance()
+
+    assertEquals(listOf("m1"), photoOutbox.queued.value.map { it.messageId })
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun removeQueuedPhoto_ofAnotherConversationsPhoto_isIgnored() {
+    photoOutbox.add(queuedPhoto("m1", conversationId = "bike_renter"))
+    val viewModel = inConversation()
+
+    viewModel.removeQueuedPhoto("m1")
+    advance()
+
+    assertEquals(listOf("m1"), photoOutbox.queued.value.map { it.messageId })
+    assertEquals(emptyList<Pair<String, String>>(), chat.deletedPhotoMessages)
+  }
+
+  @Test
+  fun queuedPhoto_isNeverSentByTheConversation_evenAsTheOutboxChanges() {
+    photoOutbox.add(queuedPhoto("m9"))
+    val viewModel = inConversation()
+
+    photoOutbox.add(queuedPhoto("m10"))
+    photoOutbox.release("m9")
+    advance()
+
+    // Only the app-wide sender sends them, so the same id is never sent twice at once.
+    assertEquals(emptyList<FakeChatRepository.SentPhoto>(), chat.sentPhotos)
+    assertEquals(2, viewModel.uiState.value.queuedPhotos.size)
+  }
+
+  /** Removes [messageId] from the outbox, as the sender does once it is sent. */
+  private fun runBlockingRemove(messageId: String) {
+    assertTrue(runBlocking { photoOutbox.remove(messageId) })
   }
 
   private val photoPath = "chats/drill_renter/m1.jpg"
