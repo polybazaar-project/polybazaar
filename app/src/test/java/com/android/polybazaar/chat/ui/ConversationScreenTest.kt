@@ -10,10 +10,12 @@ import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -25,6 +27,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
@@ -38,13 +41,17 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityOptionsCompat
@@ -72,7 +79,9 @@ import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.PhotoStorage
+import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.FakeProfileRepository
@@ -80,6 +89,7 @@ import com.android.polybazaar.profile.ui.redPhoto
 import java.io.File
 import java.net.UnknownHostException
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -126,9 +136,13 @@ class ConversationScreenTest {
           conversation = conversation,
           listingTitle = "Bosch drill set",
           listingStatus = ConversationListingStatus.ACTIVE,
+          isRenter = true,
           otherUser = james,
           isLoading = false,
       )
+
+  /** The time the tests look at the screen: the day of [question] and [answer]. */
+  private val now = Instant.parse("2026-11-11T12:00:00Z")
 
   private fun setContent(
       uiState: ConversationUiState,
@@ -159,6 +173,7 @@ class ConversationScreenTest {
           onRetryPhoto = onRetryPhoto,
           onDiscardPhoto = onDiscardPhoto,
           zone = ZoneOffset.UTC,
+          now = now,
       )
     }
   }
@@ -204,11 +219,67 @@ class ConversationScreenTest {
     )
   }
 
+  /** When [manyMessages] were sent. */
+  private val manyStart = Instant.parse("2026-11-11T08:00:00Z")
+
+  /** More messages than fit on the screen, oldest first: the renter's are the even ones. */
+  private val manyMessages =
+      List(50) {
+        ChatMessage("m$it", if (it % 2 == 0) "renter" else james.uid, "Message $it", manyStart)
+      }
+
+  /**
+   * Shows [messages], through [restoration] when given, and returns how to make a new one arrive
+   * after them.
+   */
+  private fun showManyMessages(
+      messages: List<ChatMessage> = manyMessages,
+      restoration: StateRestorationTester? = null,
+  ): (ChatMessage) -> Unit {
+    var uiState by mutableStateOf(loaded.copy(messages = messages))
+    val content: @Composable () -> Unit = {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC)
+    }
+    if (restoration != null) restoration.setContent(content)
+    else composeTestRule.setContent(content)
+    return { message -> uiState = uiState.copy(messages = uiState.messages + message) }
+  }
+
+  /** Scrolls up to the oldest of [manyMessages], at the top of the list. */
+  private fun scrollToTheOldest() {
+    node(ConversationScreenTags.MESSAGE_LIST)
+        .performScrollToNode(hasTestTag(ConversationScreenTags.myMessage("m0")))
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  /** Shows [state], and returns how to change it. */
+  private fun showChanging(
+      state: ConversationUiState
+  ): ((ConversationUiState) -> ConversationUiState) -> Unit {
+    var uiState by mutableStateOf(state)
+    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
+    return { change -> uiState = change(uiState) }
+  }
+
   /** Every text of the empty state. */
   private fun emptyStateTexts() =
       composeTestRule.onAllNodes(
           hasAnyAncestor(hasTestTag(ConversationScreenTags.EMPTY_STATE)) and
               SemanticsMatcher.keyIsDefined(SemanticsProperties.Text),
+          useUnmergedTree = true,
+      )
+
+  /** Every text of the listing summary. */
+  private fun summaryTexts() =
+      composeTestRule.onAllNodes(
+          hasAnyAncestor(hasTestTag(ConversationScreenTags.LISTING_SUMMARY)) and
+              SemanticsMatcher.keyIsDefined(SemanticsProperties.Text),
+          useUnmergedTree = true,
+      )
+
+  private fun pill() =
+      composeTestRule.onNodeWithTag(
+          ConversationScreenTags.LISTING_STATUS_PILL,
           useUnmergedTree = true,
       )
 
@@ -361,6 +432,9 @@ class ConversationScreenTest {
     text(string(R.string.conversation_empty_title, "james")).assertIsDisplayed()
     text("No messages yet. Ask about “Bosch drill set”, its availability or a good time to meet.")
         .assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.EMPTY_TAGLINE, useUnmergedTree = true)
+        .assertTextEquals("Good tools. Great neighbours.")
     node(ConversationScreenTags.MESSAGE_FIELD).assertIsEnabled()
   }
 
@@ -474,23 +548,307 @@ class ConversationScreenTest {
 
   @Test
   fun manyMessages_openOnTheLatest_andFollowANewOne() {
-    val start = Instant.parse("2026-11-11T08:00:00Z")
-    val many =
-        List(50) {
-          ChatMessage("m$it", if (it % 2 == 0) "renter" else james.uid, "Message $it", start)
-        }
-    var uiState by mutableStateOf(loaded.copy(messages = many))
-    composeTestRule.setContent { ConversationContent(uiState = uiState, zone = ZoneOffset.UTC) }
+    val arrive = showManyMessages()
 
     assertFullyInTheList(node(ConversationScreenTags.theirMessage("m49")))
     node(ConversationScreenTags.myMessage("m0")).assertIsNotDisplayed()
 
-    uiState = uiState.copy(messages = many + ChatMessage("m50", "renter", "On my way", start))
+    arrive(ChatMessage("m50", "renter", "On my way", manyStart))
 
     assertFullyInTheList(node(ConversationScreenTags.myMessage("m50")))
-    // The oldest message was only out of view: the list holds it last, newest first.
-    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(50)
+    // The oldest message was only out of view, at the top of the list.
+    node(ConversationScreenTags.MESSAGE_LIST)
+        .performScrollToNode(hasTestTag(ConversationScreenTags.myMessage("m0")))
     node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  @Test
+  fun theirNewMessageWhileTheLatestIsInView_isFollowed_withoutTheHint() {
+    val arrive = showManyMessages()
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun theirNewMessagesWhileReadingOlderOnes_keepThePlace_andShowTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    composeTestRule.waitForIdle()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+    arrive(ChatMessage("m51", james.uid, "At ten", manyStart))
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.theirMessage("m50")).assertIsNotDisplayed()
+    node(ConversationScreenTags.theirMessage("m51")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT)
+        .assertIsDisplayed()
+        .assertTextEquals(string(R.string.conversation_new_message))
+        .assertHasClickAction()
+        .assert(isPoliteLiveRegion())
+  }
+
+  @Test
+  fun theirNewMessageDuringADragAtTheLatest_isFollowedOnceTheFingerLifts() {
+    val arrive = showManyMessages()
+    // Past the touch slop, so the finger holds the list's scroll while it stays down.
+    node(ConversationScreenTags.MESSAGE_LIST).performTouchInput {
+      down(center)
+      moveBy(Offset(0f, viewConfiguration.touchSlop + 5f))
+      moveBy(Offset(0f, 5f))
+    }
+    node(ConversationScreenTags.theirMessage("m49")).assertIsDisplayed()
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    composeTestRule.waitForIdle()
+    // Held still before lifting, so the list does not fling.
+    composeTestRule.mainClock.advanceTimeBy(500)
+    node(ConversationScreenTags.MESSAGE_LIST).performTouchInput { up() }
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  // Real text heights, and a window shorter than the long message, so its start and its end are
+  // not in view together.
+  @Test
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  @Config(qualifiers = "w360dp-h480dp")
+  fun theirNewMessageWhileReadingTheStartOfALongNewestOne_keepsThePlace_andShowsTheHint() {
+    // The longest message the rules allow.
+    val long =
+        ChatMessage(
+            "m49",
+            james.uid,
+            "word ".repeat(ChatRules.MAX_MESSAGE_LENGTH / "word ".length),
+            manyStart,
+        )
+    val arrive = showManyMessages(manyMessages.dropLast(1) + long)
+    node(ConversationScreenTags.MESSAGE_LIST).performTouchInput {
+      swipe(Offset(centerX, top + 20f), Offset(centerX, top + 220f), durationMillis = 2000)
+    }
+    val list = node(ConversationScreenTags.MESSAGE_LIST).fetchSemanticsNode().boundsInRoot
+    val reading = node(ConversationScreenTags.theirMessage("m49")).fetchSemanticsNode()
+    val readingTop = reading.positionInRoot.y
+    assertTrue("Its end is in view", readingTop + reading.size.height > list.bottom)
+
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+
+    val after = node(ConversationScreenTags.theirMessage("m49")).fetchSemanticsNode()
+    assertEquals(readingTop, after.positionInRoot.y, 0.5f)
+    node(ConversationScreenTags.theirMessage("m50")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+  }
+
+  @Test
+  fun recreatedWhileTheHintShows_keepsTheHintAndThePlace() {
+    val restoration = StateRestorationTester(composeTestRule)
+    val arrive = showManyMessages(restoration = restoration)
+    scrollToTheOldest()
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+
+    restoration.emulateSavedInstanceStateRestore()
+
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  @Test
+  fun tappingTheHint_showsTheNewMessage_andHidesTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).performClick()
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun scrollingDownToTheNewMessage_hidesTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+    arrive(ChatMessage("m50", james.uid, "See you", manyStart))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+
+    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(0)
+
+    node(ConversationScreenTags.theirMessage("m50")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun myNewMessageWhileReadingOlderOnes_isFollowed_withoutTheHint() {
+    val arrive = showManyMessages()
+    scrollToTheOldest()
+
+    arrive(ChatMessage("m50", "renter", "On my way", manyStart))
+
+    assertFullyInTheList(node(ConversationScreenTags.myMessage("m50")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun photoSentWhileReadingOlderOnes_isFollowed() {
+    val change = showChanging(loaded.copy(messages = manyMessages))
+    scrollToTheOldest()
+
+    change { it.copy(pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50"))) }
+
+    assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
+  }
+
+  @Test
+  fun theirNewMessageWhileAPhotoSendsAtTheEnd_staysAboveThePhoto_withoutTheHint() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages,
+                pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
+            )
+        )
+    assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
+
+    change { it.copy(messages = manyMessages + ChatMessage("m51", james.uid, "Nice", manyStart)) }
+
+    assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
+    node(ConversationScreenTags.theirMessage("m51")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun uploadFinishingWhileReadingOlderOnes_keepsThePlace_withoutTheHint() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages + photoMessage("m50", "renter"),
+                pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
+            )
+        )
+    scrollToTheOldest()
+
+    change { it.copy(pendingPhotos = emptyList()) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m50")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun newerPhotoFinishingAboveAFailedOneWhileReadingOlderOnes_keepsThePlace() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages =
+                    manyMessages + photoMessage("m50", "renter") + photoMessage("m51", "renter"),
+                pendingPhotos =
+                    listOf(
+                        pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m50"),
+                        pending(PendingPhotoStatus.UPLOADING, id = "m51"),
+                    ),
+            )
+        )
+    scrollToTheOldest()
+
+    change { it.copy(pendingPhotos = it.pendingPhotos.dropLast(1)) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m51")).assertIsNotDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  // A window taller than a photo bubble, so the photo and the messages around it fit together.
+  @Test
+  @Config(qualifiers = "w360dp-h800dp")
+  fun uploadFinishingAtTheEnd_staysAtTheEnd() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages + photoMessage("m50", "renter"),
+                pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
+            )
+        )
+    assertFullyInTheList(node(ConversationScreenTags.pendingPhoto("m50")))
+
+    change { it.copy(pendingPhotos = emptyList()) }
+
+    assertFullyInTheList(node(ConversationScreenTags.myMessage("m50")))
+  }
+
+  @Test
+  fun newestMessageDeletedWhileReadingOlderOnes_withTheirsNowNewest_keepsThePlace_withoutTheHint() {
+    val change =
+        showChanging(
+            loaded.copy(messages = manyMessages + ChatMessage("m50", "renter", "Photo", manyStart))
+        )
+    scrollToTheOldest()
+
+    change { it.copy(messages = manyMessages) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun newestMessageDeletedWhileReadingOlderOnes_withMineNowNewest_keepsThePlace() {
+    val change = showChanging(loaded.copy(messages = manyMessages))
+    scrollToTheOldest()
+
+    change { it.copy(messages = manyMessages.dropLast(1)) }
+
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  @Config(qualifiers = "w360dp-h800dp")
+  fun theirNewMessageFullyInViewAboveAFailedPhoto_hidesTheHint() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages,
+                pendingPhotos =
+                    listOf(pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m50")),
+            )
+        )
+    scrollToTheOldest()
+    change { it.copy(messages = manyMessages + ChatMessage("m51", james.uid, "Nice", manyStart)) }
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+
+    // The new message first from the bottom, the failed photo under it scrolled away.
+    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(1)
+
+    assertFullyInTheList(node(ConversationScreenTags.theirMessage("m51")))
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  @Config(qualifiers = "w360dp-h800dp")
+  fun theirNewMessageLandingInViewAboveTwoFailedPhotos_leavesNoHint() {
+    val change =
+        showChanging(
+            loaded.copy(
+                messages = manyMessages,
+                pendingPhotos =
+                    listOf(
+                        pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m50"),
+                        pending(PendingPhotoStatus.FAILED, AppError.NETWORK, id = "m51"),
+                    ),
+            )
+        )
+    // The upper failed photo first from the bottom, the lower one scrolled away.
+    node(ConversationScreenTags.MESSAGE_LIST).performScrollToIndex(1)
+
+    change { it.copy(messages = manyMessages + ChatMessage("m52", james.uid, "Nice", manyStart)) }
+
+    node(ConversationScreenTags.theirMessage("m52")).assertIsDisplayed()
+    node(ConversationScreenTags.NEW_MESSAGE_HINT).assertDoesNotExist()
   }
 
   @Test
@@ -509,7 +867,8 @@ class ConversationScreenTest {
     setContent(loaded, onBack = { backs++ })
 
     node(ConversationScreenTags.LISTING_TITLE).assertTextEquals("Bosch drill set")
-    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@james")
+    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@james · Lender")
+    node(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
     node(ConversationScreenTags.PAUSED_NOTICE).assertDoesNotExist()
     node(ConversationScreenTags.DELETED_NOTICE).assertDoesNotExist()
     node(ConversationScreenTags.BACK_BUTTON).performClick()
@@ -917,6 +1276,175 @@ class ConversationScreenTest {
     node(ConversationScreenTags.MESSAGE_FIELD).assert(hasDraft("Is it free on Saturday?!"))
   }
 
+  @Test
+  fun summary_forAnItem_showsTheLenderThePricePerDayAndThePlace_asARental() {
+    setContent(
+        loaded.copy(listing = drill.copy(location = ListingLocation(46.54, 6.58, "Renens VD")))
+    )
+
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertIsDisplayed()
+        .assertContentDescriptionEquals(
+            string(R.string.conversation_summary_spoken_lender, "james")
+        )
+    text("CHF 8 / day · Renens VD").assertIsDisplayed()
+    pill().assertTextEquals("Rental")
+  }
+
+  @Test
+  fun summary_forAService_showsThePriceAlone_asAService() {
+    val tutoring =
+        ServiceListing(
+            ListingCategory.SERVICE_TUTORING,
+            25.0,
+            "Calculus tutoring",
+            "Analysis I and II.",
+            listingId = "tutoring",
+            ownerUid = james.uid,
+        )
+
+    setContent(loaded.copy(listingTitle = "Calculus tutoring", listing = tutoring))
+
+    text("CHF 25").assertIsDisplayed()
+    pill().assertTextEquals("Service")
+  }
+
+  @Test
+  fun summary_followsTheListingStatus() {
+    var uiState by mutableStateOf(loaded.copy(listing = drill))
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+    pill().assertTextEquals("Rental")
+
+    uiState =
+        uiState.copy(
+            listing = drill.copy(isPaused = true),
+            listingStatus = ConversationListingStatus.PAUSED,
+        )
+    pill().assertTextEquals("Paused")
+
+    uiState = uiState.copy(listingStatus = ConversationListingStatus.DELETED)
+    pill().assertTextEquals("Deleted")
+  }
+
+  @Test
+  fun summary_ofAListingDeletedBeforeTheScreenOpened_showsOnlyTheLenderAndTheStatus() {
+    setContent(loaded.copy(listing = null, listingStatus = ConversationListingStatus.DELETED))
+
+    // The lender is spoken through its content description, so the status is the only text.
+    summaryTexts().assertCountEquals(1)
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(
+            string(R.string.conversation_summary_spoken_lender, "james")
+        )
+    pill().assertTextEquals("Deleted")
+  }
+
+  @Test
+  fun lender_seesThemselvesAsTheLender_andTheOtherPersonAsTheRenter() {
+    val remi = User(uid = "renter", email = "remi@epfl.ch", username = "remi")
+
+    setContent(loaded.copy(myUid = james.uid, isRenter = false, otherUser = remi, listing = drill))
+
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(string(R.string.conversation_summary_spoken_mine))
+    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@remi · Renter")
+  }
+
+  @Test
+  fun summary_isHiddenWhileTheListingIsUnknown() {
+    setContent(ConversationUiState(myUid = "renter"))
+
+    node(ConversationScreenTags.LISTING_SUMMARY).assertDoesNotExist()
+    node(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
+  }
+
+  @Test
+  fun notices_showTheirIcons() {
+    var uiState by mutableStateOf(loaded.copy(listingStatus = ConversationListingStatus.PAUSED))
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.NOTICE_ICON, useUnmergedTree = true)
+        .assertIsDisplayed()
+
+    uiState = uiState.copy(listingStatus = ConversationListingStatus.DELETED)
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.NOTICE_ICON, useUnmergedTree = true)
+        .assertIsDisplayed()
+  }
+
+  @Test
+  fun loadError_showsItsIcon() {
+    setContent(ConversationUiState(myUid = "renter", loadError = AppError.NETWORK))
+
+    node(ConversationScreenTags.LOAD_ERROR_ICON).assertIsDisplayed()
+  }
+
+  @Test
+  // Tall enough for every message and divider to be laid out.
+  @Config(qualifiers = "w412dp-h1400dp")
+  fun dayDividers_nameEachDay_aboveItsFirstMessage() {
+    fun message(id: String, at: String) =
+        ChatMessage(id, "renter", "Message $id", Instant.parse(at))
+    val lastYear = message("m1", "2025-12-31T18:00:00Z")
+    val earlier = message("m2", "2026-11-09T10:00:00Z")
+    val yesterdayFirst = message("m3", "2026-11-10T08:00:00Z")
+    val yesterdayLast = message("m4", "2026-11-10T20:00:00Z")
+    val today = message("m5", "2026-11-11T09:00:00Z")
+
+    setContent(
+        loaded.copy(messages = listOf(lastYear, earlier, yesterdayFirst, yesterdayLast, today))
+    )
+
+    fun divider(date: String) = node(ConversationScreenTags.dayDivider(LocalDate.parse(date)))
+    divider("2025-12-31").assertTextEquals("31 Dec 2025")
+    divider("2026-11-09").assertTextEquals("9 Nov")
+    divider("2026-11-10").assertTextEquals("Yesterday")
+    divider("2026-11-11").assertTextEquals("Today")
+    val above = node(ConversationScreenTags.myMessage("m2")).getBoundsInRoot()
+    val yesterday = divider("2026-11-10").getBoundsInRoot()
+    val first = node(ConversationScreenTags.myMessage("m3")).getBoundsInRoot()
+    val last = node(ConversationScreenTags.myMessage("m4")).getBoundsInRoot()
+    assertTrue(above.bottom <= yesterday.top)
+    assertTrue(yesterday.bottom <= first.top)
+    assertTrue(first.bottom <= last.top)
+  }
+
+  @Test
+  fun messageWithTheIdOfADayKey_showsBesideThatDaysDivider() {
+    // A message id can look like a day key with another separator; the "/" in the divider's key
+    // keeps them apart.
+    val odd =
+        ChatMessage("day:2026-11-11", "renter", "Odd id", Instant.parse("2026-11-11T10:00:00Z"))
+
+    setContent(loaded.copy(messages = listOf(question, odd)))
+
+    node(ConversationScreenTags.myMessage("day:2026-11-11")).assertIsDisplayed()
+    node(ConversationScreenTags.dayDivider(LocalDate.parse("2026-11-11"))).assertTextEquals("Today")
+  }
+
+  @Test
+  fun listingSummary_tellsTalkBackWhoseListingItIs() {
+    var uiState by mutableStateOf(loaded.copy(listing = drill))
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+    // The merged card: who it belongs to, then the details and the status, without the bare name.
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(
+            string(R.string.conversation_summary_spoken_lender, "james")
+        )
+        .assertTextEquals("CHF 8 / day", "Rental")
+
+    uiState = uiState.copy(myUid = james.uid, isRenter = false)
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assertContentDescriptionEquals(string(R.string.conversation_summary_spoken_mine))
+        .assertTextEquals("CHF 8 / day", "Rental")
+  }
+
   // Photo button and attached photo
 
   // A photo that cannot be read, which shows the placeholder: Robolectric throws for an unknown
@@ -1035,8 +1563,8 @@ class ConversationScreenTest {
   private val myPhoto = photoMessage("m3", "renter", caption = "Here it is")
   private val theirPhoto = photoMessage("m4", james.uid)
 
-  private fun pending(status: PendingPhotoStatus, error: AppError? = null) =
-      PendingPhoto("m5", galleryPhoto, "And the shelf", status, error)
+  private fun pending(status: PendingPhotoStatus, error: AppError? = null, id: String = "m5") =
+      PendingPhoto(id, galleryPhoto, "And the shelf", status, error)
 
   /** Waits until the photo of message [id] is drawn: [redPhoto] decoded, not the placeholder. */
   private fun waitForRedPhoto(id: String) {

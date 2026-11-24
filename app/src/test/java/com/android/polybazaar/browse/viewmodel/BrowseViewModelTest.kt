@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -424,5 +425,107 @@ class BrowseViewModelTest {
     viewModel.updateQuery("drill")
 
     assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
+  }
+
+  /** The drill with the photos at [paths], the projector unchanged. */
+  private fun drillWithPhotos(vararg paths: String) {
+    repository.allListings =
+        repository.allListings.map {
+          if (it is ItemListing && it.listingId == "drill") it.copy(imagePaths = paths.toList())
+          else it
+        }
+  }
+
+  @Test
+  fun toBrowseListing_keepsTheFirstPhotoPath() {
+    val listing =
+        ItemListing(
+            ListingCategory.ITEM_TOOLS,
+            8.0,
+            "Drill",
+            "",
+            listingId = "drill",
+            imagePaths = listOf("listings/drill/0", "listings/drill/1"),
+        )
+
+    assertEquals("listings/drill/0", listing.toBrowseListing()?.photoPath)
+    assertNull(priced(8.0).toBrowseListing()?.photoPath)
+  }
+
+  @Test
+  fun loadListings_downloadsTheFirstPhotoOfEachCard() {
+    drillWithPhotos("listings/drill/0", "listings/drill/1")
+    repository.images["listings/drill/0"] = byteArrayOf(1, 2, 3)
+
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    // Only the first photo is downloaded, and nothing for the projector, which has none.
+    assertEquals(listOf("listings/drill/0"), repository.loadedImagePaths)
+    assertArrayEquals(byteArrayOf(1, 2, 3), viewModel.uiState.value.photos["listings/drill/0"])
+  }
+
+  @Test
+  fun loadListings_showsTheCardsBeforeTheirPhotosArrive() {
+    drillWithPhotos("listings/drill/0")
+    val imageGate = CompletableDeferred<Unit>()
+    repository.imageGate = imageGate
+
+    val viewModel = BrowseViewModel(repository, currentUid)
+    assertEquals(2, viewModel.uiState.value.listings.size)
+    assertFalse(viewModel.uiState.value.isLoading)
+    assertTrue(viewModel.uiState.value.photos.isEmpty())
+
+    imageGate.complete(Unit)
+    assertTrue("listings/drill/0" in viewModel.uiState.value.photos)
+  }
+
+  @Test
+  fun loadListings_whenAPhotoFails_leavesItMissingWithoutAnError() {
+    drillWithPhotos("listings/drill/0")
+    repository.imageFailure = UnknownHostException("offline")
+
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    assertTrue(viewModel.uiState.value.photos.isEmpty())
+    assertNull(viewModel.uiState.value.error)
+  }
+
+  @Test
+  fun loadListings_triesAFailedPhotoAgainOnTheNextLoad() {
+    drillWithPhotos("listings/drill/0")
+    repository.imageFailure = UnknownHostException("offline")
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    repository.imageFailure = null
+    repository.images["listings/drill/0"] = byteArrayOf(7)
+    viewModel.loadListings()
+
+    assertArrayEquals(byteArrayOf(7), viewModel.uiState.value.photos["listings/drill/0"])
+  }
+
+  @Test
+  fun loadListings_dropsThePhotoOfACardThatIsGone() {
+    drillWithPhotos("listings/drill/0")
+    val viewModel = BrowseViewModel(repository, currentUid)
+    assertTrue("listings/drill/0" in viewModel.uiState.value.photos)
+
+    repository.allListings = repository.allListings.filter { it.listingId != "drill" }
+    viewModel.loadListings()
+
+    assertTrue(viewModel.uiState.value.photos.isEmpty())
+  }
+
+  @Test
+  fun loadListings_dropsAPhotoArrivingAfterAReloadRemovedItsCard() {
+    drillWithPhotos("listings/drill/0")
+    val imageGate = CompletableDeferred<Unit>()
+    repository.imageGate = imageGate
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    repository.allListings = repository.allListings.filter { it.listingId != "drill" }
+    viewModel.loadListings()
+    imageGate.complete(Unit)
+
+    assertTrue(viewModel.uiState.value.photos.isEmpty())
   }
 }

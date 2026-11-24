@@ -66,6 +66,16 @@ class BookingListScreensTest {
   }
 
   @Test
+  fun bookingWithNotifiedHandover_hasNoCancelButton() {
+    val handedOver = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    val awaitingHandover = booking("b", BookingStatus.CONFIRMED)
+    show(BookingUiState(bookings = listOf(handedOver, awaitingHandover)))
+
+    statuses().assertCountEquals(2)
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.CANCEL_BUTTON).assertCountEquals(1)
+  }
+
+  @Test
   fun renterScreen_namesBookingsAfterTheirListing() {
     show(
         BookingUiState(

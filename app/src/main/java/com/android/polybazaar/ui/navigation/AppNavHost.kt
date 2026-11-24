@@ -86,9 +86,10 @@ import com.android.polybazaar.listing.ui.ListingDetailScreen
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.LocationRepository
-import com.android.polybazaar.map.ui.ListingsMap
+import com.android.polybazaar.map.model.PlaceNameRepository
+import com.android.polybazaar.map.ui.GoogleListingsMap
 import com.android.polybazaar.map.ui.MapScreen
-import com.android.polybazaar.map.viewmodel.MapUiState
+import com.android.polybazaar.map.ui.MapSlot
 import com.android.polybazaar.map.viewmodel.MapViewModel
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileActions
@@ -131,6 +132,8 @@ object AppNavHostTags {
  *   folder than [photoStorage]: opening a form deletes the photos its folder holds for other forms.
  * @param locationRepository reads the device's approximate location: to centre the Map tab on the
  *   renter, and to open the listing form's map picker where the lender is.
+ * @param placeNameRepository suggests the neighbourhood and town as the name of a listing location
+ *   off campus.
  * @param connectivityRepository tells the listing forms and the conversations whether the device is
  *   online.
  */
@@ -145,9 +148,10 @@ fun AppNavHost(
     chatRepository: ChatRepository,
     bookingRepository: BookingRepository,
     locationRepository: LocationRepository,
+    placeNameRepository: PlaceNameRepository,
     connectivityRepository: ConnectivityRepository,
     navController: NavHostController = rememberNavController(),
-    listingsMap: @Composable (MapUiState) -> Unit = { ListingsMap(it.centre, it.markers) },
+    listingsMap: MapSlot = GoogleListingsMap,
 ) {
   val uiState by authViewModel.uiState.collectAsState()
   val snackbarHostState = remember { SnackbarHostState() }
@@ -318,6 +322,7 @@ fun AppNavHost(
                               photoStorage = photoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               locationRepository = locationRepository,
+                              placeNameRepository = placeNameRepository,
                               connectivityRepository = connectivityRepository,
                           )
                         }
@@ -346,6 +351,7 @@ fun AppNavHost(
                               photoStorage = editPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               locationRepository = locationRepository,
+                              placeNameRepository = placeNameRepository,
                               connectivityRepository = connectivityRepository,
                           )
                         }

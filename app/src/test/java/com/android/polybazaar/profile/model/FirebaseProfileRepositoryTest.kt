@@ -336,23 +336,61 @@ class FirebaseProfileRepositoryTest {
   }
 
   @Test
-  fun observeProfile_emailUnavailable_emitsError() = runTest {
-    // Confirms a profile without email fails when no matching authenticated user can supply it.
+  fun observeProfile_noEmailAndNoSignedInUser_emitsUserWithEmptyEmail() = runTest {
+    // Confirms a public profile, which never stores the email, still maps to a User instead of
+    // failing, so another user's listing can show its owner.
     val snapshot = mock<DocumentSnapshot>()
     val listenerCaptor =
         argumentCaptor<com.google.firebase.firestore.EventListener<DocumentSnapshot>>()
     whenever(profileDocument.addSnapshotListener(listenerCaptor.capture())).thenReturn(mock())
     whenever(snapshot.exists()).thenReturn(true)
     whenever(snapshot.getString("email")).thenReturn(null)
+    whenever(snapshot.getString("username")).thenReturn(username)
+    whenever(snapshot.getString("photoPath")).thenReturn("users/$uid/profile.jpg")
+    whenever(snapshot.getString("bio")).thenReturn("Hello")
     whenever(auth.currentUser).thenReturn(null)
 
-    val observed = async {
-      runCatching { repository.observeProfile(uid).first() }.exceptionOrNull()
-    }
+    val observed = async { repository.observeProfile(uid).first() }
     runCurrent()
     listenerCaptor.firstValue.onEvent(snapshot, null)
 
-    assertEquals("Email is unavailable for profile $uid", observed.await()?.message)
+    assertEquals(
+        User(
+            uid = uid,
+            email = "",
+            username = username,
+            photoPath = "users/$uid/profile.jpg",
+            bio = "Hello",
+        ),
+        observed.await(),
+    )
+  }
+
+  @Test
+  fun observeProfile_noEmailAndAnotherUserSignedIn_emitsUserWithEmptyEmail() = runTest {
+    // Confirms viewing someone else's profile never borrows the signed-in user's own email.
+    val snapshot = mock<DocumentSnapshot>()
+    val otherUser = mock<FirebaseUser>()
+    val listenerCaptor =
+        argumentCaptor<com.google.firebase.firestore.EventListener<DocumentSnapshot>>()
+    whenever(profileDocument.addSnapshotListener(listenerCaptor.capture())).thenReturn(mock())
+    whenever(snapshot.exists()).thenReturn(true)
+    whenever(snapshot.getString("email")).thenReturn(null)
+    whenever(snapshot.getString("username")).thenReturn(username)
+    whenever(snapshot.getString("photoPath")).thenReturn(null)
+    whenever(snapshot.getString("bio")).thenReturn("Hello")
+    whenever(auth.currentUser).thenReturn(otherUser)
+    whenever(otherUser.uid).thenReturn("other-user")
+    whenever(otherUser.email).thenReturn("other@example.com")
+
+    val observed = async { repository.observeProfile(uid).first() }
+    runCurrent()
+    listenerCaptor.firstValue.onEvent(snapshot, null)
+
+    assertEquals(
+        User(uid = uid, email = "", username = username, photoPath = null, bio = "Hello"),
+        observed.await(),
+    )
   }
 
   @Test

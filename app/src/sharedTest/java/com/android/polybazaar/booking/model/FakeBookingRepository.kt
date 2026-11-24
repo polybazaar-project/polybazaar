@@ -22,7 +22,7 @@ import kotlinx.coroutines.currentCoroutineContext
  *
  * [getBookingsForLender] returns [lenderBookings], or throws [lenderLoadFailure], after
  * [pendingLenderLoad]; it has its own fields so that a screen loading both kinds of bookings can
- * fail one alone.
+ * fail one alone. Handover and return operations record their booking IDs without enforcing rules.
  */
 class FakeBookingRepository : BookingRepository {
   var requestedBooking: Booking? = null
@@ -47,6 +47,10 @@ class FakeBookingRepository : BookingRepository {
   var pendingCancel: CompletableDeferred<Unit>? = null
   var cancelWriteFailure: ((Exception) -> Unit)? = null
   var immediateCancelWriteFailure: Exception? = null
+  val handoverNotifications = mutableListOf<String>()
+  val handoverConfirmations = mutableListOf<String>()
+  val returnNotifications = mutableListOf<String>()
+  val returnConfirmations = mutableListOf<String>()
 
   val accepted = mutableListOf<Booking>()
   var acceptGate: CompletableDeferred<Unit>? = null
@@ -111,5 +115,21 @@ class FakeBookingRepository : BookingRepository {
     listingBookings = listingBookings.map {
       if (it.id == id) it.copy(status = BookingStatus.CANCELLED) else it
     }
+  }
+
+  override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) {
+    handoverNotifications += id
+  }
+
+  override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) {
+    handoverConfirmations += id
+  }
+
+  override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) {
+    returnNotifications += id
+  }
+
+  override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) {
+    returnConfirmations += id
   }
 }

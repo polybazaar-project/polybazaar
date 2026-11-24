@@ -38,6 +38,7 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.FakeLocationRepository
+import com.android.polybazaar.map.model.FakePlaceNameRepository
 import java.io.ByteArrayOutputStream
 import java.net.UnknownHostException
 import java.time.LocalDate
@@ -100,6 +101,7 @@ class EditListingScreenTest {
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
             FakeLocationRepository(),
+            FakePlaceNameRepository(),
             FakeConnectivityRepository(),
         )
     composeTestRule.setContent {
@@ -345,6 +347,7 @@ class EditListingScreenTest {
             FilePhotoStorage(context, FilePhotoStorage.EDIT_FORM),
             SavedStateHandle(),
             FakeLocationRepository(),
+            FakePlaceNameRepository(),
             FakeConnectivityRepository(),
         )
     composeTestRule.setContent {

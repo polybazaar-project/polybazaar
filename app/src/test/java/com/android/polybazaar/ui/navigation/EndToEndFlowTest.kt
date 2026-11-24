@@ -38,6 +38,7 @@ import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.map.model.FakeLocationRepository
+import com.android.polybazaar.map.model.FakePlaceNameRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
 import com.android.polybazaar.profile.ui.ProfileScreenTags
 import com.android.polybazaar.settings.ui.SettingsScreenTags
@@ -89,7 +90,8 @@ class EndToEndFlowTest {
           chatRepository = FakeChatRepository(),
           bookingRepository = FakeBookingRepository(),
           locationRepository = FakeLocationRepository(),
-          listingsMap = {},
+          placeNameRepository = FakePlaceNameRepository(),
+          listingsMap = { _, _ -> },
           connectivityRepository = FakeConnectivityRepository(),
           navController = navController,
       )
