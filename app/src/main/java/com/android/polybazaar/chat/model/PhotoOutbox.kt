@@ -9,6 +9,7 @@ import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.photo.PhotoCompressor
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,7 +86,9 @@ interface PhotoOutbox {
  *   instead of a camera photo of several MB.
  * @param currentUid the signed-in user's uid, or null when nobody is signed in.
  * @param ioDispatcher runs the disk work.
- * @param now the current time in milliseconds, to keep the photos in the order they were queued.
+ * @param now the current time in milliseconds, to keep the photos in the order they were queued. A
+ *   photo is always given a later time than the one before it, even queued in the same millisecond
+ *   or after the clock was moved back.
  */
 class FilePhotoOutbox(
     context: Context,
@@ -97,8 +100,17 @@ class FilePhotoOutbox(
 
   private val directory = File(context.filesDir, DIRECTORY)
 
-  // Read at once: a few small files, and the queue must be known before the sender starts.
-  private val _queued = MutableStateFlow(loadAll())
+  /** When the newest photo was queued, on disk or since; the next one is queued after it. */
+  private val lastQueuedAt: AtomicLong
+  private val _queued: MutableStateFlow<List<QueuedPhoto>>
+
+  init {
+    // Read at once: a few small files, and the queue must be known before the sender starts.
+    val entries = loadAll()
+    lastQueuedAt = AtomicLong(entries.maxOfOrNull { it.queuedAt } ?: Long.MIN_VALUE)
+    _queued = MutableStateFlow(entries.map { it.photo })
+  }
+
   override val queued: StateFlow<List<QueuedPhoto>> = _queued.asStateFlow()
 
   override suspend fun enqueue(
@@ -117,7 +129,7 @@ class FilePhotoOutbox(
         val entry =
             Entry(
                 QueuedPhoto(messageId, conversationId, senderUid, Uri.fromFile(copy), caption),
-                queuedAt = now(),
+                queuedAt = nextQueuedAt(),
             )
         write(folder, entry)
         // Right after the rename, with no suspension between: a photo on disk is always listed.
@@ -180,6 +192,12 @@ class FilePhotoOutbox(
     return true
   }
 
+  /**
+   * A time later than every photo already queued, so the order is exact: [now], or one millisecond
+   * after the last photo when [now] is not later. Atomic, as two photos can be queued at once.
+   */
+  private fun nextQueuedAt(): Long = lastQueuedAt.updateAndGet { last -> maxOf(now(), last + 1) }
+
   /** The folder of [messageId], refusing an ID that could point outside [directory]. */
   private fun folderOf(messageId: String): File {
     require(messageId.matches(SAFE_ID)) { "Invalid message id" }
@@ -187,13 +205,13 @@ class FilePhotoOutbox(
   }
 
   /**
-   * Every queued photo that can be read, oldest first. A folder without `entry.json` is an enqueue
-   * cut short, by the app being killed say, as the entry is written last: it is deleted. A folder
-   * whose entry cannot be read is deleted too, never crashing the app: its photo could never be
-   * sent, nor shown in its conversation to be removed. A missing photo file is not checked here:
-   * its send fails as for any unreadable photo, and the user can remove it.
+   * The entry of every queued photo that can be read, oldest first. A folder without `entry.json`
+   * is an enqueue cut short, by the app being killed say, as the entry is written last: it is
+   * deleted. A folder whose entry cannot be read is deleted too, never crashing the app: its photo
+   * could never be sent, nor shown in its conversation to be removed. A missing photo file is not
+   * checked here: its send fails as for any unreadable photo, and the user can remove it.
    */
-  private fun loadAll(): List<QueuedPhoto> =
+  private fun loadAll(): List<Entry> =
       directory
           .listFiles()
           .orEmpty()
@@ -212,7 +230,6 @@ class FilePhotoOutbox(
             }
           }
           .sortedBy { it.queuedAt }
-          .map { it.photo }
 
   /** Writes [entry] aside, then renames it, so a crash never leaves a half-written entry. */
   private fun write(folder: File, entry: Entry) {

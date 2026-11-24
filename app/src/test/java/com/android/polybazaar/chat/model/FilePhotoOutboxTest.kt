@@ -121,10 +121,11 @@ class FilePhotoOutboxTest {
   @Test
   fun photos_surviveARestart_oldestFirst_andNoneIsStillSending() = runTest {
     val outbox = newOutbox()
-    clock = 2_000
-    outbox.enqueue("drill_renter", "newer", galleryPhoto, "Second")
+    // Queued in this order, though "newer" comes first by name.
     clock = 1_000
     outbox.enqueue("bike_renter", "older", Uri.fromFile(cameraFile), null)
+    clock = 2_000
+    outbox.enqueue("drill_renter", "newer", galleryPhoto, "Second")
     // The app is killed while the older one is being sent.
     assertTrue(outbox.claim("older"))
 
