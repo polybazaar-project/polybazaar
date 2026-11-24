@@ -16,10 +16,12 @@ import kotlinx.coroutines.flow.flow
  * and [getMyListings] with [myListings]. [createListing] adds to [allListings], owned by [ownerUid]
  * like the real repository stores the creator's uid (leave it null when the owner does not matter),
  * [getListing] looks the id up in both lists and fails with a Firestore `NOT_FOUND` error like the
- * real repository when neither has it, [updateListing] replaces the listing in both,
- * [deleteListing] removes it from both, and [setPaused] changes its pause state in both. Every call
- * except [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these
- * calls waiting until the test completes it, to look at one in progress.
+ * real repository when neither has it, [publishListing] adds to [allListings] under the given id
+ * unless a listing already has it, recording each id in [publishedListingIds], and fails for the
+ * ids in [failingPublishIds], [updateListing] replaces the listing in both, [deleteListing] removes
+ * it from both, and [setPaused] changes its pause state in both. Every call except
+ * [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these calls
+ * waiting until the test completes it, to look at one in progress.
  *
  * [observeListing] follows the listing in both lists, emitting `Missing` while neither has it, like
  * the real repository once the server says it does not exist. Changing either list emits again, and
@@ -115,6 +117,25 @@ class FakeListingRepository(
   private var newListingIds = 0
 
   override fun newListingId(): String = "new-${newListingIds++}"
+
+  /** The ids passed to [publishListing], in order. */
+  val publishedListingIds = mutableListOf<String>()
+
+  /** The ids [publishListing] fails for, like a publish the network cuts short. */
+  val failingPublishIds = mutableSetOf<String>()
+
+  override suspend fun publishListing(listingId: String, listing: Listing) {
+    gate?.await()
+    failure?.let { throw it }
+    if (listingId in failingPublishIds) {
+      throw FirebaseFirestoreException("Unavailable", FirebaseFirestoreException.Code.UNAVAILABLE)
+    }
+    publishedListingIds += listingId
+    if (allListings.none { it.listingId == listingId }) {
+      allListings =
+          allListings + listing.saved(listingId, emptyList(), ownerUid.orEmpty(), isPaused = false)
+    }
+  }
 
   override suspend fun getMyListings(): Result<List<Listing>> {
     getMyListingsCalls++
