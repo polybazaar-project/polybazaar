@@ -14,6 +14,7 @@ import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -192,7 +193,7 @@ class PhotoOutboxSenderViewModelTest {
   }
 
   @Test
-  fun networkFailure_keepsThePhoto_andDoesNotRetryItWhileStillOnline() {
+  fun networkFailure_isTriedAFewTimes_thenKeptAndNotRetriedWhileStillOnline() {
     queued("m1")
     chat.sendFailure = AppException(AppError.NETWORK)
 
@@ -203,7 +204,8 @@ class PhotoOutboxSenderViewModelTest {
     queued("m2")
     advance()
 
-    assertEquals(listOf("m1", "m2"), sentIds())
+    // The first try and one after each delay, then no more until the next reconnect.
+    assertEquals(listOf("m1", "m1", "m1", "m1", "m2"), sentIds())
     val kept = outbox.queued.value.single()
     assertEquals("m1", kept.messageId)
     assertNull(kept.error)
@@ -220,7 +222,64 @@ class PhotoOutboxSenderViewModelTest {
 
     goOfflineThenOnline()
 
+    assertEquals(listOf("m1", "m1", "m1", "m1", "m1"), sentIds())
+    assertTrue(outbox.queued.value.isEmpty())
+  }
+
+  @Test
+  fun networkFailure_whileFirestoreReconnects_isTriedAgainAfterADelay_withTheSameId() {
+    val first = queued("m1")
+    queued("m2")
+    chat.sendFailure = AppException(AppError.NETWORK)
+    sender()
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(listOf("m1"), sentIds())
+
+    // Firestore is back online before the first delay ends.
+    chat.sendFailure = null
+    testDispatcher.scheduler.advanceTimeBy(1_999)
+    testDispatcher.scheduler.runCurrent()
+    // m2 waits for m1, so the order is kept.
+    assertEquals(listOf("m1"), sentIds())
+    assertFalse(outbox.queued.value.first().sending)
+
+    testDispatcher.scheduler.advanceTimeBy(1)
+    testDispatcher.scheduler.runCurrent()
+
+    assertEquals(listOf("m1", "m1", "m2"), sentIds())
+    assertEquals(first.photo, chat.sentPhotos[1].photo)
+    assertTrue(outbox.queued.value.isEmpty())
+  }
+
+  @Test
+  fun networkFailure_goingOfflineDuringTheWait_stopsTheTries_untilTheNextReconnect() {
+    queued("m1")
+    chat.sendFailure = AppException(AppError.NETWORK)
+    sender()
+    testDispatcher.scheduler.runCurrent()
+
+    connectivity.isOnline.value = false
+    advance()
+    assertEquals(listOf("m1"), sentIds())
+
+    chat.sendFailure = null
+    connectivity.isOnline.value = true
+    advance()
     assertEquals(listOf("m1", "m1"), sentIds())
+    assertTrue(outbox.queued.value.isEmpty())
+  }
+
+  @Test
+  fun networkFailure_aPhotoRemovedDuringTheWait_isNotTriedAgain() {
+    queued("m1")
+    chat.sendFailure = AppException(AppError.NETWORK)
+    sender()
+    testDispatcher.scheduler.runCurrent()
+
+    runBlocking { assertTrue(outbox.remove("m1")) }
+    advance()
+
+    assertEquals(listOf("m1"), sentIds())
     assertTrue(outbox.queued.value.isEmpty())
   }
 
