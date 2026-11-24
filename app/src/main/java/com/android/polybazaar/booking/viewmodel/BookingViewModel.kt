@@ -186,11 +186,19 @@ class BookingViewModel(
                       compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id })
                   )
               _uiState.update { state ->
+                val cancellationObsolete =
+                    state.failedCancelId != null &&
+                        bookings.any {
+                          it.id == state.failedCancelId &&
+                              (it.status == BookingStatus.CANCELLED || it.handoverNotified)
+                        }
                 state.copy(
                     bookings = bookings,
                     pendingBookingIds = observed.pendingIds,
                     isLoadingBookings = false,
                     observationError = null,
+                    failedCancelId = if (cancellationObsolete) null else state.failedCancelId,
+                    error = if (cancellationObsolete) null else state.error,
                     submittingConfirmations =
                         state.submittingConfirmations.filter { (id, action) ->
                           bookings.any { it.id == id && !action.isRecorded(it) }

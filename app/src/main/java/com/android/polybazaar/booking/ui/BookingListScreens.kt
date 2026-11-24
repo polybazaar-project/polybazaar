@@ -227,8 +227,8 @@ fun BookingListContent(
                   party = if (showRenter) BookingParty.LENDER else BookingParty.RENTER,
                   pending = booking.id in uiState.pendingBookingIds,
                   submitting = booking.id in uiState.submittingConfirmations,
-                  observationUnavailable =
-                      uiState.observationError != null || uiState.isLoadingBookings,
+                  observationUnavailable = uiState.observationError != null,
+                  isLoadingBookings = uiState.isLoadingBookings,
                   failure = uiState.confirmationFailures[booking.id],
                   canCancel =
                       booking.status != BookingStatus.CANCELLED &&
@@ -252,6 +252,7 @@ private fun BookingRow(
     pending: Boolean,
     submitting: Boolean,
     observationUnavailable: Boolean,
+    isLoadingBookings: Boolean,
     failure: ConfirmationFailure?,
     canCancel: Boolean,
     onCancel: () -> Unit,
@@ -318,6 +319,7 @@ private fun BookingRow(
           pending,
           submitting,
           observationUnavailable,
+          isLoadingBookings,
           failure,
           onConfirm,
       )
@@ -332,6 +334,7 @@ private fun ConfirmationContent(
     pending: Boolean,
     submitting: Boolean,
     observationUnavailable: Boolean,
+    isLoadingBookings: Boolean,
     failure: ConfirmationFailure?,
     onConfirm: (ConfirmationAction) -> Unit,
 ) {
@@ -425,7 +428,7 @@ private fun ConfirmationContent(
         modifier = Modifier.padding(top = 8.dp).testTag(BookingListScreenTags.CONFIRMATION_ERROR),
     )
   }
-  if (action != null && !observationUnavailable && !pending && !submitting) {
+  if (action != null && !observationUnavailable && !isLoadingBookings && !pending && !submitting) {
     val label =
         when (action) {
           ConfirmationAction.NOTIFY_HANDOVER -> R.string.booking_notify_handover

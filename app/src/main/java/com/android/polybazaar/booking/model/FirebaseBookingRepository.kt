@@ -92,7 +92,7 @@ class FirebaseBookingRepository(
 
   override fun observeBookingsForListing(listingId: String): Flow<ObservedBookings> =
       observeBookings {
-        val uid = signedInUid("Sign in to read bookings")
+        val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
         firestore
             .collection(BOOKINGS)
             .whereEqualTo("listingId", listingId)
@@ -100,7 +100,7 @@ class FirebaseBookingRepository(
       }
 
   override fun observeBookingsForRenter(): Flow<ObservedBookings> = observeBookings {
-    val uid = signedInUid("Sign in to read bookings")
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     firestore.collection(BOOKINGS).whereEqualTo("renterUid", uid)
   }
 

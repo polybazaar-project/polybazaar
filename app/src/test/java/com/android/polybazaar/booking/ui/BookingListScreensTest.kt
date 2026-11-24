@@ -258,6 +258,36 @@ class BookingListScreensTest {
   }
 
   @Test
+  fun reloadingKeepsStatusVisibleButHidesConfirmationUntilSnapshotArrives() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    var loading by mutableStateOf(true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    composeTestRule.setContent {
+      BookingListContent(
+          title = "Bookings",
+          uiState = BookingUiState(bookings = listOf(handover), isLoadingBookings = loading),
+          onBack = {},
+          onRetry = {},
+          onCancel = {},
+          onConfirm = { id, action -> actions += id to action },
+      )
+    }
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Handover notified")
+    composeTestRule.onNodeWithText("Step 2 of 5").assertIsDisplayed()
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.OBSERVATION_ERROR).assertCountEquals(0)
+
+    composeTestRule.runOnIdle { loading = false }
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
+  }
+
+  @Test
   fun rejectedConfirmationShowsRetryForTheSameAction() {
     val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
     val actions = mutableListOf<Pair<String, ConfirmationAction>>()

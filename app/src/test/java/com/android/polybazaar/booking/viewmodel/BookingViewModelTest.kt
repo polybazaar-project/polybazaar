@@ -598,6 +598,39 @@ class BookingViewModelTest {
   }
 
   @Test
+  fun snapshotClearsCancellationFailureOnlyWhenTheFailedBookingCanNoLongerBeCancelled() = runTest {
+    val original = booking.copy(id = "a", status = BookingStatus.CONFIRMED)
+    val other = booking.copy(id = "b", status = BookingStatus.CONFIRMED)
+    for (updated in
+        listOf(
+            original.copy(handoverNotified = true),
+            original.copy(status = BookingStatus.CANCELLED),
+        )) {
+      repository.renterBookings = listOf(original, other)
+      repository.cancelFailure = AppException(AppError.PERMISSION_DENIED)
+      val viewModel = BookingViewModel(repository)
+      viewModel.observeRenterBookings()
+      testDispatcher.scheduler.runCurrent()
+      viewModel.cancelBooking("a")
+      testDispatcher.scheduler.runCurrent()
+
+      repository.bookingUpdates.emit(
+          ObservedBookings(listOf(original, other.copy(status = BookingStatus.CANCELLED)))
+      )
+      testDispatcher.scheduler.runCurrent()
+      assertEquals("a", viewModel.uiState.value.failedCancelId)
+      assertEquals(AppError.PERMISSION_DENIED, viewModel.uiState.value.error)
+
+      repository.bookingUpdates.emit(ObservedBookings(listOf(updated, other)))
+      testDispatcher.scheduler.runCurrent()
+      assertEquals(null, viewModel.uiState.value.failedCancelId)
+      assertEquals(null, viewModel.uiState.value.error)
+      assertEquals(updated, viewModel.uiState.value.bookings.first { it.id == "a" })
+      viewModel.stopObservingBookings()
+    }
+  }
+
+  @Test
   fun observeRenterBookings_exposesFailures() = runTest {
     repository.loadFailure = AppException(AppError.NETWORK)
     val viewModel = BookingViewModel(repository)
