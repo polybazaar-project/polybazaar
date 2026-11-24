@@ -8,12 +8,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -118,7 +124,12 @@ internal fun AppBottomBar(currentRoute: String?, onTabSelected: (String) -> Unit
                       ),
               )
               .background(AuthColors.CardBackground, barShape)
-              .navigationBarsPadding()
+              // In landscape the cutout sits at a side, where the first or last tab would be.
+              .windowInsetsPadding(
+                  WindowInsets.navigationBars.union(
+                      WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)
+                  )
+              )
               .height(80.dp)
               .padding(start = 24.dp, top = 7.dp, end = 24.dp, bottom = 9.dp)
               .selectableGroup(),
