@@ -56,7 +56,7 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> {
-    val uid = signedInUid("Sign in to read bookings")
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     return firestore
         .collection(BOOKINGS)
         .whereEqualTo("listingId", listingId)
@@ -68,7 +68,7 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun getBookingsForLender(): List<Booking> {
-    val uid = signedInUid("Sign in to read bookings")
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     // The rules let a lender read the bookings that name them, so the query passes as a whole.
     return firestore
         .collection(BOOKINGS)
@@ -80,7 +80,7 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun getBookingsForRenter(): List<Booking> {
-    val uid = signedInUid("Sign in to read bookings")
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     return firestore
         .collection(BOOKINGS)
         .whereEqualTo("renterUid", uid)
@@ -244,6 +244,8 @@ class FirebaseBookingRepository(
 
   private companion object {
     const val BOOKINGS = "bookings"
+    // Shared by every read: they all need a signed-in user.
+    const val SIGN_IN_TO_READ_BOOKINGS = "Sign in to read bookings"
     const val STATUS = "status"
     // Keep the original Firestore field names for bookings written by earlier clients.
     const val LENDER_HANDOVER_CONFIRMED = "lenderHandoverConfirmed"

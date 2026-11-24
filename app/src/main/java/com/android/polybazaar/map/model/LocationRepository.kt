@@ -2,7 +2,7 @@
 package com.android.polybazaar.map.model
 
 /** Where the device is, to centre the map on the renter (#340). */
-interface LocationRepository {
+fun interface LocationRepository {
 
   /**
    * The device's approximate location, read now.

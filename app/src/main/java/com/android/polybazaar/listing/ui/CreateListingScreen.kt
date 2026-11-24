@@ -189,11 +189,13 @@ internal fun listingFormActions(viewModel: ListingFormViewModel) =
  * "Create listing" screen.
  *
  * @param onListingCreated called once the listing has been saved.
+ * @param onListingQueued called once the listing, created offline, has been kept as a draft.
  */
 @Composable
 fun CreateListingScreen(
     listingViewModel: ListingFormViewModel,
     onListingCreated: (Listing) -> Unit = {},
+    onListingQueued: () -> Unit = {},
 ) {
   // Collected without dispatching, so each keystroke reaches the text fields before the next
   // one: a field that lags behind its input can jump its cursor or drop characters.
@@ -204,6 +206,12 @@ fun CreateListingScreen(
       onListingCreated(createdListing)
       // Handled, so recreating the screen (on rotation, say) must not handle it again.
       listingViewModel.clearSavedListing()
+    }
+  }
+  LaunchedEffect(uiState.isQueued) {
+    if (uiState.isQueued) {
+      onListingQueued()
+      listingViewModel.clearQueued()
     }
   }
 
