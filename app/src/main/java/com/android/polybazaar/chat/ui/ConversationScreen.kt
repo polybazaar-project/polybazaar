@@ -87,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
@@ -1704,7 +1705,7 @@ internal fun ConversationPhotosPreview() {
                   listOf(
                       PendingPhoto(
                           messageId = "3",
-                          photo = Uri.parse("file:///preview/photo_3.jpg"),
+                          photo = "file:///preview/photo_3.jpg".toUri(),
                           caption = "And the shelf I mean",
                           status = PendingPhotoStatus.FAILED,
                           error = AppError.NETWORK,
