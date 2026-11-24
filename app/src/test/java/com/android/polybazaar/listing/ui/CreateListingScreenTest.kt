@@ -1125,6 +1125,9 @@ class CreateListingScreenTest {
 
     override fun newListingId(): String = "listing-1"
 
+    override suspend fun publishListing(listingId: String, listing: Listing) =
+        error("Not used here")
+
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
 
     override suspend fun getListingsByOwner(ownerUid: String): Result<List<Listing>> =
