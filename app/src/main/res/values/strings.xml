@@ -117,6 +117,7 @@
     <string name="conversation_photo_load_failed_retry">Couldn’t load the photo · Tap to retry</string>
     <string name="conversation_photo_load_failed">Couldn’t load the photo</string>
     <string name="conversation_photo_sending">Sending…</string>
+    <string name="conversation_photo_waiting">Waiting for connection</string>
     <string name="conversation_photo_not_sent">Not sent. %1$s</string>
     <string name="conversation_photo_remove">Remove</string>
     <string name="conversation_length_counter">%1$d/%2$d</string>
