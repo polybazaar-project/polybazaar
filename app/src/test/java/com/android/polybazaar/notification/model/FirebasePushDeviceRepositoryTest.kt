@@ -1,12 +1,16 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.notification.model
 
+import com.google.android.gms.tasks.OnFailureListener
+import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.FirebaseFirestoreException.Code
 import com.google.firebase.installations.FirebaseInstallations
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,8 +35,14 @@ class FirebasePushDeviceRepositoryTest {
   private val user = mock<DocumentReference>()
   private val devices = mock<CollectionReference>()
   private val device = mock<DocumentReference>()
+  private val logged = mutableListOf<Exception>()
   private val repository =
-      FirebasePushDeviceRepository(firestore, installations, unregisterTimeout = 3.seconds)
+      FirebasePushDeviceRepository(
+          firestore,
+          installations,
+          unregisterTimeout = 3.seconds,
+          logFailure = { logged += it },
+      )
 
   @Before
   fun setUp() {
@@ -64,6 +74,20 @@ class FirebasePushDeviceRepositoryTest {
 
     verify(devices).document("new-fid")
     verify(device).set(any<Map<String, Any>>())
+  }
+
+  @Test
+  fun store_logsAWriteTheServerRefuses() {
+    val write = mock<Task<Void>>()
+    whenever(device.set(any<Map<String, Any>>())).thenReturn(write)
+
+    repository.store("uid-1", "fid-1")
+
+    val listener = argumentCaptor<OnFailureListener>()
+    verify(write).addOnFailureListener(listener.capture())
+    val refused = FirebaseFirestoreException("refused", Code.PERMISSION_DENIED)
+    listener.firstValue.onFailure(refused)
+    assertEquals(listOf<Exception>(refused), logged)
   }
 
   @Test
