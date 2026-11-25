@@ -1,5 +1,6 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 import { logger } from "firebase-functions";
+import { bookingNotice, bookingPayload } from "./booking.js";
 import { failureSummary, messagePayload, recipientOf } from "./payload.js";
 
 // A client can create any number of device documents, so this bounds the reads and sends one
@@ -71,4 +72,40 @@ export async function notifyNewMessage(db, messaging, { conversationId }, messag
     recipientUid,
   });
   await sendToUser(db, messaging, recipientUid, data);
+}
+
+// `writer` is the trigger's auth context; a new booking has none. The listing and the renter are
+// read only once a notification is due, so a handover or return step costs no reads.
+export async function notifyBookingChange(
+  db,
+  messaging,
+  { bookingId },
+  { before, after },
+  writer = {},
+) {
+  const notice = bookingNotice(before, after, writer.authId);
+  if (notice == null) return;
+  if (notice.recipientUid == null) {
+    // authId is the writer's uid by a community report, not by Firebase's docs: if it is not,
+    // every cancel ends here.
+    logger.warn("Booking cancelled by neither party", { bookingId, authType: writer.authType });
+    return;
+  }
+
+  const [listing, renter] = await Promise.all([
+    db.doc(`listings/${after.listingId}`).get(),
+    notice.type === "booking_requested" ? db.doc(`users/${after.renterUid}`).get() : null,
+  ]);
+  // A deleted listing leaves its bookings, and anyone can create a listing under its id, so the
+  // title counts only while the booking's lender owns the listing.
+  const listingTitle =
+    listing.get("ownerUid") === after.lenderUid ? listing.get("title") : undefined;
+  const data = bookingPayload({
+    bookingId,
+    booking: after,
+    notice,
+    listingTitle,
+    renterName: renter?.get("username"),
+  });
+  await sendToUser(db, messaging, notice.recipientUid, data);
 }
