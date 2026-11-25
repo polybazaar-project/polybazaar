@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot Claude Sonnet 5.5
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar
 
 import android.graphics.Color
@@ -20,7 +21,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
+import com.android.polybazaar.booking.model.ConfirmationJournal
 import com.android.polybazaar.booking.model.FirebaseBookingRepository
+import com.android.polybazaar.booking.model.SharedPreferencesConfirmationJournal
 import com.android.polybazaar.chat.model.FilePhotoOutbox
 import com.android.polybazaar.chat.model.FirebaseChatRepository
 import com.android.polybazaar.chat.model.PhotoOutbox
@@ -83,7 +86,8 @@ class MainActivity : ComponentActivity() {
                   remember {
                     FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
                   },
-              bookingRepository = remember { FirebaseBookingRepository() },
+              bookingRepository =
+                  remember { FirebaseBookingRepository(journal = confirmationJournal()) },
               locationRepository =
                   remember {
                     FusedLocationRepository(
@@ -119,7 +123,12 @@ class MainActivity : ComponentActivity() {
   private fun pendingListingQueue(): PendingListingQueue =
       pendingListings ?: FilePendingListingQueue(applicationContext).also { pendingListings = it }
 
+  private fun confirmationJournal(): ConfirmationJournal =
+      confirmations
+          ?: SharedPreferencesConfirmationJournal(applicationContext).also { confirmations = it }
+
   private companion object {
+    var confirmations: ConfirmationJournal? = null
     /**
      * One for the whole process, never released: the listing forms' ViewModels outlive a rotated
      * activity and keep using it, and its network callback is registered only once.

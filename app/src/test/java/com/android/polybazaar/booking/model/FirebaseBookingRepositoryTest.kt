@@ -56,9 +56,15 @@ class FirebaseBookingRepositoryTest {
   private val allLenderQuery = mock<Query>()
   private val snapshot = mock<QuerySnapshot>()
   private val stored = mock<DocumentSnapshot>()
+  private val journal = FakeConfirmationJournal()
   // A fixed day before every booking these tests store, so none of them is ever finished.
   private val repository =
-      FirebaseBookingRepository(firestore, auth, today = { LocalDate.of(2026, 11, 1) })
+      FirebaseBookingRepository(
+          firestore,
+          auth,
+          journal = journal,
+          today = { LocalDate.of(2026, 11, 1) },
+      )
   private val booking =
       Booking(
           listingId = "listing",
@@ -80,6 +86,7 @@ class FirebaseBookingRepositoryTest {
     whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(renterQuery)
     whenever(collection.whereEqualTo("lenderUid", "renter")).thenReturn(allLenderQuery)
     whenever(collection.document("booking-id")).thenReturn(document)
+    whenever(snapshot.metadata).thenReturn(mock<SnapshotMetadata>())
   }
 
   @Test
@@ -123,7 +130,8 @@ class FirebaseBookingRepositoryTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.set(any<Map<String, Any>>())).thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseBookingRepository(firestore, auth, journal = journal) { reportedFailure = it }
     var reportedToCaller: Exception? = null
 
     repository.requestBooking(booking) { reportedToCaller = it }
@@ -316,7 +324,7 @@ class FirebaseBookingRepositoryTest {
     whenever(document.update(any<String>(), eq(true))).thenReturn(pending.task)
     var logged: Exception? = null
     var reported: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { logged = it }
+    val repository = FirebaseBookingRepository(firestore, auth, journal = journal) { logged = it }
 
     withTimeout(1_000) {
       repository.notifyHandover("booking-id") { reported = it }
@@ -488,7 +496,8 @@ class FirebaseBookingRepositoryTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseBookingRepository(firestore, auth, journal = journal) { reportedFailure = it }
     var reportedToCaller: Exception? = null
 
     repository.cancelBooking("booking-id", onWriteFailure = { reportedToCaller = it })
@@ -504,7 +513,7 @@ class FirebaseBookingRepositoryTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
     var logged: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { logged = it }
+    val repository = FirebaseBookingRepository(firestore, auth, journal = journal) { logged = it }
 
     repository.cancelBooking("booking-id")
     val failure = IllegalStateException("Write rejected")
@@ -614,7 +623,12 @@ class FirebaseBookingRepositoryTest {
         }
     whenever(firestore.collection("listings")).thenReturn(mock())
     val repository =
-        FirebaseBookingRepository(firestore, auth, today = { LocalDate.of(2026, 12, 3) })
+        FirebaseBookingRepository(
+            firestore,
+            auth,
+            journal = journal,
+            today = { LocalDate.of(2026, 12, 3) },
+        )
     val accepted =
         Booking(
             listingId = "listing",

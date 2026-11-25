@@ -15,10 +15,10 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
-import com.android.polybazaar.booking.viewmodel.ConfirmationAction
 import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException

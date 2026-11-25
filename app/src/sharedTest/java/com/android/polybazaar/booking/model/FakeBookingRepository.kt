@@ -147,6 +147,8 @@ class FakeBookingRepository : BookingRepository {
     recordConfirmationFailure(onWriteFailure)
   }
 
+  override suspend fun dismissConfirmationFailure(id: String) {}
+
   private fun recordConfirmationFailure(onWriteFailure: (Exception) -> Unit) {
     confirmationWriteFailure = onWriteFailure
     immediateConfirmationFailure?.let(onWriteFailure)

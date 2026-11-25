@@ -7,7 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingRepository
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.ObservedBookings
+import com.android.polybazaar.booking.model.isRecorded
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ListingRepository
@@ -29,13 +31,6 @@ import kotlinx.coroutines.sync.withLock
 enum class BookingParty {
   LENDER,
   RENTER,
-}
-
-enum class ConfirmationAction {
-  NOTIFY_HANDOVER,
-  CONFIRM_HANDOVER,
-  NOTIFY_RETURN,
-  CONFIRM_RETURN,
 }
 
 enum class ConfirmationStage(
@@ -69,14 +64,6 @@ fun Booking.confirmationAction(party: BookingParty): ConfirmationAction? {
   return stage.action.takeIf { stage.party == party }
 }
 
-private fun ConfirmationAction.isRecorded(booking: Booking): Boolean =
-    when (this) {
-      ConfirmationAction.NOTIFY_HANDOVER -> booking.handoverNotified
-      ConfirmationAction.CONFIRM_HANDOVER -> booking.renterHandoverConfirmed
-      ConfirmationAction.NOTIFY_RETURN -> booking.returnNotified
-      ConfirmationAction.CONFIRM_RETURN -> booking.lenderReturnConfirmed
-    }
-
 data class BookingUiState(
     val isSubmitting: Boolean = false,
     /** True after local queuing; it does not mean the server confirmed or lender accepted it. */
@@ -86,6 +73,7 @@ data class BookingUiState(
     val observationError: AppError? = null,
     val cancellingBookingIds: Set<String> = emptySet(),
     val pendingBookingIds: Set<String> = emptySet(),
+    val checkingConfirmationIds: Set<String> = emptySet(),
     val submittingConfirmations: Map<String, ConfirmationAction> = emptyMap(),
     val confirmationFailures: Map<String, ConfirmationFailure> = emptyMap(),
     /** The booking whose cancellation the server refused or that failed, so Retry can redo it. */
@@ -219,6 +207,7 @@ class BookingViewModel(
     return copy(
         bookings = bookings,
         pendingBookingIds = observed.pendingIds,
+        checkingConfirmationIds = observed.checkingConfirmationIds,
         isLoadingBookings = false,
         observationError = null,
         failedCancelId = if (cancellationObsolete) null else failedCancelId,
@@ -232,7 +221,10 @@ class BookingViewModel(
               bookings.any {
                 it.id == id && (id in observed.pendingIds || !failure.action.isRecorded(it))
               }
-            },
+            } +
+                observed.confirmationFailures.mapValues { (_, failure) ->
+                  ConfirmationFailure(failure.action, failure.error)
+                },
     )
   }
 
@@ -244,6 +236,7 @@ class BookingViewModel(
         booking.confirmationAction(currentParty) != action ||
             state.observationError != null ||
             state.isLoadingBookings ||
+            id in state.checkingConfirmationIds ||
             id in state.pendingBookingIds ||
             id in state.submittingConfirmations
     )
@@ -276,6 +269,18 @@ class BookingViewModel(
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
         failed(exception)
+      }
+    }
+  }
+
+  fun dismissConfirmationFailure(id: String) {
+    viewModelScope.launch {
+      try {
+        bookingRepository.dismissConfirmationFailure(id)
+        _uiState.update { it.copy(confirmationFailures = it.confirmationFailures - id) }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        _uiState.update { it.copy(error = exception.toAppError()) }
       }
     }
   }

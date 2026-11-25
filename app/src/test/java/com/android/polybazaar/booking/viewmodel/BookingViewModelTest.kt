@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelStore
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.model.ObservedBookings
 import com.android.polybazaar.error.model.AppError
