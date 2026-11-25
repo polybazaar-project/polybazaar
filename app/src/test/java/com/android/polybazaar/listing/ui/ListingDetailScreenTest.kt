@@ -44,6 +44,7 @@ import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
+import com.android.polybazaar.photo.decodePhotoPreview
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.ProfileComponentTags
 import com.android.polybazaar.profile.ui.redPhoto

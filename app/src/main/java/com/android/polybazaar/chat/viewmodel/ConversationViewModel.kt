@@ -13,6 +13,7 @@ import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.conversationId
 import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.attempt
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository

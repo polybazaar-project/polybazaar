@@ -1,5 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
-package com.android.polybazaar.chat.viewmodel
+package com.android.polybazaar.error.model
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
