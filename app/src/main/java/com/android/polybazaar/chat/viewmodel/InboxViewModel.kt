@@ -7,6 +7,7 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.chat.model.ChatRepository
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.attempt
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository

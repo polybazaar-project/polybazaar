@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,7 +20,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
-import com.android.polybazaar.listing.ui.decodePhotoPreview
 
 /** Text of the "Paused" listing badges, from the Figma. */
 internal val PausedBadgeText = Color(0xFF8C491F)
@@ -61,14 +58,4 @@ internal fun ListingPhoto(photo: ImageBitmap?, size: Dp, modifier: Modifier = Mo
       )
     }
   }
-}
-
-/** Decodes the downloaded [photo] off the main thread. Null while missing or decoding. */
-@Composable
-internal fun rememberPhoto(photo: ByteArray?): ImageBitmap? {
-  val decoded by
-      produceState<ImageBitmap?>(initialValue = null, photo) {
-        value = photo?.let { decodePhotoPreview(it) }
-      }
-  return decoded
 }

@@ -42,6 +42,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
+import com.android.polybazaar.photo.decodePhotoPreview
 
 /**
  * Longest side, in pixels, a listing photo is decoded at: the photo area is the screen's width
