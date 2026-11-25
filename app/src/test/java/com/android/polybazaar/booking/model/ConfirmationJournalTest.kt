@@ -2,6 +2,7 @@
 package com.android.polybazaar.booking.model
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.error.model.AppError
@@ -16,15 +17,19 @@ import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SnapshotMetadata
+import java.io.IOException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
@@ -58,6 +63,42 @@ class ConfirmationJournalTest {
     assertEquals(
         emptyList<ConfirmationAttempt>(),
         SharedPreferencesConfirmationJournal(context).attempts.value,
+    )
+  }
+
+  @Test
+  fun failedCommitDoesNotPublishOrQueueAnAttempt() = runTest {
+    val context = mock<Context>()
+    val preferences = mock<SharedPreferences>()
+    val editor = mock<SharedPreferences.Editor>()
+    whenever(context.getSharedPreferences("booking_confirmations", Context.MODE_PRIVATE))
+        .thenReturn(preferences)
+    whenever(preferences.getString("attempts", "[]")).thenReturn("[]")
+    whenever(preferences.edit()).thenReturn(editor)
+    whenever(editor.putString(eq("attempts"), any())).thenReturn(editor)
+    whenever(editor.commit()).thenReturn(false)
+    val journal =
+        SharedPreferencesConfirmationJournal(context, StandardTestDispatcher(testScheduler))
+
+    assertTrue(runCatching { journal.put(attempt) }.exceptionOrNull() is IOException)
+    assertEquals(emptyList<ConfirmationAttempt>(), journal.attempts.value)
+    assertEquals(emptySet<String>(), journal.activeTokens.value)
+  }
+
+  @Test
+  fun lateFailureOrAcknowledgementCannotOverwriteNewerRetryOrOtherUser() = runTest {
+    val journal = SharedPreferencesConfirmationJournal(context)
+    val retry = attempt.copy(token = "retry")
+    val other = attempt.copy(uid = "other", token = "other")
+    journal.put(attempt)
+    journal.put(other)
+    journal.put(retry)
+    journal.fail(attempt.token, AppError.PERMISSION_DENIED)
+    journal.remove(attempt.token)
+
+    assertEquals(
+        setOf(other, retry),
+        SharedPreferencesConfirmationJournal(context).attempts.value.toSet(),
     )
   }
 

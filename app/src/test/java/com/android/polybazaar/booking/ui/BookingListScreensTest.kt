@@ -51,6 +51,7 @@ class BookingListScreensTest {
       onCancel: (String) -> Unit = {},
       showRenter: Boolean = false,
       onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
+      onDismissConfirmation: (String) -> Unit = {},
   ) {
     composeTestRule.setContent {
       BookingListContent(
@@ -61,6 +62,7 @@ class BookingListScreensTest {
           onCancel = onCancel,
           showRenter = showRenter,
           onConfirm = onConfirm,
+          onDismissConfirmation = onDismissConfirmation,
       )
     }
   }
@@ -252,6 +254,57 @@ class BookingListScreensTest {
     composeTestRule
         .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
         .assertTextEquals("Saving…")
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  fun checkingRecoveredConfirmationShowsStatusAndHidesRetry() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            checkingConfirmationIds = setOf("a"),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.NETWORK,
+                        )
+                ),
+        )
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Checking confirmation")
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_RETRY).assertCountEquals(0)
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ERROR).assertCountEquals(0)
+  }
+
+  @Test
+  fun cancelledBookingShowsRecoveredFailureAndCanDismissIt() {
+    val dismissed = mutableListOf<String>()
+    show(
+        BookingUiState(
+            bookings = listOf(booking("a", BookingStatus.CANCELLED)),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.PERMISSION_DENIED,
+                        )
+                ),
+        ),
+        onDismissConfirmation = { dismissed += it },
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_DISMISS).performClick()
+    assertEquals(listOf("a"), dismissed)
     composeTestRule
         .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
         .assertCountEquals(0)

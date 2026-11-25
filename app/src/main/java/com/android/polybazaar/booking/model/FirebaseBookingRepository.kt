@@ -121,7 +121,8 @@ class FirebaseBookingRepository(
     val recovered =
         journal.attempts.value
             .filter { it.uid == uid && it.token !in journal.activeTokens.value }
-            .mapTo(mutableSetOf()) { it.token }
+            .map { it.token }
+            .toSet()
     return combine(observeSnapshots(query), journal.attempts, journal.activeTokens) {
         snapshot,
         attempts,
@@ -130,17 +131,7 @@ class FirebaseBookingRepository(
       val relevant = attempts.filter { attempt ->
         attempt.uid == uid && observed.bookings.any { it.id == attempt.bookingId }
       }
-      if (!snapshot.fromCache) {
-        for (attempt in relevant) {
-          val booking = observed.bookings.first { it.id == attempt.bookingId }
-          if (booking.id !in observed.pendingIds) {
-            if (attempt.action.isRecorded(booking)) journal.remove(attempt.token)
-            else if (attempt.error == null && attempt.token in recovered) {
-              journal.fail(attempt.token, AppError.UNKNOWN)
-            }
-          }
-        }
-      }
+      reconcileConfirmations(snapshot, relevant, recovered)
       val current =
           journal.attempts.value.filter { attempt ->
             attempt.uid == uid && observed.bookings.any { it.id == attempt.bookingId }
@@ -164,6 +155,22 @@ class FirebaseBookingRepository(
                   }
                   .toMap(),
       )
+    }
+  }
+
+  private suspend fun reconcileConfirmations(
+      snapshot: BookingSnapshot,
+      attempts: List<ConfirmationAttempt>,
+      recovered: Set<String>,
+  ) {
+    if (snapshot.fromCache) return
+    for (attempt in attempts) {
+      val booking = snapshot.observed.bookings.first { it.id == attempt.bookingId }
+      if (booking.id in snapshot.observed.pendingIds) continue
+      if (attempt.action.isRecorded(booking)) journal.remove(attempt.token)
+      else if (attempt.error == null && attempt.token in recovered) {
+        journal.fail(attempt.token, AppError.UNKNOWN)
+      }
     }
   }
 

@@ -10,6 +10,7 @@ import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.model.ObservedBookings
+import com.android.polybazaar.booking.model.RecoveredConfirmationFailure
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
@@ -305,6 +306,83 @@ class BookingViewModelTest {
     repository.bookingUpdates.emit(ObservedBookings(listOf(changed)))
     testDispatcher.scheduler.runCurrent()
     assertTrue(viewModel.uiState.value.pendingBookingIds.isEmpty())
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
+  fun recoveredConfirmationIsBlockedWhileCheckingAndCanBeRetriedAfterFailure() = runTest {
+    val handover = booking.copy(id = "a", status = BookingStatus.CONFIRMED, handoverNotified = true)
+    repository.renterBookings = listOf(handover)
+    val viewModel = BookingViewModel(repository)
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+
+    repository.bookingUpdates.emit(
+        ObservedBookings(listOf(handover), checkingConfirmationIds = setOf("a"))
+    )
+    testDispatcher.scheduler.runCurrent()
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    testDispatcher.scheduler.runCurrent()
+    assertTrue(repository.handoverConfirmations.isEmpty())
+
+    repository.bookingUpdates.emit(
+        ObservedBookings(
+            listOf(handover),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        RecoveredConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.NETWORK,
+                        )
+                ),
+        )
+    )
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(
+        ConfirmationFailure(ConfirmationAction.CONFIRM_HANDOVER, AppError.NETWORK),
+        viewModel.uiState.value.confirmationFailures["a"],
+    )
+    viewModel.confirmBooking("a", ConfirmationAction.CONFIRM_HANDOVER)
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(listOf("a"), repository.handoverConfirmations)
+    assertTrue(viewModel.uiState.value.confirmationFailures.isEmpty())
+    viewModel.stopObservingBookings()
+  }
+
+  @Test
+  fun dismissingRecoveredFailureReportsStorageErrorsAndAllowsRetry() = runTest {
+    val cancelled = booking.copy(id = "a", status = BookingStatus.CANCELLED)
+    repository.renterBookings = listOf(cancelled)
+    val viewModel = BookingViewModel(repository)
+    viewModel.observeRenterBookings()
+    testDispatcher.scheduler.runCurrent()
+    repository.bookingUpdates.emit(
+        ObservedBookings(
+            listOf(cancelled),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        RecoveredConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.PERMISSION_DENIED,
+                        )
+                ),
+        )
+    )
+    testDispatcher.scheduler.runCurrent()
+
+    repository.dismissConfirmationError = AppException(AppError.NETWORK)
+    viewModel.dismissConfirmationFailure("a")
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(AppError.NETWORK, viewModel.uiState.value.error)
+    assertTrue("a" in viewModel.uiState.value.confirmationFailures)
+
+    repository.dismissConfirmationError = null
+    viewModel.dismissConfirmationFailure("a")
+    testDispatcher.scheduler.runCurrent()
+    assertEquals(listOf("a", "a"), repository.dismissedConfirmations)
+    assertTrue(viewModel.uiState.value.confirmationFailures.isEmpty())
     viewModel.stopObservingBookings()
   }
 

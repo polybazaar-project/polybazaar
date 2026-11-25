@@ -1,10 +1,12 @@
 // Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.booking.model
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import com.android.polybazaar.error.model.AppError
 import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +40,10 @@ interface ConfirmationJournal {
   fun finish(token: String)
 }
 
-class SharedPreferencesConfirmationJournal(context: Context) : ConfirmationJournal {
+class SharedPreferencesConfirmationJournal(
+    context: Context,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : ConfirmationJournal {
   private val preferences =
       context.getSharedPreferences("booking_confirmations", Context.MODE_PRIVATE)
   private val mutex = Mutex()
@@ -71,8 +76,10 @@ class SharedPreferencesConfirmationJournal(context: Context) : ConfirmationJourn
     _activeTokens.update { it - token }
   }
 
+  // The KTX edit helper discards commit's result, which must be checked before publishing state.
+  @SuppressLint("UseKtx")
   private suspend fun update(change: (List<ConfirmationAttempt>) -> List<ConfirmationAttempt>) {
-    withContext(Dispatchers.IO) {
+    withContext(ioDispatcher) {
       mutex.withLock {
         val updated = change(_attempts.value)
         if (updated != _attempts.value) {
