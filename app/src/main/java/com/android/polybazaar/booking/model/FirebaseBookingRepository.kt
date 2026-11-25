@@ -119,7 +119,9 @@ class FirebaseBookingRepository(
   private fun observeBookings(query: () -> Query): Flow<ObservedBookings> {
     val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     val recovered =
-        journal.attempts.value.filter { it.uid == uid }.mapTo(mutableSetOf()) { it.token }
+        journal.attempts.value
+            .filter { it.uid == uid && it.token !in journal.activeTokens.value }
+            .mapTo(mutableSetOf()) { it.token }
     return combine(observeSnapshots(query), journal.attempts) { snapshot, attempts ->
       val observed = snapshot.observed
       val relevant = attempts.filter { attempt ->
@@ -242,9 +244,9 @@ class FirebaseBookingRepository(
     val attempt = ConfirmationAttempt(uid, id, action, UUID.randomUUID().toString())
     journal.put(attempt)
     try {
-      firestore.collection(BOOKINGS).document(id).update(field, true).addOnFailureListener(
-          Executor { it.run() }
-      ) { failure ->
+      val write = firestore.collection(BOOKINGS).document(id).update(field, true)
+      write.addOnSuccessListener(Executor { it.run() }) { journal.finish(attempt.token) }
+      write.addOnFailureListener(Executor { it.run() }) { failure ->
         logWriteFailure(failure)
         journalScope.launch {
           try {
@@ -252,12 +254,17 @@ class FirebaseBookingRepository(
           } catch (exception: Exception) {
             logWriteFailure(exception)
           } finally {
-            onWriteFailure(failure)
+            journal.finish(attempt.token)
           }
         }
+        onWriteFailure(failure)
       }
     } catch (exception: Exception) {
-      journal.fail(attempt.token, exception.toAppError())
+      try {
+        journal.fail(attempt.token, exception.toAppError())
+      } finally {
+        journal.finish(attempt.token)
+      }
       throw exception
     }
   }

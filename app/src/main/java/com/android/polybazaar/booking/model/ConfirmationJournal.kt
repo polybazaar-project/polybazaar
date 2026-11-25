@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -24,12 +25,15 @@ data class ConfirmationAttempt(
 
 interface ConfirmationJournal {
   val attempts: StateFlow<List<ConfirmationAttempt>>
+  val activeTokens: StateFlow<Set<String>>
 
   suspend fun put(attempt: ConfirmationAttempt)
 
   suspend fun fail(token: String, error: AppError)
 
   suspend fun remove(token: String)
+
+  fun finish(token: String)
 }
 
 class SharedPreferencesConfirmationJournal(context: Context) : ConfirmationJournal {
@@ -38,9 +42,19 @@ class SharedPreferencesConfirmationJournal(context: Context) : ConfirmationJourn
   private val mutex = Mutex()
   private val _attempts = MutableStateFlow(readAttempts())
   override val attempts: StateFlow<List<ConfirmationAttempt>> = _attempts.asStateFlow()
+  private val _activeTokens = MutableStateFlow<Set<String>>(emptySet())
+  override val activeTokens: StateFlow<Set<String>> = _activeTokens.asStateFlow()
 
-  override suspend fun put(attempt: ConfirmationAttempt) = update { attempts ->
-    attempts.filterNot { it.uid == attempt.uid && it.bookingId == attempt.bookingId } + attempt
+  override suspend fun put(attempt: ConfirmationAttempt) {
+    _activeTokens.update { it + attempt.token }
+    try {
+      update { attempts ->
+        attempts.filterNot { it.uid == attempt.uid && it.bookingId == attempt.bookingId } + attempt
+      }
+    } catch (exception: Exception) {
+      finish(attempt.token)
+      throw exception
+    }
   }
 
   override suspend fun fail(token: String, error: AppError) = update { attempts ->
@@ -49,6 +63,10 @@ class SharedPreferencesConfirmationJournal(context: Context) : ConfirmationJourn
 
   override suspend fun remove(token: String) = update { attempts ->
     attempts.filterNot { it.token == token }
+  }
+
+  override fun finish(token: String) {
+    _activeTokens.update { it - token }
   }
 
   private suspend fun update(change: (List<ConfirmationAttempt>) -> List<ConfirmationAttempt>) {

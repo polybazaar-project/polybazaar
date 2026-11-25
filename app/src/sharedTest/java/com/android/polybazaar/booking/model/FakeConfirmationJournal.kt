@@ -9,8 +9,11 @@ import kotlinx.coroutines.flow.update
 class FakeConfirmationJournal : ConfirmationJournal {
   private val state = MutableStateFlow<List<ConfirmationAttempt>>(emptyList())
   override val attempts = state.asStateFlow()
+  private val active = MutableStateFlow<Set<String>>(emptySet())
+  override val activeTokens = active.asStateFlow()
 
   override suspend fun put(attempt: ConfirmationAttempt) {
+    active.update { it + attempt.token }
     state.update {
       it.filterNot { old -> old.uid == attempt.uid && old.bookingId == attempt.bookingId } + attempt
     }
@@ -24,5 +27,9 @@ class FakeConfirmationJournal : ConfirmationJournal {
 
   override suspend fun remove(token: String) {
     state.update { it.filterNot { attempt -> attempt.token == token } }
+  }
+
+  override fun finish(token: String) {
+    active.update { it - token }
   }
 }
