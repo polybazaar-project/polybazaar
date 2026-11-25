@@ -734,6 +734,8 @@ fun AppNavHost(
           SettingsContent(
               onBack = { navController.popBackStack() },
               onSignOut = authViewModel::signOut,
+              // A signed-in user's only loading state is a sign-out.
+              signingOut = uiState.isLoading,
           )
         }
       }

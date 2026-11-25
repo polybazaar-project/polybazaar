@@ -89,6 +89,17 @@ service cloud.firestore {
           && (isVerified() || request.resource.data.diff(resource.data).affectedKeys().size() == 0);
 
       allow delete: if false;
+
+      // One document per device the user is signed in on, named by its FCM token. Only the Cloud
+      // Function that sends push notifications needs them, and it reads them with the Admin SDK.
+      match /devices/{token} {
+        allow create, update: if isVerified() && isOwner(uid)
+            && request.resource.data.keys().hasOnly(['updatedAt'])
+            && request.resource.data.updatedAt == request.time;
+
+        // Removing a device only stops notifications reaching it, so no verified email is needed.
+        allow delete: if isOwner(uid);
+      }
     }
 
     match /bookings/{bookingId} {

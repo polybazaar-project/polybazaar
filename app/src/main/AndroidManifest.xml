@@ -42,6 +42,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Receives this device's FCM events, such as a new token. -->
+        <service
+            android:name=".notification.model.PushMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
         <!-- Hands the camera app a file to write listing photos into. -->
         <provider
             android:name="androidx.core.content.FileProvider"
