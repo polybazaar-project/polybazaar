@@ -8,10 +8,14 @@ package com.android.polybazaar.ui.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -68,10 +72,12 @@ import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.chat.model.ChatRepository
+import com.android.polybazaar.chat.model.PhotoOutbox
 import com.android.polybazaar.chat.ui.ConversationScreen
 import com.android.polybazaar.chat.ui.InboxScreen
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.InboxViewModel
+import com.android.polybazaar.chat.viewmodel.PhotoOutboxSenderViewModel
 import com.android.polybazaar.chat.viewmodel.photoUploadScope
 import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
@@ -138,6 +144,7 @@ object AppNavHostTags {
  *   off campus.
  * @param connectivityRepository tells the listing forms and the conversations whether the device is
  *   online.
+ * @param photoOutbox keeps the chat photos sent offline, sent from any screen once back online.
  * @param pendingListingQueue keeps the listings created offline, to publish once back online.
  */
 @Composable
@@ -153,6 +160,7 @@ fun AppNavHost(
     locationRepository: LocationRepository,
     placeNameRepository: PlaceNameRepository,
     connectivityRepository: ConnectivityRepository,
+    photoOutbox: PhotoOutbox,
     pendingListingQueue: PendingListingQueue,
     navController: NavHostController = rememberNavController(),
     listingsMap: MapSlot = GoogleListingsMap,
@@ -183,6 +191,14 @@ fun AppNavHost(
       showMessage = showMessage,
   )
 
+  // Outside the NavHost, so the queued photos are sent whichever screen is open.
+  SendQueuedPhotosWhenOnline(
+      user = uiState.user,
+      photoOutbox = photoOutbox,
+      chatRepository = chatRepository,
+      connectivityRepository = connectivityRepository,
+  )
+
   LaunchedEffect(uiState.sessionChecked, uiState.user) {
     val route = navController.currentBackStackEntry?.destination?.route
     if (uiState.sessionChecked && uiState.user == null && route in signedInRoutes) {
@@ -196,6 +212,8 @@ fun AppNavHost(
 
   Scaffold(
       containerColor = AuthColors.Background,
+      // The cutout too, for the screens that do not pad for it themselves: Browse and Map.
+      contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout),
       bottomBar = {
         if (showsBottomBar(currentRoute)) {
           AppBottomBar(currentRoute = currentRoute, onTabSelected = navController::navigateToTab)
@@ -843,6 +861,30 @@ private fun draftNoticeMessage(notice: DraftPublishNotice): String =
             } else null,
         )
         .joinToString(" ")
+
+/**
+ * Sends [user]'s chat photos kept in [photoOutbox] whenever the device is online. Only a verified
+ * user sends: the security rules refuse the others' messages.
+ */
+@Composable
+private fun SendQueuedPhotosWhenOnline(
+    user: User?,
+    photoOutbox: PhotoOutbox,
+    chatRepository: ChatRepository,
+    connectivityRepository: ConnectivityRepository,
+) {
+  val photoSender: PhotoOutboxSenderViewModel =
+      viewModel(
+          factory =
+              viewModelFactory {
+                initializer {
+                  PhotoOutboxSenderViewModel(photoOutbox, chatRepository, connectivityRepository)
+                }
+              }
+      )
+  val senderUid = user?.takeIf { it.isEmailVerified }?.uid
+  LaunchedEffect(senderUid) { photoSender.setSignedInUser(senderUid) }
+}
 
 @Composable
 private fun SessionError(error: AppError, onRetry: () -> Unit) {

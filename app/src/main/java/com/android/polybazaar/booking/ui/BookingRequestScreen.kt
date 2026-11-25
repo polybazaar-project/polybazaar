@@ -468,7 +468,7 @@ private fun MessageWithRetry(
 @Composable
 private fun BookingRequestContentPreview() {
   val first = LocalDate.of(2026, 11, 13)
-  val days = (0L..3L).mapTo(mutableSetOf()) { first.plusDays(it) }
+  val days = (0L..3L).map { first.plusDays(it) }.toSet()
   BookingRequestContent(
       uiState =
           BookingRequestUiState(

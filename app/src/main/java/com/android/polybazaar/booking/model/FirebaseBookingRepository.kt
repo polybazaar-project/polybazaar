@@ -9,9 +9,14 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
+import com.google.firebase.firestore.Query
 import java.time.DateTimeException
 import java.time.LocalDate
 import java.util.concurrent.Executor
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
 class FirebaseBookingRepository(
@@ -51,7 +56,7 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun getBookingsForListing(listingId: String): List<Booking> {
-    val uid = signedInUid("Sign in to read bookings")
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     return firestore
         .collection(BOOKINGS)
         .whereEqualTo("listingId", listingId)
@@ -63,7 +68,7 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun getBookingsForLender(): List<Booking> {
-    val uid = signedInUid("Sign in to read bookings")
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     // The rules let a lender read the bookings that name them, so the query passes as a whole.
     return firestore
         .collection(BOOKINGS)
@@ -75,7 +80,7 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun getBookingsForRenter(): List<Booking> {
-    val uid = signedInUid("Sign in to read bookings")
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
     return firestore
         .collection(BOOKINGS)
         .whereEqualTo("renterUid", uid)
@@ -83,6 +88,47 @@ class FirebaseBookingRepository(
         .await()
         .documents
         .map { it.toBooking() }
+  }
+
+  override fun observeBookingsForListing(listingId: String): Flow<ObservedBookings> =
+      observeBookings {
+        val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
+        firestore
+            .collection(BOOKINGS)
+            .whereEqualTo("listingId", listingId)
+            .whereEqualTo("lenderUid", uid)
+      }
+
+  override fun observeBookingsForRenter(): Flow<ObservedBookings> = observeBookings {
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
+    firestore.collection(BOOKINGS).whereEqualTo("renterUid", uid)
+  }
+
+  private fun observeBookings(query: () -> Query): Flow<ObservedBookings> = callbackFlow {
+    val listener =
+        query().addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+          when {
+            error != null -> close(error)
+            snapshot == null -> close(IllegalStateException("Booking snapshot was null"))
+            else -> {
+              try {
+                val documents = snapshot.documents
+                trySend(
+                    ObservedBookings(
+                        bookings = documents.map { it.toBooking() },
+                        pendingIds =
+                            documents
+                                .filter { it.metadata.hasPendingWrites() }
+                                .mapTo(mutableSetOf()) { it.id },
+                    )
+                )
+              } catch (exception: Exception) {
+                close(exception)
+              }
+            }
+          }
+        }
+    awaitClose { listener.remove() }
   }
 
   override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
@@ -198,6 +244,8 @@ class FirebaseBookingRepository(
 
   private companion object {
     const val BOOKINGS = "bookings"
+    // Shared by every read: they all need a signed-in user.
+    const val SIGN_IN_TO_READ_BOOKINGS = "Sign in to read bookings"
     const val STATUS = "status"
     // Keep the original Firestore field names for bookings written by earlier clients.
     const val LENDER_HANDOVER_CONFIRMED = "lenderHandoverConfirmed"

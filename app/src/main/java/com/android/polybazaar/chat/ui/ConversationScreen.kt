@@ -87,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
@@ -1033,7 +1034,8 @@ private class MessagePhoto(
 /**
  * One message: the user's own at the end of the row, the other participant's at the start. A photo
  * message shows its photo, then its caption if any. The footer says who sent it and when, or only
- * when while the other participant's profile is unknown.
+ * when while the other participant's profile is unknown. While the user's own message hasn't
+ * reached the server yet, as when it was sent offline, the footer says it is sending instead.
  */
 @Composable
 private fun MessageBubble(
@@ -1046,6 +1048,7 @@ private fun MessageBubble(
   val time = message.sentAt.atZone(zone).format(TimeFormat)
   val footer =
       when {
+        isMine && message.sending -> stringResource(R.string.conversation_message_sending)
         isMine -> stringResource(R.string.conversation_my_message_footer, time)
         otherUsername != null ->
             stringResource(R.string.conversation_their_message_footer, otherUsername, time)
@@ -1615,8 +1618,8 @@ private fun MessageField(
 }
 
 /**
- * A paused listing with messages over two days, for the IDE preview. Internal so a test can render
- * it.
+ * A paused listing with messages over two days, the last one of mine still sending, for the IDE
+ * preview. Internal so a test can render it.
  */
 @Preview(showBackground = true, widthDp = 412, heightDp = 917)
 @Composable
@@ -1637,6 +1640,13 @@ internal fun ConversationContentPreview() {
                           start.plusSeconds(120),
                       ),
                       ChatMessage("3", "renter", "Perfect, see you then.", nextDay),
+                      ChatMessage(
+                          "4",
+                          "renter",
+                          "I'll bring it back on Sunday evening.",
+                          nextDay.plusSeconds(60),
+                          sending = true,
+                      ),
                   ),
               conversation =
                   Conversation(
@@ -1704,7 +1714,7 @@ internal fun ConversationPhotosPreview() {
                   listOf(
                       PendingPhoto(
                           messageId = "3",
-                          photo = Uri.parse("file:///preview/photo_3.jpg"),
+                          photo = "file:///preview/photo_3.jpg".toUri(),
                           caption = "And the shelf I mean",
                           status = PendingPhotoStatus.FAILED,
                           error = AppError.NETWORK,
