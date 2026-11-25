@@ -48,7 +48,12 @@ class LenderProfileScreenTest {
           bio = "Weekend maker",
       )
   private val drill =
-      BrowseListing(id = "drill", title = "Bosch drill set", category = "Tools", price = "CHF 8")
+      BrowseListing(
+          id = "drill",
+          title = "Bosch drill set",
+          category = ListingCategory.ITEM_TOOLS,
+          price = "CHF 8",
+      )
 
   /** A state where both the profile and the listings have answered. */
   private fun loaded(

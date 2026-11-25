@@ -38,6 +38,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,12 +53,18 @@ import com.android.polybazaar.browse.viewmodel.BrowseUiState
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.photo.rememberPhoto
 
 object BrowseScreenTags {
   const val SCREEN = "browse_screen"
   const val SEARCH_FIELD = "browse_search_field"
   const val HEADER = "browse_header"
+  const val TYPE_SELECTOR = "browse_type_selector"
+  const val TYPE_ALL = "browse_type_all"
+  const val TYPE_ITEMS = "browse_type_items"
+  const val TYPE_SERVICES = "browse_type_services"
   const val CATEGORY_SELECTOR = "browse_category_selector"
   const val LISTING_CARD = "browse_listing_card"
   const val LISTING_PHOTO = "browse_listing_photo"
@@ -75,18 +83,23 @@ fun BrowseScreen(viewModel: BrowseViewModel, onOpenListing: (String) -> Unit = {
   BrowseContent(
       uiState = uiState,
       onQueryChange = viewModel::updateQuery,
+      onTypeSelected = viewModel::selectType,
       onCategorySelected = viewModel::selectCategory,
       onRetry = viewModel::loadListings,
       onOpenListing = onOpenListing,
   )
 }
 
-/** @param onOpenListing called with a listing's id when the user taps its card. */
+/**
+ * @param onTypeSelected called with the type the user picks, or null for All.
+ * @param onOpenListing called with a listing's id when the user taps its card.
+ */
 @Composable
 fun BrowseContent(
     uiState: BrowseUiState,
     onQueryChange: (String) -> Unit,
-    onCategorySelected: (String) -> Unit,
+    onTypeSelected: (ListingType?) -> Unit,
+    onCategorySelected: (ListingCategory) -> Unit,
     onRetry: () -> Unit,
     onOpenListing: (String) -> Unit = {},
 ) {
@@ -106,13 +119,14 @@ fun BrowseContent(
                   .background(AuthColors.Background)
                   .padding(vertical = SEARCH_PINNED_MARGIN)
       ) {
-        SearchField(query = uiState.query, onQueryChange = onQueryChange)
+        SearchField(query = uiState.filters.query, onQueryChange = onQueryChange)
       }
     }
     item {
+      TypeSelector(selectedType = uiState.filters.type, onTypeSelected = onTypeSelected)
       CategorySelector(
           categories = uiState.categories,
-          selectedCategory = uiState.selectedCategory,
+          selectedCategory = uiState.filters.category,
           onCategorySelected = onCategorySelected,
       )
       Row(
@@ -250,11 +264,46 @@ internal fun SearchField(query: String, onQueryChange: (String) -> Unit) {
   }
 }
 
+/** The All / Items / Services row: shows both types, or only one, given to [onTypeSelected]. */
+@Composable
+internal fun TypeSelector(selectedType: ListingType?, onTypeSelected: (ListingType?) -> Unit) {
+  Row(
+      modifier =
+          Modifier.fillMaxWidth()
+              .padding(start = 24.dp, end = 24.dp, top = 20.dp - SEARCH_PINNED_MARGIN)
+              .testTag(BrowseScreenTags.TYPE_SELECTOR),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    BrowseChip(
+        text = stringResource(R.string.browse_type_all),
+        isSelected = selectedType == null,
+        onClick = { onTypeSelected(null) },
+        modifier = Modifier.testTag(BrowseScreenTags.TYPE_ALL),
+    )
+    BrowseChip(
+        text = stringResource(R.string.browse_type_items),
+        isSelected = selectedType == ListingType.ITEM,
+        onClick = { onTypeSelected(ListingType.ITEM) },
+        modifier = Modifier.testTag(BrowseScreenTags.TYPE_ITEMS),
+    )
+    BrowseChip(
+        text = stringResource(R.string.browse_type_services),
+        isSelected = selectedType == ListingType.SERVICE,
+        onClick = { onTypeSelected(ListingType.SERVICE) },
+        modifier = Modifier.testTag(BrowseScreenTags.TYPE_SERVICES),
+    )
+  }
+}
+
+/**
+ * The category chips. Tapping the selected chip clears it, which [onCategorySelected] handles by
+ * getting the same category again.
+ */
 @Composable
 internal fun CategorySelector(
-    categories: List<String>,
-    selectedCategory: String?,
-    onCategorySelected: (String) -> Unit,
+    categories: List<ListingCategory>,
+    selectedCategory: ListingCategory?,
+    onCategorySelected: (ListingCategory) -> Unit,
 ) {
   Row(
       modifier =
@@ -262,39 +311,59 @@ internal fun CategorySelector(
           // align with the search field at rest but scroll to the screen edge.
           Modifier.fillMaxWidth()
               .horizontalScroll(rememberScrollState())
-              .padding(
-                  start = 24.dp,
-                  end = 24.dp,
-                  top = 20.dp - SEARCH_PINNED_MARGIN,
-                  bottom = 20.dp,
-              )
+              .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 20.dp)
               .testTag(BrowseScreenTags.CATEGORY_SELECTOR),
       horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     categories.forEach { category ->
-      val isSelected = category == selectedCategory
-      Text(
-          text = category,
-          color = if (isSelected) AuthColors.Accent else AuthColors.TextSecondary,
-          fontSize = 16.sp,
-          fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-          maxLines = 1,
-          softWrap = false,
-          modifier =
-              Modifier.clip(RoundedCornerShape(24.dp))
-                  .background(
-                      if (isSelected) AuthColors.SelectedBackground else AuthColors.CardBackground
-                  )
-                  .border(
-                      1.dp,
-                      if (isSelected) AuthColors.Accent else AuthColors.Outline,
-                      RoundedCornerShape(24.dp),
-                  )
-                  .clickable { onCategorySelected(category) }
-                  .padding(horizontal = 18.dp, vertical = 11.dp),
+      BrowseChip(
+          text = chipLabel(category),
+          isSelected = category == selectedCategory,
+          onClick = { onCategorySelected(category) },
       )
     }
   }
+}
+
+/**
+ * The name on a category's chip. Items and services both have an "Other" category, so their chips
+ * say which one they are; every other category keeps its name.
+ */
+@Composable
+internal fun chipLabel(category: ListingCategory): String =
+    when (category) {
+      ListingCategory.ITEM_OTHER -> stringResource(R.string.browse_category_other_items)
+      ListingCategory.SERVICE_OTHER -> stringResource(R.string.browse_category_other_services)
+      else -> category.displayName
+    }
+
+/** A filter chip of Browse, highlighted and announced as selected when [isSelected]. */
+@Composable
+private fun BrowseChip(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  val shape = RoundedCornerShape(24.dp)
+  Text(
+      text = text,
+      color = if (isSelected) AuthColors.Accent else AuthColors.TextSecondary,
+      fontSize = 16.sp,
+      fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+      maxLines = 1,
+      softWrap = false,
+      modifier =
+          modifier
+              .semantics { selected = isSelected }
+              .clip(shape)
+              .background(
+                  if (isSelected) AuthColors.SelectedBackground else AuthColors.CardBackground
+              )
+              .border(1.dp, if (isSelected) AuthColors.Accent else AuthColors.Outline, shape)
+              .clickable(onClick = onClick)
+              .padding(horizontal = 18.dp, vertical = 11.dp),
+  )
 }
 
 /**
@@ -364,7 +433,7 @@ internal fun ListingCard(
           overflow = TextOverflow.Ellipsis,
       )
       Text(
-          text = listOfNotNull(listing.category, listing.distance).joinToString(" · "),
+          text = listOfNotNull(listing.category.displayName, listing.distance).joinToString(" · "),
           color = AuthColors.TextSecondary,
           fontSize = 15.sp,
           maxLines = 1,
@@ -398,19 +467,19 @@ internal fun BrowseScreenPreview() {
                       BrowseListing(
                           id = "drill",
                           title = "Bosch drill set",
-                          category = "Tools",
+                          category = ListingCategory.ITEM_TOOLS,
                           price = "CHF 8",
                       ),
                       BrowseListing(
                           id = "projector",
                           title = "Mini projector",
-                          category = "Electronics",
+                          category = ListingCategory.ITEM_ELECTRONICS,
                           price = "CHF 12",
                       ),
                   ),
-              categories = listOf("Tools", "Electronics"),
           ),
       onQueryChange = {},
+      onTypeSelected = {},
       onCategorySelected = {},
       onRetry = {},
   )
