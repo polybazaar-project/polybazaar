@@ -2,6 +2,7 @@
 package com.android.polybazaar.booking.model
 
 import android.content.Context
+import android.util.Log
 import com.android.polybazaar.error.model.AppError
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 data class ConfirmationAttempt(
@@ -95,16 +97,40 @@ class SharedPreferencesConfirmationJournal(context: Context) : ConfirmationJourn
   }
 
   private fun readAttempts(): List<ConfirmationAttempt> {
-    val json = JSONArray(preferences.getString("attempts", "[]"))
-    return (0 until json.length()).map { index ->
-      val item = json.getJSONObject(index)
-      ConfirmationAttempt(
-          uid = item.getString("uid"),
-          bookingId = item.getString("bookingId"),
-          action = ConfirmationAction.valueOf(item.getString("action")),
-          token = item.getString("token"),
-          error = item.optString("error").takeIf { it.isNotEmpty() }?.let(AppError::valueOf),
-      )
+    val json =
+        try {
+          JSONArray(preferences.getString("attempts", "[]"))
+        } catch (exception: JSONException) {
+          Log.w(LOG_TAG, "Cannot read confirmation journal", exception)
+          return emptyList()
+        } catch (exception: ClassCastException) {
+          Log.w(LOG_TAG, "Cannot read confirmation journal", exception)
+          return emptyList()
+        }
+    return (0 until json.length()).mapNotNull { index ->
+      try {
+        val item = json.getJSONObject(index)
+        fun requiredString(key: String): String =
+            (item.get(key) as? String)?.takeIf { it.isNotBlank() }
+                ?: throw JSONException("Invalid $key")
+        ConfirmationAttempt(
+            uid = requiredString("uid"),
+            bookingId = requiredString("bookingId"),
+            action = ConfirmationAction.valueOf(requiredString("action")),
+            token = requiredString("token"),
+            error = if (item.isNull("error")) null else AppError.valueOf(requiredString("error")),
+        )
+      } catch (exception: JSONException) {
+        Log.w(LOG_TAG, "Skipping invalid confirmation attempt at index $index", exception)
+        null
+      } catch (exception: IllegalArgumentException) {
+        Log.w(LOG_TAG, "Skipping invalid confirmation attempt at index $index", exception)
+        null
+      }
     }
+  }
+
+  private companion object {
+    const val LOG_TAG = "ConfirmationJournal"
   }
 }

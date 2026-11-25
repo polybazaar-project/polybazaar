@@ -122,7 +122,10 @@ class FirebaseBookingRepository(
         journal.attempts.value
             .filter { it.uid == uid && it.token !in journal.activeTokens.value }
             .mapTo(mutableSetOf()) { it.token }
-    return combine(observeSnapshots(query), journal.attempts) { snapshot, attempts ->
+    return combine(observeSnapshots(query), journal.attempts, journal.activeTokens) {
+        snapshot,
+        attempts,
+        activeTokens ->
       val observed = snapshot.observed
       val relevant = attempts.filter { attempt ->
         attempt.uid == uid && observed.bookings.any { it.id == attempt.bookingId }
@@ -145,14 +148,19 @@ class FirebaseBookingRepository(
       observed.copy(
           checkingConfirmationIds =
               current
-                  .filter { it.error == null && it.bookingId !in observed.pendingIds }
+                  .filter {
+                    (it.error == null || it.token in activeTokens) &&
+                        it.bookingId !in observed.pendingIds
+                  }
                   .mapTo(mutableSetOf()) { it.bookingId },
           confirmationFailures =
               current
                   .mapNotNull { attempt ->
-                    attempt.error?.let {
-                      attempt.bookingId to RecoveredConfirmationFailure(attempt.action, it)
-                    }
+                    attempt.error
+                        ?.takeIf { attempt.token !in activeTokens }
+                        ?.let {
+                          attempt.bookingId to RecoveredConfirmationFailure(attempt.action, it)
+                        }
                   }
                   .toMap(),
       )
@@ -254,10 +262,13 @@ class FirebaseBookingRepository(
           } catch (exception: Exception) {
             logWriteFailure(exception)
           } finally {
-            journal.finish(attempt.token)
+            try {
+              onWriteFailure(failure)
+            } finally {
+              journal.finish(attempt.token)
+            }
           }
         }
-        onWriteFailure(failure)
       }
     } catch (exception: Exception) {
       try {
