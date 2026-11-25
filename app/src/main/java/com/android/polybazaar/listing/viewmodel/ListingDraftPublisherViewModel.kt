@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** The outcome of a publish pass that tried at least one draft, to tell the user. */
 data class DraftPublishNotice(val published: Int, val failed: Int)
@@ -36,13 +37,19 @@ data class DraftPublishNotice(val published: Int, val failed: Int)
  * not publish an id that already exists, and passes never overlap: a single collector runs them one
  * after the other, and collectLatest waits for a cancelled pass to end before the next starts.
  *
+ * A draft whose publishing takes longer than [publishTimeoutMillis] is kept and counted as failed:
+ * the device may report being online while Firestore never answers, on a captive portal or a very
+ * weak network.
+ *
  * @param today the current day, to leave past available days out of a published draft.
+ * @param publishTimeoutMillis how long publishing one draft, photos included, may take.
  */
 class ListingDraftPublisherViewModel(
     private val pendingListingQueue: PendingListingQueue,
     private val listingRepository: ListingRepository,
     connectivityRepository: ConnectivityRepository,
     private val today: () -> LocalDate = LocalDate::now,
+    private val publishTimeoutMillis: Long = PUBLISH_TIMEOUT_MILLIS,
 ) : ViewModel() {
 
   private val signedInUid = MutableStateFlow<String?>(null)
@@ -86,7 +93,17 @@ class ListingDraftPublisherViewModel(
     var failed = 0
     for (draft in drafts) {
       try {
-        listingRepository.publishListing(draft.id, draft.listing.withUpcomingDays())
+        // withTimeoutOrNull, not withTimeout: its TimeoutCancellationException would be rethrown
+        // below as a cancellation, ending the pass without telling the user.
+        val done =
+            withTimeoutOrNull(publishTimeoutMillis) {
+              listingRepository.publishListing(draft.id, draft.listing.withUpcomingDays())
+            }
+        if (done == null) {
+          Log.w(LOG_TAG, "Publishing draft ${draft.id} timed out")
+          failed++
+          continue
+        }
         pendingListingQueue.remove(draft.id)
         published++
       } catch (exception: Exception) {
@@ -109,5 +126,7 @@ class ListingDraftPublisherViewModel(
 
   private companion object {
     const val LOG_TAG = "DraftPublisher"
+    // Generous, as it includes uploading the draft's photos.
+    const val PUBLISH_TIMEOUT_MILLIS = 60_000L
   }
 }

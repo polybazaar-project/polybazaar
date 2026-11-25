@@ -14,12 +14,15 @@ import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -66,9 +69,12 @@ class ListingDraftPublisherViewModelTest {
     Dispatchers.resetMain()
   }
 
+  private val timeoutMillis = 1_000L
+
   private fun publisher(uid: String? = ada) =
-      ListingDraftPublisherViewModel(queue, listings, connectivity) { today }
-          .also { it.setSignedInUser(uid) }
+      ListingDraftPublisherViewModel(queue, listings, connectivity, { today }, timeoutMillis).also {
+        it.setSignedInUser(uid)
+      }
 
   private fun pendingIds() = queue.pending.value.map { it.id }
 
@@ -313,11 +319,11 @@ class ListingDraftPublisherViewModelTest {
     val gate = CompletableDeferred<Unit>()
     fake.gate = gate
     val viewModel = publisher()
-    advanceUntilIdle()
+    runCurrent()
     assertEquals(listOf("d1"), attemptedIds())
 
     queue.enqueue("d2", tutoring)
-    advanceUntilIdle()
+    runCurrent()
     // The second draft waits for the pass in progress.
     assertEquals(listOf("d1"), attemptedIds())
 
@@ -351,10 +357,10 @@ class ListingDraftPublisherViewModelTest {
     val gate = CompletableDeferred<Unit>()
     fake.gate = gate
     val viewModel = publisher()
-    advanceUntilIdle()
+    runCurrent()
 
     connectivity.isOnline.value = false
-    advanceUntilIdle()
+    runCurrent()
     gate.complete(Unit)
     advanceUntilIdle()
 
@@ -376,16 +382,58 @@ class ListingDraftPublisherViewModelTest {
     val gate = CompletableDeferred<Unit>()
     fake.gate = gate
     val viewModel = publisher()
-    advanceUntilIdle()
+    runCurrent()
 
     viewModel.setSignedInUser(null)
-    advanceUntilIdle()
+    runCurrent()
     gate.complete(Unit)
     advanceUntilIdle()
 
     assertTrue(fake.publishedListingIds.isEmpty())
     assertEquals(listOf("d1"), pendingIds())
     assertNull(viewModel.notice.value)
+  }
+
+  @Test
+  fun draftNeverAnswered_isKeptAfterTheTimeout_andCountedAsFailed() = runTest {
+    queue.enqueue("d1", drill())
+    queue.enqueue("d2", tutoring)
+    listings.hangingIds += "d1"
+
+    val viewModel = publisher()
+    runCurrent()
+    advanceTimeBy(timeoutMillis - 1)
+    runCurrent()
+    // Still waiting for d1: nothing told yet.
+    assertEquals(listOf("d1"), attemptedIds())
+    assertNull(viewModel.notice.value)
+
+    advanceTimeBy(1)
+    runCurrent()
+
+    assertEquals(listOf("d1", "d2"), attemptedIds())
+    assertEquals(listOf("d1"), pendingIds())
+    assertEquals(listOf("d2"), fake.publishedListingIds)
+    assertEquals(DraftPublishNotice(published = 1, failed = 1), viewModel.notice.value)
+  }
+
+  @Test
+  fun timedOutDraft_isTriedAgainWhenTheConnectionReturns() = runTest {
+    queue.enqueue("d1", drill())
+    listings.hangingIds += "d1"
+    val viewModel = publisher()
+    advanceUntilIdle()
+    assertEquals(DraftPublishNotice(0, 1), viewModel.notice.value)
+
+    listings.hangingIds.clear()
+    connectivity.isOnline.value = false
+    advanceUntilIdle()
+    connectivity.isOnline.value = true
+    advanceUntilIdle()
+
+    assertEquals(listOf("d1", "d1"), attemptedIds())
+    assertTrue(queue.pending.value.isEmpty())
+    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -424,17 +472,19 @@ class ListingDraftPublisherViewModelTest {
   }
 
   /**
-   * Records every [publishListing] attempt, failing those whose id is in [failingIds], and
-   * otherwise answers as [fake] does.
+   * Records every [publishListing] attempt, failing those whose id is in [failingIds], never
+   * answering those whose id is in [hangingIds], and otherwise answering as [fake] does.
    */
   private class RecordingListingRepository(private val fake: FakeListingRepository) :
       ListingRepository by fake {
     val attempts = mutableListOf<Pair<String, Listing>>()
     val failingIds = mutableSetOf<String>()
+    val hangingIds = mutableSetOf<String>()
 
     override suspend fun publishListing(listingId: String, listing: Listing) {
       attempts += listingId to listing
       if (listingId in failingIds) throw IOException("Could not publish $listingId")
+      if (listingId in hangingIds) awaitCancellation()
       fake.publishListing(listingId, listing)
     }
   }
