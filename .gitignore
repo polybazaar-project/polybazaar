@@ -12,3 +12,5 @@ local.properties
 /app/google-services.json
 node_modules/
 *-debug.log
+# The two Firebase packages are pinned exactly; their dependencies resolve at install time.
+functions/package-lock.json

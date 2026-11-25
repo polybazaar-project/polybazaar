@@ -27,9 +27,9 @@ Users can access their toolbox (owned and currently rented items), profile detai
 `functions/` holds the Cloud Functions that send push notifications (Node 22). Their tests start the Firestore emulator, which needs Java 21 or later:
 
 ```sh
-cd functions && npm ci && npm test
+cd functions && npm install && npm test
 ```
 
 `npm run test:unit` runs only the payload tests, with no emulator.
 
-Deploying needs the project on the Blaze plan and owner access: `npx firebase-tools@15.37.0 deploy --only functions`, from the repo root. That firebase-tools is newer than the one `rules-tests/` pins, which cannot load firebase-functions v7. The first deploy asks for a cleanup policy for old container images; accept it. CI runs the tests but never deploys.
+Deploying needs the project on the Blaze plan and owner access. firebase-tools loads the functions to find them, so install them first: `(cd functions && npm install) && npx firebase-tools@15.37.0 deploy --only functions`, from the repo root. That firebase-tools is newer than the one `rules-tests/` pins, which cannot load firebase-functions v7. The first deploy asks for a cleanup policy for old container images; accept it. CI runs the tests but never deploys.
