@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "npx --yes firebase-tools@15.37.0 emulators:exec --only firestore --project demo-polybazaar \"node --test --test-concurrency=1\"",
-    "test:unit": "node --test test/payload.test.js"
+    "test:unit": "node --test test/payload.test.js test/booking.test.js"
   },
   "dependencies": {
     "firebase-admin": "14.5.1",

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { after, beforeEach, describe, test } from "node:test";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { notifyNewMessage } from "../src/notify.js";
+import { notifyBookingChange, notifyNewMessage } from "../src/notify.js";
 
 const PROJECT_ID = "demo-polybazaar";
 const RENTER = "renter-uid";
@@ -72,7 +72,10 @@ async function deviceIds(uid) {
 
 const hi = { senderUid: RENTER, text: "Hi" };
 
-async function send(message = hi, { errors, database = db, conversationId = CONVERSATION_ID } = {}) {
+async function send(
+  message = hi,
+  { errors, database = db, conversationId = CONVERSATION_ID } = {},
+) {
   const messaging = fakeMessaging(errors);
   await notifyNewMessage(database, messaging, { conversationId, messageId: "m1" }, message);
   return messaging.calls;
@@ -177,5 +180,67 @@ describe("notifyNewMessage", () => {
     await addDevices(LENDER, ["lender-phone"]);
     assert.deepEqual(await send({ senderUid: "eve-uid", text: "Hi" }), []);
     assert.deepEqual(await send(hi, { conversationId: "missing_x" }), []);
+  });
+});
+
+describe("notifyBookingChange", () => {
+  const requested = {
+    listingId: "listing-1",
+    renterUid: RENTER,
+    lenderUid: LENDER,
+    days: [20500],
+    status: "REQUESTED",
+  };
+  const cancelled = { ...requested, status: "CANCELLED" };
+
+  // booking.test.js covers the decision and the payload; these cover what the handler reads.
+  async function change(before, after, authId) {
+    const messaging = fakeMessaging();
+    const writer = { authType: "api_key", authId };
+    await notifyBookingChange(db, messaging, { bookingId: "booking-1" }, { before, after }, writer);
+    return messaging.calls;
+  }
+
+  beforeEach(async () => {
+    await db.doc("listings/listing-1").set({ ownerUid: LENDER, title: "Bike" });
+    await addDevices(RENTER, ["renter-phone"]);
+    await addDevices(LENDER, ["lender-phone"]);
+  });
+
+  test("a request reaches the lender with the listing's title and the renter's name", async () => {
+    const [call, ...rest] = await change(null, requested);
+
+    assert.deepEqual(rest, []);
+    assert.deepEqual(call.fids, ["lender-phone"]);
+    assert.equal(call.data.type, "booking_requested");
+    assert.equal(call.data.listingTitle, "Bike");
+    assert.equal(call.data.renterName, "renter");
+  });
+
+  test("a lender's decline reaches the renter only", async () => {
+    const [call, ...rest] = await change(requested, cancelled, LENDER);
+
+    assert.deepEqual(rest, []);
+    assert.deepEqual(call.fids, ["renter-phone"]);
+    assert.equal(call.data.type, "booking_cancelled");
+    assert.equal(call.data.listingTitle, "Bike");
+  });
+
+  test("sends nothing for a handover step or a cancel written by neither party", async () => {
+    const confirmed = { ...requested, status: "CONFIRMED" };
+    const handover = { ...confirmed, lenderHandoverConfirmed: true };
+
+    assert.deepEqual(await change(confirmed, handover, LENDER), []);
+    assert.deepEqual(await change(requested, cancelled, "eve-uid"), []);
+  });
+
+  test("a listing someone else re-created under the booking's listing id, or a deleted one, gives an empty title", async () => {
+    await db.doc("listings/listing-1").set({ ownerUid: "eve-uid", title: "Not the lender's" });
+    const [recreated] = await change(requested, cancelled, RENTER);
+    assert.equal(recreated.data.listingTitle, "");
+
+    await db.doc("listings/listing-1").delete();
+    const [deleted] = await change(requested, cancelled, RENTER);
+    assert.equal(deleted.data.listingTitle, "");
   });
 });
