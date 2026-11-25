@@ -8,21 +8,22 @@ import com.google.firebase.messaging.FirebaseMessagingService
 /** Receives this device's FCM events. */
 class PushMessagingService : FirebaseMessagingService() {
 
-  override fun onNewToken(token: String) {
-    storeNewToken(FirebaseAuth.getInstance().currentUser, token) { uid, newToken ->
-      FirebasePushTokenRepository().store(uid, newToken)
+  override fun onRegistered(installationId: String) {
+    storeRegistration(FirebaseAuth.getInstance().currentUser, installationId) { uid, fid ->
+      FirebasePushDeviceRepository().store(uid, fid)
     }
   }
 }
 
 /**
- * FCM replaced this device's token, so [user]'s devices must name the new one. Only a verified user
- * may store a device; anyone else has it stored when their verified session starts.
+ * FCM registered this device under [fid], at install, at a routine sync, or when the ID changed, so
+ * [user]'s devices must name it and say when it was last seen. Only a verified user may store a
+ * device; anyone else has it stored when their verified session starts.
  */
-internal fun storeNewToken(
+internal fun storeRegistration(
     user: FirebaseUser?,
-    token: String,
-    store: (uid: String, token: String) -> Unit,
+    fid: String,
+    store: (uid: String, fid: String) -> Unit,
 ) {
-  if (user != null && user.isEmailVerified) store(user.uid, token)
+  if (user != null && user.isEmailVerified) store(user.uid, fid)
 }

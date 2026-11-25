@@ -295,43 +295,43 @@ describe("users", () => {
 });
 
 describe("devices", () => {
-  const device = (db, uid = ALICE) => doc(db, `users/${uid}/devices/token-1`);
+  const device = (db, uid = ALICE) => doc(db, `users/${uid}/devices/fid-1`);
   const stamp = () => ({ updatedAt: serverTimestamp() });
 
-  test("a verified user can store and refresh their device's token", async () => {
+  test("a verified user can store and refresh their device", async () => {
     await assertSucceeds(setDoc(device(verified(ALICE)), stamp()));
     await assertSucceeds(setDoc(device(verified(ALICE)), stamp()));
   });
 
-  test("an unverified or non-EPFL account cannot store a token", async () => {
+  test("an unverified or non-EPFL account cannot store a device", async () => {
     await assertFails(setDoc(device(unverified(ALICE)), stamp()));
     await assertFails(setDoc(device(outsider(ALICE)), stamp()));
   });
 
-  test("a user cannot store a token for someone else", async () => {
+  test("a user cannot store a device for someone else", async () => {
     await assertFails(setDoc(device(verified(BOB)), stamp()));
   });
 
-  test("a token holds only the server time it was stored at", async () => {
+  test("a device holds only the server time it was stored at", async () => {
     await assertFails(setDoc(device(verified(ALICE)), { ...stamp(), platform: "android" }));
     await assertFails(setDoc(device(verified(ALICE)), { updatedAt: new Date() }));
     await assertFails(setDoc(device(verified(ALICE)), {}));
   });
 
-  test("a user can remove their own token, verified or not", async () => {
-    await seed(`users/${ALICE}/devices/token-1`, { updatedAt: new Date() });
+  test("a user can remove their own device, verified or not", async () => {
+    await seed(`users/${ALICE}/devices/fid-1`, { updatedAt: new Date() });
     await assertSucceeds(deleteDoc(device(verified(ALICE))));
-    await seed(`users/${ALICE}/devices/token-1`, { updatedAt: new Date() });
+    await seed(`users/${ALICE}/devices/fid-1`, { updatedAt: new Date() });
     await assertSucceeds(deleteDoc(device(unverified(ALICE))));
   });
 
-  test("a user cannot remove someone else's token", async () => {
-    await seed(`users/${ALICE}/devices/token-1`, { updatedAt: new Date() });
+  test("a user cannot remove someone else's device", async () => {
+    await seed(`users/${ALICE}/devices/fid-1`, { updatedAt: new Date() });
     await assertFails(deleteDoc(device(verified(BOB))));
   });
 
-  test("nobody can read the tokens, their owner included", async () => {
-    await seed(`users/${ALICE}/devices/token-1`, { updatedAt: new Date() });
+  test("nobody can read the devices, their owner included", async () => {
+    await seed(`users/${ALICE}/devices/fid-1`, { updatedAt: new Date() });
     await assertFails(getDoc(device(verified(ALICE))));
     await assertFails(getDocs(collection(verified(ALICE), `users/${ALICE}/devices`)));
     await assertFails(getDoc(device(verified(BOB))));

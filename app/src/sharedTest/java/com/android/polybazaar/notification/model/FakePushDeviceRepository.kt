@@ -4,9 +4,9 @@ package com.android.polybazaar.notification.model
 import kotlinx.coroutines.CompletableDeferred
 
 /**
- * A [PushTokenRepository] that records which uids this device was registered and unregistered for.
+ * A [PushDeviceRepository] that records which uids this device was registered and unregistered for.
  */
-class FakePushTokenRepository : PushTokenRepository {
+class FakePushDeviceRepository : PushDeviceRepository {
   val registered = mutableListOf<String>()
   val unregistered = mutableListOf<String>()
   var registerException: Exception? = null

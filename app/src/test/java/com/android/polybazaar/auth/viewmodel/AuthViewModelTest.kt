@@ -7,7 +7,7 @@ import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
-import com.android.polybazaar.notification.model.FakePushTokenRepository
+import com.android.polybazaar.notification.model.FakePushDeviceRepository
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +30,7 @@ class AuthViewModelTest {
 
   private val testDispatcher = StandardTestDispatcher()
   private lateinit var repository: FakeAuthRepository
-  private lateinit var pushTokens: FakePushTokenRepository
+  private lateinit var pushDevices: FakePushDeviceRepository
   private lateinit var viewModel: AuthViewModel
   private val loggedErrors = mutableListOf<Throwable>()
   private val verifiedUser = User("user-1", "user@example.com", "User", isEmailVerified = true)
@@ -39,11 +39,11 @@ class AuthViewModelTest {
   fun setUp() {
     Dispatchers.setMain(testDispatcher)
     repository = FakeAuthRepository()
-    pushTokens = FakePushTokenRepository()
+    pushDevices = FakePushDeviceRepository()
     viewModel =
         AuthViewModel(
             repository,
-            pushTokenRepository = pushTokens,
+            pushDeviceRepository = pushDevices,
             logUnexpectedError = loggedErrors::add,
         )
   }
@@ -415,7 +415,7 @@ class AuthViewModelTest {
     viewModel.clearError()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf("user-1"), pushTokens.registered)
+    assertEquals(listOf("user-1"), pushDevices.registered)
   }
 
   @Test
@@ -425,7 +425,7 @@ class AuthViewModelTest {
     viewModel.restoreSession()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf("user-1"), pushTokens.registered)
+    assertEquals(listOf("user-1"), pushDevices.registered)
   }
 
   @Test
@@ -433,18 +433,18 @@ class AuthViewModelTest {
     repository.signInResult = Result.success(User("user-1", "user@example.com", "User"))
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
-    assertTrue(pushTokens.registered.isEmpty())
+    assertTrue(pushDevices.registered.isEmpty())
 
     viewModel.onEmailVerified()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf("user-1"), pushTokens.registered)
+    assertEquals(listOf("user-1"), pushDevices.registered)
   }
 
   @Test
   fun registerFailure_isLoggedAndNotShown() = runTest {
-    val failure = IllegalStateException("no token")
-    pushTokens.registerException = failure
+    val failure = IllegalStateException("no installation id")
+    pushDevices.registerException = failure
     repository.signInResult = Result.success(verifiedUser)
 
     viewModel.signIn("user@example.com", "password")
@@ -461,12 +461,12 @@ class AuthViewModelTest {
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
     var signedOutBeforeUnregister: Boolean? = null
-    pushTokens.onUnregister = { signedOutBeforeUnregister = repository.didSignOut }
+    pushDevices.onUnregister = { signedOutBeforeUnregister = repository.didSignOut }
 
     viewModel.signOut()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf("user-1"), pushTokens.unregistered)
+    assertEquals(listOf("user-1"), pushDevices.unregistered)
     assertEquals(false, signedOutBeforeUnregister)
     assertTrue(repository.didSignOut)
   }
@@ -480,7 +480,7 @@ class AuthViewModelTest {
     viewModel.signOut()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertTrue(pushTokens.unregistered.isEmpty())
+    assertTrue(pushDevices.unregistered.isEmpty())
     assertTrue(repository.didSignOut)
   }
 
@@ -490,7 +490,7 @@ class AuthViewModelTest {
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
     val failure = IllegalStateException("offline")
-    pushTokens.unregisterException = failure
+    pushDevices.unregisterException = failure
 
     viewModel.signOut()
     testDispatcher.scheduler.advanceUntilIdle()
@@ -512,7 +512,7 @@ class AuthViewModelTest {
     testDispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(verifiedUser, viewModel.uiState.value.user)
-    assertEquals(listOf("user-1", "user-1"), pushTokens.registered)
+    assertEquals(listOf("user-1", "user-1"), pushDevices.registered)
   }
 
   @Test
@@ -526,13 +526,13 @@ class AuthViewModelTest {
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf("user-1", "user-1"), pushTokens.registered)
+    assertEquals(listOf("user-1", "user-1"), pushDevices.registered)
   }
 
   @Test
   fun signOut_cancelsARegistrationStillRunning() = runTest {
     val registerGate = CompletableDeferred<Unit>()
-    pushTokens.registerGate = registerGate
+    pushDevices.registerGate = registerGate
     repository.signInResult = Result.success(verifiedUser)
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
@@ -542,7 +542,7 @@ class AuthViewModelTest {
     registerGate.complete(Unit)
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertTrue(pushTokens.registered.isEmpty())
+    assertTrue(pushDevices.registered.isEmpty())
   }
 
   @Test
@@ -551,7 +551,7 @@ class AuthViewModelTest {
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
     val unregisterGate = CompletableDeferred<Unit>()
-    pushTokens.unregisterGate = unregisterGate
+    pushDevices.unregisterGate = unregisterGate
 
     viewModel.signOut()
     viewModel.signOut()
@@ -559,7 +559,7 @@ class AuthViewModelTest {
     unregisterGate.complete(Unit)
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf("user-1"), pushTokens.unregistered)
+    assertEquals(listOf("user-1"), pushDevices.unregistered)
     assertNull(viewModel.uiState.value.user)
   }
 
@@ -569,7 +569,7 @@ class AuthViewModelTest {
     viewModel.signIn("user@example.com", "password")
     testDispatcher.scheduler.advanceUntilIdle()
     val unregisterGate = CompletableDeferred<Unit>()
-    pushTokens.unregisterGate = unregisterGate
+    pushDevices.unregisterGate = unregisterGate
     viewModel.signOut()
     testDispatcher.scheduler.runCurrent()
 
@@ -577,7 +577,7 @@ class AuthViewModelTest {
     unregisterGate.complete(Unit)
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(listOf("user-1"), pushTokens.unregistered)
+    assertEquals(listOf("user-1"), pushDevices.unregistered)
     assertTrue(repository.didSignOut)
   }
 

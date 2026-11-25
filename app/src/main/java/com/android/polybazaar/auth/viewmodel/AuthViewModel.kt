@@ -9,7 +9,7 @@ import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
-import com.android.polybazaar.notification.model.PushTokenRepository
+import com.android.polybazaar.notification.model.PushDeviceRepository
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,7 +32,7 @@ data class AuthUiState(
 )
 
 /**
- * @param pushTokenRepository gains this device when a verified user's session starts, and loses it
+ * @param pushDeviceRepository gains this device when a verified user's session starts, and loses it
  *   before they sign out, so that their push notifications reach this device only while they use
  *   it.
  * @param logUnexpectedError receives the failures nobody expects, such as a missing username during
@@ -41,7 +41,7 @@ data class AuthUiState(
  */
 class AuthViewModel(
     private val authRepository: AuthRepository,
-    private val pushTokenRepository: PushTokenRepository = PushTokenRepository.None,
+    private val pushDeviceRepository: PushDeviceRepository = PushDeviceRepository.None,
     private val logUnexpectedError: (Throwable) -> Unit = { Log.e(TAG, "Unexpected failure", it) },
 ) : ViewModel() {
 
@@ -133,10 +133,12 @@ class AuthViewModel(
     }
   }
 
-  private suspend fun registerDevice(uid: String) = logFailure { pushTokenRepository.register(uid) }
+  private suspend fun registerDevice(uid: String) = logFailure {
+    pushDeviceRepository.register(uid)
+  }
 
   private suspend fun unregisterDevice(uid: String) = logFailure {
-    pushTokenRepository.unregister(uid)
+    pushDeviceRepository.unregister(uid)
   }
 
   /** Push notifications are an extra: their failures are logged, and never shown or rethrown. */

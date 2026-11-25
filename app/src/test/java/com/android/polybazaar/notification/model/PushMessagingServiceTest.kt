@@ -10,27 +10,27 @@ import org.mockito.kotlin.mock
 
 class PushMessagingServiceTest {
   private val stored = mutableListOf<Pair<String, String>>()
-  private val store: (String, String) -> Unit = { uid, token -> stored += uid to token }
+  private val store: (String, String) -> Unit = { uid, fid -> stored += uid to fid }
 
   @Test
-  fun newToken_withoutASignedInUser_isNotStored() {
-    storeNewToken(user = null, token = "token-1", store = store)
+  fun registration_withoutASignedInUser_isNotStored() {
+    storeRegistration(user = null, fid = "fid-1", store = store)
 
     assertTrue(stored.isEmpty())
   }
 
   @Test
-  fun newToken_ofAnUnverifiedUser_isNotStored() {
-    storeNewToken(user = user(verified = false), token = "token-1", store = store)
+  fun registration_ofAnUnverifiedUser_isNotStored() {
+    storeRegistration(user = user(verified = false), fid = "fid-1", store = store)
 
     assertTrue(stored.isEmpty())
   }
 
   @Test
-  fun newToken_ofAVerifiedUser_isStoredForThem() {
-    storeNewToken(user = user(verified = true), token = "token-1", store = store)
+  fun registration_ofAVerifiedUser_isStoredForThem() {
+    storeRegistration(user = user(verified = true), fid = "fid-1", store = store)
 
-    assertEquals(listOf("uid-1" to "token-1"), stored)
+    assertEquals(listOf("uid-1" to "fid-1"), stored)
   }
 
   private fun user(verified: Boolean) =

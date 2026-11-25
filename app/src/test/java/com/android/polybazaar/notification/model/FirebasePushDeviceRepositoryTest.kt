@@ -7,7 +7,7 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.installations.FirebaseInstallations
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -24,31 +24,27 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class FirebasePushTokenRepositoryTest {
+class FirebasePushDeviceRepositoryTest {
   private val firestore = mock<FirebaseFirestore>()
-  private val messaging = mock<FirebaseMessaging>()
+  private val installations = mock<FirebaseInstallations>()
   private val users = mock<CollectionReference>()
   private val user = mock<DocumentReference>()
   private val devices = mock<CollectionReference>()
   private val device = mock<DocumentReference>()
   private val repository =
-      FirebasePushTokenRepository(
-          firestore,
-          messaging,
-          unregisterTimeout = 3.seconds,
-      )
+      FirebasePushDeviceRepository(firestore, installations, unregisterTimeout = 3.seconds)
 
   @Before
   fun setUp() {
     whenever(firestore.collection("users")).thenReturn(users)
     whenever(users.document("uid-1")).thenReturn(user)
     whenever(user.collection("devices")).thenReturn(devices)
-    whenever(devices.document("token-1")).thenReturn(device)
-    whenever(messaging.token).thenReturn(Tasks.forResult("token-1"))
+    whenever(devices.document("fid-1")).thenReturn(device)
+    whenever(installations.id).thenReturn(Tasks.forResult("fid-1"))
   }
 
   @Test
-  fun register_storesTheTokenWithTheServerTimeWithoutWaitingForTheServer() = runTest {
+  fun register_storesTheInstallationIdWithTheServerTimeWithoutWaitingForTheServer() = runTest {
     whenever(device.set(any<Map<String, Any>>())).thenReturn(TaskCompletionSource<Void>().task)
 
     withTimeout(1_000) { repository.register("uid-1") }
@@ -60,18 +56,18 @@ class FirebasePushTokenRepositoryTest {
   }
 
   @Test
-  fun store_writesTheGivenToken() {
-    whenever(devices.document("new-token")).thenReturn(device)
+  fun store_writesTheGivenInstallationId() {
+    whenever(devices.document("new-fid")).thenReturn(device)
     whenever(device.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
 
-    repository.store("uid-1", "new-token")
+    repository.store("uid-1", "new-fid")
 
-    verify(devices).document("new-token")
+    verify(devices).document("new-fid")
     verify(device).set(any<Map<String, Any>>())
   }
 
   @Test
-  fun unregister_deletesTheDevicesToken() = runTest {
+  fun unregister_deletesTheDevice() = runTest {
     whenever(device.delete()).thenReturn(Tasks.forResult(null))
 
     repository.unregister("uid-1")
@@ -91,8 +87,8 @@ class FirebasePushTokenRepositoryTest {
   }
 
   @Test
-  fun unregister_givesUpAfterTheTimeoutWhenTheTokenNeverArrives() = runTest {
-    whenever(messaging.token).thenReturn(TaskCompletionSource<String>().task)
+  fun unregister_givesUpAfterTheTimeoutWhenTheInstallationIdNeverArrives() = runTest {
+    whenever(installations.id).thenReturn(TaskCompletionSource<String>().task)
 
     repository.unregister("uid-1")
 

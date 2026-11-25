@@ -217,6 +217,7 @@ dependencies {
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.storage)
   implementation(libs.firebase.messaging)
+  implementation(libs.firebase.installations)
 
   // ----------       Coroutines      ------------
   implementation(libs.kotlinx.coroutines.play.services)
