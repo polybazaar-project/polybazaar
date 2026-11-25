@@ -37,9 +37,9 @@ export async function sendToUser(db, messaging, uid, data) {
   // A device left behind fails again on the next send and is deleted then.
   try {
     await batch.commit();
-    logger.info("Deleted unregistered devices", { type: data.type, count: deleted.length });
+    logger.info("Deleted unusable devices", { type: data.type, count: deleted.length });
   } catch (error) {
-    logger.error("Could not delete unregistered devices", {
+    logger.error("Could not delete unusable devices", {
       count: deleted.length,
       // The code alone: a message can quote a document path, which holds the fid.
       code: error.code,

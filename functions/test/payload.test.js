@@ -1,87 +1,60 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import {
-  failureSummary,
-  messagePayload,
-  previewOf,
-  recipientOf,
-  unusableDevices,
-} from "../src/payload.js";
+import { failureSummary, messagePayload, previewOf, recipientOf } from "../src/payload.js";
 
 const RENTER = "renter-uid";
 const LENDER = "lender-uid";
-
 const conversation = {
   listingId: "listing-1",
   listingTitle: "Bike",
   renterUid: RENTER,
   lenderUid: LENDER,
-  participants: [RENTER, LENDER],
 };
 
-describe("recipientOf", () => {
-  test("a renter's message goes to the lender", () => {
-    assert.equal(recipientOf(conversation, RENTER), LENDER);
+const payload = (message, overrides = {}) =>
+  messagePayload({
+    conversation,
+    message,
+    senderName: "renter",
+    recipientUid: LENDER,
+    ...overrides,
   });
 
-  test("a lender's message goes to the renter", () => {
-    assert.equal(recipientOf(conversation, LENDER), RENTER);
-  });
-
-  test("a sender who is not a participant has no recipient", () => {
-    assert.equal(recipientOf(conversation, "eve-uid"), null);
-  });
+test("the recipient is the participant who did not send", () => {
+  assert.equal(recipientOf(conversation, RENTER), LENDER);
+  assert.equal(recipientOf(conversation, LENDER), RENTER);
+  assert.equal(recipientOf(conversation, "eve-uid"), null);
 });
 
 describe("previewOf", () => {
-  test("a short text is kept whole", () => {
+  test("a text is cut at 100 characters", () => {
     assert.equal(previewOf("Still available?"), "Still available?");
+    assert.equal(previewOf("a".repeat(150)), "a".repeat(100));
   });
 
-  test("a long text is cut at 100 characters", () => {
-    const text = "a".repeat(150);
-    assert.equal(previewOf(text), "a".repeat(100));
-  });
-
-  test("an emoji at the cut is kept whole", () => {
-    const text = "a".repeat(99) + "😀" + "b";
-    assert.equal(previewOf(text), "a".repeat(99) + "😀");
-  });
-
-  test("a flag or a family at the cut is kept whole", () => {
-    assert.equal(previewOf("a".repeat(99) + "🇨🇭b"), "a".repeat(99) + "🇨🇭");
-    assert.equal(previewOf("a".repeat(99) + "👨‍👩‍👧b"), "a".repeat(99) + "👨‍👩‍👧");
+  test("an emoji, a flag or a family at the cut is kept whole", () => {
+    for (const character of ["😀", "🇨🇭", "👨‍👩‍👧"]) {
+      const kept = "a".repeat(99) + character;
+      assert.equal(previewOf(kept + "b"), kept);
+    }
   });
 
   test("a text of stacked accents is cut to 1000 bytes at a character boundary", () => {
-    const character = "a" + "\u0301".repeat(19);
-    const preview = previewOf(character.repeat(100));
-    assert.ok(Buffer.byteLength(preview) <= 1000);
-    assert.equal(preview, character.repeat(Math.floor(1000 / Buffer.byteLength(character))));
+    const character = "a" + "́".repeat(19);
+    const expected = character.repeat(Math.floor(1000 / Buffer.byteLength(character)));
+    assert.equal(previewOf(character.repeat(100)), expected);
   });
 
   test("a first character over 1000 bytes is cut inside it, so the preview stays non-empty", () => {
-    const preview = previewOf("a" + "\u0301".repeat(1999));
-    assert.ok(preview.startsWith("a\u0301"));
-    assert.ok(Buffer.byteLength(preview) <= 1000);
-    assert.ok(Buffer.byteLength(preview) > 990);
-  });
-
-  test("a photo-only message has an empty preview", () => {
-    assert.equal(previewOf(undefined), "");
+    const bytes = Buffer.byteLength(previewOf("a" + "́".repeat(1999)));
+    assert.ok(bytes > 990 && bytes <= 1000, `${bytes} bytes`);
   });
 });
 
 describe("messagePayload", () => {
   test("renter to lender", () => {
-    const data = messagePayload({
-      conversation,
-      message: { senderUid: RENTER, text: "Hi" },
-      senderName: "renter",
-      recipientUid: LENDER,
-    });
-    assert.deepEqual(data, {
+    assert.deepEqual(payload({ senderUid: RENTER, text: "Hi" }), {
       type: "message",
       recipientUid: LENDER,
       listingId: "listing-1",
@@ -93,68 +66,35 @@ describe("messagePayload", () => {
   });
 
   test("lender to renter", () => {
-    const data = messagePayload({
-      conversation,
-      message: { senderUid: LENDER, text: "Yes" },
-      senderName: "lender",
-      recipientUid: RENTER,
-    });
+    const data = payload(
+      { senderUid: LENDER, text: "Yes" },
+      { senderName: "lender", recipientUid: RENTER },
+    );
     assert.equal(data.recipientUid, RENTER);
     assert.equal(data.renterUid, RENTER);
     assert.equal(data.senderName, "lender");
-    assert.equal(data.preview, "Yes");
   });
 
-  test("a photo-only message", () => {
-    const data = messagePayload({
-      conversation,
-      message: {
-        senderUid: RENTER,
-        imagePath: "conversations/c/m.jpg",
-        photoPending: true,
+  test("a photo-only message has an empty preview, and a photo's caption is its preview", () => {
+    const photo = { senderUid: RENTER, imagePath: "conversations/c/m.jpg", photoPending: true };
+    assert.equal(payload(photo).preview, "");
+    assert.equal(payload({ ...photo, text: "The scratch" }).preview, "The scratch");
+  });
+
+  test("the longest listing id, title, username and preview still fit FCM's 4096 bytes", () => {
+    const data = payload(
+      { senderUid: RENTER, text: "a" + "́".repeat(1999) },
+      {
+        conversation: {
+          ...conversation,
+          listingId: "l".repeat(1500 - 1 - 28),
+          listingTitle: "😀".repeat(80),
+          renterUid: "r".repeat(28),
+        },
+        senderName: "😀".repeat(30),
+        recipientUid: "u".repeat(28),
       },
-      senderName: "renter",
-      recipientUid: LENDER,
-    });
-    assert.equal(data.preview, "");
-  });
-
-  test("a photo with a caption previews the caption", () => {
-    const data = messagePayload({
-      conversation,
-      message: {
-        senderUid: RENTER,
-        text: "The scratch",
-        imagePath: "conversations/c/m.jpg",
-        photoPending: true,
-      },
-      senderName: "renter",
-      recipientUid: LENDER,
-    });
-    assert.equal(data.preview, "The scratch");
-  });
-
-  test("a long text is cut at 100 characters", () => {
-    const data = messagePayload({
-      conversation,
-      message: { senderUid: RENTER, text: "x".repeat(300) },
-      senderName: "renter",
-      recipientUid: LENDER,
-    });
-    assert.equal(data.preview, "x".repeat(100));
-  });
-
-  test("the largest message the rules allow fits FCM's 4096-byte payload", () => {
-    const data = messagePayload({
-      conversation: {
-        ...conversation,
-        listingId: "l".repeat(40),
-        listingTitle: "😀".repeat(80),
-      },
-      message: { senderUid: RENTER, text: "a" + "\u0301".repeat(1999) },
-      senderName: "😀".repeat(30),
-      recipientUid: "u".repeat(128),
-    });
+    );
     const bytes = Object.entries(data).reduce(
       (sum, [key, value]) => sum + Buffer.byteLength(key) + Buffer.byteLength(value),
       0,
@@ -163,84 +103,44 @@ describe("messagePayload", () => {
   });
 
   test("every value is a string, as FCM data requires", () => {
-    const data = messagePayload({
-      conversation: { ...conversation, listingTitle: undefined },
-      message: { senderUid: RENTER },
-      senderName: undefined,
-      recipientUid: LENDER,
-    });
-    for (const value of Object.values(data)) {
-      assert.equal(typeof value, "string");
-    }
+    const data = payload(
+      { senderUid: RENTER },
+      { conversation: { ...conversation, listingTitle: undefined }, senderName: undefined },
+    );
+    for (const value of Object.values(data)) assert.equal(typeof value, "string");
   });
 });
-
-const ok = { success: true };
-const failure = (code) => ({ success: false, error: { code } });
 
 describe("failureSummary", () => {
-  test("splits the failures into devices to delete and failures to report", () => {
-    const fids = ["a", "b", "c", "d", "e"];
-    const response = {
-      successCount: 1,
-      failureCount: 4,
-      responses: [
-        ok,
-        failure("messaging/installation-id-not-registered"),
-        failure("messaging/internal-error"),
-        failure("messaging/third-party-auth-error"),
-        failure("messaging/internal-error"),
-      ],
-    };
-    assert.deepEqual(failureSummary(fids, response), {
-      deleted: ["b"],
-      failed: 3,
-      codes: {
-        "messaging/internal-error": 2,
-        "messaging/third-party-auth-error": 1,
-      },
-    });
-  });
+  const ok = { success: true };
+  const failure = (code) => ({ success: false, error: { code } });
+  const summarize = (...responses) =>
+    failureSummary(
+      responses.map((_, i) => `d${i}`),
+      { successCount: responses.filter((r) => r.success).length, responses },
+    );
 
-  test("reports nothing when every failure is a device to delete", () => {
-    const response = {
-      successCount: 1,
-      failureCount: 1,
-      responses: [ok, failure("messaging/installation-id-not-registered")],
-    };
-    assert.deepEqual(failureSummary(["a", "b"], response), {
-      deleted: ["b"],
-      failed: 0,
-      codes: {},
-    });
-  });
-});
-
-describe("unusableDevices", () => {
-  test("drops unregistered devices, and invalid ones when another device was reached", () => {
-    const fids = ["a", "b", "c", "d", "e"];
-    const response = {
-      successCount: 1,
-      responses: [
+  test("deletes unregistered devices, and invalid ones when another device was reached", () => {
+    assert.deepEqual(
+      summarize(
         ok,
         failure("messaging/installation-id-not-registered"),
         failure("messaging/registration-token-not-registered"),
         failure("messaging/invalid-argument"),
         failure("messaging/internal-error"),
-      ],
-    };
-    assert.deepEqual(unusableDevices(fids, response), ["b", "c", "d"]);
+        failure("messaging/internal-error"),
+      ),
+      { deleted: ["d1", "d2", "d3"], failed: 2, codes: { "messaging/internal-error": 2 } },
+    );
   });
 
-  test("keeps invalid-argument devices when none was reached, since the payload may be at fault", () => {
-    const fids = ["a", "b"];
-    const response = {
-      successCount: 0,
-      responses: [
+  test("keeps invalid devices when none was reached, since the payload may be at fault", () => {
+    assert.deepEqual(
+      summarize(
         failure("messaging/invalid-argument"),
         failure("messaging/installation-id-not-registered"),
-      ],
-    };
-    assert.deepEqual(unusableDevices(fids, response), ["b"]);
+      ),
+      { deleted: ["d1"], failed: 1, codes: { "messaging/invalid-argument": 1 } },
+    );
   });
 });

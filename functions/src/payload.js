@@ -22,8 +22,9 @@ export function recipientOf(conversation, senderUid) {
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-// FCM refuses a payload over 4096 bytes. The rest of the payload stays under 700, and a character
-// can carry any number of accents, so the preview is also capped in bytes.
+// FCM refuses a payload over 4096 bytes. The other fields reach about 2.1 KB, since only Firestore's
+// 1500-byte limit on document ids bounds a listing id, and a character can carry any number of
+// accents, so the preview is also capped in bytes.
 const PREVIEW_MAX_BYTES = 1000;
 
 // Counts characters as the reader sees them, so a flag or a family emoji at the cut stays whole.
@@ -70,32 +71,24 @@ export function messagePayload({ conversation, message, senderName, recipientUid
   };
 }
 
-// sendEachForMulticast reports network, auth and quota failures per device instead of throwing, so
-// the logged codes are the only trace of a misconfigured project. Device ids stay out of the logs.
-// `failed` and `codes` both count the failures left after the deletions, so they always agree.
+// `responses` is in the same order as `fids`. sendEachForMulticast reports network, auth and quota
+// failures per device instead of throwing, so the logged codes are the only trace of a
+// misconfigured project. Every device gets the same payload, so an invalid argument blames the
+// device only when another device was reached; a bad payload fails them all and deletes nothing.
 export function failureSummary(fids, batchResponse) {
-  const deleted = unusableDevices(fids, batchResponse);
-  const deletedSet = new Set(deleted);
+  const payloadIsValid = batchResponse.successCount > 0;
+  const deleted = [];
   const codes = {};
   let failed = 0;
   batchResponse.responses.forEach((response, i) => {
-    if (response.success || deletedSet.has(fids[i])) return;
+    if (response.success) return;
     const code = response.error?.code ?? "unknown";
-    codes[code] = (codes[code] ?? 0) + 1;
-    failed++;
+    if (UNREGISTERED.has(code) || (code === INVALID_ARGUMENT && payloadIsValid)) {
+      deleted.push(fids[i]);
+    } else {
+      codes[code] = (codes[code] ?? 0) + 1;
+      failed++;
+    }
   });
   return { deleted, failed, codes };
-}
-
-// `responses` is in the same order as `fids`. Every device in a send gets the same payload, so an
-// invalid argument blames the device only when another device was reached; a bad payload fails
-// them all and deletes nothing.
-export function unusableDevices(fids, batchResponse) {
-  const payloadIsValid = batchResponse.successCount > 0;
-  return fids.filter((_, i) => {
-    const response = batchResponse.responses[i];
-    if (response.success) return false;
-    const code = response.error?.code;
-    return UNREGISTERED.has(code) || (code === INVALID_ARGUMENT && payloadIsValid);
-  });
 }

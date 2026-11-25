@@ -38,8 +38,7 @@ beforeEach(async () => {
   await db.doc(`users/${LENDER}`).set({ username: "lender" });
 });
 
-
-// Records what was sent; devices listed in `errors` fail with that error code.
+// Records each send; devices listed in `errors` fail with that error code.
 function fakeMessaging(errors = {}) {
   const calls = [];
   return {
@@ -47,16 +46,10 @@ function fakeMessaging(errors = {}) {
     async sendEachForMulticast(message) {
       calls.push(message);
       const responses = message.fids.map((fid) =>
-        fid in errors
-          ? { success: false, error: { code: errors[fid] } }
-          : { success: true, messageId: `sent-${fid}` },
+        fid in errors ? { success: false, error: { code: errors[fid] } } : { success: true },
       );
       const successCount = responses.filter((r) => r.success).length;
-      return {
-        responses,
-        successCount,
-        failureCount: responses.length - successCount,
-      };
+      return { responses, successCount, failureCount: responses.length - successCount };
     },
   };
 }
@@ -64,10 +57,9 @@ function fakeMessaging(errors = {}) {
 // The first fid is the most recently updated, a minute apart.
 async function addDevices(uid, fids) {
   const batch = db.batch();
-  const now = Date.now();
   fids.forEach((fid, i) => {
     batch.set(db.doc(`users/${uid}/devices/${fid}`), {
-      updatedAt: new Date(now - i * 60_000),
+      updatedAt: new Date(Date.now() - i * 60_000),
     });
   });
   await batch.commit();
@@ -78,24 +70,26 @@ async function deviceIds(uid) {
   return snapshot.docs.map((doc) => doc.id).sort();
 }
 
-const params = { conversationId: CONVERSATION_ID, messageId: "m1" };
+const hi = { senderUid: RENTER, text: "Hi" };
+
+async function send(message = hi, { errors, database = db, conversationId = CONVERSATION_ID } = {}) {
+  const messaging = fakeMessaging(errors);
+  await notifyNewMessage(database, messaging, { conversationId, messageId: "m1" }, message);
+  return messaging.calls;
+}
 
 describe("notifyNewMessage", () => {
   test("sends the payload to each of the recipient's devices by fid, at high priority", async () => {
     await addDevices(LENDER, ["lender-phone", "lender-tablet"]);
-    const messaging = fakeMessaging();
+    await addDevices(RENTER, ["renter-phone"]);
 
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: RENTER,
-      text: "Hi",
-    });
+    const [call, ...rest] = await send();
 
-    assert.equal(messaging.calls.length, 1);
-    const [call] = messaging.calls;
-    assert.deepEqual(call.fids.sort(), ["lender-phone", "lender-tablet"]);
+    assert.deepEqual(rest, []);
+    assert.deepEqual(call.fids, ["lender-phone", "lender-tablet"]);
     assert.equal(call.tokens, undefined);
-    assert.equal(call.android.priority, "high");
     assert.equal(call.notification, undefined);
+    assert.equal(call.android.priority, "high");
     assert.deepEqual(call.data, {
       type: "message",
       recipientUid: LENDER,
@@ -107,89 +101,50 @@ describe("notifyNewMessage", () => {
     });
   });
 
-  test("never sends to the sender's own devices", async () => {
+  test("a lender's message goes to the renter's devices", async () => {
     await addDevices(RENTER, ["renter-phone"]);
     await addDevices(LENDER, ["lender-phone"]);
-    const messaging = fakeMessaging();
 
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: LENDER,
-      text: "Yes",
-    });
+    const [call] = await send({ senderUid: LENDER, text: "Yes" });
 
-    assert.deepEqual(messaging.calls[0].fids, ["renter-phone"]);
-    assert.equal(messaging.calls[0].data.senderName, "lender");
+    assert.deepEqual(call.fids, ["renter-phone"]);
+    assert.equal(call.data.senderName, "lender");
   });
 
   test("sends to the 10 most recently updated devices only", async () => {
     const fids = Array.from({ length: 12 }, (_, i) => `d${i}`);
     await addDevices(LENDER, fids);
-    const messaging = fakeMessaging();
 
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: RENTER,
-      text: "Hi",
-    });
+    const calls = await send();
 
-    assert.equal(messaging.calls.length, 1);
-    assert.deepEqual(messaging.calls[0].fids, fids.slice(0, 10));
-  });
-
-  test("a recipient with no devices gets nothing", async () => {
-    const messaging = fakeMessaging();
-
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: RENTER,
-      text: "Hi",
-    });
-
-    assert.equal(messaging.calls.length, 0);
+    assert.deepEqual(
+      calls.map((call) => call.fids),
+      [fids.slice(0, 10)],
+    );
   });
 
   test("deletes unregistered and invalid devices and keeps the others", async () => {
     await addDevices(LENDER, ["gone", "garbled", "good", "flaky"]);
-    const messaging = fakeMessaging({
-      gone: "messaging/installation-id-not-registered",
-      garbled: "messaging/invalid-argument",
-      flaky: "messaging/internal-error",
-    });
 
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: RENTER,
-      text: "Hi",
+    await send(hi, {
+      errors: {
+        gone: "messaging/installation-id-not-registered",
+        garbled: "messaging/invalid-argument",
+        flaky: "messaging/internal-error",
+      },
     });
 
     assert.deepEqual(await deviceIds(LENDER), ["flaky", "good"]);
   });
 
-  test("invalid-argument on every device deletes nothing, since the payload may be at fault", async () => {
-    await addDevices(LENDER, ["a", "b"]);
-    const messaging = fakeMessaging({
-      a: "messaging/invalid-argument",
-      b: "messaging/invalid-argument",
-    });
-
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: RENTER,
-      text: "Hi",
-    });
-
-    assert.deepEqual(await deviceIds(LENDER), ["a", "b"]);
-  });
-
-  test("a failed delete is logged instead of failing the function", async () => {
+  test("a failed delete does not fail the function", async () => {
     await addDevices(LENDER, ["gone", "good"]);
-    const messaging = fakeMessaging({
-      gone: "messaging/installation-id-not-registered",
-    });
     const deleted = [];
     const failingCommits = new Proxy(db, {
       get(target, property) {
         if (property === "batch") {
           return () => ({
-            delete(ref) {
-              deleted.push(ref.id);
-            },
+            delete: (ref) => deleted.push(ref.id),
             commit: () => Promise.reject(new Error("Firestore unavailable")),
           });
         }
@@ -198,9 +153,9 @@ describe("notifyNewMessage", () => {
       },
     });
 
-    await notifyNewMessage(failingCommits, messaging, params, {
-      senderUid: RENTER,
-      text: "Hi",
+    await send(hi, {
+      errors: { gone: "messaging/installation-id-not-registered" },
+      database: failingCommits,
     });
 
     assert.deepEqual(deleted, ["gone"]);
@@ -209,40 +164,18 @@ describe("notifyNewMessage", () => {
   test("a sender with no profile is sent with an empty name", async () => {
     await db.doc(`users/${RENTER}`).delete();
     await addDevices(LENDER, ["lender-phone"]);
-    const messaging = fakeMessaging();
 
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: RENTER,
-      text: "Hi",
-    });
+    const [call] = await send();
 
-    assert.equal(messaging.calls[0].data.senderName, "");
+    assert.equal(call.data.senderName, "");
   });
 
-  test("a sender who is not a participant sends nothing", async () => {
+  test("sends nothing to a recipient with no devices, from a non-participant, or in a missing conversation", async () => {
+    assert.deepEqual(await send(), []);
+
     await addDevices(RENTER, ["renter-phone"]);
     await addDevices(LENDER, ["lender-phone"]);
-    const messaging = fakeMessaging();
-
-    await notifyNewMessage(db, messaging, params, {
-      senderUid: "eve-uid",
-      text: "Hi",
-    });
-
-    assert.equal(messaging.calls.length, 0);
-  });
-
-  test("a message in a missing conversation sends nothing", async () => {
-    await addDevices(LENDER, ["lender-phone"]);
-    const messaging = fakeMessaging();
-
-    await notifyNewMessage(
-      db,
-      messaging,
-      { conversationId: "missing_x", messageId: "m1" },
-      { senderUid: RENTER, text: "Hi" },
-    );
-
-    assert.equal(messaging.calls.length, 0);
+    assert.deepEqual(await send({ senderUid: "eve-uid", text: "Hi" }), []);
+    assert.deepEqual(await send(hi, { conversationId: "missing_x" }), []);
   });
 });
