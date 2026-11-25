@@ -21,9 +21,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.android.polybazaar.auth.model.FirebaseAuthRepository
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
-import com.android.polybazaar.booking.model.ConfirmationJournal
 import com.android.polybazaar.booking.model.FirebaseBookingRepository
-import com.android.polybazaar.booking.model.SharedPreferencesConfirmationJournal
 import com.android.polybazaar.chat.model.FilePhotoOutbox
 import com.android.polybazaar.chat.model.FirebaseChatRepository
 import com.android.polybazaar.chat.model.PhotoOutbox
@@ -87,7 +85,11 @@ class MainActivity : ComponentActivity() {
                     FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
                   },
               bookingRepository =
-                  remember { FirebaseBookingRepository(journal = confirmationJournal()) },
+                  remember {
+                    FirebaseBookingRepository(
+                        journal = (application as PolyBazaarApplication).confirmationJournal
+                    )
+                  },
               locationRepository =
                   remember {
                     FusedLocationRepository(
@@ -123,12 +125,7 @@ class MainActivity : ComponentActivity() {
   private fun pendingListingQueue(): PendingListingQueue =
       pendingListings ?: FilePendingListingQueue(applicationContext).also { pendingListings = it }
 
-  private fun confirmationJournal(): ConfirmationJournal =
-      confirmations
-          ?: SharedPreferencesConfirmationJournal(applicationContext).also { confirmations = it }
-
   private companion object {
-    var confirmations: ConfirmationJournal? = null
     /**
      * One for the whole process, never released: the listing forms' ViewModels outlive a rotated
      * activity and keep using it, and its network callback is registered only once.

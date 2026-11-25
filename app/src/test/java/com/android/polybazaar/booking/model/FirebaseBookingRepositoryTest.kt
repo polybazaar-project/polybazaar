@@ -4,6 +4,7 @@
 package com.android.polybazaar.booking.model
 
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
@@ -397,7 +398,10 @@ class FirebaseBookingRepositoryTest {
     listener.firstValue.onEvent(snapshot, null)
 
     assertEquals(
-        RecoveredConfirmationFailure(ConfirmationAction.CONFIRM_HANDOVER, AppError.UNKNOWN),
+        RecoveredConfirmationFailure(
+            ConfirmationAction.CONFIRM_HANDOVER,
+            AppError.CONFIRMATION_NOT_SAVED,
+        ),
         result.await().confirmationFailures["booking-id"],
     )
     assertEquals(other, journal.attempts.value.first { it.uid == "other" })
@@ -485,6 +489,39 @@ class FirebaseBookingRepositoryTest {
     assertTrue(journal.attempts.value.isEmpty())
     assertTrue(updates.last().confirmationFailures.isEmpty())
     observation.cancel()
+  }
+
+  @Test
+  fun synchronousConfirmationWriteFailureIsPersistedFinishedAndRethrown() = runTest {
+    val failure = AppException(AppError.PERMISSION_DENIED)
+    whenever(document.update("renterHandoverConfirmed", true)).thenThrow(failure)
+    val finished = mutableListOf<String>()
+    val recordingJournal =
+        object : ConfirmationJournal by journal {
+          override fun finish(token: String) {
+            finished += token
+            journal.finish(token)
+          }
+        }
+    val repository = FirebaseBookingRepository(firestore, auth, journal = recordingJournal)
+    var callbackCalled = false
+
+    val thrown =
+        try {
+          repository.confirmHandover("booking-id") { callbackCalled = true }
+          null
+        } catch (exception: Exception) {
+          exception
+        }
+
+    val attempt = journal.attempts.value.single()
+    assertSame(failure, thrown)
+    assertEquals("booking-id", attempt.bookingId)
+    assertEquals(ConfirmationAction.CONFIRM_HANDOVER, attempt.action)
+    assertEquals(AppError.PERMISSION_DENIED, attempt.error)
+    assertEquals(listOf(attempt.token), finished)
+    assertTrue(journal.activeTokens.value.isEmpty())
+    assertFalse(callbackCalled)
   }
 
   @Test

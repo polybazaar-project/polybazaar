@@ -365,6 +365,32 @@ class BookingListScreensTest {
   }
 
   @Test
+  fun recoveredUnsavedConfirmationShowsSpecificMessageAndRetry() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.CONFIRMATION_NOT_SAVED,
+                        )
+                ),
+        ),
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_ERROR)
+        .assertTextEquals("Your confirmation wasn't saved.")
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_RETRY).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
+  }
+
+  @Test
   fun renterScreen_namesBookingsAfterTheirListing() {
     show(
         BookingUiState(

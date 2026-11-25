@@ -169,7 +169,7 @@ class FirebaseBookingRepository(
       if (booking.id in snapshot.observed.pendingIds) continue
       if (attempt.action.isRecorded(booking)) journal.remove(attempt.token)
       else if (attempt.error == null && attempt.token in recovered) {
-        journal.fail(attempt.token, AppError.UNKNOWN)
+        journal.fail(attempt.token, AppError.CONFIRMATION_NOT_SAVED)
       }
     }
   }

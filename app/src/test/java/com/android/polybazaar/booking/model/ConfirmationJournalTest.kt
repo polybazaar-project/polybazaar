@@ -137,11 +137,14 @@ class ConfirmationJournalTest {
     listener.firstValue.onEvent(snapshot, null)
 
     assertEquals(
-        RecoveredConfirmationFailure(ConfirmationAction.CONFIRM_HANDOVER, AppError.UNKNOWN),
+        RecoveredConfirmationFailure(
+            ConfirmationAction.CONFIRM_HANDOVER,
+            AppError.CONFIRMATION_NOT_SAVED,
+        ),
         result.await().confirmationFailures["booking"],
     )
     assertEquals(
-        listOf(attempt.copy(error = AppError.UNKNOWN)),
+        listOf(attempt.copy(error = AppError.CONFIRMATION_NOT_SAVED)),
         SharedPreferencesConfirmationJournal(context).attempts.value,
     )
   }
