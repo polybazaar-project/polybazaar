@@ -493,7 +493,11 @@ class FirebaseBookingRepositoryTest {
 
   @Test
   fun synchronousConfirmationWriteFailureIsPersistedFinishedAndRethrown() = runTest {
-    val failure = AppException(AppError.PERMISSION_DENIED)
+    val failure =
+        IllegalStateException(
+            "Could not queue confirmation",
+            AppException(AppError.PERMISSION_DENIED),
+        )
     whenever(document.update("renterHandoverConfirmed", true)).thenThrow(failure)
     val finished = mutableListOf<String>()
     val recordingJournal =
