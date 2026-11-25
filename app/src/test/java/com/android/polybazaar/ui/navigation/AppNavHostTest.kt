@@ -1482,6 +1482,20 @@ class AppNavHostTest {
   }
 
   @Test
+  fun signOutFromSettings_disablesSignOutUntilItFinishes() {
+    val signOutGate = CompletableDeferred<Unit>()
+    setContent(FakeAuthRepository(currentUser = user, signOutGate = signOutGate))
+    openSettings()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).assertIsNotEnabled()
+    signOutGate.complete(Unit)
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
   fun cancellingSignOut_staysOnSettingsSignedIn() {
     val viewModel = setContent(FakeAuthRepository(currentUser = user))
     openSettings()
@@ -2360,6 +2374,8 @@ class AppNavHostTest {
       private val signInGate: CompletableDeferred<Result<User>>? = null,
       /** When set, sign-up waits for it instead of returning [signUpResult]. */
       private val signUpGate: CompletableDeferred<Result<User>>? = null,
+      /** When set, sign-out waits for it. */
+      private val signOutGate: CompletableDeferred<Unit>? = null,
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> =
         signInGate?.await() ?: signInResult
@@ -2368,6 +2384,7 @@ class AppNavHostTest {
         signUpGate?.await() ?: signUpResult
 
     override suspend fun signOut() {
+      signOutGate?.await()
       signOutError?.let { throw it }
     }
 
