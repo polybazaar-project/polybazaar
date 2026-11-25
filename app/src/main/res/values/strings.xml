@@ -35,6 +35,14 @@
 
     <!-- Create listing screen -->
     <string name="listing_saved_offline">Saved offline. Your listing will be published when you’re back online.</string>
+    <plurals name="listing_drafts_published">
+        <item quantity="one">Your listing created offline was published.</item>
+        <item quantity="other">%d listings created offline were published.</item>
+    </plurals>
+    <plurals name="listing_drafts_failed">
+        <item quantity="one">A listing created offline couldn’t be published. We’ll try again later.</item>
+        <item quantity="other">%d listings created offline couldn’t be published. We’ll try again later.</item>
+    </plurals>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
