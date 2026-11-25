@@ -8,9 +8,10 @@ import kotlinx.coroutines.flow.update
 
 /**
  * A [PendingListingQueue] in memory, for tests. [enqueue] keeps the listing as it is, owned by
- * [ownerUid], or fails with [failure] when it is set.
+ * [ownerUid], or fails with [failure] when it is set. Change [ownerUid] between calls to keep
+ * drafts of several accounts, as on a device several users signed in to.
  */
-class FakePendingListingQueue(private val ownerUid: String = "owner") : PendingListingQueue {
+class FakePendingListingQueue(var ownerUid: String = "owner") : PendingListingQueue {
   private val _pending = MutableStateFlow<List<PendingListing>>(emptyList())
   override val pending: StateFlow<List<PendingListing>> = _pending.asStateFlow()
 
