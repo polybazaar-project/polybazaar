@@ -1,11 +1,18 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.notification.model
 
+import android.annotation.SuppressLint
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.messaging.FirebaseMessagingService
 
-/** Receives this device's FCM events. */
+/**
+ * Receives this device's FCM events.
+ *
+ * Lint still asks for the deprecated `onNewToken`, but with installation IDs turned on in the
+ * manifest, [onRegistered] replaces it.
+ */
+@SuppressLint("MissingFirebaseInstanceTokenRefresh")
 class PushMessagingService : FirebaseMessagingService() {
 
   override fun onRegistered(installationId: String) {
