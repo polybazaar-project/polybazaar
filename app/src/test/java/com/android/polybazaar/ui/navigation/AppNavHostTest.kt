@@ -75,12 +75,15 @@ import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
@@ -141,8 +144,11 @@ class AppNavHostTest {
   // Listings published in these tests belong to the signed-in user, as with the real repository.
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
   private val chatRepository = FakeChatRepository()
+  private val photoOutbox = FakePhotoOutbox(senderUid = user.uid)
   private val bookingRepository = FakeBookingRepository()
   private val locationRepository = FakeLocationRepository()
+  private val connectivity = FakeConnectivityRepository()
+  private val pendingQueue = FakePendingListingQueue()
 
   /** What the Map tab last gave its map: the stand-in records it, since it draws no markers. */
   private var mapState: MapUiState? = null
@@ -185,7 +191,9 @@ class AppNavHostTest {
               mapState = state
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
-            connectivityRepository = FakeConnectivityRepository(),
+            connectivityRepository = connectivity,
+            photoOutbox = photoOutbox,
+            pendingListingQueue = pendingQueue,
             navController = navController,
         )
       }
@@ -236,6 +244,8 @@ class AppNavHostTest {
               Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
             },
             connectivityRepository = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(),
+            pendingListingQueue = FakePendingListingQueue(),
             navController = navController,
         )
       }
@@ -480,6 +490,22 @@ class AppNavHostTest {
   }
 
   @Test
+  fun createListing_offline_isKeptAsADraft_withAMessage_andOpensBrowse() {
+    connectivity.isOnline.value = false
+    setContent(FakeAuthRepository(currentUser = user))
+    openCreateListing()
+
+    publishListing("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.listing_saved_offline))
+        .assertIsDisplayed()
+    assertEquals("Bosch drill set", pendingQueue.pending.value.single().listing.title)
+    assertTrue(listingRepository.allListings.isEmpty())
+  }
+
+  @Test
   fun noPersistedUser_startsOnSignIn() {
     setContent(FakeAuthRepository(currentUser = null))
 
@@ -714,6 +740,8 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
+          pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = { state, _ -> mapState = state },
       )
@@ -1000,6 +1028,68 @@ class AppNavHostTest {
     val entry = navController.currentBackStackEntry
     assertEquals(route, entry?.destination?.route)
     assertEquals(value, entry?.arguments?.getString(key))
+  }
+
+  // The photo sender runs app-wide for the verified signed-in user.
+
+  /** Ada's conversation about a drill, holding a photo she sent offline, "queued1". */
+  private fun givenAQueuedPhoto(): QueuedPhoto {
+    val drill =
+        Conversation(
+            listingId = "drill",
+            listingTitle = "Bosch drill",
+            renterUid = user.uid,
+            lenderUid = "uid-lender",
+            lastMessageAt = Instant.EPOCH,
+        )
+    chatRepository.myConversations.value = Result.success(listOf(drill))
+    val photo =
+        QueuedPhoto("queued1", drill.id, user.uid, Uri.parse("file:///outbox/queued1.jpg"), null)
+    photoOutbox.add(photo)
+    return photo
+  }
+
+  @Test
+  fun verifiedUser_theirQueuedPhoto_isSentOnceOnline_fromAnyScreen() {
+    val photo = givenAQueuedPhoto()
+
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.waitUntil(5_000) { photoOutbox.queued.value.isEmpty() }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(
+        listOf(photo.messageId to photo.photo),
+        chatRepository.sentPhotos.map { it.messageId to it.photo },
+    )
+  }
+
+  @Test
+  fun unverifiedUser_theirQueuedPhoto_isNotSent() {
+    givenAQueuedPhoto()
+
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+
+    assertTrue(chatRepository.sentPhotos.isEmpty())
+    assertEquals(listOf("queued1"), photoOutbox.queued.value.map { it.messageId })
+  }
+
+  @Test
+  fun signedOut_queuedPhoto_isNotSent() {
+    givenAQueuedPhoto()
+
+    setContent(FakeAuthRepository(currentUser = null))
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+
+    assertTrue(chatRepository.sentPhotos.isEmpty())
+    assertEquals(listOf("queued1"), photoOutbox.queued.value.map { it.messageId })
   }
 
   /** A message the signed-in user sent, to tell which conversation a screen observes. */
@@ -1542,6 +1632,8 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
+          pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = { state, _ -> mapState = state },
       )
@@ -1622,6 +1714,8 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
+          pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = { state, _ -> mapState = state },
       )

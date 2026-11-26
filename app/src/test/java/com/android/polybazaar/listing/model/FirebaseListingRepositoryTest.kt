@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.photo.PhotoCompressor
+import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -23,6 +24,7 @@ import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SnapshotMetadata
+import com.google.firebase.firestore.Source
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageReference
 import com.google.firebase.storage.UploadTask
@@ -117,6 +119,14 @@ class FirebaseListingRepositoryTest {
       photoBytes
     }
     repository = FirebaseListingRepository(compressor, firestore, storage, auth)
+  }
+
+  @Test
+  fun newListingId_isAnIdGeneratedForANewListingsDocument_withoutWriting() {
+    assertEquals(listingId, repository.newListingId())
+
+    verify(listings).document()
+    verify(newDocument, never()).set(any<Map<String, Any>>())
   }
 
   @Test
@@ -1695,6 +1705,248 @@ class FirebaseListingRepositoryTest {
     val thrown = runCatching { repository.setPaused(listingId, paused = true) }.exceptionOrNull()
 
     assertTrue(thrown is CancellationException)
+  }
+
+  @Test
+  fun publishListing_ofANewId_uploadsThePhotosThenSavesTheListingActiveUnderThatId() = runTest {
+    givenServerListing(null)
+    givenImageSlots()
+    val photos =
+        listOf(
+            Uri.parse("file:///drafts/d1/photo_0.jpg"),
+            Uri.parse("file:///drafts/d1/photo_1.jpg"),
+        )
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    val draft =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            images = photos,
+        )
+
+    repository.publishListing(listingId, draft)
+
+    assertEquals(photos, compressedPhotos)
+    // Checked against the server: the cache may not know of an earlier publish.
+    verify(document).get(Source.SERVER)
+    verify(document, never()).get()
+    verify(listings, never()).document()
+    inOrder(imageAt(0), imageAt(1), document) {
+      verify(imageAt(0)).putBytes(eq(photoBytes), any())
+      verify(imageAt(1)).putBytes(eq(photoBytes), any())
+      verify(document)
+          .set(
+              eq(
+                  mapOf(
+                      "ownerUid" to uid,
+                      "category" to "service_tutoring",
+                      "price" to 25.0,
+                      "type" to "SERVICE",
+                      "title" to "Math tutoring",
+                      "description" to "One-hour session",
+                      "imagePaths" to listOf(path(0), path(1)),
+                      "paused" to false,
+                  )
+              )
+          )
+    }
+  }
+
+  @Test
+  fun publishListing_whenTheWriteFails_keepsTheUploadedPhotosAndRethrows() = runTest {
+    givenServerListing(null)
+    givenImageSlots()
+    val writeFailure = IllegalStateException("Firestore unavailable")
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forException(writeFailure))
+    val draft =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            images = listOf(Uri.parse("file:///drafts/d1/photo_0.jpg")),
+        )
+
+    val failure = runCatching { repository.publishListing(listingId, draft) }.exceptionOrNull()
+
+    assertSame(writeFailure, failure)
+    // The write may still reach the server later, pointing to the photo.
+    verify(imageAt(0), never()).delete()
+  }
+
+  @Test
+  fun publishListing_ofAnIdAlreadyPublishedByTheUser_succeedsWithoutUploadingOrWriting() = runTest {
+    givenServerListing(storedService(listOf(path(0))))
+    val draft =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            images = listOf(Uri.parse("file:///drafts/d1/photo_0.jpg")),
+        )
+
+    assertEquals(Unit, repository.publishListing(listingId, draft))
+    verify(document, never()).set(any<Map<String, Any>>())
+    verifyNoInteractions(storage)
+    assertTrue(compressedPhotos.isEmpty())
+  }
+
+  @Test
+  fun publishListing_ofAnIdTakenByAnotherUser_failsAsPermissionDeniedWithoutWriting() = runTest {
+    givenServerListing(storedService() + ("ownerUid" to "someone-else"))
+
+    val failure = runCatching {
+      repository.publishListing(listingId, editedService(emptyList()))
+    }
+        .exceptionOrNull()
+
+    assertEquals(
+        FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        (failure as? FirebaseFirestoreException)?.code,
+    )
+    assertEquals(AppError.PERMISSION_DENIED, failure?.toAppError())
+    verify(document, never()).set(any<Map<String, Any>>())
+    verifyNoInteractions(storage)
+  }
+
+  @Test
+  fun publishListing_whenTheServerCannotBeReached_failsWithoutUploading() = runTest {
+    val unavailable =
+        FirebaseFirestoreException("Offline", FirebaseFirestoreException.Code.UNAVAILABLE)
+    whenever(firestore.waitForPendingWrites()).thenReturn(Tasks.forResult(null))
+    whenever(document.get(Source.SERVER)).thenReturn(Tasks.forException(unavailable))
+
+    val failure = runCatching {
+      repository.publishListing(listingId, editedService(emptyList()))
+    }
+        .exceptionOrNull()
+
+    assertSame(unavailable, failure)
+    verify(document, never()).set(any<Map<String, Any>>())
+    verifyNoInteractions(storage)
+  }
+
+  @Test
+  fun publishListing_withoutAuthenticatedUser_failsWithoutTouchingFirebase() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val failure = runCatching {
+      repository.publishListing(listingId, editedService(emptyList()))
+    }
+        .exceptionOrNull()
+
+    assertEquals(AppError.UNAUTHENTICATED, failure?.toAppError())
+    verifyNoInteractions(firestore, storage)
+  }
+
+  @Test
+  fun publishListing_ofAnInvalidListing_failsWithoutTouchingFirebase() = runTest {
+    val invalid =
+        ServiceListing(
+            ListingCategory.SERVICE_TUTORING,
+            25.0,
+            "t".repeat(81),
+            "One-hour session",
+        )
+
+    val failure = runCatching { repository.publishListing(listingId, invalid) }.exceptionOrNull()
+
+    assertTrue(failure is IllegalArgumentException)
+    assertEquals("Title must be at most 80 characters", failure?.message)
+    verifyNoInteractions(firestore, storage)
+  }
+
+  @Test
+  fun publishListing_cancelledDuringTheWrite_keepsTheUploadedPhotos() = runTest {
+    givenServerListing(null)
+    givenImageSlots()
+    // A write that never answers, like one the connection cuts short.
+    val write = TaskCompletionSource<Void>()
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(write.task)
+    val draft =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            images =
+                listOf(
+                    Uri.parse("file:///drafts/d1/photo_0.jpg"),
+                    Uri.parse("file:///drafts/d1/photo_1.jpg"),
+                ),
+        )
+
+    val job = launch { repository.publishListing(listingId, draft) }
+    runCurrent()
+    verify(imageAt(0)).putBytes(eq(photoBytes), any())
+    verify(imageAt(1)).putBytes(eq(photoBytes), any())
+    verify(document).set(any<Map<String, Any>>())
+
+    job.cancel()
+    job.join()
+
+    assertTrue(job.isCancelled)
+    // The queued write may still reach the server later, pointing to these photos.
+    verify(imageAt(0), never()).delete()
+    verify(imageAt(1), never()).delete()
+  }
+
+  @Test
+  fun publishListing_readsTheServerOnlyOnceThePendingWritesAreDone() = runTest {
+    givenServerListing(null)
+    val pendingWrites = TaskCompletionSource<Void>()
+    whenever(firestore.waitForPendingWrites()).thenReturn(pendingWrites.task)
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    val job = launch { repository.publishListing(listingId, editedService(emptyList())) }
+    runCurrent()
+    // An earlier publish's write is still on its way: the server would not know of it yet.
+    verify(document, never()).get(any<Source>())
+    verify(document, never()).set(any<Map<String, Any>>())
+
+    pendingWrites.setResult(null)
+    job.join()
+
+    inOrder(firestore, document) {
+      verify(firestore).waitForPendingWrites()
+      verify(document).get(Source.SERVER)
+      verify(document).set(any<Map<String, Any>>())
+    }
+  }
+
+  @Test
+  fun publishListing_whenThePendingWritesFail_neitherReadsNorUploads() = runTest {
+    givenServerListing(null)
+    givenImageSlots()
+    val failure = FirebaseFirestoreException("Offline", FirebaseFirestoreException.Code.UNAVAILABLE)
+    whenever(firestore.waitForPendingWrites()).thenReturn(Tasks.forException(failure))
+    val draft =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            images = listOf(Uri.parse("file:///drafts/d1/photo_0.jpg")),
+        )
+
+    val thrown = runCatching { repository.publishListing(listingId, draft) }.exceptionOrNull()
+
+    assertSame(failure, thrown)
+    verify(document, never()).get(any<Source>())
+    verify(document, never()).set(any<Map<String, Any>>())
+    verify(imageAt(0), never()).putBytes(any(), any())
+    assertTrue(compressedPhotos.isEmpty())
+  }
+
+  /** Makes the server hold [fields] at [document], or nothing when null, with no write pending. */
+  private fun givenServerListing(fields: Map<String, Any>?) {
+    val snapshot = listingDocument(listingId, fields.orEmpty())
+    whenever(snapshot.exists()).thenReturn(fields != null)
+    whenever(firestore.waitForPendingWrites()).thenReturn(Tasks.forResult(null))
+    whenever(document.get(Source.SERVER)).thenReturn(Tasks.forResult(snapshot))
   }
 
   private fun path(index: Int) = "listings/$uid/$listingId/images/$index"

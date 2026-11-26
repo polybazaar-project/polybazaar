@@ -9,8 +9,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.android.polybazaar.auth.viewmodel.AuthViewModel
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.FilePhotoStorage
 import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.map.model.FakePlaceNameRepository
@@ -63,6 +65,8 @@ abstract class PolyBazaarTestCase :
           locationRepository = FakeLocationRepository(),
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
+          pendingListingQueue = FakePendingListingQueue(),
           navController = rememberNavController(),
       )
     }
