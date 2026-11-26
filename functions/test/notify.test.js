@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { after, beforeEach, describe, test } from "node:test";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { notifyBookingChange, notifyNewMessage } from "../src/notify.js";
+import { notifyBookingChange, notifyNewMessage, notifyUploadedPhoto } from "../src/notify.js";
 
 const PROJECT_ID = "demo-polybazaar";
 const RENTER = "renter-uid";
@@ -180,6 +180,26 @@ describe("notifyNewMessage", () => {
     await addDevices(LENDER, ["lender-phone"]);
     assert.deepEqual(await send({ senderUid: "eve-uid", text: "Hi" }), []);
     assert.deepEqual(await send(hi, { conversationId: "missing_x" }), []);
+  });
+
+  test("a photo is announced once its upload ends, not when its message is created", async () => {
+    await addDevices(LENDER, ["lender-phone"]);
+    const photo = { senderUid: RENTER, text: "Look", imagePath: "p.jpg", photoPending: true };
+    const uploaded = { ...photo, photoPending: false };
+    const params = { conversationId: CONVERSATION_ID, messageId: "m1" };
+    const messaging = fakeMessaging();
+
+    await notifyNewMessage(db, messaging, params, photo);
+    assert.deepEqual(messaging.calls, []);
+
+    await notifyUploadedPhoto(db, messaging, params, { before: uploaded, after: uploaded });
+    assert.deepEqual(messaging.calls, []);
+
+    await notifyUploadedPhoto(db, messaging, params, { before: photo, after: uploaded });
+    assert.deepEqual(
+      messaging.calls.map((call) => [call.fids, call.data.preview]),
+      [[["lender-phone"], "Look"]],
+    );
   });
 });
 

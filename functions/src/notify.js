@@ -48,7 +48,11 @@ export async function sendToUser(db, messaging, uid, data) {
   }
 }
 
+// A photo message is created before its photo is uploaded, so it is announced by
+// notifyUploadedPhoto once the photo can be downloaded. A photo removed after a failed upload is
+// never announced.
 export async function notifyNewMessage(db, messaging, { conversationId }, message) {
+  if (message.photoPending === true) return;
   const [conversationSnapshot, sender] = await Promise.all([
     db.doc(`conversations/${conversationId}`).get(),
     db.doc(`users/${message.senderUid}`).get(),
@@ -72,6 +76,13 @@ export async function notifyNewMessage(db, messaging, { conversationId }, messag
     recipientUid,
   });
   await sendToUser(db, messaging, recipientUid, data);
+}
+
+// The rules let a message's sender change it once: photoPending from true to false, when the
+// photo's upload ends.
+export async function notifyUploadedPhoto(db, messaging, params, { before, after }) {
+  if (before.photoPending !== true || after.photoPending !== false) return;
+  await notifyNewMessage(db, messaging, params, after);
 }
 
 // `writer` is the trigger's auth context; a new booking has none. The listing and the renter are

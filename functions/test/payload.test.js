@@ -76,7 +76,7 @@ describe("messagePayload", () => {
   });
 
   test("a photo-only message has an empty preview, and a photo's caption is its preview", () => {
-    const photo = { senderUid: RENTER, imagePath: "conversations/c/m.jpg", photoPending: true };
+    const photo = { senderUid: RENTER, imagePath: "conversations/c/m.jpg", photoPending: false };
     assert.equal(payload(photo).preview, "");
     assert.equal(payload({ ...photo, text: "The scratch" }).preview, "The scratch");
   });

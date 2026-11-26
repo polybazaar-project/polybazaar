@@ -5,9 +5,10 @@ import { getMessaging } from "firebase-admin/messaging";
 import { setGlobalOptions } from "firebase-functions/v2";
 import {
   onDocumentCreated,
+  onDocumentUpdated,
   onDocumentUpdatedWithAuthContext,
 } from "firebase-functions/v2/firestore";
-import { notifyBookingChange, notifyNewMessage } from "./src/notify.js";
+import { notifyBookingChange, notifyNewMessage, notifyUploadedPhoto } from "./src/notify.js";
 
 initializeApp();
 
@@ -21,6 +22,17 @@ export const onMessageCreated = onDocumentCreated(
   (event) => {
     if (event.data == null) return;
     return notifyNewMessage(getFirestore(), getMessaging(), event.params, event.data.data());
+  },
+);
+
+export const onMessagePhotoUploaded = onDocumentUpdated(
+  "conversations/{conversationId}/messages/{messageId}",
+  (event) => {
+    if (event.data == null) return;
+    return notifyUploadedPhoto(getFirestore(), getMessaging(), event.params, {
+      before: event.data.before.data(),
+      after: event.data.after.data(),
+    });
   },
 );
 

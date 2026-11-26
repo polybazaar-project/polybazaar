@@ -205,13 +205,17 @@ class ListingRulesTest {
     assertEquals(ListingCategory.entries.toSet(), (itemCategories + serviceCategories).toSet())
   }
 
+  private val itemForm =
+      ListingFormInput(ListingType.ITEM, "t", "d", "5", ListingCategory.ITEM_TOOLS)
+  private val serviceForm =
+      ListingFormInput(ListingType.SERVICE, "t", "d", "5", ListingCategory.SERVICE_TUTORING)
+
   @Test
   fun buildListing_putsPhotosOnBothTypes() {
     val photos = uris(3)
 
-    val item = buildListing(ListingType.ITEM, "t", "d", "5", ListingCategory.ITEM_TOOLS, photos)
-    val service =
-        buildListing(ListingType.SERVICE, "t", "d", "5", ListingCategory.SERVICE_TUTORING, photos)
+    val item = buildListing(itemForm.copy(photos = photos))
+    val service = buildListing(serviceForm.copy(photos = photos))
 
     assertEquals(photos, item?.images)
     assertEquals(photos, service?.images)
@@ -219,101 +223,26 @@ class ListingRulesTest {
 
   @Test
   fun buildListing_refundValueDefaultsToPrice() {
-    val blank =
-        buildListing(ListingType.ITEM, "t", "d", "5", ListingCategory.ITEM_TOOLS, emptyList(), " ")
-    val given =
-        buildListing(
-            ListingType.ITEM,
-            "t",
-            "d",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-            "80,50",
-        )
+    val blank = buildListing(itemForm.copy(refundValue = " "))
+    val given = buildListing(itemForm.copy(refundValue = "80,50"))
 
     assertEquals(5.0, (blank as ItemListing).refundValue, 0.0)
     assertEquals(80.5, (given as ItemListing).refundValue, 0.0)
-    assertNull(
-        buildListing(
-            ListingType.ITEM,
-            "t",
-            "d",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-            "0",
-        )
-    )
+    assertNull(buildListing(itemForm.copy(refundValue = "0")))
   }
 
   @Test
   fun buildListing_returnsNullForIncompleteOrInvalidInput() {
-    assertNull(
-        buildListing(ListingType.ITEM, "", "d", "5", ListingCategory.ITEM_TOOLS, emptyList())
-    )
-    assertNull(
-        buildListing(ListingType.ITEM, "t", " ", "5", ListingCategory.ITEM_TOOLS, emptyList())
-    )
-    assertNull(
-        buildListing(ListingType.ITEM, "t", "d", "0", ListingCategory.ITEM_TOOLS, emptyList())
-    )
-    assertNull(
-        buildListing(ListingType.ITEM, "t", "d", "1.2.3", ListingCategory.ITEM_TOOLS, emptyList())
-    )
-    assertNull(buildListing(ListingType.ITEM, "t", "d", "5", null, emptyList()))
-    assertNull(
-        buildListing(
-            ListingType.ITEM,
-            "t",
-            "d",
-            "5",
-            ListingCategory.SERVICE_TUTORING,
-            emptyList(),
-        )
-    )
-    assertNull(
-        buildListing(
-            ListingType.ITEM,
-            "t",
-            "d",
-            "10000.01",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-        )
-    )
-    assertNull(
-        buildListing(
-            ListingType.ITEM,
-            "t",
-            "d",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-            "100000.01",
-        )
-    )
-    assertNotNull(
-        buildListing(
-            ListingType.ITEM,
-            "t",
-            "d",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-            "100000",
-        )
-    )
-    assertNull(
-        buildListing(
-            ListingType.SERVICE,
-            "t",
-            "d",
-            "10000.01",
-            ListingCategory.SERVICE_TUTORING,
-            emptyList(),
-        )
-    )
+    assertNull(buildListing(itemForm.copy(title = "")))
+    assertNull(buildListing(itemForm.copy(description = " ")))
+    assertNull(buildListing(itemForm.copy(price = "0")))
+    assertNull(buildListing(itemForm.copy(price = "1.2.3")))
+    assertNull(buildListing(itemForm.copy(category = null)))
+    assertNull(buildListing(itemForm.copy(category = ListingCategory.SERVICE_TUTORING)))
+    assertNull(buildListing(itemForm.copy(price = "10000.01")))
+    assertNull(buildListing(itemForm.copy(refundValue = "100000.01")))
+    assertNotNull(buildListing(itemForm.copy(refundValue = "100000")))
+    assertNull(buildListing(serviceForm.copy(price = "10000.01")))
   }
 
   // Editing a listing must not erase what the form does not show: its id, kept photos and the
@@ -324,29 +253,16 @@ class ListingRulesTest {
 
     val item =
         buildListing(
-            ListingType.ITEM,
-            "t",
-            "d",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            uris(1),
-            imagePaths = paths,
-            listingId = "l",
-            maxRentalDays = 7,
+            itemForm.copy(
+                photos = uris(1),
+                imagePaths = paths,
+                listingId = "l",
+                maxRentalDays = 7,
+            )
         )
             as ItemListing
     val service =
-        buildListing(
-            ListingType.SERVICE,
-            "t",
-            "d",
-            "5",
-            ListingCategory.SERVICE_TUTORING,
-            emptyList(),
-            imagePaths = paths,
-            listingId = "l",
-            maxRentalDays = 7,
-        )
+        buildListing(serviceForm.copy(imagePaths = paths, listingId = "l", maxRentalDays = 7))
 
     assertEquals(paths, item.imagePaths)
     assertEquals("l", item.listingId)
@@ -387,26 +303,8 @@ class ListingRulesTest {
   fun buildListing_putsTheAvailableDaysOnBothTypes() {
     val days = setOf(LocalDate.of(2026, 11, 13), LocalDate.of(2026, 11, 28))
 
-    val item =
-        ListingRules.buildListing(
-            ListingType.ITEM,
-            "Drill",
-            "Works well",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-            availableDates = days,
-        )
-    val service =
-        ListingRules.buildListing(
-            ListingType.SERVICE,
-            "Tutoring",
-            "One hour",
-            "25",
-            ListingCategory.SERVICE_TUTORING,
-            emptyList(),
-            availableDates = days,
-        )
+    val item = buildListing(itemForm.copy(availableDates = days))
+    val service = buildListing(serviceForm.copy(availableDates = days))
 
     assertEquals(days, item?.availableDates)
     assertEquals(days, service?.availableDates)
@@ -453,35 +351,9 @@ class ListingRulesTest {
   fun buildListing_putsTheLocationOnBothTypes_andNoneByDefault() {
     val location = ListingLocation(46.52, 6.57, "EPFL")
 
-    val item =
-        buildListing(
-            ListingType.ITEM,
-            "Drill",
-            "Works well",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-            location = location,
-        )
-    val service =
-        buildListing(
-            ListingType.SERVICE,
-            "Tutoring",
-            "One hour",
-            "25",
-            ListingCategory.SERVICE_TUTORING,
-            emptyList(),
-            location = location,
-        )
-    val withoutLocation =
-        buildListing(
-            ListingType.ITEM,
-            "Drill",
-            "Works well",
-            "5",
-            ListingCategory.ITEM_TOOLS,
-            emptyList(),
-        )
+    val item = buildListing(itemForm.copy(location = location))
+    val service = buildListing(serviceForm.copy(location = location))
+    val withoutLocation = buildListing(itemForm)
 
     assertEquals(location, item?.location)
     assertEquals(location, service?.location)
@@ -491,15 +363,7 @@ class ListingRulesTest {
   @Test
   fun buildListing_refusesABlankLocationName_andTrimsTheOthers() {
     fun build(name: String) =
-        buildListing(
-            ListingType.SERVICE,
-            "Tutoring",
-            "One hour",
-            "25",
-            ListingCategory.SERVICE_TUTORING,
-            emptyList(),
-            location = ListingLocation(46.52, 6.57, name),
-        )
+        buildListing(serviceForm.copy(location = ListingLocation(46.52, 6.57, name)))
 
     assertNull(build(""))
     assertNull(build("   "))

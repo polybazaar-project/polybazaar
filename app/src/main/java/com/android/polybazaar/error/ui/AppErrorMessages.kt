@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.error.ui
 
 import androidx.annotation.StringRes
@@ -23,6 +24,7 @@ val AppError.messageRes: Int
         AppError.USERNAME_TAKEN -> R.string.error_username_taken
         AppError.TOO_MANY_REQUESTS -> R.string.error_too_many_requests
         AppError.INVALID_LINK -> R.string.error_invalid_link
+        AppError.CONFIRMATION_NOT_SAVED -> R.string.booking_confirmation_not_saved
         AppError.UNKNOWN -> R.string.error_unknown
       }
 
