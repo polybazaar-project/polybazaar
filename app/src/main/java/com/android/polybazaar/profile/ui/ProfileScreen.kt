@@ -4,7 +4,6 @@
 package com.android.polybazaar.profile.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -55,12 +54,14 @@ object ProfileScreenTags {
   const val NAME = "profile_name"
   const val BIO = "profile_bio"
   const val ERROR_MESSAGE = "profile_error_message"
-  const val RECENT_ACTIVITY = "profile_recent_activity"
   const val EDIT_PROFILE_BUTTON = "profile_edit_profile_button"
   const val MY_BOOKINGS_BUTTON = "profile_my_bookings_button"
 }
 
-/** The fixed cards take about 450 dp; the rest leaves the Toolbox room to show a few rows. */
+/**
+ * The fixed parts (header, identity card, "My bookings" and "Edit profile") take about 380 dp; the
+ * rest leaves the Toolbox room to show a few rows.
+ */
 private val MinPageHeight = 640.dp
 
 /**
@@ -113,7 +114,6 @@ fun ProfileContent(
       Spacer(modifier = Modifier.height(24.dp))
       // Takes the height the other cards leave, and its content scrolls inside that height.
       Box(modifier = Modifier.fillMaxWidth().weight(1f)) { toolbox() }
-      RecentActivityCard(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp))
       TextButton(
           onClick = onOpenBookings,
           modifier = Modifier.fillMaxWidth().testTag(ProfileScreenTags.MY_BOOKINGS_BUTTON),
@@ -210,36 +210,6 @@ private fun IdentityCard(
           color = AuthColors.Danger,
           fontSize = 12.sp,
           modifier = Modifier.testTag(ProfileScreenTags.ERROR_MESSAGE),
-      )
-    }
-  }
-}
-
-/** Rentals and loans are not built yet, so the history is always empty for now. */
-@Composable
-private fun RecentActivityCard(modifier: Modifier = Modifier) {
-  Column(
-      modifier =
-          modifier
-              .fillMaxWidth()
-              .background(AuthColors.CardBackground, RoundedCornerShape(20.dp))
-              .border(1.dp, AuthColors.Outline, RoundedCornerShape(20.dp))
-              .padding(16.dp)
-              .testTag(ProfileScreenTags.RECENT_ACTIVITY),
-      verticalArrangement = Arrangement.spacedBy(12.dp),
-  ) {
-    Text(
-        text = "Recent activity",
-        color = AuthColors.TextPrimary,
-        fontSize = 15.sp,
-        fontWeight = FontWeight.SemiBold,
-    )
-    Box(modifier = Modifier.fillMaxWidth().height(32.dp), contentAlignment = Alignment.Center) {
-      Text(
-          text = "History is empty!",
-          color = AuthColors.TextPrimary,
-          fontSize = 13.sp,
-          fontWeight = FontWeight.SemiBold,
       )
     }
   }
