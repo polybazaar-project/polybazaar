@@ -485,7 +485,7 @@ class FirebaseListingRepositoryTest {
   }
 
   @Test
-  fun createListing_storesTheLocationAsATrimmedMap_onlyWhenThereIsOne() = runTest {
+  fun createListing_storesTheApproximateLocationAsATrimmedMap_onlyWhenThereIsOne() = runTest {
     whenever(newDocument.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
     val drill = ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Drill", "With bits")
 
@@ -496,8 +496,9 @@ class FirebaseListingRepositoryTest {
 
     val stored = argumentCaptor<Map<String, Any>>()
     verify(newDocument, times(2)).set(stored.capture())
+    // Snapped to the 0.02° grid (#23): the exact point the lender picked is never stored.
     assertEquals(
-        mapOf("latitude" to 46.5191, "longitude" to 6.5668, "name" to "Rolex Learning Center"),
+        mapOf("latitude" to 46.52, "longitude" to 6.56, "name" to "Rolex Learning Center"),
         stored.firstValue["location"],
     )
     // No location: the key is left out, like on a listing written before the field existed.
@@ -524,8 +525,11 @@ class FirebaseListingRepositoryTest {
 
     val loaded = repository.getListing(listingId).getOrThrow()
 
-    assertEquals(location, loaded.location)
-    assertEquals(service.copy(listingId = listingId, ownerUid = uid), loaded)
+    assertEquals(ListingLocation(-33.86, 151.22, "Opera House"), loaded.location)
+    assertEquals(
+        service.copy(listingId = listingId, ownerUid = uid, location = location.approximate()),
+        loaded,
+    )
   }
 
   @Test
@@ -552,7 +556,7 @@ class FirebaseListingRepositoryTest {
     givenAllListings(
         listingDocument(
             "doubles",
-            located(mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL")),
+            located(mapOf("latitude" to 46.52, "longitude" to 6.56, "name" to "EPFL")),
         ),
         // Firestore returns a whole number as a Long.
         listingDocument(
@@ -564,7 +568,7 @@ class FirebaseListingRepositoryTest {
         listingDocument("not-a-map", located("EPFL")),
         listingDocument(
             "text-latitude",
-            located(mapOf("latitude" to "46", "longitude" to 6.57, "name" to "EPFL")),
+            located(mapOf("latitude" to "46", "longitude" to 6.56, "name" to "EPFL")),
         ),
         listingDocument(
             "no-longitude",
@@ -572,11 +576,11 @@ class FirebaseListingRepositoryTest {
         ),
         listingDocument(
             "no-name",
-            located(mapOf("latitude" to 46.52, "longitude" to 6.57)),
+            located(mapOf("latitude" to 46.52, "longitude" to 6.56)),
         ),
         listingDocument(
             "number-name",
-            located(mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to 42)),
+            located(mapOf("latitude" to 46.52, "longitude" to 6.56, "name" to 42)),
         ),
     )
 
@@ -585,7 +589,7 @@ class FirebaseListingRepositoryTest {
     // Every listing still loads: a malformed location only hides the location.
     assertEquals(
         listOf(
-            "doubles" to ListingLocation(46.52, 6.57, "EPFL"),
+            "doubles" to ListingLocation(46.52, 6.56, "EPFL"),
             "whole" to ListingLocation(46.0, -6.0, "Somewhere"),
             "absent" to null,
             "not-a-map" to null,
@@ -603,12 +607,26 @@ class FirebaseListingRepositoryTest {
     // The rules accept a name with spaces around it, though the app never writes one.
     givenStoredListing(
         storedService() +
-            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "  EPFL  "))
+            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.56, "name" to "  EPFL  "))
     )
 
     val loaded = repository.getListing(listingId).getOrThrow()
 
-    assertEquals(ListingLocation(46.52, 6.57, "EPFL"), loaded.location)
+    assertEquals(ListingLocation(46.52, 6.56, "EPFL"), loaded.location)
+  }
+
+  @Test
+  fun getListing_snapsAnExactLocationSavedBeforeTheGrid() = runTest {
+    // Saved before #23 with the exact point: it is still shown only as the approximate one.
+    givenStoredListing(
+        storedService() +
+            ("location" to
+                mapOf("latitude" to 46.5191, "longitude" to 6.5668, "name" to "Rolex Learning"))
+    )
+
+    val loaded = repository.getListing(listingId).getOrThrow()
+
+    assertEquals(ListingLocation(46.52, 6.56, "Rolex Learning"), loaded.location)
   }
 
   // Well-formed but invalid: the edit form would keep it and every save would then be refused.
@@ -671,10 +689,11 @@ class FirebaseListingRepositoryTest {
   fun updateListing_keepsTheLocation_andDeletesItWhenTheListingHasNone() = runTest {
     givenStoredListing(
         storedService() +
-            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL"))
+            ("location" to mapOf("latitude" to 46.52, "longitude" to 6.56, "name" to "EPFL"))
     )
     whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
-    val location = ListingLocation(46.52, 6.57, "EPFL")
+    // The point the lender moved the pin to: stored, and returned, snapped to the grid.
+    val location = ListingLocation(46.5191, 6.5668, "EPFL")
 
     val kept = repository.updateListing(editedService(emptyList()).copy(location = location))
     val removed = repository.updateListing(editedService(emptyList()))
@@ -682,11 +701,11 @@ class FirebaseListingRepositoryTest {
     val written = argumentCaptor<Map<String, Any>>()
     verify(document, times(2)).update(written.capture())
     assertEquals(
-        mapOf("latitude" to 46.52, "longitude" to 6.57, "name" to "EPFL"),
+        mapOf("latitude" to 46.52, "longitude" to 6.56, "name" to "EPFL"),
         written.firstValue["location"],
     )
     assertEquals(FieldValue.delete(), written.secondValue["location"])
-    assertEquals(location, kept.location)
+    assertEquals(location.approximate(), kept.location)
     assertEquals(null, removed.location)
   }
 
@@ -1752,6 +1771,30 @@ class FirebaseListingRepositoryTest {
               )
           )
     }
+  }
+
+  @Test
+  fun publishListing_storesOnlyTheApproximateLocation() = runTest {
+    givenServerListing(null)
+    whenever(document.set(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+    // A draft saved offline keeps the exact point on the device; publishing snaps it (#23).
+    val draft =
+        ServiceListing(
+            category = ListingCategory.SERVICE_TUTORING,
+            price = 25.0,
+            title = "Math tutoring",
+            description = "One-hour session",
+            location = ListingLocation(46.5191, 6.5668, "Rolex Learning Center"),
+        )
+
+    repository.publishListing(listingId, draft)
+
+    val stored = argumentCaptor<Map<String, Any>>()
+    verify(document).set(stored.capture())
+    assertEquals(
+        mapOf("latitude" to 46.52, "longitude" to 6.56, "name" to "Rolex Learning Center"),
+        stored.firstValue["location"],
+    )
   }
 
   @Test
