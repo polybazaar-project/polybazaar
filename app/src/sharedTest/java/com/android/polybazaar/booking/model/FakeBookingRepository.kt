@@ -58,6 +58,8 @@ class FakeBookingRepository : BookingRepository {
   var bookingUpdateFailure: Exception? = null
   var confirmationWriteFailure: ((Exception) -> Unit)? = null
   var immediateConfirmationFailure: Exception? = null
+  val dismissedConfirmations = mutableListOf<String>()
+  var dismissConfirmationError: Exception? = null
 
   val accepted = mutableListOf<Booking>()
   var acceptGate: CompletableDeferred<Unit>? = null
@@ -145,6 +147,11 @@ class FakeBookingRepository : BookingRepository {
   override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) {
     returnConfirmations += id
     recordConfirmationFailure(onWriteFailure)
+  }
+
+  override suspend fun dismissConfirmationFailure(id: String) {
+    dismissedConfirmations += id
+    dismissConfirmationError?.let { throw it }
   }
 
   private fun recordConfirmationFailure(onWriteFailure: (Exception) -> Unit) {

@@ -15,10 +15,10 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
-import com.android.polybazaar.booking.viewmodel.ConfirmationAction
 import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
@@ -51,6 +51,7 @@ class BookingListScreensTest {
       onCancel: (String) -> Unit = {},
       showRenter: Boolean = false,
       onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
+      onDismissConfirmation: (String) -> Unit = {},
   ) {
     composeTestRule.setContent {
       BookingListContent(
@@ -61,6 +62,7 @@ class BookingListScreensTest {
           onCancel = onCancel,
           showRenter = showRenter,
           onConfirm = onConfirm,
+          onDismissConfirmation = onDismissConfirmation,
       )
     }
   }
@@ -258,6 +260,57 @@ class BookingListScreensTest {
   }
 
   @Test
+  fun checkingRecoveredConfirmationShowsStatusAndHidesRetry() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            checkingConfirmationIds = setOf("a"),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.NETWORK,
+                        )
+                ),
+        )
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Checking confirmation")
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_RETRY).assertCountEquals(0)
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ERROR).assertCountEquals(0)
+  }
+
+  @Test
+  fun cancelledBookingShowsRecoveredFailureAndCanDismissIt() {
+    val dismissed = mutableListOf<String>()
+    show(
+        BookingUiState(
+            bookings = listOf(booking("a", BookingStatus.CANCELLED)),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.PERMISSION_DENIED,
+                        )
+                ),
+        ),
+        onDismissConfirmation = { dismissed += it },
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_DISMISS).performClick()
+    assertEquals(listOf("a"), dismissed)
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+  }
+
+  @Test
   fun reloadingKeepsStatusVisibleButHidesConfirmationUntilSnapshotArrives() {
     val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
     var loading by mutableStateOf(true)
@@ -307,6 +360,32 @@ class BookingListScreensTest {
     )
 
     composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_RETRY).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
+  }
+
+  @Test
+  fun recoveredUnsavedConfirmationShowsSpecificMessageAndRetry() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.CONFIRMATION_NOT_SAVED,
+                        )
+                ),
+        ),
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_ERROR)
+        .assertTextEquals("Your confirmation wasn't saved.")
     composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_RETRY).performClick()
     assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
   }

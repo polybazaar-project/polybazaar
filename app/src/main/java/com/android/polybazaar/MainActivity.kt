@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot Claude Sonnet 5.5
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar
 
 import android.graphics.Color
@@ -88,7 +89,12 @@ class MainActivity : ComponentActivity() {
                   remember {
                     FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
                   },
-              bookingRepository = remember { FirebaseBookingRepository() },
+              bookingRepository =
+                  remember {
+                    FirebaseBookingRepository(
+                        journal = (application as PolyBazaarApplication).confirmationJournal
+                    )
+                  },
               locationRepository =
                   remember {
                     FusedLocationRepository(
