@@ -19,9 +19,14 @@ import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.FakeBookingRepository
+import com.android.polybazaar.booking.model.ObservedBookings
+import com.android.polybazaar.booking.viewmodel.BookingUiState
+import com.android.polybazaar.booking.viewmodel.BookingViewModel
+import com.android.polybazaar.booking.viewmodel.ConfirmationAction
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsUiState
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsViewModel
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
@@ -57,18 +62,44 @@ class ReceivedRequestsScreenTest {
   private val loaded =
       ReceivedRequestsUiState(
           requests = listOf(ann, bob),
-          accepted = listOf(cy),
-          renterNames = mapOf("uid-ann" to "ann_m", "uid-cy" to "cy"),
+          renterNames = mapOf("uid-ann" to "ann_m"),
           offeredDays = days(17..30),
           hasLoaded = true,
       )
 
+  /** Cy's accepted booking, followed live. */
+  private val acceptedBookings =
+      BookingUiState(bookings = listOf(cy), renterNames = mapOf("uid-cy" to "cy"))
+
+  private val today = LocalDate.of(2026, 11, 18)
+
   private fun setContent(
       uiState: ReceivedRequestsUiState,
       actions: ReceivedRequestsActions = ReceivedRequestsActions(),
+      bookings: BookingUiState = BookingUiState(),
+      today: LocalDate = this.today,
   ) {
-    composeTestRule.setContent { ReceivedRequestsContent(uiState = uiState, actions = actions) }
+    composeTestRule.setContent {
+      ReceivedRequestsContent(
+          uiState = uiState,
+          bookings = bookings,
+          actions = actions,
+          today = today,
+      )
+    }
   }
+
+  private fun drill(availableDates: Set<LocalDate>) =
+      ItemListing(
+          category = ListingCategory.ITEM_TOOLS,
+          price = 8.0,
+          title = "Drill",
+          description = "Cordless drill.",
+          refundValue = 120.0,
+          listingId = "drill",
+          ownerUid = "lender",
+          availableDates = availableDates,
+      )
 
   private fun node(tag: String) = composeTestRule.onNodeWithTag(tag)
 
@@ -109,7 +140,7 @@ class ReceivedRequestsScreenTest {
 
   @Test
   fun showsEachRequest_withItsRenterAndDays() {
-    setContent(loaded)
+    setContent(loaded, bookings = acceptedBookings)
 
     val annCard = ReceivedRequestsScreenTags.request("ann")
     card(annCard, "ann_m").assertIsDisplayed()
@@ -182,35 +213,137 @@ class ReceivedRequestsScreenTest {
   @Test
   fun withTheViewModel_acceptingMovesTheRequest_andRemovesTheOverlappingOne() {
     val bookings = FakeBookingRepository().apply { listingBookings = listOf(ann, bob) }
-    val listings =
-        FakeListingRepository(
-            listOf(
-                ItemListing(
-                    category = ListingCategory.ITEM_TOOLS,
-                    price = 8.0,
-                    title = "Drill",
-                    description = "Cordless drill.",
-                    refundValue = 120.0,
-                    listingId = "drill",
-                    ownerUid = "lender",
-                    availableDates = days(17..30),
-                )
-            )
-        )
+    val listings = FakeListingRepository(listOf(drill(availableDates = days(17..30))))
     val profiles =
         FakeProfileRepository(
             mapOf("uid-ann" to User(uid = "uid-ann", email = "", username = "ann_m"))
         )
-    val viewModel =
-        ReceivedRequestsViewModel("drill", bookings, listings, profiles, LocalDate.of(2026, 11, 18))
-    composeTestRule.setContent { ReceivedRequestsScreen(viewModel = viewModel, onBack = {}) }
+    val viewModel = ReceivedRequestsViewModel("drill", bookings, listings, profiles, today)
+    val bookingsViewModel = BookingViewModel(bookings, profileRepository = profiles)
+    composeTestRule.setContent {
+      ReceivedRequestsScreen("drill", viewModel, bookingsViewModel, onBack = {})
+    }
 
     node(ReceivedRequestsScreenTags.acceptButton("ann")).assertIsEnabled().performClick()
     node(ReceivedRequestsScreenTags.ACCEPT_CONFIRM).performClick()
+    // As Firestore's listener would after the accept.
+    composeTestRule.runOnIdle {
+      bookings.bookingUpdates.tryEmit(ObservedBookings(bookings.listingBookings))
+    }
 
-    node(ReceivedRequestsScreenTags.accepted("ann")).assertIsDisplayed()
+    card(ReceivedRequestsScreenTags.accepted("ann"), "ann_m").assertIsDisplayed()
     node(ReceivedRequestsScreenTags.request("ann")).assertDoesNotExist()
     node(ReceivedRequestsScreenTags.request("bob")).assertDoesNotExist()
     assertEquals(BookingStatus.CANCELLED, bookings.listingBookings.single { it.id == "bob" }.status)
+  }
+
+  @Test
+  fun anAcceptedBooking_offersTheLendersHandoverStep_andCancel() {
+    val confirmed = mutableListOf<Pair<String, ConfirmationAction>>()
+    val cancelled = mutableListOf<String>()
+    setContent(
+        loaded,
+        ReceivedRequestsActions(
+            onConfirm = { id, action -> confirmed += id to action },
+            onCancel = { cancelled += it },
+        ),
+        bookings = acceptedBookings,
+    )
+
+    val cyCard = ReceivedRequestsScreenTags.accepted("cy")
+    card(cyCard, "Ready for handover").assertIsDisplayed()
+    card(cyCard, "Step 1 of 5").assertIsDisplayed()
+    node(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertTextEquals("Notify handover")
+        .performClick()
+    node(BookingListScreenTags.CANCEL_BUTTON).performClick()
+
+    assertEquals(listOf("cy" to ConfirmationAction.NOTIFY_HANDOVER), confirmed)
+    assertEquals(listOf("cy"), cancelled)
+  }
+
+  @Test
+  fun aPastBooking_staysUntilItsReturnIsCompleted() {
+    val returned =
+        cy.copy(
+            handoverNotified = true,
+            renterHandoverConfirmed = true,
+            returnNotified = true,
+            lenderReturnConfirmed = true,
+        )
+    val returning = booking("dee", "uid-dee", days(24..25), BookingStatus.CONFIRMED)
+    val cancelled = booking("eve", "uid-eve", days(29..29), BookingStatus.CANCELLED)
+    val afterward = LocalDate.of(2026, 12, 1)
+    setContent(
+        ReceivedRequestsUiState(hasLoaded = true),
+        bookings = BookingUiState(bookings = listOf(returning, returned, cancelled)),
+        today = afterward,
+    )
+
+    // Over, but the lender has not confirmed the return yet; no name read: shown as a renter.
+    card(ReceivedRequestsScreenTags.accepted("dee"), "A renter").assertIsDisplayed()
+    node(ReceivedRequestsScreenTags.accepted("cy")).assertDoesNotExist()
+    node(ReceivedRequestsScreenTags.accepted("eve")).assertDoesNotExist()
+    // A handed-over booking can no longer be cancelled, nor a past one.
+    node(BookingListScreenTags.CANCEL_BUTTON).assertDoesNotExist()
+  }
+
+  @Test
+  fun liveUpdatesThatStopped_areShownWithRetry_insteadOfTheEmptyMessage() {
+    var retries = 0
+    setContent(
+        ReceivedRequestsUiState(hasLoaded = true),
+        ReceivedRequestsActions(onRetryBookings = { retries++ }),
+        bookings = BookingUiState(observationError = AppError.NETWORK),
+    )
+
+    node(BookingListScreenTags.OBSERVATION_ERROR).assertIsDisplayed()
+    node(ReceivedRequestsScreenTags.EMPTY_MESSAGE).assertDoesNotExist()
+    node(BookingListScreenTags.OBSERVATION_RETRY).performClick()
+    assertEquals(1, retries)
+  }
+
+  @Test
+  fun whileTheAcceptedBookingsAreRead_theEmptyMessageWaits() {
+    setContent(
+        ReceivedRequestsUiState(hasLoaded = true),
+        bookings = BookingUiState(isLoadingBookings = true),
+    )
+
+    node(ReceivedRequestsScreenTags.EMPTY_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun withTheViewModels_liveUpdatesRetry_andAnAcceptedBookingIsCancelled() {
+    val upcoming =
+        booking("cy", "uid-cy", setOf(LocalDate.now().plusDays(5)), BookingStatus.CONFIRMED)
+    val bookings =
+        FakeBookingRepository().apply {
+          listingBookings = listOf(upcoming)
+          bookingUpdateFailure = AppException(AppError.NETWORK)
+        }
+    val listings = FakeListingRepository(listOf(drill(availableDates = emptySet())))
+    val viewModel = ReceivedRequestsViewModel("drill", bookings, listings, FakeProfileRepository())
+    val bookingsViewModel = BookingViewModel(bookings)
+    composeTestRule.setContent {
+      ReceivedRequestsScreen("drill", viewModel, bookingsViewModel, onBack = {})
+    }
+    node(ReceivedRequestsScreenTags.accepted("cy")).assertIsDisplayed()
+    // The next live update fails, which stops them.
+    composeTestRule.runOnIdle {
+      bookings.bookingUpdates.tryEmit(ObservedBookings(listOf(upcoming)))
+    }
+    composeTestRule.waitUntil { bookingsViewModel.uiState.value.observationError != null }
+
+    bookings.bookingUpdateFailure = null
+    node(BookingListScreenTags.OBSERVATION_RETRY).performClick()
+    composeTestRule.waitUntil { bookingsViewModel.uiState.value.observationError == null }
+    node(BookingListScreenTags.CANCEL_BUTTON).performClick()
+
+    composeTestRule.waitUntil {
+      bookingsViewModel.uiState.value.bookings.single().status == BookingStatus.CANCELLED
+    }
+    assertEquals(1, bookings.cancellationCount)
+    node(ReceivedRequestsScreenTags.accepted("cy")).assertDoesNotExist()
   }
 }

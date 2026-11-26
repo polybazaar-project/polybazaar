@@ -97,13 +97,13 @@ class ReceivedRequestsViewModelTest {
     assertTrue(state.hasLoaded)
     assertFalse(state.isLoading)
     assertEquals(listOf(ann, bob, cy), state.requests)
-    assertEquals(emptyList<Booking>(), state.accepted)
     // Cy has no profile: shown without a name.
     assertEquals(mapOf("uid-ann" to "ann_m", "uid-bob" to "bob.k"), state.renterNames)
   }
 
   @Test
-  fun loads_onlyThisListing_andHidesCancelledAndPastBookings() = runTest {
+  fun loads_onlyThisListingsWaitingRequests_andHidesPastOnes() = runTest {
+    // An accepted booking is not a request: BookingViewModel follows it on the screen instead.
     val accepted = booking("ok", "uid-ann", days(28..28), BookingStatus.CONFIRMED)
     bookings.listingBookings =
         listOf(
@@ -117,7 +117,6 @@ class ReceivedRequestsViewModelTest {
     val state = newViewModel().uiState.value
 
     assertEquals(listOf(ann), state.requests)
-    assertEquals(listOf(accepted), state.accepted)
   }
 
   @Test
@@ -177,7 +176,6 @@ class ReceivedRequestsViewModelTest {
     assertEquals(listOf(ann), bookings.accepted)
     val state = viewModel.uiState.value
     assertEquals(listOf(cy), state.requests)
-    assertEquals(listOf(ann.copy(status = BookingStatus.CONFIRMED)), state.accepted)
     assertNull(state.acceptingId)
     // Read again after the accept, to catch requests sent since the screen loaded.
     assertEquals(2, bookings.loadCount)
@@ -239,7 +237,8 @@ class ReceivedRequestsViewModelTest {
 
     val state = viewModel.uiState.value
     assertEquals(listOf(cy), state.requests)
-    assertEquals(listOf(ann.copy(status = BookingStatus.CONFIRMED)), state.accepted)
+    // Its days stay taken off the listing.
+    assertFalse(state.canAccept(bob))
   }
 
   @Test

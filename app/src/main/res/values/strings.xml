@@ -312,7 +312,6 @@
     <string name="booking_request_done">Done</string>
     <string name="booking_request_retry">Retry</string>
     <string name="renter_bookings_title">My bookings</string>
-    <string name="lender_bookings_title">Booking requests</string>
     <string name="bookings_empty">No bookings yet.</string>
     <string name="bookings_cancel">Cancel</string>
     <string name="bookings_cancelling">Cancelling…</string>

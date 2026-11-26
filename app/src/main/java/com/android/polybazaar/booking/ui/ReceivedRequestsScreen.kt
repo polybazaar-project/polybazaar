@@ -21,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +44,15 @@ import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
+import com.android.polybazaar.booking.model.isFinished
+import com.android.polybazaar.booking.viewmodel.BookingParty
+import com.android.polybazaar.booking.viewmodel.BookingUiState
+import com.android.polybazaar.booking.viewmodel.BookingViewModel
+import com.android.polybazaar.booking.viewmodel.ConfirmationAction
+import com.android.polybazaar.booking.viewmodel.ConfirmationStage
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsUiState
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsViewModel
+import com.android.polybazaar.booking.viewmodel.confirmationStage
 import com.android.polybazaar.error.ui.message
 import java.time.LocalDate
 
@@ -71,28 +79,54 @@ object ReceivedRequestsScreenTags {
   fun accepted(id: String) = "received_requests_accepted_$id"
 }
 
-/** What the screen can do; every action does nothing by default. */
+/**
+ * What the screen can do; every action does nothing by default.
+ *
+ * @property onRetry reads the waiting requests again.
+ * @property onRetryBookings restarts the live updates of the accepted bookings.
+ * @property onCancel cancels the accepted booking with this id.
+ * @property onConfirm records the lender's handover or return step on the booking with this id.
+ */
 class ReceivedRequestsActions(
     val onBack: () -> Unit = {},
     val onRetry: () -> Unit = {},
     val onAccept: (Booking) -> Unit = {},
+    val onRetryBookings: () -> Unit = {},
+    val onCancel: (String) -> Unit = {},
+    val onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
 )
 
 /**
- * The screen where the owner of a listing sees the requests renters made on it and accepts the ones
- * they want. Accepting asks for confirmation first, saying how many other requests for the same
- * days it cancels.
+ * The screen where the owner of the listing [listingId] answers the requests renters made on it and
+ * follows the ones they accepted. [viewModel] reads the waiting requests and accepts them;
+ * accepting asks for confirmation first, saying how many other requests for the same days it
+ * cancels. [bookingsViewModel] keeps the accepted bookings up to date while the screen is shown,
+ * with their handover and return steps and Cancel.
  */
 @Composable
-fun ReceivedRequestsScreen(viewModel: ReceivedRequestsViewModel, onBack: () -> Unit) {
+fun ReceivedRequestsScreen(
+    listingId: String,
+    viewModel: ReceivedRequestsViewModel,
+    bookingsViewModel: BookingViewModel,
+    onBack: () -> Unit,
+) {
   val uiState by viewModel.uiState.collectAsState()
+  val bookings by bookingsViewModel.uiState.collectAsState()
+  DisposableEffect(bookingsViewModel, listingId) {
+    bookingsViewModel.observeListingBookings(listingId)
+    onDispose { bookingsViewModel.stopObservingBookings() }
+  }
   ReceivedRequestsContent(
       uiState = uiState,
+      bookings = bookings,
       actions =
           ReceivedRequestsActions(
               onBack = onBack,
               onRetry = viewModel::loadRequests,
               onAccept = viewModel::accept,
+              onRetryBookings = { bookingsViewModel.observeListingBookings(listingId) },
+              onCancel = bookingsViewModel::cancelBooking,
+              onConfirm = bookingsViewModel::confirmBooking,
           ),
   )
 }
@@ -100,8 +134,26 @@ fun ReceivedRequestsScreen(viewModel: ReceivedRequestsViewModel, onBack: () -> U
 /** Side margin of the page, as on the listing detail. */
 private val PageMargin = 18.dp
 
+/**
+ * The accepted bookings among [BookingUiState.bookings], earliest first: all the confirmed ones
+ * except those whose return is completed and whose days are all before [today].
+ */
+private fun BookingUiState.acceptedBookings(today: LocalDate): List<Booking> = bookings.filter {
+  it.status == BookingStatus.CONFIRMED &&
+      !(it.confirmationStage == ConfirmationStage.COMPLETED && it.isFinished(today))
+}
+
+/**
+ * The waiting requests of [uiState] and the accepted bookings of [bookings], as the lender sees
+ * them on [today].
+ */
 @Composable
-fun ReceivedRequestsContent(uiState: ReceivedRequestsUiState, actions: ReceivedRequestsActions) {
+fun ReceivedRequestsContent(
+    uiState: ReceivedRequestsUiState,
+    bookings: BookingUiState,
+    actions: ReceivedRequestsActions,
+    today: LocalDate = LocalDate.now(),
+) {
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -118,7 +170,7 @@ fun ReceivedRequestsContent(uiState: ReceivedRequestsUiState, actions: ReceivedR
     val error = uiState.error
     when {
       // Requests already shown stay shown if reading them again fails.
-      uiState.hasLoaded -> RequestLists(uiState, actions)
+      uiState.hasLoaded -> RequestLists(uiState, bookings, actions, today)
       error != null -> LoadError(text = error.message(), onRetry = actions.onRetry)
       else -> LoadingIndicator()
     }
@@ -126,7 +178,13 @@ fun ReceivedRequestsContent(uiState: ReceivedRequestsUiState, actions: ReceivedR
 }
 
 @Composable
-private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequestsActions) {
+private fun RequestLists(
+    uiState: ReceivedRequestsUiState,
+    bookings: BookingUiState,
+    actions: ReceivedRequestsActions,
+    today: LocalDate,
+) {
+  val accepted = bookings.acceptedBookings(today)
   // The id of the request waiting for confirmation. Saveable, so the dialog survives a rotation.
   var confirmingId by rememberSaveable { mutableStateOf<String?>(null) }
   Column(
@@ -151,7 +209,13 @@ private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequ
           modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_ERROR),
       )
     }
-    if (uiState.requests.isEmpty() && uiState.accepted.isEmpty()) {
+    // Not while the accepted bookings are still being read, or could not be.
+    if (
+        uiState.requests.isEmpty() &&
+            accepted.isEmpty() &&
+            !bookings.isLoadingBookings &&
+            bookings.observationError == null
+    ) {
       Text(
           text = stringResource(R.string.received_requests_empty),
           color = AuthColors.TextSecondary,
@@ -182,13 +246,25 @@ private fun RequestLists(uiState: ReceivedRequestsUiState, actions: ReceivedRequ
         }
       }
     }
-    if (uiState.accepted.isNotEmpty()) {
+    if (accepted.isNotEmpty() || bookings.observationError != null || bookings.error != null) {
       SectionTitle(stringResource(R.string.received_requests_accepted))
-      uiState.accepted.forEach { booking ->
-        RequestCard(
+      BookingErrors(
+          uiState = bookings,
+          onRetry = actions.onRetryBookings,
+          onCancel = actions.onCancel,
+      )
+      accepted.forEach { booking ->
+        BookingCard(
             booking = booking,
-            renterName = uiState.renterNames[booking.renterUid],
-            tag = ReceivedRequestsScreenTags.accepted(booking.id),
+            uiState = bookings,
+            party = BookingParty.LENDER,
+            label =
+                bookings.renterNames[booking.renterUid]
+                    ?: stringResource(R.string.received_requests_unknown_renter),
+            today = today,
+            onCancel = actions.onCancel,
+            onConfirm = actions.onConfirm,
+            modifier = Modifier.testTag(ReceivedRequestsScreenTags.accepted(booking.id)),
         )
       }
     }
@@ -400,11 +476,13 @@ private fun ReceivedRequestsContentPreview() {
                       booking("b1", "alice", 0..2, BookingStatus.REQUESTED),
                       booking("b2", "bob", 2..3, BookingStatus.REQUESTED),
                   ),
-              accepted = listOf(booking("b3", "carol", 7..8, BookingStatus.CONFIRMED)),
               renterNames = mapOf("alice" to "alice_m", "bob" to "bob.k", "carol" to "carol"),
               offeredDays = (0..6).mapTo(mutableSetOf()) { first.plusDays(it.toLong()) },
               hasLoaded = true,
           ),
+      bookings =
+          BookingUiState(bookings = listOf(booking("b3", "carol", 7..8, BookingStatus.CONFIRMED))),
       actions = ReceivedRequestsActions(),
+      today = first,
   )
 }

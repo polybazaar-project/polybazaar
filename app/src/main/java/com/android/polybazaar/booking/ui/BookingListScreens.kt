@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.ui
 
 import androidx.compose.foundation.background
@@ -90,33 +91,12 @@ fun RenterBookingsScreen(viewModel: BookingViewModel, onBack: () -> Unit) {
   )
 }
 
-/** The bookings of [listingId] as its lender sees them, each cancellable while still active. */
-@Composable
-fun LenderBookingsScreen(listingId: String, viewModel: BookingViewModel, onBack: () -> Unit) {
-  val uiState by viewModel.uiState.collectAsState()
-  DisposableEffect(viewModel, listingId) {
-    viewModel.observeListingBookings(listingId)
-    onDispose { viewModel.stopObservingBookings() }
-  }
-  BookingListContent(
-      title = stringResource(R.string.lender_bookings_title),
-      uiState = uiState,
-      onBack = onBack,
-      onRetry = { viewModel.observeListingBookings(listingId) },
-      onCancel = viewModel::cancelBooking,
-      onConfirm = viewModel::confirmBooking,
-      showRenter = true,
-  )
-}
-
 /**
- * Loading, error with Retry, empty and list states of bookings. A cancelled booking stays listed as
- * cancelled; a booking whose cancellation is being queued shows "Cancelling…". An error from a
- * cancellation the server rejected shows above the list, which keeps the restored booking; its
- * Retry cancels that booking again instead of reloading. A booking whose days are all before
- * [today] is history and cannot be cancelled.
- *
- * @param showRenter names each booking after its renter (the lender's view) instead of its listing.
+ * Loading, error with Retry, empty and list states of the renter's bookings, each named after its
+ * listing. A cancelled booking stays listed as cancelled; a booking whose cancellation is being
+ * queued shows "Cancelling…". An error from a cancellation the server rejected shows above the
+ * list, which keeps the restored booking; its Retry cancels that booking again instead of
+ * reloading. A booking whose days are all before [today] is history and cannot be cancelled.
  */
 @Composable
 fun BookingListContent(
@@ -125,7 +105,6 @@ fun BookingListContent(
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onCancel: (String) -> Unit,
-    showRenter: Boolean = false,
     today: LocalDate = LocalDate.now(),
     onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
 ) {
@@ -149,53 +128,12 @@ fun BookingListContent(
         modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
     )
     val error = uiState.error
-    uiState.observationError?.let { observationError ->
-      Row(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
-          verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Text(
-            text = stringResource(R.string.booking_observation_failed, observationError.message()),
-            color = AuthColors.Danger,
-            fontSize = 14.sp,
-            modifier = Modifier.weight(1f).testTag(BookingListScreenTags.OBSERVATION_ERROR),
-        )
-        TextButton(
-            onClick = onRetry,
-            enabled = !uiState.isLoadingBookings,
-            modifier = Modifier.testTag(BookingListScreenTags.OBSERVATION_RETRY),
-        ) {
-          Text(
-              text = stringResource(R.string.booking_request_retry),
-              color = AuthColors.Accent,
-              fontWeight = FontWeight.Bold,
-          )
-        }
-      }
-    }
-    if (error != null) {
-      Row(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
-          verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Text(
-            text = error.message(),
-            color = AuthColors.Danger,
-            fontSize = 14.sp,
-            modifier = Modifier.weight(1f).testTag(BookingListScreenTags.ERROR_MESSAGE),
-        )
-        TextButton(
-            onClick = { uiState.failedCancelId?.let(onCancel) ?: onRetry() },
-            modifier = Modifier.testTag(BookingListScreenTags.RETRY_BUTTON),
-        ) {
-          Text(
-              text = stringResource(R.string.booking_request_retry),
-              color = AuthColors.Accent,
-              fontWeight = FontWeight.Bold,
-          )
-        }
-      }
-    }
+    BookingErrors(
+        uiState = uiState,
+        onRetry = onRetry,
+        onCancel = onCancel,
+        modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+    )
     when {
       uiState.isLoadingBookings && uiState.bookings.isEmpty() ->
           Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -218,29 +156,114 @@ fun BookingListContent(
               verticalArrangement = Arrangement.spacedBy(12.dp),
           ) {
             items(uiState.bookings, key = { it.id }) { booking ->
-              BookingRow(
+              BookingCard(
                   booking = booking,
-                  label =
-                      if (showRenter) uiState.renterNames[booking.renterUid]
-                      else uiState.listingTitles[booking.listingId],
-                  isCancelling = booking.id in uiState.cancellingBookingIds,
-                  party = if (showRenter) BookingParty.LENDER else BookingParty.RENTER,
-                  pending = booking.id in uiState.pendingBookingIds,
-                  submitting = booking.id in uiState.submittingConfirmations,
-                  observationUnavailable = uiState.observationError != null,
-                  isLoadingBookings = uiState.isLoadingBookings,
-                  failure = uiState.confirmationFailures[booking.id],
-                  canCancel =
-                      booking.status != BookingStatus.CANCELLED &&
-                          !booking.handoverNotified &&
-                          !booking.isFinished(today),
-                  onCancel = { onCancel(booking.id) },
-                  onConfirm = { action -> onConfirm(booking.id, action) },
+                  uiState = uiState,
+                  party = BookingParty.RENTER,
+                  label = uiState.listingTitles[booking.listingId],
+                  today = today,
+                  onCancel = onCancel,
+                  onConfirm = onConfirm,
               )
             }
           }
     }
   }
+}
+
+/**
+ * The errors of [uiState], each with its Retry: live updates that stopped (Retry calls [onRetry]),
+ * and a failed read or cancellation (Retry cancels the booking again, or else calls [onRetry]).
+ */
+@Composable
+internal fun BookingErrors(
+    uiState: BookingUiState,
+    onRetry: () -> Unit,
+    onCancel: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  uiState.observationError?.let { observationError ->
+    ErrorRow(
+        text = stringResource(R.string.booking_observation_failed, observationError.message()),
+        textTag = BookingListScreenTags.OBSERVATION_ERROR,
+        retryTag = BookingListScreenTags.OBSERVATION_RETRY,
+        retryEnabled = !uiState.isLoadingBookings,
+        onRetry = onRetry,
+        modifier = modifier,
+    )
+  }
+  uiState.error?.let { error ->
+    ErrorRow(
+        text = error.message(),
+        textTag = BookingListScreenTags.ERROR_MESSAGE,
+        retryTag = BookingListScreenTags.RETRY_BUTTON,
+        retryEnabled = true,
+        onRetry = { uiState.failedCancelId?.let(onCancel) ?: onRetry() },
+        modifier = modifier,
+    )
+  }
+}
+
+@Composable
+private fun ErrorRow(
+    text: String,
+    textTag: String,
+    retryTag: String,
+    retryEnabled: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier,
+) {
+  Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Text(
+        text = text,
+        color = AuthColors.Danger,
+        fontSize = 14.sp,
+        modifier = Modifier.weight(1f).testTag(textTag),
+    )
+    TextButton(onClick = onRetry, enabled = retryEnabled, modifier = Modifier.testTag(retryTag)) {
+      Text(
+          text = stringResource(R.string.booking_request_retry),
+          color = AuthColors.Accent,
+          fontWeight = FontWeight.Bold,
+      )
+    }
+  }
+}
+
+/**
+ * [booking] as [party] sees it in [uiState]: its [label], days and status, Cancel while it is still
+ * active (not cancelled, not handed over, not over by [today]), and for a confirmed booking the
+ * handover and return step with the action that is [party]'s turn.
+ */
+@Composable
+internal fun BookingCard(
+    booking: Booking,
+    uiState: BookingUiState,
+    party: BookingParty,
+    label: String?,
+    today: LocalDate,
+    onCancel: (String) -> Unit,
+    onConfirm: (String, ConfirmationAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  BookingRow(
+      booking = booking,
+      label = label,
+      isCancelling = booking.id in uiState.cancellingBookingIds,
+      party = party,
+      pending = booking.id in uiState.pendingBookingIds,
+      submitting = booking.id in uiState.submittingConfirmations,
+      observationUnavailable = uiState.observationError != null,
+      isLoadingBookings = uiState.isLoadingBookings,
+      failure = uiState.confirmationFailures[booking.id],
+      canCancel =
+          booking.status != BookingStatus.CANCELLED &&
+              !booking.handoverNotified &&
+              !booking.isFinished(today),
+      onCancel = { onCancel(booking.id) },
+      onConfirm = { action -> onConfirm(booking.id, action) },
+      modifier = modifier,
+  )
 }
 
 @Composable
@@ -257,10 +280,12 @@ private fun BookingRow(
     canCancel: Boolean,
     onCancel: () -> Unit,
     onConfirm: (ConfirmationAction) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
   Column(
       modifier =
-          Modifier.fillMaxWidth()
+          modifier
+              .fillMaxWidth()
               .background(AuthColors.CardBackground, RoundedCornerShape(20.dp))
               .border(1.dp, AuthColors.Outline, RoundedCornerShape(20.dp))
               .padding(14.dp),

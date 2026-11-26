@@ -21,13 +21,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * State of the screen where a lender answers the booking requests on one of their listings.
+ * State of the screen where a lender answers the booking requests on one of their listings. The
+ * bookings they accepted are followed live by [BookingViewModel] instead.
  *
- * Only bookings with a day from today on are shown: a request whose days have all passed can no
- * longer be lent, and an accepted one is over.
+ * Only requests with a day from today on are shown: a request whose days have all passed can no
+ * longer be lent.
  *
  * @property requests the requests waiting for an answer, earliest first day first.
- * @property accepted the requests the lender accepted, earliest first day first.
  * @property renterNames the username of each renter whose profile could be read, by uid. A renter
  *   missing here is shown without a name.
  * @property offeredDays the days the listing still offers, read with the bookings. See [canAccept].
@@ -40,7 +40,6 @@ import kotlinx.coroutines.launch
  */
 data class ReceivedRequestsUiState(
     val requests: List<Booking> = emptyList(),
-    val accepted: List<Booking> = emptyList(),
     val renterNames: Map<String, String> = emptyMap(),
     val offeredDays: Set<LocalDate> = emptySet(),
     val hasLoaded: Boolean = false,
@@ -67,11 +66,12 @@ private val Booking.firstDay: LocalDate
   get() = days.min()
 
 /**
- * Loads the bookings of the listing [listingId] for its owner, and accepts the one they choose.
+ * Loads the requests waiting for an answer on the listing [listingId] for its owner, and accepts
+ * the one they choose.
  *
  * @param listingRepository reads the days the listing still offers, which decide what can be
  *   accepted.
- * @param today the day the screen is opened on: bookings whose days are all before it are hidden.
+ * @param today the day the screen is opened on: requests whose days are all before it are hidden.
  */
 class ReceivedRequestsViewModel(
     private val listingId: String,
@@ -139,10 +139,6 @@ class ReceivedRequestsViewModel(
               requests = it.requests.filterNot { booking -> booking.overlaps(request) },
               // The accept took its days off the listing.
               offeredDays = it.offeredDays - request.days,
-              accepted =
-                  (it.accepted + request.copy(status = BookingStatus.CONFIRMED)).sortedBy(
-                      Booking::firstDay
-                  ),
           )
         }
       } catch (exception: Exception) {
@@ -158,19 +154,14 @@ class ReceivedRequestsViewModel(
   }
 
   private fun show(bookings: List<Booking>, offeredDays: Set<LocalDate>) {
-    val upcoming =
+    val requests =
         bookings
-            .filter { booking -> booking.days.any { !it.isBefore(today) } }
+            .filter { booking ->
+              booking.status == BookingStatus.REQUESTED && booking.days.any { !it.isBefore(today) }
+            }
             .sortedBy(Booking::firstDay)
-    _uiState.update {
-      it.copy(
-          requests = upcoming.filter { booking -> booking.status == BookingStatus.REQUESTED },
-          accepted = upcoming.filter { booking -> booking.status == BookingStatus.CONFIRMED },
-          offeredDays = offeredDays,
-          hasLoaded = true,
-      )
-    }
-    upcoming.map { it.renterUid }.distinct().forEach { loadRenterName(it) }
+    _uiState.update { it.copy(requests = requests, offeredDays = offeredDays, hasLoaded = true) }
+    requests.map { it.renterUid }.distinct().forEach { loadRenterName(it) }
   }
 
   /**

@@ -517,8 +517,20 @@ fun AppNavHost(
                         }
                       }
               )
+          // Follows the accepted bookings live, with their handover, return and Cancel.
+          val bookingsViewModel: BookingViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, profileRepository = profileRepository)
+                        }
+                      }
+              )
           ReceivedRequestsScreen(
+              listingId = listingId,
               viewModel = requestsViewModel,
+              bookingsViewModel = bookingsViewModel,
               // As on the booking request: a second tap while leaving would also pop the listing.
               onBack = dropUnlessResumed { navController.popBackStack() },
           )
