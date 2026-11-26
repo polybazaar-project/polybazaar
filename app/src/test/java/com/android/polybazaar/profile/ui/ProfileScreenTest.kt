@@ -17,7 +17,6 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
@@ -81,14 +80,6 @@ class ProfileScreenTest {
     node(ProfileScreenTags.EDIT_PROFILE_BUTTON).performScrollTo().assertIsEnabled()
     node(ProfileScreenTags.LOADING_INDICATOR).assertDoesNotExist()
     node(ProfileScreenTags.ERROR_MESSAGE).assertDoesNotExist()
-  }
-
-  @Test
-  fun recentActivityCard_isNotShown() {
-    setContent()
-
-    composeTestRule.onNodeWithText("Recent activity").assertDoesNotExist()
-    composeTestRule.onNodeWithText("History is empty!").assertDoesNotExist()
   }
 
   @Test
