@@ -10,6 +10,8 @@ import com.android.polybazaar.error.model.AppException
 import com.google.firebase.auth.FirebaseAuth
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,11 +34,37 @@ import org.json.JSONObject
  */
 data class PendingListing(val id: String, val ownerUid: String, val listing: Listing)
 
-/** The listings created offline, kept on the device so they survive the app being closed. */
+/**
+ * A change to a published listing made offline, kept on the device until it is saved. A later PR
+ * adds an edit of the listing's fields.
+ *
+ * @property ownerUid the user who made it.
+ * @property paused the paused state to save, or null to leave it as it is.
+ * @property isDeleted whether the listing is to be deleted, which overrides any other change.
+ */
+data class PendingListingChange(
+    val listingId: String,
+    val ownerUid: String,
+    val paused: Boolean? = null,
+    val isDeleted: Boolean = false,
+) {
+
+  /** This change followed by a later one: a later pause or resume wins, a delete replaces all. */
+  fun followedBy(paused: Boolean?, delete: Boolean): PendingListingChange =
+      if (delete) copy(paused = null, isDeleted = true) else copy(paused = paused ?: this.paused)
+}
+
+/**
+ * The listings created offline and the changes made offline to published ones, kept on the device
+ * so they survive the app being closed.
+ */
 interface PendingListingQueue {
 
   /** The drafts kept, loaded from the device when the queue is created. */
   val pending: StateFlow<List<PendingListing>>
+
+  /** The changes kept, at most one per listing, loaded from the device with [pending]. */
+  val changes: StateFlow<List<PendingListingChange>>
 
   /**
    * Keeps [listing] as a draft of the signed-in user, to publish under [id]. Its photos are copied,
@@ -50,11 +80,27 @@ interface PendingListingQueue {
 
   /** Deletes the draft [id] and its photo copies. */
   suspend fun remove(id: String)
+
+  /**
+   * Keeps a change of the signed-in user to the published listing [listingId]: pausing it ([paused]
+   * true), resuming it (false) or deleting it ([delete]). It is merged into the change already kept
+   * for that listing (see [PendingListingChange.followedBy]).
+   *
+   * Throws when nobody is signed in or the change cannot be written; the change kept before stays.
+   */
+  suspend fun enqueueChange(listingId: String, paused: Boolean? = null, delete: Boolean = false)
+
+  /**
+   * Forgets [change] once saved or dropped. Does nothing if a later change to the same listing
+   * replaced it meanwhile, so that later change is still saved.
+   */
+  suspend fun removeChange(change: PendingListingChange)
 }
 
 /**
  * Keeps each draft in its own folder of app storage: `pending_listings/<id>/` holds `draft.json`
- * and the photos `photo_0.jpg`, `photo_1.jpg`, and so on.
+ * and the photos `photo_0.jpg`, `photo_1.jpg`, and so on. A change to a published listing is kept
+ * as `pending_listings/<listingId>/change.json`.
  *
  * @param currentUid the signed-in user's uid, or null when nobody is signed in.
  * @param ioDispatcher runs the disk work.
@@ -71,6 +117,13 @@ class FilePendingListingQueue(
   // Read at once: a few small files, and the drafts must be known before anything uses them.
   private val _pending = MutableStateFlow(loadAll())
   override val pending: StateFlow<List<PendingListing>> = _pending.asStateFlow()
+
+  // After loadAll, which deletes the folders of saves cut short.
+  private val _changes = MutableStateFlow(loadChanges())
+  override val changes: StateFlow<List<PendingListingChange>> = _changes.asStateFlow()
+
+  /** Makes merging a change into the kept one, and removing it, one step each. */
+  private val changeLock = Mutex()
 
   override suspend fun enqueue(id: String, listing: Listing) {
     val ownerUid = currentUid() ?: throw AppException(AppError.UNAUTHENTICATED)
@@ -91,7 +144,7 @@ class FilePendingListingQueue(
         _pending.update { drafts -> drafts.filterNot { it.id == id } + draft }
       } catch (exception: Exception) {
         // A photo or the draft could not be written: nothing of this draft is kept.
-        folder.deleteRecursively()
+        deleteDraftFiles(folder)
         throw exception
       }
     }
@@ -100,14 +153,70 @@ class FilePendingListingQueue(
   override suspend fun remove(id: String) {
     val folder = folderOf(id)
     withContext(ioDispatcher) {
-      if (!folder.deleteRecursively()) Log.w(LOG_TAG, "Could not delete every file of draft $id")
+      if (!deleteDraftFiles(folder)) Log.w(LOG_TAG, "Could not delete every file of draft $id")
     }
     _pending.update { drafts -> drafts.filterNot { it.id == id } }
   }
 
-  /** The folder of draft [id], refusing an id that could point outside [directory]. */
+  override suspend fun enqueueChange(listingId: String, paused: Boolean?, delete: Boolean) {
+    val ownerUid = currentUid() ?: throw AppException(AppError.UNAUTHENTICATED)
+    val folder = folderOf(listingId)
+    changeLock.withLock {
+      val change =
+          (_changes.value.find { it.listingId == listingId }
+                  ?: PendingListingChange(listingId, ownerUid))
+              .copy(ownerUid = ownerUid)
+              .followedBy(paused, delete)
+      withContext(ioDispatcher) {
+        if (!folder.mkdirs() && !folder.isDirectory) throw IOException("Cannot create $folder")
+        val temporary = File(folder, "$CHANGE_FILE.tmp")
+        temporary.writeText(change.toJson().toString())
+        // Written aside then moved over the earlier change in one atomic step, so a crash leaves
+        // either change, never half of one. Unlike File.renameTo, Files.move replaces the earlier
+        // file on Windows too.
+        Files.move(
+            temporary.toPath(),
+            File(folder, CHANGE_FILE).toPath(),
+            StandardCopyOption.ATOMIC_MOVE,
+        )
+      }
+      _changes.update { changes -> changes.filterNot { it.listingId == listingId } + change }
+    }
+  }
+
+  override suspend fun removeChange(change: PendingListingChange) {
+    val folder = folderOf(change.listingId)
+    changeLock.withLock {
+      if (change !in _changes.value) return
+      withContext(ioDispatcher) {
+        if (!File(folder, CHANGE_FILE).delete()) {
+          Log.w(LOG_TAG, "Could not delete the change to ${change.listingId}")
+        }
+        // Only when empty: a draft with the same id keeps it.
+        folder.delete()
+      }
+      _changes.update { changes -> changes - change }
+    }
+  }
+
+  /**
+   * Deletes the draft files in [folder], keeping a change to the same listing; the folder goes once
+   * empty. Returns whether every draft file was deleted.
+   */
+  private fun deleteDraftFiles(folder: File): Boolean {
+    val deleted =
+        folder
+            .listFiles()
+            .orEmpty()
+            .filterNot { it.name.startsWith(CHANGE_FILE) }
+            .all { it.delete() }
+    folder.delete()
+    return deleted
+  }
+
+  /** The folder of listing [id], refusing an id that could point outside [directory]. */
   private fun folderOf(id: String): File {
-    require(id.matches(SAFE_ID)) { "Invalid draft id" }
+    require(id.matches(SAFE_ID)) { "Invalid listing id" }
     return File(directory, id)
   }
 
@@ -121,9 +230,9 @@ class FilePendingListingQueue(
   }
 
   /**
-   * Every draft that can be read. One that cannot is skipped, never crashing the app. A folder
-   * without `draft.json` is a save cut short, by the app being killed say, as the draft is written
-   * last: it is deleted.
+   * Every draft that can be read. One that cannot is skipped, never crashing the app. A folder with
+   * neither `draft.json` nor `change.json` is a save cut short, by the app being killed say, as
+   * they are written last: it is deleted.
    */
   private fun loadAll(): List<PendingListing> =
       directory
@@ -132,7 +241,7 @@ class FilePendingListingQueue(
           .filter { it.isDirectory }
           .mapNotNull { folder ->
             if (!File(folder, DRAFT_FILE).isFile) {
-              folder.deleteRecursively()
+              if (!File(folder, CHANGE_FILE).isFile) folder.deleteRecursively()
               return@mapNotNull null
             }
             try {
@@ -142,6 +251,35 @@ class FilePendingListingQueue(
               null
             }
           }
+
+  /** Every change that can be read; one that cannot is skipped, as in [loadAll]. */
+  private fun loadChanges(): List<PendingListingChange> =
+      directory
+          .listFiles()
+          .orEmpty()
+          .map { File(it, CHANGE_FILE) }
+          .filter { it.isFile }
+          .mapNotNull { file ->
+            val listingId = file.parentFile!!.name
+            try {
+              val json = JSONObject(file.readText())
+              PendingListingChange(
+                  listingId = listingId,
+                  ownerUid = json.getString(OWNER_UID),
+                  paused = if (json.has(PAUSED)) json.getBoolean(PAUSED) else null,
+                  isDeleted = json.getBoolean(DELETED),
+              )
+            } catch (exception: Exception) {
+              Log.w(LOG_TAG, "Skipped unreadable change to $listingId", exception)
+              null
+            }
+          }
+
+  private fun PendingListingChange.toJson(): JSONObject {
+    val json = JSONObject().put(OWNER_UID, ownerUid).put(DELETED, isDeleted)
+    paused?.let { json.put(PAUSED, it) }
+    return json
+  }
 
   private fun read(folder: File): PendingListing {
     val json = JSONObject(File(folder, DRAFT_FILE).readText())
@@ -225,6 +363,7 @@ class FilePendingListingQueue(
   private companion object {
     const val DIRECTORY = "pending_listings"
     const val DRAFT_FILE = "draft.json"
+    const val CHANGE_FILE = "change.json"
     const val LOG_TAG = "PendingListingQueue"
 
     /** Firestore's generated ids are letters and digits; no separator or dot can sneak in. */
@@ -244,5 +383,7 @@ class FilePendingListingQueue(
     const val LATITUDE = "latitude"
     const val LONGITUDE = "longitude"
     const val NAME = "name"
+    const val PAUSED = "paused"
+    const val DELETED = "deleted"
   }
 }
