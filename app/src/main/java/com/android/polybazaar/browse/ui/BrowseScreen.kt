@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,8 +40,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -271,6 +271,8 @@ internal fun TypeSelector(selectedType: ListingType?, onTypeSelected: (ListingTy
       modifier =
           Modifier.fillMaxWidth()
               .padding(start = 24.dp, end = 24.dp, top = 20.dp - SEARCH_PINNED_MARGIN)
+              // One group of radio buttons, so TalkBack reads the row as one choice among three.
+              .selectableGroup()
               .testTag(BrowseScreenTags.TYPE_SELECTOR),
       horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
@@ -278,18 +280,21 @@ internal fun TypeSelector(selectedType: ListingType?, onTypeSelected: (ListingTy
         text = stringResource(R.string.browse_type_all),
         isSelected = selectedType == null,
         onClick = { onTypeSelected(null) },
+        role = Role.RadioButton,
         modifier = Modifier.testTag(BrowseScreenTags.TYPE_ALL),
     )
     BrowseChip(
         text = stringResource(R.string.browse_type_items),
         isSelected = selectedType == ListingType.ITEM,
         onClick = { onTypeSelected(ListingType.ITEM) },
+        role = Role.RadioButton,
         modifier = Modifier.testTag(BrowseScreenTags.TYPE_ITEMS),
     )
     BrowseChip(
         text = stringResource(R.string.browse_type_services),
         isSelected = selectedType == ListingType.SERVICE,
         onClick = { onTypeSelected(ListingType.SERVICE) },
+        role = Role.RadioButton,
         modifier = Modifier.testTag(BrowseScreenTags.TYPE_SERVICES),
     )
   }
@@ -320,6 +325,8 @@ internal fun CategorySelector(
           text = chipLabel(category),
           isSelected = category == selectedCategory,
           onClick = { onCategorySelected(category) },
+          // A checkbox, not a radio button: tapping the selected chip turns it off.
+          role = Role.Checkbox,
       )
     }
   }
@@ -337,12 +344,17 @@ internal fun chipLabel(category: ListingCategory): String =
       else -> category.displayName
     }
 
-/** A filter chip of Browse, highlighted and announced as selected when [isSelected]. */
+/**
+ * A filter chip of Browse, highlighted and announced as selected when [isSelected].
+ *
+ * @param role how TalkBack announces the chip, such as a radio button or a checkbox.
+ */
 @Composable
 private fun BrowseChip(
     text: String,
     isSelected: Boolean,
     onClick: () -> Unit,
+    role: Role,
     modifier: Modifier = Modifier,
 ) {
   val shape = RoundedCornerShape(24.dp)
@@ -355,13 +367,12 @@ private fun BrowseChip(
       softWrap = false,
       modifier =
           modifier
-              .semantics { selected = isSelected }
               .clip(shape)
               .background(
                   if (isSelected) AuthColors.SelectedBackground else AuthColors.CardBackground
               )
               .border(1.dp, if (isSelected) AuthColors.Accent else AuthColors.Outline, shape)
-              .clickable(onClick = onClick)
+              .selectable(selected = isSelected, role = role, onClick = onClick)
               .padding(horizontal = 18.dp, vertical = 11.dp),
   )
 }

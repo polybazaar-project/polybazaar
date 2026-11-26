@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasNoClickAction
@@ -624,6 +627,24 @@ class BrowseScreenTest {
   }
 
   @Test
+  fun chips_tellTalkBackHowTheyChoose() {
+    showEveryCategory()
+
+    // The type row is one choice among three; a category chip turns off when tapped again.
+    composeTestRule
+        .onNodeWithTag(BrowseScreenTags.TYPE_SELECTOR)
+        .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.SelectableGroup))
+    listOf(BrowseScreenTags.TYPE_ALL, BrowseScreenTags.TYPE_ITEMS, BrowseScreenTags.TYPE_SERVICES)
+        .forEach {
+          composeTestRule
+              .onNodeWithTag(it)
+              .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+        }
+    categoryChip("Tools")
+        .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox))
+  }
+
+  @Test
   fun choosingItems_showsOnlyItemsAndTheirCategories() {
     val viewModel = showEveryCategory()
 
@@ -634,6 +655,8 @@ class BrowseScreenTest {
     assertTrue(
         viewModel.uiState.value.filteredListings.all { it.category.type == ListingType.ITEM }
     )
+    composeTestRule.onNodeWithText("item_tools listing").assertExists()
+    composeTestRule.onNodeWithText("service_tutoring listing").assertDoesNotExist()
     categoryChip("Tools").assertExists()
     categoryChip("Tutoring").assertDoesNotExist()
     categoryChip(string(R.string.browse_category_other_services)).assertDoesNotExist()
