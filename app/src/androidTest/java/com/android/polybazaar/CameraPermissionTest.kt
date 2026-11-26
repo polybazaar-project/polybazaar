@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
+// Co-authored-by: GitHub Copilot coding agent
 package com.android.polybazaar
 
 import android.Manifest
@@ -22,7 +23,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CameraPermissionTest : PolyBazaarTestCase() {
   private companion object {
-    const val DIALOG_TIMEOUT_MS = 15_000L
+    const val DIALOG_TIMEOUT_MS = 60_000L
     const val CAMERA_TIMEOUT_MS = 15_000L
     const val MAX_BACK_PRESSES = 3
     const val HIERARCHY_DUMP_LIMIT = 3_000

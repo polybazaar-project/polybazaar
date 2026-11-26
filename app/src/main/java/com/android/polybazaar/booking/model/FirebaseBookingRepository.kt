@@ -4,6 +4,8 @@
 package com.android.polybazaar.booking.model
 
 import android.util.Log
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
@@ -13,21 +15,29 @@ import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import java.time.DateTimeException
 import java.time.LocalDate
+import java.util.UUID
 import java.util.concurrent.Executor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 class FirebaseBookingRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val journal: ConfirmationJournal,
     /** The current day, to leave finished requests alone when accepting. */
     private val today: () -> LocalDate = LocalDate::now,
     private val logWriteFailure: (Exception) -> Unit = {
       Log.e("BookingRepository", "Booking write failed", it)
     },
 ) : BookingRepository {
+  private val journalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
   override suspend fun requestBooking(
       booking: Booking,
@@ -104,7 +114,67 @@ class FirebaseBookingRepository(
     firestore.collection(BOOKINGS).whereEqualTo("renterUid", uid)
   }
 
-  private fun observeBookings(query: () -> Query): Flow<ObservedBookings> = callbackFlow {
+  private data class BookingSnapshot(val observed: ObservedBookings, val fromCache: Boolean)
+
+  private fun observeBookings(query: () -> Query): Flow<ObservedBookings> {
+    val uid = signedInUid(SIGN_IN_TO_READ_BOOKINGS)
+    val recovered =
+        journal.attempts.value
+            .filter { it.uid == uid && it.token !in journal.activeTokens.value }
+            .map { it.token }
+            .toSet()
+    return combine(observeSnapshots(query), journal.attempts, journal.activeTokens) {
+        snapshot,
+        attempts,
+        activeTokens ->
+      val observed = snapshot.observed
+      val relevant = attempts.filter { attempt ->
+        attempt.uid == uid && observed.bookings.any { it.id == attempt.bookingId }
+      }
+      reconcileConfirmations(snapshot, relevant, recovered)
+      val current =
+          journal.attempts.value.filter { attempt ->
+            attempt.uid == uid && observed.bookings.any { it.id == attempt.bookingId }
+          }
+      observed.copy(
+          checkingConfirmationIds =
+              current
+                  .filter {
+                    (it.error == null || it.token in activeTokens) &&
+                        it.bookingId !in observed.pendingIds
+                  }
+                  .mapTo(mutableSetOf()) { it.bookingId },
+          confirmationFailures =
+              current
+                  .mapNotNull { attempt ->
+                    attempt.error
+                        ?.takeIf { attempt.token !in activeTokens }
+                        ?.let {
+                          attempt.bookingId to RecoveredConfirmationFailure(attempt.action, it)
+                        }
+                  }
+                  .toMap(),
+      )
+    }
+  }
+
+  private suspend fun reconcileConfirmations(
+      snapshot: BookingSnapshot,
+      attempts: List<ConfirmationAttempt>,
+      recovered: Set<String>,
+  ) {
+    if (snapshot.fromCache) return
+    for (attempt in attempts) {
+      val booking = snapshot.observed.bookings.first { it.id == attempt.bookingId }
+      if (booking.id in snapshot.observed.pendingIds) continue
+      if (attempt.action.isRecorded(booking)) journal.remove(attempt.token)
+      else if (attempt.error == null && attempt.token in recovered) {
+        journal.fail(attempt.token, AppError.CONFIRMATION_NOT_SAVED)
+      }
+    }
+  }
+
+  private fun observeSnapshots(query: () -> Query): Flow<BookingSnapshot> = callbackFlow {
     val listener =
         query().addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
           when {
@@ -114,12 +184,16 @@ class FirebaseBookingRepository(
               try {
                 val documents = snapshot.documents
                 trySend(
-                    ObservedBookings(
-                        bookings = documents.map { it.toBooking() },
-                        pendingIds =
-                            documents
-                                .filter { it.metadata.hasPendingWrites() }
-                                .mapTo(mutableSetOf()) { it.id },
+                    BookingSnapshot(
+                        observed =
+                            ObservedBookings(
+                                bookings = documents.map { it.toBooking() },
+                                pendingIds =
+                                    documents
+                                        .filter { it.metadata.hasPendingWrites() }
+                                        .mapTo(mutableSetOf()) { it.id },
+                            ),
+                        fromCache = snapshot.metadata.isFromCache,
                     )
                 )
               } catch (exception: Exception) {
@@ -144,25 +218,80 @@ class FirebaseBookingRepository(
   }
 
   override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) =
-      queueConfirmation(id, LENDER_HANDOVER_CONFIRMED, onWriteFailure)
+      queueConfirmation(
+          id,
+          ConfirmationAction.NOTIFY_HANDOVER,
+          LENDER_HANDOVER_CONFIRMED,
+          onWriteFailure,
+      )
 
   override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) =
-      queueConfirmation(id, RENTER_HANDOVER_CONFIRMED, onWriteFailure)
+      queueConfirmation(
+          id,
+          ConfirmationAction.CONFIRM_HANDOVER,
+          RENTER_HANDOVER_CONFIRMED,
+          onWriteFailure,
+      )
 
   override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) =
-      queueConfirmation(id, RENTER_RETURN_CONFIRMED, onWriteFailure)
+      queueConfirmation(
+          id,
+          ConfirmationAction.NOTIFY_RETURN,
+          RENTER_RETURN_CONFIRMED,
+          onWriteFailure,
+      )
 
   override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) =
-      queueConfirmation(id, LENDER_RETURN_CONFIRMED, onWriteFailure)
+      queueConfirmation(
+          id,
+          ConfirmationAction.CONFIRM_RETURN,
+          LENDER_RETURN_CONFIRMED,
+          onWriteFailure,
+      )
 
-  private fun queueConfirmation(id: String, field: String, onWriteFailure: (Exception) -> Unit) {
-    signedInUid("Sign in to confirm a booking")
-    firestore.collection(BOOKINGS).document(id).update(field, true).addOnFailureListener(
-        Executor { it.run() }
-    ) {
-      logWriteFailure(it)
-      onWriteFailure(it)
+  private suspend fun queueConfirmation(
+      id: String,
+      action: ConfirmationAction,
+      field: String,
+      onWriteFailure: (Exception) -> Unit,
+  ) {
+    val uid = signedInUid("Sign in to confirm a booking")
+    val attempt = ConfirmationAttempt(uid, id, action, UUID.randomUUID().toString())
+    journal.put(attempt)
+    try {
+      val write = firestore.collection(BOOKINGS).document(id).update(field, true)
+      write.addOnSuccessListener(Executor { it.run() }) { journal.finish(attempt.token) }
+      write.addOnFailureListener(Executor { it.run() }) { failure ->
+        logWriteFailure(failure)
+        journalScope.launch {
+          try {
+            journal.fail(attempt.token, failure.toAppError())
+          } catch (exception: Exception) {
+            logWriteFailure(exception)
+          } finally {
+            try {
+              onWriteFailure(failure)
+            } finally {
+              journal.finish(attempt.token)
+            }
+          }
+        }
+      }
+    } catch (exception: Exception) {
+      try {
+        journal.fail(attempt.token, exception.toAppError())
+      } finally {
+        journal.finish(attempt.token)
+      }
+      throw exception
     }
+  }
+
+  override suspend fun dismissConfirmationFailure(id: String) {
+    val uid = signedInUid("Sign in to confirm a booking")
+    journal.attempts.value
+        .filter { it.uid == uid && it.bookingId == id && it.error != null }
+        .forEach { journal.remove(it.token) }
   }
 
   override suspend fun acceptBooking(booking: Booking) {

@@ -2,10 +2,18 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
+import com.android.polybazaar.error.model.AppError
 import kotlinx.coroutines.flow.Flow
 
 /** Bookings and the IDs whose local writes have not yet been acknowledged by the server. */
-data class ObservedBookings(val bookings: List<Booking>, val pendingIds: Set<String> = emptySet())
+data class ObservedBookings(
+    val bookings: List<Booking>,
+    val pendingIds: Set<String> = emptySet(),
+    val checkingConfirmationIds: Set<String> = emptySet(),
+    val confirmationFailures: Map<String, RecoveredConfirmationFailure> = emptyMap(),
+)
+
+data class RecoveredConfirmationFailure(val action: ConfirmationAction, val error: AppError)
 
 interface BookingRepository {
   /**
@@ -58,6 +66,9 @@ interface BookingRepository {
 
   /** Queues the lender's return confirmation. */
   suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit = {})
+
+  /** Dismisses a confirmation failure which can no longer be retried. */
+  suspend fun dismissConfirmationFailure(id: String)
 
   /**
    * Accepts [booking], a request on one of the signed-in lender's listings, in a single write: it
