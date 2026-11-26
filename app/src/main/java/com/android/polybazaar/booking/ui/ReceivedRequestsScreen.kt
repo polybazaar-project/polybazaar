@@ -42,13 +42,13 @@ import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
 import com.android.polybazaar.booking.model.isFinished
 import com.android.polybazaar.booking.viewmodel.BookingParty
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
-import com.android.polybazaar.booking.viewmodel.ConfirmationAction
 import com.android.polybazaar.booking.viewmodel.ConfirmationStage
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsUiState
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsViewModel
@@ -89,6 +89,7 @@ object ReceivedRequestsScreenTags {
  * @property onRetryBookings restarts the live updates of the accepted bookings.
  * @property onCancel cancels the accepted booking with this id.
  * @property onConfirm records the lender's handover or return step on the booking with this id.
+ * @property onDismissConfirmation hides the failed confirmation of the booking with this id.
  */
 class ReceivedRequestsActions(
     val onBack: () -> Unit = {},
@@ -97,6 +98,7 @@ class ReceivedRequestsActions(
     val onRetryBookings: () -> Unit = {},
     val onCancel: (String) -> Unit = {},
     val onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
+    val onDismissConfirmation: (String) -> Unit = {},
 )
 
 /**
@@ -130,6 +132,7 @@ fun ReceivedRequestsScreen(
               onRetryBookings = { bookingsViewModel.observeListingBookings(listingId) },
               onCancel = bookingsViewModel::cancelBooking,
               onConfirm = bookingsViewModel::confirmBooking,
+              onDismissConfirmation = bookingsViewModel::dismissConfirmationFailure,
           ),
   )
 }
@@ -139,11 +142,13 @@ private val PageMargin = 18.dp
 
 /**
  * The accepted bookings among [BookingUiState.bookings], earliest first: all the confirmed ones
- * except those whose return is completed and whose days are all before [today].
+ * except those whose return is completed and whose days are all before [today]. A booking with a
+ * failed confirmation stays, also once cancelled, until the lender dismisses the failure.
  */
 private fun BookingUiState.acceptedBookings(today: LocalDate): List<Booking> = bookings.filter {
-  it.status == BookingStatus.CONFIRMED &&
-      !(it.confirmationStage == ConfirmationStage.COMPLETED && it.isFinished(today))
+  it.id in confirmationFailures ||
+      it.status == BookingStatus.CONFIRMED &&
+          !(it.confirmationStage == ConfirmationStage.COMPLETED && it.isFinished(today))
 }
 
 /**
@@ -275,6 +280,7 @@ private fun RequestLists(
             today = today,
             onCancel = actions.onCancel,
             onConfirm = actions.onConfirm,
+            onDismissConfirmation = actions.onDismissConfirmation,
             modifier = Modifier.testTag(ReceivedRequestsScreenTags.accepted(booking.id)),
         )
       }

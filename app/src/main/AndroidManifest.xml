@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
+<!-- Co-authored-by: Copilot (Auto) -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -21,6 +22,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
+        android:name=".PolyBazaarApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -42,6 +44,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- FCM sends to this device by its Firebase Installation ID, which replaces the deprecated
+             registration token. -->
+        <meta-data
+            android:name="firebase_messaging_installation_id_enabled"
+            android:value="true" />
+        <!-- Receives this device's FCM events, such as its registration. -->
+        <service
+            android:name=".notification.model.PushMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
         <!-- Hands the camera app a file to write listing photos into. -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -39,13 +39,13 @@ import com.android.polybazaar.auth.ui.AuthBackButton
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
 import com.android.polybazaar.booking.model.isFinished
 import com.android.polybazaar.booking.viewmodel.BookingParty
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
-import com.android.polybazaar.booking.viewmodel.ConfirmationAction
 import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
 import com.android.polybazaar.booking.viewmodel.ConfirmationStage
 import com.android.polybazaar.booking.viewmodel.confirmationAction
@@ -71,6 +71,7 @@ object BookingListScreenTags {
   const val CONFIRMATION_PENDING = "booking_confirmation_pending"
   const val CONFIRMATION_ERROR = "booking_confirmation_error"
   const val CONFIRMATION_RETRY = "booking_confirmation_retry"
+  const val CONFIRMATION_DISMISS = "booking_confirmation_dismiss"
 }
 
 /** The renter's own bookings, loaded by [viewModel], each cancellable while still active. */
@@ -88,6 +89,7 @@ fun RenterBookingsScreen(viewModel: BookingViewModel, onBack: () -> Unit) {
       onRetry = viewModel::observeRenterBookings,
       onCancel = viewModel::cancelBooking,
       onConfirm = viewModel::confirmBooking,
+      onDismissConfirmation = viewModel::dismissConfirmationFailure,
   )
 }
 
@@ -107,6 +109,7 @@ fun BookingListContent(
     onCancel: (String) -> Unit,
     today: LocalDate = LocalDate.now(),
     onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
+    onDismissConfirmation: (String) -> Unit = {},
 ) {
   Column(
       modifier =
@@ -164,6 +167,7 @@ fun BookingListContent(
                   today = today,
                   onCancel = onCancel,
                   onConfirm = onConfirm,
+                  onDismissConfirmation = onDismissConfirmation,
               )
             }
           }
@@ -233,7 +237,8 @@ private fun ErrorRow(
 /**
  * [booking] as [party] sees it in [uiState]: its [label], days and status, Cancel while it is still
  * active (not cancelled, not handed over, not over by [today]), and for a confirmed booking the
- * handover and return step with the action that is [party]'s turn.
+ * handover and return step with the action that is [party]'s turn. A confirmation recovered as
+ * failed after the app closed can be dismissed with [onDismissConfirmation].
  */
 @Composable
 internal fun BookingCard(
@@ -244,6 +249,7 @@ internal fun BookingCard(
     today: LocalDate,
     onCancel: (String) -> Unit,
     onConfirm: (String, ConfirmationAction) -> Unit,
+    onDismissConfirmation: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
   BookingRow(
@@ -253,6 +259,7 @@ internal fun BookingCard(
       party = party,
       pending = booking.id in uiState.pendingBookingIds,
       submitting = booking.id in uiState.submittingConfirmations,
+      checking = booking.id in uiState.checkingConfirmationIds,
       observationUnavailable = uiState.observationError != null,
       isLoadingBookings = uiState.isLoadingBookings,
       failure = uiState.confirmationFailures[booking.id],
@@ -262,6 +269,7 @@ internal fun BookingCard(
               !booking.isFinished(today),
       onCancel = { onCancel(booking.id) },
       onConfirm = { action -> onConfirm(booking.id, action) },
+      onDismissConfirmation = { onDismissConfirmation(booking.id) },
       modifier = modifier,
   )
 }
@@ -274,12 +282,14 @@ private fun BookingRow(
     party: BookingParty,
     pending: Boolean,
     submitting: Boolean,
+    checking: Boolean,
     observationUnavailable: Boolean,
     isLoadingBookings: Boolean,
     failure: ConfirmationFailure?,
     canCancel: Boolean,
     onCancel: () -> Unit,
     onConfirm: (ConfirmationAction) -> Unit,
+    onDismissConfirmation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   Column(
@@ -343,11 +353,24 @@ private fun BookingRow(
           party,
           pending,
           submitting,
+          checking,
           observationUnavailable,
           isLoadingBookings,
           failure,
           onConfirm,
       )
+    } else if (failure != null) {
+      Text(
+          text = failure.error.message(),
+          color = AuthColors.Danger,
+          modifier = Modifier.testTag(BookingListScreenTags.CONFIRMATION_ERROR),
+      )
+      TextButton(
+          onClick = onDismissConfirmation,
+          modifier = Modifier.testTag(BookingListScreenTags.CONFIRMATION_DISMISS),
+      ) {
+        Text(stringResource(R.string.booking_confirmation_dismiss))
+      }
     }
   }
 }
@@ -358,6 +381,7 @@ private fun ConfirmationContent(
     party: BookingParty,
     pending: Boolean,
     submitting: Boolean,
+    checking: Boolean,
     observationUnavailable: Boolean,
     isLoadingBookings: Boolean,
     failure: ConfirmationFailure?,
@@ -418,6 +442,7 @@ private fun ConfirmationContent(
                 observationUnavailable -> R.string.booking_updates_unavailable
                 pending -> R.string.booking_pending_sync
                 submitting -> R.string.booking_saving_confirmation
+                checking -> R.string.booking_checking_confirmation
                 else -> status
               }
           ),
@@ -433,6 +458,7 @@ private fun ConfirmationContent(
                 observationUnavailable -> R.string.booking_updates_unavailable_help
                 pending -> R.string.booking_pending_sync_help
                 submitting -> R.string.booking_saving_confirmation_help
+                checking -> R.string.booking_checking_confirmation_help
                 else -> help
               }
           ),
@@ -445,7 +471,7 @@ private fun ConfirmationContent(
                   else Modifier
               ),
   )
-  if (failure != null && !observationUnavailable && !pending && !submitting) {
+  if (failure != null && !observationUnavailable && !pending && !submitting && !checking) {
     Text(
         text = failure.error.message(),
         color = AuthColors.Danger,
@@ -453,7 +479,14 @@ private fun ConfirmationContent(
         modifier = Modifier.padding(top = 8.dp).testTag(BookingListScreenTags.CONFIRMATION_ERROR),
     )
   }
-  if (action != null && !observationUnavailable && !isLoadingBookings && !pending && !submitting) {
+  if (
+      action != null &&
+          !observationUnavailable &&
+          !isLoadingBookings &&
+          !pending &&
+          !submitting &&
+          !checking
+  ) {
     val label =
         when (action) {
           ConfirmationAction.NOTIFY_HANDOVER -> R.string.booking_notify_handover

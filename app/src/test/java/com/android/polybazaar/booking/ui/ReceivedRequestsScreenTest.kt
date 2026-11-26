@@ -19,11 +19,12 @@ import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ConfirmationAction
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.model.ObservedBookings
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
-import com.android.polybazaar.booking.viewmodel.ConfirmationAction
+import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsUiState
 import com.android.polybazaar.booking.viewmodel.ReceivedRequestsViewModel
 import com.android.polybazaar.error.model.AppError
@@ -312,6 +313,32 @@ class ReceivedRequestsScreenTest {
     node(ReceivedRequestsScreenTags.accepted("eve")).assertDoesNotExist()
     // A handed-over booking can no longer be cancelled, nor a past one.
     node(BookingListScreenTags.CANCEL_BUTTON).assertDoesNotExist()
+  }
+
+  @Test
+  fun aFailedConfirmationOnACancelledBooking_staysUntilDismissed() {
+    val cancelled = cy.copy(status = BookingStatus.CANCELLED)
+    val dismissed = mutableListOf<String>()
+    setContent(
+        ReceivedRequestsUiState(hasLoaded = true),
+        ReceivedRequestsActions(onDismissConfirmation = { dismissed += it }),
+        bookings =
+            BookingUiState(
+                bookings = listOf(cancelled),
+                confirmationFailures =
+                    mapOf(
+                        "cy" to
+                            ConfirmationFailure(
+                                ConfirmationAction.NOTIFY_HANDOVER,
+                                AppError.PERMISSION_DENIED,
+                            )
+                    ),
+            ),
+    )
+
+    card(ReceivedRequestsScreenTags.accepted("cy"), "Cancelled").assertIsDisplayed()
+    node(BookingListScreenTags.CONFIRMATION_DISMISS).performClick()
+    assertEquals(listOf("cy"), dismissed)
   }
 
   @Test

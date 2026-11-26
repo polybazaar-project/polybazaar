@@ -2,6 +2,7 @@
 // Co-authored-by: Claude Code (Claude Sonnet 5.5)
 // Co-authored-by: Copilot Claude Sonnet 5.5
 // Co-authored-by: Claude Code (Claude Fable 5.2)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar
 
 import android.graphics.Color
@@ -32,6 +33,7 @@ import com.android.polybazaar.listing.model.FirebaseListingRepository
 import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.map.model.FusedLocationRepository
 import com.android.polybazaar.map.model.GoogleGeocodingRepository
+import com.android.polybazaar.notification.model.FirebasePushDeviceRepository
 import com.android.polybazaar.photo.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
@@ -56,9 +58,13 @@ class MainActivity : ComponentActivity() {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
           // One repository for every auth screen, so they all see the same Firebase session.
           val authRepository = remember { FirebaseAuthRepository() }
+          val pushDeviceRepository = remember { FirebasePushDeviceRepository() }
           val authViewModel: AuthViewModel =
               viewModel(
-                  factory = viewModelFactory { initializer { AuthViewModel(authRepository) } }
+                  factory =
+                      viewModelFactory {
+                        initializer { AuthViewModel(authRepository, pushDeviceRepository) }
+                      }
               )
           AppNavHost(
               authViewModel = authViewModel,
@@ -83,7 +89,12 @@ class MainActivity : ComponentActivity() {
                   remember {
                     FirebaseChatRepository(JpegPhotoCompressor(applicationContext.contentResolver))
                   },
-              bookingRepository = remember { FirebaseBookingRepository() },
+              bookingRepository =
+                  remember {
+                    FirebaseBookingRepository(
+                        journal = (application as PolyBazaarApplication).confirmationJournal
+                    )
+                  },
               locationRepository =
                   remember {
                     FusedLocationRepository(

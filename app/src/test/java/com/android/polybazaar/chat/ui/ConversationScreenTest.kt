@@ -74,12 +74,13 @@ import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.PendingPhoto
 import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
-import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -163,6 +164,7 @@ class ConversationScreenTest {
       onLoadPhoto: (String) -> Unit = {},
       onRetryPhoto: (String) -> Unit = {},
       onDiscardPhoto: (String) -> Unit = {},
+      onRemoveQueuedPhoto: (String) -> Unit = {},
       onComposeView: (View) -> Unit = {},
   ) {
     composeTestRule.setContent {
@@ -180,6 +182,7 @@ class ConversationScreenTest {
           onLoadPhoto = onLoadPhoto,
           onRetryPhoto = onRetryPhoto,
           onDiscardPhoto = onDiscardPhoto,
+          onRemoveQueuedPhoto = onRemoveQueuedPhoto,
           zone = ZoneOffset.UTC,
           now = now,
       )
@@ -323,7 +326,7 @@ class ConversationScreenTest {
             photoStorage = photoStorage,
             savedStateHandle = SavedStateHandle(),
             uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-            connectivity = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(senderUid = "renter"),
         )
     val launcherOwner =
         object : ActivityResultRegistryOwner {
@@ -723,6 +726,28 @@ class ConversationScreenTest {
     restoration.emulateSavedInstanceStateRestore()
 
     node(ConversationScreenTags.NEW_MESSAGE_HINT).assertIsDisplayed()
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  @Test
+  fun recreatedWhileAPhotoUploads_keepsThePlace() {
+    val restoration = StateRestorationTester(composeTestRule)
+    restoration.setContent {
+      ConversationContent(
+          uiState =
+              loaded.copy(
+                  messages = manyMessages,
+                  pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
+              ),
+          zone = ZoneOffset.UTC,
+      )
+    }
+    scrollToTheOldest()
+
+    restoration.emulateSavedInstanceStateRestore()
+
+    // The restored pending ids still hold m50: had they come back empty, the photo would look
+    // newly sent and the list would jump to the bottom.
     node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
   }
 
@@ -1888,6 +1913,110 @@ class ConversationScreenTest {
     val mine = node(ConversationScreenTags.myMessage("m1")).getBoundsInRoot()
     assertTrue(answer.bottom <= pending.top)
     assertEquals(mine.right.value, pending.right.value, 0.5f)
+  }
+
+  // Queued photos, sent offline and kept on the device.
+
+  private fun queued(sending: Boolean = false, error: AppError? = null, id: String = "m6") =
+      QueuedPhoto(id, conversation.id, "renter", galleryPhoto, "The bits", sending, error)
+
+  @Test
+  fun waitingPhoto_saysItWaitsForTheConnection_andRemoveCallsTheCallback() {
+    val removed = mutableListOf<String>()
+    setContent(
+        loaded.copy(queuedPhotos = listOf(queued())),
+        onRemoveQueuedPhoto = { removed += it },
+    )
+
+    text(string(R.string.conversation_photo_waiting))
+        .assertIsDisplayed()
+        .assert(isPoliteLiveRegion())
+    text(string(R.string.conversation_photo_sending)).assertDoesNotExist()
+    node(ConversationScreenTags.removeQueuedPhoto("m6"))
+        .assertTextEquals(string(R.string.conversation_photo_remove))
+        .performClick()
+
+    assertEquals(listOf("m6"), removed)
+  }
+
+  @Test
+  fun sendingQueuedPhoto_saysSending_withoutRemove() {
+    setContent(loaded.copy(queuedPhotos = listOf(queued(sending = true))))
+
+    text(string(R.string.conversation_photo_sending)).assertIsDisplayed()
+    text(string(R.string.conversation_photo_waiting)).assertDoesNotExist()
+    node(ConversationScreenTags.removeQueuedPhoto("m6")).assertDoesNotExist()
+  }
+
+  @Test
+  fun failedQueuedPhoto_saysWhy_andOffersRemoveButNoRetry() {
+    val removed = mutableListOf<String>()
+    setContent(
+        loaded.copy(queuedPhotos = listOf(queued(error = AppError.PERMISSION_DENIED))),
+        onRemoveQueuedPhoto = { removed += it },
+    )
+
+    text(string(R.string.conversation_photo_not_sent, string(R.string.error_permission_denied)))
+        .assertIsDisplayed()
+        .assert(isPoliteLiveRegion())
+    text(string(R.string.conversation_photo_waiting)).assertDoesNotExist()
+    node(ConversationScreenTags.retryPhoto("m6")).assertDoesNotExist()
+    node(ConversationScreenTags.removeQueuedPhoto("m6")).performClick()
+
+    assertEquals(listOf("m6"), removed)
+  }
+
+  @Test
+  fun queuedPhoto_isOneTalkBackItem_photoThenCaptionThenItsState() {
+    setContent(loaded.copy(queuedPhotos = listOf(queued(), queued(sending = true, id = "m7"))))
+
+    node(ConversationScreenTags.queuedPhoto("m6"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertTextEquals("The bits", string(R.string.conversation_photo_waiting))
+    node(ConversationScreenTags.queuedPhoto("m7"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertTextEquals("The bits", string(R.string.conversation_photo_sending))
+  }
+
+  @Test
+  fun queuedPhotos_showBelowThePendingOnes_asMyOwnBubbles() {
+    setContent(
+        loaded.copy(
+            pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING)),
+            queuedPhotos = listOf(queued()),
+        )
+    )
+
+    val pending = node(ConversationScreenTags.pendingPhoto("m5")).getBoundsInRoot()
+    val queued = node(ConversationScreenTags.queuedPhoto("m6")).getBoundsInRoot()
+    assertTrue(pending.bottom <= queued.top)
+    assertEquals(pending.right.value, queued.right.value, 0.5f)
+    assertEquals((pending.right - pending.left).value, (queued.right - queued.left).value, 0.5f)
+  }
+
+  @Test
+  fun queuedPhoto_onceSent_leavesItsPlaceToItsMessage() {
+    val change = showChanging(loaded.copy(queuedPhotos = listOf(queued())))
+    node(ConversationScreenTags.queuedPhoto("m6")).assertIsDisplayed()
+
+    change {
+      it.copy(
+          messages = it.messages + photoMessage("m6", "renter", caption = "The bits"),
+          queuedPhotos = emptyList(),
+      )
+    }
+
+    node(ConversationScreenTags.queuedPhoto("m6")).assertDoesNotExist()
+    node(ConversationScreenTags.myMessage("m6")).assertIsDisplayed()
+  }
+
+  @Test
+  fun queuedPhotosPreview_showsAFailedPhotoAndAWaitingOne() {
+    composeTestRule.setContent { ConversationQueuedPhotosPreview() }
+
+    node(ConversationScreenTags.queuedPhoto("4")).assertExists()
+    node(ConversationScreenTags.removeQueuedPhoto("4")).assertExists()
+    text(string(R.string.conversation_photo_waiting)).assertExists()
   }
 
   // The screen wires the photo menu to the gallery, the camera and the ViewModel.

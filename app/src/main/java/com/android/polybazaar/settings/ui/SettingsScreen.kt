@@ -53,9 +53,11 @@ object SettingsScreenTags {
  *
  * @param onBack called when the user taps the back arrow.
  * @param onSignOut called once the user has confirmed they want to sign out.
+ * @param signingOut whether a sign-out is running. Offline it takes a few seconds, so the row says
+ *   so and cannot be tapped again meanwhile.
  */
 @Composable
-fun SettingsContent(onBack: () -> Unit, onSignOut: () -> Unit) {
+fun SettingsContent(onBack: () -> Unit, onSignOut: () -> Unit, signingOut: Boolean = false) {
   var confirmingSignOut by rememberSaveable { mutableStateOf(false) }
 
   Column(
@@ -83,8 +85,9 @@ fun SettingsContent(onBack: () -> Unit, onSignOut: () -> Unit) {
           fontWeight = FontWeight.SemiBold,
       )
       SettingsRow(
-          text = "Sign out",
+          text = if (signingOut) "Signing out…" else "Sign out",
           onClick = { confirmingSignOut = true },
+          enabled = !signingOut,
           tag = SettingsScreenTags.SIGN_OUT_BUTTON,
       )
     }
@@ -103,13 +106,13 @@ fun SettingsContent(onBack: () -> Unit, onSignOut: () -> Unit) {
 
 /** A full-width row of the settings list, in the danger color since its only use is signing out. */
 @Composable
-private fun SettingsRow(text: String, onClick: () -> Unit, tag: String) {
+private fun SettingsRow(text: String, onClick: () -> Unit, enabled: Boolean, tag: String) {
   Row(
       modifier =
           Modifier.fillMaxWidth()
               .heightIn(min = 48.dp)
               .clip(RoundedCornerShape(12.dp))
-              .clickable(role = Role.Button, onClick = onClick)
+              .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
               .testTag(tag),
       verticalAlignment = Alignment.CenterVertically,
   ) {

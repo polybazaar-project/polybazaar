@@ -9,11 +9,17 @@ import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
+import com.android.polybazaar.notification.model.PushDeviceRepository
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class AuthUiState(
     val user: User? = null,
@@ -26,18 +32,31 @@ data class AuthUiState(
 )
 
 /**
- * @param logUnexpectedError receives the session check failures nobody expects, such as a missing
- *   username, so they leave a trace before the user is signed out. Logs to Logcat by default.
+ * @param pushDeviceRepository gains this device when a verified user's session starts, and loses it
+ *   before they sign out, so that their push notifications reach this device only while they use
+ *   it.
+ * @param logUnexpectedError receives the failures nobody expects, such as a missing username during
+ *   the session check or a device that could not be registered, so they leave a trace. Logs to
+ *   Logcat by default.
  */
 class AuthViewModel(
     private val authRepository: AuthRepository,
-    private val logUnexpectedError: (Throwable) -> Unit = {
-      Log.e(TAG, "Session check failed", it)
-    },
+    private val pushDeviceRepository: PushDeviceRepository = PushDeviceRepository.None,
+    private val logUnexpectedError: (Throwable) -> Unit = { Log.e(TAG, "Unexpected failure", it) },
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(AuthUiState())
   val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+  init {
+    // Sign-in, a restored session and a newly verified email all set a verified user here.
+    viewModelScope.launch {
+      _uiState
+          .map { state -> state.user?.takeIf { it.isEmailVerified }?.uid }
+          .distinctUntilChanged()
+          .collectLatest { uid -> if (uid != null) registerDevice(uid) }
+    }
+  }
 
   /**
    * Restores the persisted session, if any. Once it has been checked, later calls are no-ops.
@@ -91,16 +110,44 @@ class AuthViewModel(
     _uiState.update { it.copy(user = it.user?.copy(isEmailVerified = true)) }
   }
 
+  /** Signs the user out. Ignored while a request is loading, such as a sign-out still running. */
   fun signOut() {
+    if (_uiState.value.isLoading) return
+    _uiState.update { it.copy(isLoading = true, error = null) }
+    val verifiedUid = _uiState.value.user?.takeIf { it.isEmailVerified }?.uid
     viewModelScope.launch {
-      _uiState.update { it.copy(isLoading = true, error = null) }
       try {
-        authRepository.signOut()
+        // Finishes even if the app closes while the device's removal is awaited: the user asked
+        // to sign out, so they must not find themselves still signed in.
+        withContext(NonCancellable) {
+          verifiedUid?.let { unregisterDevice(it) }
+          authRepository.signOut()
+        }
         _uiState.update { it.copy(user = null, isLoading = false) }
       } catch (exception: Exception) {
         if (exception is kotlinx.coroutines.CancellationException) throw exception
         _uiState.update { it.copy(isLoading = false, error = exception.toAppError()) }
+        // Still signed in, so the device must keep receiving this user's notifications.
+        verifiedUid?.let { registerDevice(it) }
       }
+    }
+  }
+
+  private suspend fun registerDevice(uid: String) = logFailure {
+    pushDeviceRepository.register(uid)
+  }
+
+  private suspend fun unregisterDevice(uid: String) = logFailure {
+    pushDeviceRepository.unregister(uid)
+  }
+
+  /** Push notifications are an extra: their failures are logged, and never shown or rethrown. */
+  private suspend fun logFailure(action: suspend () -> Unit) {
+    try {
+      action()
+    } catch (exception: Exception) {
+      if (exception is kotlinx.coroutines.CancellationException) throw exception
+      logUnexpectedError(exception)
     }
   }
 

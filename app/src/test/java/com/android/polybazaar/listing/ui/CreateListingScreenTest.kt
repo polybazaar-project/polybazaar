@@ -59,6 +59,7 @@ import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.map.model.FakePlaceNameRepository
+import com.android.polybazaar.photo.PHOTO_PREVIEW_MAX_SIZE
 import java.io.File
 import java.net.UnknownHostException
 import java.time.LocalDate

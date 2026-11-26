@@ -6,6 +6,7 @@ import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ServiceListing
 import java.net.UnknownHostException
 import java.util.Locale
@@ -37,13 +38,13 @@ class BrowseViewModelTest {
           BrowseListing(
               id = "drill",
               title = "Bosch drill set",
-              category = "Tools",
+              category = ListingCategory.ITEM_TOOLS,
               price = "CHF 8",
           ),
           BrowseListing(
               id = "projector",
               title = "Mini projector",
-              category = "Electronics",
+              category = ListingCategory.ITEM_ELECTRONICS,
               price = "CHF 12",
           ),
       )
@@ -94,7 +95,7 @@ class BrowseViewModelTest {
   fun selectCategory_filtersListings() {
     val viewModel = BrowseViewModel(repository, currentUid)
 
-    viewModel.selectCategory("Tools")
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
 
     assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
   }
@@ -103,8 +104,8 @@ class BrowseViewModelTest {
   fun clearingCategory_resetsFilter() {
     val viewModel = BrowseViewModel(repository, currentUid)
 
-    viewModel.selectCategory("Tools")
-    viewModel.selectCategory("Tools")
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
 
     assertEquals(listings, viewModel.uiState.value.filteredListings)
   }
@@ -114,7 +115,7 @@ class BrowseViewModelTest {
     val viewModel = BrowseViewModel(repository, currentUid)
 
     viewModel.updateQuery("projector")
-    viewModel.selectCategory("Tools")
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
 
     assertEquals(emptyList<BrowseListing>(), viewModel.uiState.value.filteredListings)
   }
@@ -150,14 +151,19 @@ class BrowseViewModelTest {
         )
 
     assertEquals(
-        BrowseListing(id = "drill", title = "Bosch drill set", category = "Tools", price = "CHF 8"),
+        BrowseListing(
+            id = "drill",
+            title = "Bosch drill set",
+            category = ListingCategory.ITEM_TOOLS,
+            price = "CHF 8",
+        ),
         item.toBrowseListing(),
     )
     assertEquals(
         BrowseListing(
             id = "math",
             title = "Math tutoring",
-            category = "Tutoring",
+            category = ListingCategory.SERVICE_TUTORING,
             price = "CHF 25",
         ),
         service.toBrowseListing(),
@@ -217,7 +223,10 @@ class BrowseViewModelTest {
 
     val state = viewModel.uiState.value
     assertEquals(listings, state.listings)
-    assertEquals(listOf("Electronics", "Tools"), state.categories)
+    assertEquals(
+        listOf(ListingCategory.ITEM_ELECTRONICS, ListingCategory.ITEM_TOOLS),
+        state.categories,
+    )
     assertFalse(state.isLoading)
     assertNull(state.error)
     assertEquals(1, repository.getAllListingsCalls)
@@ -230,7 +239,10 @@ class BrowseViewModelTest {
     val viewModel = BrowseViewModel(repository, currentUid)
 
     assertEquals(listings, viewModel.uiState.value.listings)
-    assertEquals(listOf("Electronics", "Tools"), viewModel.uiState.value.categories)
+    assertEquals(
+        listOf(ListingCategory.ITEM_ELECTRONICS, ListingCategory.ITEM_TOOLS),
+        viewModel.uiState.value.categories,
+    )
   }
 
   @Test
@@ -245,7 +257,14 @@ class BrowseViewModelTest {
 
     val viewModel = BrowseViewModel(repository, currentUid)
 
-    assertEquals(listOf("Books", "Tools", "Tutoring"), viewModel.uiState.value.categories)
+    assertEquals(
+        listOf(
+            ListingCategory.ITEM_BOOKS,
+            ListingCategory.ITEM_TOOLS,
+            ListingCategory.SERVICE_TUTORING,
+        ),
+        viewModel.uiState.value.categories,
+    )
   }
 
   @Test
@@ -288,7 +307,10 @@ class BrowseViewModelTest {
     val state = viewModel.uiState.value
     assertEquals(AppError.NETWORK, state.error)
     assertEquals(listings, state.listings)
-    assertEquals(listOf("Electronics", "Tools"), state.categories)
+    assertEquals(
+        listOf(ListingCategory.ITEM_ELECTRONICS, ListingCategory.ITEM_TOOLS),
+        state.categories,
+    )
   }
 
   @Test
@@ -324,25 +346,25 @@ class BrowseViewModelTest {
   @Test
   fun loadListings_clearsASelectedCategoryThatNoLongerExists() {
     val viewModel = BrowseViewModel(repository, currentUid)
-    viewModel.selectCategory("Electronics")
+    viewModel.selectCategory(ListingCategory.ITEM_ELECTRONICS)
     repository.allListings =
         repository.allListings.filter { it.category == ListingCategory.ITEM_TOOLS }
 
     viewModel.loadListings()
 
-    assertNull(viewModel.uiState.value.selectedCategory)
+    assertNull(viewModel.uiState.value.filters.category)
     assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
   }
 
   @Test
   fun loadListings_keepsASelectedCategoryThatStillExists() {
     val viewModel = BrowseViewModel(repository, currentUid)
-    viewModel.selectCategory("Tools")
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
     viewModel.updateQuery("drill")
 
     viewModel.loadListings()
 
-    assertEquals("Tools", viewModel.uiState.value.selectedCategory)
+    assertEquals(ListingCategory.ITEM_TOOLS, viewModel.uiState.value.filters.category)
     assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
   }
 
@@ -366,9 +388,22 @@ class BrowseViewModelTest {
 
     val viewModel = BrowseViewModel(repository, currentUid)
 
-    val novel = BrowseListing(id = "novel", title = "Novel", category = "Books", price = "CHF 3")
+    val novel =
+        BrowseListing(
+            id = "novel",
+            title = "Novel",
+            category = ListingCategory.ITEM_BOOKS,
+            price = "CHF 3",
+        )
     assertEquals(listings + novel, viewModel.uiState.value.listings)
-    assertEquals(listOf("Books", "Electronics", "Tools"), viewModel.uiState.value.categories)
+    assertEquals(
+        listOf(
+            ListingCategory.ITEM_BOOKS,
+            ListingCategory.ITEM_ELECTRONICS,
+            ListingCategory.ITEM_TOOLS,
+        ),
+        viewModel.uiState.value.categories,
+    )
   }
 
   @Test
@@ -383,7 +418,7 @@ class BrowseViewModelTest {
 
     val state = viewModel.uiState.value
     assertEquals(emptyList<BrowseListing>(), state.listings)
-    assertEquals(emptyList<String>(), state.categories)
+    assertEquals(emptyList<ListingCategory>(), state.categories)
     assertFalse(state.isLoading)
     assertNull(state.error)
   }
@@ -394,13 +429,16 @@ class BrowseViewModelTest {
 
     val viewModel = BrowseViewModel(repository, currentUid)
 
-    assertEquals(listOf("Electronics", "Tools"), viewModel.uiState.value.categories)
+    assertEquals(
+        listOf(ListingCategory.ITEM_ELECTRONICS, ListingCategory.ITEM_TOOLS),
+        viewModel.uiState.value.categories,
+    )
   }
 
   @Test
   fun loadListings_clearsASelectedCategoryLeftWithOnlyOwnListings() {
     val viewModel = BrowseViewModel(repository, currentUid)
-    viewModel.selectCategory("Electronics")
+    viewModel.selectCategory(ListingCategory.ITEM_ELECTRONICS)
     // The projector now belongs to the signed-in user.
     repository.allListings =
         listOf(
@@ -411,8 +449,8 @@ class BrowseViewModelTest {
     viewModel.loadListings()
 
     val state = viewModel.uiState.value
-    assertNull(state.selectedCategory)
-    assertEquals(listOf("Tools"), state.categories)
+    assertNull(state.filters.category)
+    assertEquals(listOf(ListingCategory.ITEM_TOOLS), state.categories)
     assertEquals(listOf(listings[0]), state.filteredListings)
   }
 
@@ -421,7 +459,7 @@ class BrowseViewModelTest {
     repository.allListings += own(ListingCategory.ITEM_TOOLS, "My drill", "my-drill")
     val viewModel = BrowseViewModel(repository, currentUid)
 
-    viewModel.selectCategory("Tools")
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
     viewModel.updateQuery("drill")
 
     assertEquals(listOf(listings[0]), viewModel.uiState.value.filteredListings)
@@ -527,5 +565,172 @@ class BrowseViewModelTest {
     imageGate.complete(Unit)
 
     assertTrue(viewModel.uiState.value.photos.isEmpty())
+  }
+
+  /** An item and a service in each "Other" category, plus the drill and a tutoring service. */
+  private fun mixedTypes() {
+    repository.allListings =
+        listOf(
+            ItemListing(ListingCategory.ITEM_TOOLS, 8.0, "Drill", "", listingId = "drill"),
+            ItemListing(ListingCategory.ITEM_OTHER, 4.0, "Odd item", "", listingId = "odd-item"),
+            ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, "Math", "", listingId = "math"),
+            ServiceListing(
+                ListingCategory.SERVICE_OTHER,
+                9.0,
+                "Odd job",
+                "",
+                listingId = "odd-job",
+            ),
+        )
+  }
+
+  private fun BrowseViewModel.shownIds() = uiState.value.filteredListings.map { it.id }
+
+  @Test
+  fun filters_startWithEverythingShown() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    assertEquals(BrowseFilters(), viewModel.uiState.value.filters)
+    assertEquals(listOf("drill", "odd-item", "math", "odd-job"), viewModel.shownIds())
+  }
+
+  @Test
+  fun selectType_item_showsOnlyItems() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    viewModel.selectType(ListingType.ITEM)
+
+    assertEquals(listOf("drill", "odd-item"), viewModel.shownIds())
+  }
+
+  @Test
+  fun selectType_service_showsOnlyServices() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    viewModel.selectType(ListingType.SERVICE)
+
+    assertEquals(listOf("math", "odd-job"), viewModel.shownIds())
+  }
+
+  @Test
+  fun selectType_null_showsBothTypesAgain() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    viewModel.selectType(ListingType.SERVICE)
+    viewModel.selectType(null)
+
+    assertEquals(listOf("drill", "odd-item", "math", "odd-job"), viewModel.shownIds())
+  }
+
+  @Test
+  fun categories_onlyOfferTheSelectedType() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    viewModel.selectType(ListingType.ITEM)
+    assertEquals(
+        listOf(ListingCategory.ITEM_OTHER, ListingCategory.ITEM_TOOLS),
+        viewModel.uiState.value.categories,
+    )
+
+    viewModel.selectType(ListingType.SERVICE)
+    assertEquals(
+        listOf(ListingCategory.SERVICE_OTHER, ListingCategory.SERVICE_TUTORING),
+        viewModel.uiState.value.categories,
+    )
+  }
+
+  @Test
+  fun categories_keepBothOthers_itemFirst() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    assertEquals(
+        listOf(
+            ListingCategory.ITEM_OTHER,
+            ListingCategory.SERVICE_OTHER,
+            ListingCategory.ITEM_TOOLS,
+            ListingCategory.SERVICE_TUTORING,
+        ),
+        viewModel.uiState.value.categories,
+    )
+  }
+
+  @Test
+  fun selectCategory_itemOther_doesNotShowTheOtherServices() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    viewModel.selectCategory(ListingCategory.ITEM_OTHER)
+    assertEquals(listOf("odd-item"), viewModel.shownIds())
+
+    viewModel.selectCategory(ListingCategory.SERVICE_OTHER)
+    assertEquals(listOf("odd-job"), viewModel.shownIds())
+  }
+
+  @Test
+  fun selectType_clearsACategoryOfTheOtherType() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
+
+    viewModel.selectType(ListingType.SERVICE)
+
+    assertNull(viewModel.uiState.value.filters.category)
+    assertEquals(listOf("math", "odd-job"), viewModel.shownIds())
+  }
+
+  @Test
+  fun selectType_keepsACategoryOfTheSameType() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+    viewModel.selectCategory(ListingCategory.ITEM_TOOLS)
+
+    viewModel.selectType(ListingType.ITEM)
+
+    assertEquals(ListingCategory.ITEM_TOOLS, viewModel.uiState.value.filters.category)
+    assertEquals(listOf("drill"), viewModel.shownIds())
+  }
+
+  @Test
+  fun selectType_all_keepsTheCategory() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+    viewModel.selectType(ListingType.SERVICE)
+    viewModel.selectCategory(ListingCategory.SERVICE_TUTORING)
+
+    viewModel.selectType(null)
+
+    assertEquals(ListingCategory.SERVICE_TUTORING, viewModel.uiState.value.filters.category)
+    assertEquals(listOf("math"), viewModel.shownIds())
+  }
+
+  @Test
+  fun typeCategoryAndQuery_applyTogether() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+
+    viewModel.selectType(ListingType.SERVICE)
+    viewModel.updateQuery("odd")
+    assertEquals(listOf("odd-job"), viewModel.shownIds())
+
+    viewModel.selectCategory(ListingCategory.SERVICE_TUTORING)
+    assertEquals(emptyList<String>(), viewModel.shownIds())
+  }
+
+  @Test
+  fun loadListings_keepsTheSelectedType() {
+    mixedTypes()
+    val viewModel = BrowseViewModel(repository, currentUid)
+    viewModel.selectType(ListingType.SERVICE)
+
+    viewModel.loadListings()
+
+    assertEquals(ListingType.SERVICE, viewModel.uiState.value.filters.type)
+    assertEquals(listOf("math", "odd-job"), viewModel.shownIds())
   }
 }

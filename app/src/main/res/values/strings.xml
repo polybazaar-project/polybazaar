@@ -23,6 +23,11 @@
     <string name="browse_nearby_location">Zürich · within 2 km</string>
     <string name="browse_price_per_day">/ day</string>
     <string name="browse_retry">Retry</string>
+    <string name="browse_type_all">All</string>
+    <string name="browse_type_items">Items</string>
+    <string name="browse_type_services">Services</string>
+    <string name="browse_category_other_items">Other items</string>
+    <string name="browse_category_other_services">Other services</string>
     <string name="session_retry">Retry</string>
 
     <!-- Lender profile screen -->
@@ -35,6 +40,14 @@
 
     <!-- Create listing screen -->
     <string name="listing_saved_offline">Saved offline. Your listing will be published when you’re back online.</string>
+    <plurals name="listing_drafts_published">
+        <item quantity="one">Your listing created offline was published.</item>
+        <item quantity="other">%d listings created offline were published.</item>
+    </plurals>
+    <plurals name="listing_drafts_failed">
+        <item quantity="one">A listing created offline couldn’t be published. We’ll try again later.</item>
+        <item quantity="other">%d listings created offline couldn’t be published. We’ll try again later.</item>
+    </plurals>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
@@ -122,6 +135,7 @@
     <string name="conversation_photo_load_failed_retry">Couldn’t load the photo · Tap to retry</string>
     <string name="conversation_photo_load_failed">Couldn’t load the photo</string>
     <string name="conversation_photo_sending">Sending…</string>
+    <string name="conversation_photo_waiting">Waiting for connection</string>
     <string name="conversation_photo_not_sent">Not sent. %1$s</string>
     <string name="conversation_photo_remove">Remove</string>
     <string name="conversation_length_counter">%1$d/%2$d</string>
@@ -323,6 +337,10 @@
     <string name="booking_observation_failed">Live updates stopped. Retry to refresh bookings.\n%1$s</string>
     <string name="booking_updates_unavailable">Updates unavailable</string>
     <string name="booking_updates_unavailable_help">Retry live updates to see the current status.</string>
+    <string name="booking_checking_confirmation">Checking confirmation</string>
+    <string name="booking_checking_confirmation_help">Connect to check whether your confirmation was saved.</string>
+    <string name="booking_confirmation_not_saved">Your confirmation wasn\'t saved.</string>
+    <string name="booking_confirmation_dismiss">Dismiss</string>
     <string name="booking_ready_handover">Ready for handover</string>
     <string name="booking_wait_handover">Waiting for handover</string>
     <string name="booking_handover_notified">Handover notified</string>

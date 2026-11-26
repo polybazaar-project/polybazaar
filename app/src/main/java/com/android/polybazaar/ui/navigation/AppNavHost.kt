@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -90,7 +91,9 @@ import com.android.polybazaar.listing.ui.CreateListingScreen
 import com.android.polybazaar.listing.ui.EditListingScreen
 import com.android.polybazaar.listing.ui.ListingDetailActions
 import com.android.polybazaar.listing.ui.ListingDetailScreen
+import com.android.polybazaar.listing.viewmodel.DraftPublishNotice
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
+import com.android.polybazaar.listing.viewmodel.ListingDraftPublisherViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.LocationRepository
 import com.android.polybazaar.map.model.PlaceNameRepository
@@ -142,7 +145,7 @@ object AppNavHostTags {
  * @param placeNameRepository suggests the neighbourhood and town as the name of a listing location
  *   off campus.
  * @param connectivityRepository tells the listing forms and the conversations whether the device is
- *   online.
+ *   online, and the photo sender when to send.
  * @param photoOutbox keeps the chat photos sent offline, sent from any screen once back online.
  * @param pendingListingQueue keeps the listings created offline, to publish once back online.
  */
@@ -180,6 +183,15 @@ fun AppNavHost(
   }
 
   LaunchedEffect(Unit) { authViewModel.restoreSession() }
+
+  // Outside the NavHost, so the drafts are published whichever screen is open.
+  PublishDraftsWhenOnline(
+      user = uiState.user,
+      pendingListingQueue = pendingListingQueue,
+      listingRepository = listingRepository,
+      connectivityRepository = connectivityRepository,
+      showMessage = showMessage,
+  )
 
   // Outside the NavHost, so the queued photos are sent whichever screen is open.
   SendQueuedPhotosWhenOnline(
@@ -586,7 +598,7 @@ fun AppNavHost(
                               photoStorage = chatPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               uploadScope = photoUploadScope,
-                              connectivity = connectivityRepository,
+                              photoOutbox = photoOutbox,
                           )
                         }
                       }
@@ -617,7 +629,12 @@ fun AppNavHost(
           // Coming back to the tab shows listings created or paused meanwhile. On opening, the
           // ViewModel ignores this call while its first load runs.
           LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { mapViewModel.loadListings() }
-          MapScreen(viewModel = mapViewModel, map = listingsMap)
+          MapScreen(
+              viewModel = mapViewModel,
+              // Back from the detail returns to the map, with the same preview open (#342).
+              onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+              map = listingsMap,
+          )
         }
         composable(Routes.INBOX) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
@@ -750,6 +767,8 @@ fun AppNavHost(
           SettingsContent(
               onBack = { navController.popBackStack() },
               onSignOut = authViewModel::signOut,
+              // A signed-in user's only loading state is a sign-out.
+              signingOut = uiState.isLoading,
           )
         }
       }
@@ -811,6 +830,61 @@ private fun NavHostController.navigateToTab(route: String) {
 private fun NavHostController.openNewBrowse() {
   navigate(Routes.BROWSE) { popUpTo(Routes.BROWSE) { inclusive = true } }
 }
+
+/**
+ * Publishes [user]'s listing drafts kept offline whenever the device is online, and tells the
+ * outcome with [showMessage]. Only a verified user publishes: the security rules refuse the others'
+ * listings.
+ */
+@Composable
+private fun PublishDraftsWhenOnline(
+    user: User?,
+    pendingListingQueue: PendingListingQueue,
+    listingRepository: ListingRepository,
+    connectivityRepository: ConnectivityRepository,
+    showMessage: (String) -> Unit,
+) {
+  val draftPublisher: ListingDraftPublisherViewModel =
+      viewModel(
+          factory =
+              viewModelFactory {
+                initializer {
+                  ListingDraftPublisherViewModel(
+                      pendingListingQueue,
+                      listingRepository,
+                      connectivityRepository,
+                  )
+                }
+              }
+      )
+  val publisherUid = user?.takeIf { it.isEmailVerified }?.uid
+  LaunchedEffect(publisherUid) { draftPublisher.setSignedInUser(publisherUid) }
+  val draftNotice by draftPublisher.notice.collectAsState()
+  // Read while composing, so the text follows a configuration change such as the language.
+  val draftMessage = draftNotice?.let { draftNoticeMessage(it) }
+  LaunchedEffect(draftNotice) {
+    val message = draftMessage ?: return@LaunchedEffect
+    showMessage(message)
+    draftPublisher.clearNotice()
+  }
+}
+
+/** How many drafts [notice] published and how many failed, in one message. */
+@Composable
+private fun draftNoticeMessage(notice: DraftPublishNotice): String =
+    listOfNotNull(
+            if (notice.published > 0) {
+              pluralStringResource(
+                  R.plurals.listing_drafts_published,
+                  notice.published,
+                  notice.published,
+              )
+            } else null,
+            if (notice.failed > 0) {
+              pluralStringResource(R.plurals.listing_drafts_failed, notice.failed, notice.failed)
+            } else null,
+        )
+        .joinToString(" ")
 
 /**
  * Sends [user]'s chat photos kept in [photoOutbox] whenever the device is online. Only a verified
