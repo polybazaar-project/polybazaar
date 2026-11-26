@@ -25,6 +25,12 @@ import com.google.maps.android.compose.rememberUpdatedMarkerState
 /** Radius of the "approximate location" circle (Figma "Map — Centred on you"), in metres. */
 private const val APPROXIMATE_RADIUS_METRES = 150.0
 
+/**
+ * Around the selected listing (#23): its point is snapped to a 0.02° grid, so the lender's spot can
+ * be up to about 1 km away from it (half a cell north-south).
+ */
+private const val LISTING_AREA_RADIUS_METRES = 1_000.0
+
 private fun Coordinates.toLatLng() = LatLng(latitude, longitude)
 
 /**
@@ -39,6 +45,7 @@ internal fun ListingsMap(
     centre: MapCentre,
     markers: List<MapMarker>,
     actions: MapActions = MapActions(),
+    selected: MapMarker? = null,
     onMapReady: () -> Unit = {},
 ) {
   val camera = cameraFor(centre)
@@ -81,6 +88,16 @@ internal fun ListingsMap(
           MarkerPin(icon = markerIcon(marker.type))
         }
       }
+    }
+    // Shows the previewed listing as the area it is, not a point.
+    selected?.let {
+      Circle(
+          center = it.coordinates.toLatLng(),
+          radius = LISTING_AREA_RADIUS_METRES,
+          fillColor = AuthColors.Accent.copy(alpha = 0.10f),
+          strokeColor = AuthColors.Accent.copy(alpha = 0.35f),
+          strokeWidth = 2f,
+      )
     }
     when (centre) {
       is MapCentre.Located ->

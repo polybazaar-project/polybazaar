@@ -76,6 +76,13 @@ internal fun MarkerPreview(marker: MapMarker, onOpen: () -> Unit, onClose: () ->
           color = AuthColors.TextSecondary,
           fontSize = 12.sp,
       )
+      // The marker sits on the snapped point, not the lender's spot (#23).
+      Text(
+          text = stringResource(R.string.map_preview_approximate),
+          color = AuthColors.TextSecondary,
+          fontSize = 11.sp,
+          modifier = Modifier.testTag(MapScreenTags.PREVIEW_AREA),
+      )
     }
     // 48dp: Material 3's IconButton is 40dp, under the touch target the app keeps everywhere.
     IconButton(

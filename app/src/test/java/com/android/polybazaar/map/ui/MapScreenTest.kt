@@ -14,6 +14,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -254,6 +255,9 @@ class MapScreenTest {
         .onNodeWithText("CHF 8 ${context.getString(R.string.browse_price_per_day)}")
         .assertIsDisplayed()
     composeTestRule.onNodeWithText(context.getString(R.string.map_preview_item)).assertIsDisplayed()
+    // The marker is the snapped point, not the lender's spot (#23).
+    node(MapScreenTags.PREVIEW_AREA)
+        .assertTextEquals(context.getString(R.string.map_preview_approximate))
     // The bottom of the map holds one thing at a time: the preview, not the loading pill.
     node(MapScreenTags.LOADING).assertDoesNotExist()
   }
