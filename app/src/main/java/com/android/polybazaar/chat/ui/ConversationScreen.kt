@@ -111,9 +111,10 @@ import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.formatChf
 import com.android.polybazaar.listing.ui.CameraPermissionDialog
-import com.android.polybazaar.listing.ui.decodePhotoPreview
 import com.android.polybazaar.listing.ui.loadPhotoPreview
 import com.android.polybazaar.listing.ui.rememberPhotoCamera
+import com.android.polybazaar.photo.decodePhotoPreview
+import com.android.polybazaar.photo.rememberPhoto
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId

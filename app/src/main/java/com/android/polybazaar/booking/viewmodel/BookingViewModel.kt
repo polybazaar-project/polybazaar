@@ -7,18 +7,75 @@ import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingRepository
 import com.android.polybazaar.booking.model.BookingStatus
+import com.android.polybazaar.booking.model.ObservedBookings
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.profile.model.ProfileRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+enum class BookingParty {
+  LENDER,
+  RENTER,
+}
+
+enum class ConfirmationAction {
+  NOTIFY_HANDOVER,
+  CONFIRM_HANDOVER,
+  NOTIFY_RETURN,
+  CONFIRM_RETURN,
+}
+
+enum class ConfirmationStage(
+    val step: Int,
+    val party: BookingParty?,
+    val action: ConfirmationAction?,
+) {
+  HANDOVER(1, BookingParty.LENDER, ConfirmationAction.NOTIFY_HANDOVER),
+  HANDOVER_CONFIRMATION(2, BookingParty.RENTER, ConfirmationAction.CONFIRM_HANDOVER),
+  RETURN(3, BookingParty.RENTER, ConfirmationAction.NOTIFY_RETURN),
+  RETURN_CONFIRMATION(4, BookingParty.LENDER, ConfirmationAction.CONFIRM_RETURN),
+  COMPLETED(5, null, null),
+}
+
+data class ConfirmationFailure(val action: ConfirmationAction, val error: AppError)
+
+val Booking.confirmationStage: ConfirmationStage
+  get() =
+      when {
+        !handoverNotified -> ConfirmationStage.HANDOVER
+        !renterHandoverConfirmed -> ConfirmationStage.HANDOVER_CONFIRMATION
+        !returnNotified -> ConfirmationStage.RETURN
+        !lenderReturnConfirmed -> ConfirmationStage.RETURN_CONFIRMATION
+        else -> ConfirmationStage.COMPLETED
+      }
+
+/** The action available to this party at the current stage, if any. */
+fun Booking.confirmationAction(party: BookingParty): ConfirmationAction? {
+  if (status != BookingStatus.CONFIRMED) return null
+  val stage = confirmationStage
+  return stage.action.takeIf { stage.party == party }
+}
+
+private fun ConfirmationAction.isRecorded(booking: Booking): Boolean =
+    when (this) {
+      ConfirmationAction.NOTIFY_HANDOVER -> booking.handoverNotified
+      ConfirmationAction.CONFIRM_HANDOVER -> booking.renterHandoverConfirmed
+      ConfirmationAction.NOTIFY_RETURN -> booking.returnNotified
+      ConfirmationAction.CONFIRM_RETURN -> booking.lenderReturnConfirmed
+    }
 
 data class BookingUiState(
     val isSubmitting: Boolean = false,
@@ -26,7 +83,11 @@ data class BookingUiState(
     val isQueued: Boolean = false,
     val bookings: List<Booking> = emptyList(),
     val isLoadingBookings: Boolean = false,
+    val observationError: AppError? = null,
     val cancellingBookingIds: Set<String> = emptySet(),
+    val pendingBookingIds: Set<String> = emptySet(),
+    val submittingConfirmations: Map<String, ConfirmationAction> = emptyMap(),
+    val confirmationFailures: Map<String, ConfirmationFailure> = emptyMap(),
     /** The booking whose cancellation the server refused or that failed, so Retry can redo it. */
     val failedCancelId: String? = null,
     /**
@@ -51,6 +112,9 @@ class BookingViewModel(
 
   private val _uiState = MutableStateFlow(BookingUiState())
   val uiState: StateFlow<BookingUiState> = _uiState.asStateFlow()
+  private var bookingObservation: Job? = null
+  private var party: BookingParty? = null
+  private val namingMutex = Mutex()
 
   /**
    * Queues [booking] once. A queued request is not yet confirmed by the server or accepted by the
@@ -80,59 +144,164 @@ class BookingViewModel(
   }
 
   /** Loads bookings made by the signed-in renter, with the titles of their listings. */
-  fun loadRenterBookings() =
-      loadBookings(
-          load = { bookingRepository.getBookingsForRenter() },
-          name = { bookings -> nameListings(bookings) },
-      )
+  fun observeRenterBookings() {
+    party = BookingParty.RENTER
+    observeBookings(
+        observe = bookingRepository::observeBookingsForRenter,
+        nameId = { it.listingId },
+        name = { nameListings(it) },
+    )
+  }
 
-  /** Loads the bookings of [listingId] for the signed-in lender, with their renters' names. */
-  fun loadListingBookings(listingId: String) =
-      loadBookings(
-          load = { bookingRepository.getBookingsForListing(listingId) },
-          name = { bookings -> nameRenters(bookings) },
-      )
+  fun observeListingBookings(listingId: String) {
+    party = BookingParty.LENDER
+    observeBookings(
+        observe = { bookingRepository.observeBookingsForListing(listingId) },
+        nameId = { it.renterUid },
+        name = { nameRenters(it) },
+    )
+  }
 
-  private fun loadBookings(
-      load: suspend () -> List<Booking>,
-      name: suspend (List<Booking>) -> Unit,
+  fun stopObservingBookings() {
+    bookingObservation?.cancel()
+    bookingObservation = null
+  }
+
+  private fun observeBookings(
+      observe: () -> Flow<ObservedBookings>,
+      nameId: (Booking) -> String,
+      name: suspend (Set<String>) -> Unit,
   ) {
-    if (_uiState.value.isLoadingBookings) return
-    _uiState.update { it.copy(isLoadingBookings = true, failedCancelId = null, error = null) }
-    viewModelScope.launch {
+    stopObservingBookings()
+    _uiState.update { it.copy(isLoadingBookings = true) }
+    bookingObservation = viewModelScope.launch {
       try {
-        // Earliest first; the ID only keeps the order stable between bookings of the same day.
-        val bookings =
-            load().sortedWith(compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id }))
-        _uiState.update { it.copy(bookings = bookings, isLoadingBookings = false) }
-        name(bookings)
-      } catch (exception: Exception) {
-        if (exception is CancellationException) {
-          _uiState.update { it.copy(isLoadingBookings = false) }
-          throw exception
+        coroutineScope {
+          val ids = MutableStateFlow<Set<String>>(emptySet())
+          val nameJob = launch { ids.collect { name(it) } }
+          try {
+            observe().collect { observed ->
+              val bookings =
+                  observed.bookings.sortedWith(
+                      compareBy({ it.days.minOrNull() ?: LocalDate.MAX }, { it.id })
+                  )
+              _uiState.update { it.withObservedBookings(observed, bookings) }
+              ids.value = bookings.mapTo(mutableSetOf(), nameId)
+            }
+          } finally {
+            nameJob.cancel()
+          }
         }
-        _uiState.update { it.copy(isLoadingBookings = false, error = exception.toAppError()) }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        _uiState.update {
+          it.copy(
+              isLoadingBookings = false,
+              observationError = exception.toAppError(),
+              pendingBookingIds = emptySet(),
+              submittingConfirmations = emptyMap(),
+          )
+        }
       }
     }
   }
 
-  private suspend fun nameListings(bookings: List<Booking>) {
-    val repository = listingRepository ?: return
-    val titles = mutableMapOf<String, String>()
-    for (listingId in bookings.map { it.listingId }.distinct()) {
-      readOrNull { repository.getListing(listingId).getOrNull() }
-          ?.let { titles[listingId] = it.title }
-    }
-    _uiState.update { it.copy(listingTitles = it.listingTitles + titles) }
+  private fun BookingUiState.withObservedBookings(
+      observed: ObservedBookings,
+      bookings: List<Booking>,
+  ): BookingUiState {
+    val cancellationObsolete =
+        failedCancelId != null &&
+            bookings.any {
+              it.id == failedCancelId &&
+                  (it.status == BookingStatus.CANCELLED || it.handoverNotified)
+            }
+    return copy(
+        bookings = bookings,
+        pendingBookingIds = observed.pendingIds,
+        isLoadingBookings = false,
+        observationError = null,
+        failedCancelId = if (cancellationObsolete) null else failedCancelId,
+        error = if (cancellationObsolete) null else error,
+        submittingConfirmations =
+            submittingConfirmations.filter { (id, action) ->
+              bookings.any { it.id == id && !action.isRecorded(it) }
+            },
+        confirmationFailures =
+            confirmationFailures.filter { (id, failure) ->
+              bookings.any {
+                it.id == id && (id in observed.pendingIds || !failure.action.isRecorded(it))
+              }
+            },
+    )
   }
 
-  private suspend fun nameRenters(bookings: List<Booking>) {
-    val repository = profileRepository ?: return
-    val names = mutableMapOf<String, String>()
-    for (uid in bookings.map { it.renterUid }.distinct()) {
-      readOrNull { repository.observeProfile(uid).first() }?.let { names[uid] = it.username }
+  fun confirmBooking(id: String, action: ConfirmationAction) {
+    val state = _uiState.value
+    val booking = state.bookings.firstOrNull { it.id == id } ?: return
+    val currentParty = party ?: return
+    if (
+        booking.confirmationAction(currentParty) != action ||
+            state.observationError != null ||
+            state.isLoadingBookings ||
+            id in state.pendingBookingIds ||
+            id in state.submittingConfirmations
+    )
+        return
+
+    _uiState.update {
+      it.copy(
+          submittingConfirmations = it.submittingConfirmations + (id to action),
+          confirmationFailures = it.confirmationFailures - id,
+      )
     }
-    _uiState.update { it.copy(renterNames = it.renterNames + names) }
+    fun failed(exception: Exception) {
+      _uiState.update {
+        it.copy(
+            submittingConfirmations = it.submittingConfirmations - id,
+            confirmationFailures =
+                it.confirmationFailures +
+                    (id to ConfirmationFailure(action, exception.toAppError())),
+        )
+      }
+    }
+    viewModelScope.launch {
+      try {
+        when (action) {
+          ConfirmationAction.NOTIFY_HANDOVER -> bookingRepository.notifyHandover(id, ::failed)
+          ConfirmationAction.CONFIRM_HANDOVER -> bookingRepository.confirmHandover(id, ::failed)
+          ConfirmationAction.NOTIFY_RETURN -> bookingRepository.notifyReturn(id, ::failed)
+          ConfirmationAction.CONFIRM_RETURN -> bookingRepository.confirmReturn(id, ::failed)
+        }
+      } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        failed(exception)
+      }
+    }
+  }
+
+  private suspend fun nameListings(ids: Set<String>): Unit = namingMutex.withLock {
+    val repository = listingRepository ?: return
+    for (listingId in ids) {
+      if (listingId in _uiState.value.listingTitles) continue
+      readOrNull { repository.getListing(listingId).getOrNull() }
+          ?.let { listing ->
+            _uiState.update {
+              it.copy(listingTitles = it.listingTitles + (listingId to listing.title))
+            }
+          }
+    }
+  }
+
+  private suspend fun nameRenters(ids: Set<String>): Unit = namingMutex.withLock {
+    val repository = profileRepository ?: return
+    for (uid in ids) {
+      if (uid in _uiState.value.renterNames) continue
+      readOrNull { repository.observeProfile(uid).first() }
+          ?.let { user ->
+            _uiState.update { it.copy(renterNames = it.renterNames + (uid to user.username)) }
+          }
+    }
   }
 
   /** A failed read is no error to show: the booking is simply listed without the name. */

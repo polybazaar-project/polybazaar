@@ -1,12 +1,16 @@
 // Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.booking.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.booking.model.Booking
@@ -14,6 +18,8 @@ import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
+import com.android.polybazaar.booking.viewmodel.ConfirmationAction
+import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import java.time.LocalDate
@@ -44,6 +50,7 @@ class BookingListScreensTest {
       onRetry: () -> Unit = {},
       onCancel: (String) -> Unit = {},
       showRenter: Boolean = false,
+      onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
   ) {
     composeTestRule.setContent {
       BookingListContent(
@@ -53,6 +60,7 @@ class BookingListScreensTest {
           onRetry = onRetry,
           onCancel = onCancel,
           showRenter = showRenter,
+          onConfirm = onConfirm,
       )
     }
   }
@@ -74,6 +82,233 @@ class BookingListScreensTest {
 
     statuses().assertCountEquals(2)
     composeTestRule.onAllNodesWithTag(BookingListScreenTags.CANCEL_BUTTON).assertCountEquals(1)
+  }
+
+  @Test
+  fun renterCanConfirmNotifiedHandover() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(bookings = listOf(handover)),
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Handover notified")
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
+  }
+
+  @Test
+  fun lenderCanConfirmNotifiedReturn() {
+    val returning =
+        booking("a", BookingStatus.CONFIRMED)
+            .copy(handoverNotified = true, renterHandoverConfirmed = true, returnNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(bookings = listOf(returning)),
+        showRenter = true,
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Return notified")
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_RETURN), actions)
+  }
+
+  @Test
+  fun bothPartiesSeeTheCorrectStatusAndActionAtEveryStage() {
+    data class Scenario(
+        val booking: Booking,
+        val lender: Boolean,
+        val step: Int,
+        val status: String,
+        val label: String? = null,
+        val action: ConfirmationAction? = null,
+    )
+
+    val confirmed = booking("a", BookingStatus.CONFIRMED)
+    val handover = confirmed.copy(handoverNotified = true)
+    val received = handover.copy(renterHandoverConfirmed = true)
+    val returning = received.copy(returnNotified = true)
+    val completed = returning.copy(lenderReturnConfirmed = true)
+    val scenarios =
+        listOf(
+            Scenario(
+                confirmed,
+                true,
+                1,
+                "Ready for handover",
+                "Notify handover",
+                ConfirmationAction.NOTIFY_HANDOVER,
+            ),
+            Scenario(confirmed, false, 1, "Waiting for handover"),
+            Scenario(handover, true, 2, "Waiting for renter"),
+            Scenario(
+                handover,
+                false,
+                2,
+                "Handover notified",
+                "Confirm handover",
+                ConfirmationAction.CONFIRM_HANDOVER,
+            ),
+            Scenario(received, true, 3, "Waiting for return"),
+            Scenario(
+                received,
+                false,
+                3,
+                "Ready to return",
+                "Notify return",
+                ConfirmationAction.NOTIFY_RETURN,
+            ),
+            Scenario(
+                returning,
+                true,
+                4,
+                "Return notified",
+                "Confirm return",
+                ConfirmationAction.CONFIRM_RETURN,
+            ),
+            Scenario(returning, false, 4, "Waiting for lender"),
+            Scenario(completed, true, 5, "Return completed"),
+            Scenario(completed, false, 5, "Return completed"),
+        )
+    var current by mutableStateOf(scenarios.first())
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    composeTestRule.setContent {
+      BookingListContent(
+          title = "Bookings",
+          uiState = BookingUiState(bookings = listOf(current.booking)),
+          onBack = {},
+          onRetry = {},
+          onCancel = {},
+          showRenter = current.lender,
+          onConfirm = { id, action -> actions += id to action },
+      )
+    }
+
+    for (scenario in scenarios) {
+      composeTestRule.runOnIdle { current = scenario }
+      composeTestRule
+          .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+          .assertTextEquals(scenario.status)
+      composeTestRule.onNodeWithText("Step ${scenario.step} of 5").assertIsDisplayed()
+      if (scenario.action == null) {
+        composeTestRule
+            .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+            .assertCountEquals(0)
+      } else {
+        composeTestRule
+            .onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+            .assertTextEquals(scenario.label!!)
+            .performClick()
+      }
+    }
+    assertEquals(
+        listOf(
+            "a" to ConfirmationAction.NOTIFY_HANDOVER,
+            "a" to ConfirmationAction.CONFIRM_HANDOVER,
+            "a" to ConfirmationAction.NOTIFY_RETURN,
+            "a" to ConfirmationAction.CONFIRM_RETURN,
+        ),
+        actions,
+    )
+  }
+
+  @Test
+  fun pendingConfirmationDoesNotOfferAnotherActionOrClaimCompletion() {
+    val returning =
+        booking("a", BookingStatus.CONFIRMED)
+            .copy(
+                handoverNotified = true,
+                renterHandoverConfirmed = true,
+                returnNotified = true,
+                lenderReturnConfirmed = true,
+            )
+    show(BookingUiState(bookings = listOf(returning), pendingBookingIds = setOf("a")))
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Pending sync")
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_PENDING).assertIsDisplayed()
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  fun submissionIsNotDescribedAsSavedBeforeItIsQueued() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            submittingConfirmations = mapOf("a" to ConfirmationAction.CONFIRM_HANDOVER),
+        )
+    )
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Saving…")
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+  }
+
+  @Test
+  fun reloadingKeepsStatusVisibleButHidesConfirmationUntilSnapshotArrives() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    var loading by mutableStateOf(true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    composeTestRule.setContent {
+      BookingListContent(
+          title = "Bookings",
+          uiState = BookingUiState(bookings = listOf(handover), isLoadingBookings = loading),
+          onBack = {},
+          onRetry = {},
+          onCancel = {},
+          onConfirm = { id, action -> actions += id to action },
+      )
+    }
+
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Handover notified")
+    composeTestRule.onNodeWithText("Step 2 of 5").assertIsDisplayed()
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+    composeTestRule.onAllNodesWithTag(BookingListScreenTags.OBSERVATION_ERROR).assertCountEquals(0)
+
+    composeTestRule.runOnIdle { loading = false }
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ACTION).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
+  }
+
+  @Test
+  fun rejectedConfirmationShowsRetryForTheSameAction() {
+    val handover = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    val actions = mutableListOf<Pair<String, ConfirmationAction>>()
+    show(
+        BookingUiState(
+            bookings = listOf(handover),
+            confirmationFailures =
+                mapOf(
+                    "a" to
+                        ConfirmationFailure(
+                            ConfirmationAction.CONFIRM_HANDOVER,
+                            AppError.PERMISSION_DENIED,
+                        )
+                ),
+        ),
+        onConfirm = { id, action -> actions += id to action },
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.CONFIRMATION_RETRY).performClick()
+    assertEquals(listOf("a" to ConfirmationAction.CONFIRM_HANDOVER), actions)
   }
 
   @Test
@@ -133,11 +368,40 @@ class BookingListScreensTest {
   @Test
   fun retryAfterLoadError_reloads() {
     var reloads = 0
-    show(BookingUiState(error = AppError.NETWORK), onRetry = { reloads++ })
+    show(BookingUiState(observationError = AppError.NETWORK), onRetry = { reloads++ })
 
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).performClick()
 
     assertEquals(1, reloads)
+  }
+
+  @Test
+  fun listenerAndCancellationErrorsHaveSeparateRetriesAndHideStaleConfirmation() {
+    val cancelled = mutableListOf<String>()
+    var reloads = 0
+    val stale = booking("a", BookingStatus.CONFIRMED).copy(handoverNotified = true)
+    show(
+        BookingUiState(
+            bookings = listOf(stale),
+            observationError = AppError.NETWORK,
+            error = AppError.PERMISSION_DENIED,
+            failedCancelId = "a",
+        ),
+        onRetry = { reloads++ },
+        onCancel = { cancelled += it },
+    )
+
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_ERROR).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithTag(BookingListScreenTags.CONFIRMATION_STATUS)
+        .assertTextEquals("Updates unavailable")
+    composeTestRule
+        .onAllNodesWithTag(BookingListScreenTags.CONFIRMATION_ACTION)
+        .assertCountEquals(0)
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).performClick()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+    assertEquals(1, reloads)
+    assertEquals(listOf("a"), cancelled)
   }
 
   private fun statuses() = composeTestRule.onAllNodesWithTag(BookingListScreenTags.STATUS)
@@ -176,10 +440,10 @@ class BookingListScreensTest {
 
   @Test
   fun loadError_showsMessageAndRetry() {
-    show(BookingUiState(error = AppError.NETWORK))
+    show(BookingUiState(observationError = AppError.NETWORK))
 
-    composeTestRule.onNodeWithTag(BookingListScreenTags.ERROR_MESSAGE).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_ERROR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).assertIsDisplayed()
   }
 
   @Test
@@ -209,9 +473,9 @@ class BookingListScreensTest {
           onBack = { backs++ },
       )
     }
-    composeTestRule.waitUntil { viewModel.uiState.value.error != null }
+    composeTestRule.waitUntil { viewModel.uiState.value.observationError != null }
     repository.loadFailure = null
-    composeTestRule.onNodeWithTag(BookingListScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).performClick()
 
     composeTestRule.waitUntil { viewModel.uiState.value.bookings.isNotEmpty() }
     assertEquals(2, repository.loadCount)

@@ -2,6 +2,11 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
+import kotlinx.coroutines.flow.Flow
+
+/** Bookings and the IDs whose local writes have not yet been acknowledged by the server. */
+data class ObservedBookings(val bookings: List<Booking>, val pendingIds: Set<String> = emptySet())
+
 interface BookingRepository {
   /**
    * Queues a booking request without waiting for server confirmation. Firestore may later reject
@@ -22,6 +27,12 @@ interface BookingRepository {
 
   /** Returns bookings made by the signed-in renter. */
   suspend fun getBookingsForRenter(): List<Booking>
+
+  /** Observes the lender's bookings for a listing, including local pending-write changes. */
+  fun observeBookingsForListing(listingId: String): Flow<ObservedBookings>
+
+  /** Observes the renter's bookings, including local pending-write changes. */
+  fun observeBookingsForRenter(): Flow<ObservedBookings>
 
   /**
    * Queues a cancellation without waiting for server confirmation; offline, the write stays queued

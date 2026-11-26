@@ -32,6 +32,7 @@ import com.android.polybazaar.listing.model.FirebaseListingRepository
 import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.map.model.FusedLocationRepository
 import com.android.polybazaar.map.model.GoogleGeocodingRepository
+import com.android.polybazaar.notification.model.FirebasePushDeviceRepository
 import com.android.polybazaar.photo.JpegPhotoCompressor
 import com.android.polybazaar.profile.model.FirebaseProfileRepository
 import com.android.polybazaar.ui.navigation.AppNavHost
@@ -56,9 +57,13 @@ class MainActivity : ComponentActivity() {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
           // One repository for every auth screen, so they all see the same Firebase session.
           val authRepository = remember { FirebaseAuthRepository() }
+          val pushDeviceRepository = remember { FirebasePushDeviceRepository() }
           val authViewModel: AuthViewModel =
               viewModel(
-                  factory = viewModelFactory { initializer { AuthViewModel(authRepository) } }
+                  factory =
+                      viewModelFactory {
+                        initializer { AuthViewModel(authRepository, pushDeviceRepository) }
+                      }
               )
           AppNavHost(
               authViewModel = authViewModel,

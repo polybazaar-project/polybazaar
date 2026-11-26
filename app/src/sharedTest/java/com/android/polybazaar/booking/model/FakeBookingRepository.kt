@@ -6,6 +6,11 @@ package com.android.polybazaar.booking.model
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
 
 /**
  * A [BookingRepository] in memory, for tests. It records the last booking requested and how many
@@ -49,6 +54,10 @@ class FakeBookingRepository : BookingRepository {
   val handoverConfirmations = mutableListOf<String>()
   val returnNotifications = mutableListOf<String>()
   val returnConfirmations = mutableListOf<String>()
+  val bookingUpdates = MutableSharedFlow<ObservedBookings>(extraBufferCapacity = 1)
+  var bookingUpdateFailure: Exception? = null
+  var confirmationWriteFailure: ((Exception) -> Unit)? = null
+  var immediateConfirmationFailure: Exception? = null
 
   val accepted = mutableListOf<Booking>()
   var acceptGate: CompletableDeferred<Unit>? = null
@@ -100,6 +109,16 @@ class FakeBookingRepository : BookingRepository {
     return renterBookings
   }
 
+  override fun observeBookingsForListing(listingId: String): Flow<ObservedBookings> = flow {
+    emit(ObservedBookings(getBookingsForListing(listingId)))
+    emitAll(bookingUpdates.onEach { bookingUpdateFailure?.let { throw it } })
+  }
+
+  override fun observeBookingsForRenter(): Flow<ObservedBookings> = flow {
+    emit(ObservedBookings(getBookingsForRenter()))
+    emitAll(bookingUpdates.onEach { bookingUpdateFailure?.let { throw it } })
+  }
+
   override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
     cancellationCount++
     cancelWriteFailure = onWriteFailure
@@ -110,17 +129,26 @@ class FakeBookingRepository : BookingRepository {
 
   override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) {
     handoverNotifications += id
+    recordConfirmationFailure(onWriteFailure)
   }
 
   override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) {
     handoverConfirmations += id
+    recordConfirmationFailure(onWriteFailure)
   }
 
   override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) {
     returnNotifications += id
+    recordConfirmationFailure(onWriteFailure)
   }
 
   override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) {
     returnConfirmations += id
+    recordConfirmationFailure(onWriteFailure)
+  }
+
+  private fun recordConfirmationFailure(onWriteFailure: (Exception) -> Unit) {
+    confirmationWriteFailure = onWriteFailure
+    immediateConfirmationFailure?.let(onWriteFailure)
   }
 }

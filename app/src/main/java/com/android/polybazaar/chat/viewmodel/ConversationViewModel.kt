@@ -15,6 +15,7 @@ import com.android.polybazaar.chat.model.PhotoOutbox
 import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.model.conversationId
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.attempt
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository

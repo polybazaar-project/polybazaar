@@ -4,8 +4,8 @@ package com.android.polybazaar.browse.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.android.polybazaar.chat.viewmodel.attempt
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.attempt
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
