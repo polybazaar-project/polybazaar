@@ -233,6 +233,31 @@ class ListingLocationFieldTest {
   }
 
   @Test
+  fun withALocation_asksForAPublicPlace_untilTheNameErrorReplacesIt() {
+    showField(ListingFormUiState(today = today))
+    node(ListingLocationFieldTags.NAME_PRIVACY_HINT).assertDoesNotExist()
+
+    uiState = onRenens
+    node(ListingLocationFieldTags.NAME_PRIVACY_HINT)
+        .assertTextEquals(string(R.string.listing_location_name_privacy_hint))
+
+    // One message under the field at a time: the missing name matters more.
+    uiState =
+        onRenens.copy(location = onRenens.location!!.copy(name = ""), locationNameTouched = true)
+    node(ListingLocationFieldTags.NAME_ERROR).assertIsDisplayed()
+    node(ListingLocationFieldTags.NAME_PRIVACY_HINT).assertDoesNotExist()
+  }
+
+  @Test
+  fun picker_saysRentersOnlySeeAnArea() {
+    showField(onRenens)
+    openPicker(ListingLocationFieldTags.MOVE_PIN)
+
+    node(ListingLocationFieldTags.APPROXIMATE_HINT)
+        .assertTextEquals(string(R.string.listing_location_approximate_hint))
+  }
+
+  @Test
   fun whenTheFormCannotBeEditedIsSavingOrOffline_theFieldIsDisabled() {
     showField(onRenens.copy(loadError = AppError.NETWORK))
     for (state in

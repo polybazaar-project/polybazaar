@@ -275,6 +275,8 @@
     <string name="listing_location_name_error">Give the place a name.</string>
     <string name="listing_location_picker_title">Choose the location</string>
     <string name="listing_location_picker_hint">Move the map to place the pin</string>
+    <string name="listing_location_approximate_hint">Renters only see an area of about 2 km, never this exact spot.</string>
+    <string name="listing_location_name_privacy_hint">Name a public place, not your address.</string>
     <string name="listing_location_offline">Connect to the internet to choose a location</string>
     <string name="listing_location_show_mine">Show my location</string>
     <string name="listing_location_confirm">Confirm location</string>

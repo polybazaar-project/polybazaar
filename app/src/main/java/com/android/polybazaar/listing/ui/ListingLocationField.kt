@@ -73,6 +73,8 @@ object ListingLocationFieldTags {
   const val REMOVE = "listing_location_remove"
   const val NAME_FIELD = "listing_location_name_field"
   const val NAME_ERROR = "listing_location_name_error"
+  const val NAME_PRIVACY_HINT = "listing_location_name_privacy_hint"
+  const val APPROXIMATE_HINT = "listing_location_approximate_hint"
   const val OFFLINE_HINT = "listing_location_offline_hint"
   const val PICKER = "listing_location_picker"
   const val PICKER_CLOSE = "listing_location_picker_close"
@@ -208,6 +210,14 @@ internal fun ListingLocationField(
         text = stringResource(R.string.listing_location_name_error),
         tag = ListingLocationFieldTags.NAME_ERROR,
     )
+  } else if (location != null) {
+    // The name is shared as typed, unlike the point, which only ever shows as an area (#23).
+    Text(
+        text = stringResource(R.string.listing_location_name_privacy_hint),
+        color = AuthColors.TextSecondary,
+        fontSize = 12.sp,
+        modifier = Modifier.testTag(ListingLocationFieldTags.NAME_PRIVACY_HINT),
+    )
   }
   if (!uiState.isOnline) {
     Text(
@@ -339,6 +349,13 @@ private fun ListingLocationPicker(
             text = stringResource(R.string.listing_location_picker_hint),
             color = AuthColors.TextSecondary,
             fontSize = 13.sp,
+        )
+        // Before confirming, so the lender knows the pin can sit on their home (#23).
+        Text(
+            text = stringResource(R.string.listing_location_approximate_hint),
+            color = AuthColors.TextSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.testTag(ListingLocationFieldTags.APPROXIMATE_HINT),
         )
         if (!showMyLocation) {
           TextButton(
