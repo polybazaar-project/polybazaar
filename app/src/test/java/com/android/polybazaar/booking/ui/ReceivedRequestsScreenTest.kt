@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -172,6 +173,28 @@ class ReceivedRequestsScreenTest {
 
     node(ReceivedRequestsScreenTags.ACCEPT_DIALOG).assertDoesNotExist()
     assertEquals(listOf(ann), accepted)
+  }
+
+  @Test
+  fun theAcceptDialog_survivesARotation() {
+    val restoration = StateRestorationTester(composeTestRule)
+    restoration.setContent {
+      ReceivedRequestsContent(
+          uiState = loaded,
+          bookings = BookingUiState(),
+          actions = ReceivedRequestsActions(),
+          today = today,
+      )
+    }
+    node(ReceivedRequestsScreenTags.acceptButton("ann")).performClick()
+
+    restoration.emulateSavedInstanceStateRestore()
+
+    node(ReceivedRequestsScreenTags.ACCEPT_DIALOG_TEXT)
+        .assertTextEquals(
+            "ann_m gets 20–21 Nov. No one else can request these days. " +
+                "1 other request for these days will be cancelled."
+        )
   }
 
   @Test
