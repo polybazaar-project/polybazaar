@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.view.View
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
@@ -18,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -45,6 +47,7 @@ import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
@@ -55,6 +58,9 @@ import androidx.compose.ui.test.swipe
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityOptionsCompat
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -68,12 +74,13 @@ import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
 import com.android.polybazaar.chat.viewmodel.PendingPhoto
 import com.android.polybazaar.chat.viewmodel.PendingPhotoStatus
-import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
 import com.android.polybazaar.listing.model.FilePhotoStorage
@@ -157,8 +164,11 @@ class ConversationScreenTest {
       onLoadPhoto: (String) -> Unit = {},
       onRetryPhoto: (String) -> Unit = {},
       onDiscardPhoto: (String) -> Unit = {},
+      onRemoveQueuedPhoto: (String) -> Unit = {},
+      onComposeView: (View) -> Unit = {},
   ) {
     composeTestRule.setContent {
+      onComposeView(LocalView.current)
       ConversationContent(
           uiState = uiState,
           onBack = onBack,
@@ -172,6 +182,7 @@ class ConversationScreenTest {
           onLoadPhoto = onLoadPhoto,
           onRetryPhoto = onRetryPhoto,
           onDiscardPhoto = onDiscardPhoto,
+          onRemoveQueuedPhoto = onRemoveQueuedPhoto,
           zone = ZoneOffset.UTC,
           now = now,
       )
@@ -315,7 +326,7 @@ class ConversationScreenTest {
             photoStorage = photoStorage,
             savedStateHandle = SavedStateHandle(),
             uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-            connectivity = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(senderUid = "renter"),
         )
     val launcherOwner =
         object : ActivityResultRegistryOwner {
@@ -529,6 +540,32 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun keyboardOpen_keepsTheHeaderAndPutsTheComposerAboveIt() {
+    lateinit var composeView: View
+    setContent(loaded, onComposeView = { composeView = it })
+    val keyboard = 300.dp
+    val keyboardPx = with(composeTestRule.density) { keyboard.roundToPx() }
+
+    // Straight to the Compose view: the test activity's window fits system windows, so an inset
+    // sent to it would never reach Compose.
+    composeTestRule.runOnUiThread {
+      ViewCompat.dispatchApplyWindowInsets(
+          composeView,
+          WindowInsetsCompat.Builder()
+              .setInsets(WindowInsetsCompat.Type.ime(), Insets.of(0, 0, 0, keyboardPx))
+              .setVisible(WindowInsetsCompat.Type.ime(), true)
+              .build(),
+      )
+    }
+
+    node(ConversationScreenTags.BACK_BUTTON).assertIsDisplayed()
+    node(ConversationScreenTags.LISTING_TITLE).assertIsDisplayed()
+    val field = node(ConversationScreenTags.MESSAGE_FIELD).getBoundsInRoot()
+    val screen = composeTestRule.onRoot().getBoundsInRoot()
+    assertTrue(field.bottom <= screen.bottom - keyboard)
+  }
+
+  @Test
   fun footers_sayWhoSentEachMessageAndWhen() {
     setContent(loaded)
 
@@ -544,6 +581,40 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.theirMessage("m2")).assertTextEquals("Yes, from ten.", "09:14")
     node(ConversationScreenTags.OTHER_USERNAME).assertDoesNotExist()
+  }
+
+  @Test
+  fun myMessageStillSending_saysSendingInsteadOfTheTime_toTalkBackToo() {
+    setContent(loaded.copy(messages = listOf(question.copy(sending = true), answer)))
+
+    // The bubble's merged texts, which TalkBack reads: the footer is replaced, not added to.
+    node(ConversationScreenTags.myMessage("m1"))
+        .assertTextEquals("Is it free on Saturday?", string(R.string.conversation_message_sending))
+  }
+
+  @Test
+  fun myMessageReachingTheServer_showsWhoSentItAndWhenAgain() {
+    val change = showChanging(loaded.copy(messages = listOf(question.copy(sending = true))))
+    text(string(R.string.conversation_message_sending)).assertIsDisplayed()
+
+    change { it.copy(messages = listOf(question)) }
+
+    node(ConversationScreenTags.myMessage("m1"))
+        .assertTextEquals(
+            "Is it free on Saturday?",
+            string(R.string.conversation_my_message_footer, "09:12"),
+        )
+  }
+
+  @Test
+  fun theirMessageMarkedSending_stillSaysWhoSentItAndWhen() {
+    setContent(loaded.copy(messages = listOf(question, answer.copy(sending = true))))
+
+    node(ConversationScreenTags.theirMessage("m2"))
+        .assertTextEquals(
+            "Yes, from ten.",
+            string(R.string.conversation_their_message_footer, "james", "09:14"),
+        )
   }
 
   @Test
@@ -1820,6 +1891,110 @@ class ConversationScreenTest {
     val mine = node(ConversationScreenTags.myMessage("m1")).getBoundsInRoot()
     assertTrue(answer.bottom <= pending.top)
     assertEquals(mine.right.value, pending.right.value, 0.5f)
+  }
+
+  // Queued photos, sent offline and kept on the device.
+
+  private fun queued(sending: Boolean = false, error: AppError? = null, id: String = "m6") =
+      QueuedPhoto(id, conversation.id, "renter", galleryPhoto, "The bits", sending, error)
+
+  @Test
+  fun waitingPhoto_saysItWaitsForTheConnection_andRemoveCallsTheCallback() {
+    val removed = mutableListOf<String>()
+    setContent(
+        loaded.copy(queuedPhotos = listOf(queued())),
+        onRemoveQueuedPhoto = { removed += it },
+    )
+
+    text(string(R.string.conversation_photo_waiting))
+        .assertIsDisplayed()
+        .assert(isPoliteLiveRegion())
+    text(string(R.string.conversation_photo_sending)).assertDoesNotExist()
+    node(ConversationScreenTags.removeQueuedPhoto("m6"))
+        .assertTextEquals(string(R.string.conversation_photo_remove))
+        .performClick()
+
+    assertEquals(listOf("m6"), removed)
+  }
+
+  @Test
+  fun sendingQueuedPhoto_saysSending_withoutRemove() {
+    setContent(loaded.copy(queuedPhotos = listOf(queued(sending = true))))
+
+    text(string(R.string.conversation_photo_sending)).assertIsDisplayed()
+    text(string(R.string.conversation_photo_waiting)).assertDoesNotExist()
+    node(ConversationScreenTags.removeQueuedPhoto("m6")).assertDoesNotExist()
+  }
+
+  @Test
+  fun failedQueuedPhoto_saysWhy_andOffersRemoveButNoRetry() {
+    val removed = mutableListOf<String>()
+    setContent(
+        loaded.copy(queuedPhotos = listOf(queued(error = AppError.PERMISSION_DENIED))),
+        onRemoveQueuedPhoto = { removed += it },
+    )
+
+    text(string(R.string.conversation_photo_not_sent, string(R.string.error_permission_denied)))
+        .assertIsDisplayed()
+        .assert(isPoliteLiveRegion())
+    text(string(R.string.conversation_photo_waiting)).assertDoesNotExist()
+    node(ConversationScreenTags.retryPhoto("m6")).assertDoesNotExist()
+    node(ConversationScreenTags.removeQueuedPhoto("m6")).performClick()
+
+    assertEquals(listOf("m6"), removed)
+  }
+
+  @Test
+  fun queuedPhoto_isOneTalkBackItem_photoThenCaptionThenItsState() {
+    setContent(loaded.copy(queuedPhotos = listOf(queued(), queued(sending = true, id = "m7"))))
+
+    node(ConversationScreenTags.queuedPhoto("m6"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertTextEquals("The bits", string(R.string.conversation_photo_waiting))
+    node(ConversationScreenTags.queuedPhoto("m7"))
+        .assertContentDescriptionEquals(string(R.string.conversation_photo))
+        .assertTextEquals("The bits", string(R.string.conversation_photo_sending))
+  }
+
+  @Test
+  fun queuedPhotos_showBelowThePendingOnes_asMyOwnBubbles() {
+    setContent(
+        loaded.copy(
+            pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING)),
+            queuedPhotos = listOf(queued()),
+        )
+    )
+
+    val pending = node(ConversationScreenTags.pendingPhoto("m5")).getBoundsInRoot()
+    val queued = node(ConversationScreenTags.queuedPhoto("m6")).getBoundsInRoot()
+    assertTrue(pending.bottom <= queued.top)
+    assertEquals(pending.right.value, queued.right.value, 0.5f)
+    assertEquals((pending.right - pending.left).value, (queued.right - queued.left).value, 0.5f)
+  }
+
+  @Test
+  fun queuedPhoto_onceSent_leavesItsPlaceToItsMessage() {
+    val change = showChanging(loaded.copy(queuedPhotos = listOf(queued())))
+    node(ConversationScreenTags.queuedPhoto("m6")).assertIsDisplayed()
+
+    change {
+      it.copy(
+          messages = it.messages + photoMessage("m6", "renter", caption = "The bits"),
+          queuedPhotos = emptyList(),
+      )
+    }
+
+    node(ConversationScreenTags.queuedPhoto("m6")).assertDoesNotExist()
+    node(ConversationScreenTags.myMessage("m6")).assertIsDisplayed()
+  }
+
+  @Test
+  fun queuedPhotosPreview_showsAFailedPhotoAndAWaitingOne() {
+    composeTestRule.setContent { ConversationQueuedPhotosPreview() }
+
+    node(ConversationScreenTags.queuedPhoto("4")).assertExists()
+    node(ConversationScreenTags.removeQueuedPhoto("4")).assertExists()
+    text(string(R.string.conversation_photo_waiting)).assertExists()
   }
 
   // The screen wires the photo menu to the gallery, the camera and the ViewModel.

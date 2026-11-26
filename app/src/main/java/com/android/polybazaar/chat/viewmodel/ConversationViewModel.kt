@@ -2,6 +2,7 @@
 package com.android.polybazaar.chat.viewmodel
 
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,9 +11,11 @@ import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.ChatRepository
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
+import com.android.polybazaar.chat.model.PhotoOutbox
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.model.conversationId
-import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.attempt
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
@@ -28,7 +31,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -91,6 +95,9 @@ data class PendingPhoto(
  *   conversation loads and after it failed to load, when whether it exists is unknown.
  * @property pendingPhotos the photos sent that are still uploading or failed, oldest first. Their
  *   message may already be in [messages], since it is written before the photo is uploaded.
+ * @property queuedPhotos my photos of this conversation that failed for want of a connection, kept
+ *   on the device to be sent once back online, oldest first. Their message may already be in
+ *   [messages] too.
  * @property messagePhotos the photos of [messages] downloaded so far, by [ChatMessage.imagePath].
  * @property photoLoadErrors why the photo at each path could not be downloaded;
  *   [ConversationViewModel.loadPhoto] tries again.
@@ -117,6 +124,7 @@ data class ConversationUiState(
     val canSend: Boolean = false,
     val firstMessageBlockedByPause: Boolean = false,
     val pendingPhotos: List<PendingPhoto> = emptyList(),
+    val queuedPhotos: List<QueuedPhoto> = emptyList(),
     val messagePhotos: Map<String, ByteArray> = emptyMap(),
     val photoLoadErrors: Map<String, AppError> = emptyMap(),
     val isLoading: Boolean = true,
@@ -124,14 +132,15 @@ data class ConversationUiState(
     val sendError: AppError? = null,
 ) {
   /**
-   * The [messages] to show: those of [pendingPhotos] are left out, as their pending bubble already
-   * shows them, so a photo shows once while it uploads or after it failed.
+   * The [messages] to show: those of [pendingPhotos] and [queuedPhotos] are left out, as their
+   * bubble already shows them, so a photo shows once while it uploads, waits or after it failed.
    */
   val shownMessages: List<ChatMessage> =
-      if (pendingPhotos.isEmpty()) messages
+      if (pendingPhotos.isEmpty() && queuedPhotos.isEmpty()) messages
       else {
-        val pendingIds = pendingPhotos.mapTo(HashSet()) { it.messageId }
-        messages.filterNot { it.id in pendingIds }
+        val hiddenIds = pendingPhotos.mapTo(HashSet()) { it.messageId }
+        queuedPhotos.mapTo(hiddenIds) { it.messageId }
+        messages.filterNot { it.id in hiddenIds }
       }
 }
 
@@ -154,10 +163,11 @@ private data class LoadedListing(
  *
  * [uploadScope] runs the photo uploads, so that closing the screen does not cancel them: pass
  * [photoUploadScope]. Once the screen is closed, an upload that ends deletes its photo if it was
- * taken with the camera, whether it was sent or not, as nothing can retry it any more.
+ * taken with the camera, whether it was sent or not.
  *
- * [connectivity] tells when the device is back online, to send again the photos that failed for
- * want of a connection while the screen is open. Pass the app's single [ConnectivityRepository].
+ * [photoOutbox] keeps a photo whose upload failed for want of a connection, also after the screen
+ * is closed, and [PhotoOutboxSenderViewModel] sends it once back online. Pass the app's single
+ * [PhotoOutbox], which the sender uses too.
  *
  * The lender must only be routed here for a conversation that already exists: until then the
  * security rules refuse them the conversation and its messages, which shows as a load error.
@@ -172,7 +182,7 @@ class ConversationViewModel(
     private val photoStorage: PhotoStorage,
     private val savedStateHandle: SavedStateHandle,
     private val uploadScope: CoroutineScope,
-    private val connectivity: ConnectivityRepository,
+    private val photoOutbox: PhotoOutbox,
 ) : ViewModel() {
 
   private val _uiState =
@@ -224,27 +234,22 @@ class ConversationViewModel(
     observeConversation()
     observeMessages()
     observeOtherUser()
-    retryPhotosWhenOnline()
+    observeQueuedPhotos()
   }
 
-  /**
-   * Each time the device comes back online, sends again the photos that failed with
-   * [AppError.NETWORK]. Other failures, such as a refusal, would fail again, so they wait for the
-   * user's Retry.
-   *
-   * [ConnectivityRepository.isOnline] also gives its current value first, but no photo has been
-   * sent yet when the screen opens, so that first value sends nothing again.
-   */
-  private fun retryPhotosWhenOnline() {
+  /** Keeps [ConversationUiState.queuedPhotos] up to date as photos are queued, sent or removed. */
+  private fun observeQueuedPhotos() {
     viewModelScope.launch {
-      connectivity.isOnline
-          .filter { online -> online }
-          .collect {
-            _uiState.value.pendingPhotos
-                .filter { it.status == PendingPhotoStatus.FAILED && it.error == AppError.NETWORK }
-                .forEach { retryPhoto(it.messageId) }
-          }
+      photoOutbox.queued.map(::mine).distinctUntilChanged().collect { queued ->
+        _uiState.update { it.copy(queuedPhotos = queued) }
+      }
     }
+  }
+
+  /** The photos of [queued] I sent in this conversation. */
+  private fun mine(queued: List<QueuedPhoto>): List<QueuedPhoto> {
+    val conversationId = conversationId(listingId, renterUid)
+    return queued.filter { it.conversationId == conversationId && it.senderUid == myUid }
   }
 
   /**
@@ -406,11 +411,56 @@ class ConversationViewModel(
         deleteIfTaken(pending.photo)
       } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
+        val error = exception.toAppError()
+        // Also once the screen is closed: the sender sends it when back online.
+        if (error == AppError.NETWORK && queue(conversation, pending)) return@launch
         // A refusal from a pause or deletion of the listing also reaches its observation, which
         // then stops new photos from being attached.
-        _uiState.update { it.withPendingPhoto(pending.failed(exception.toAppError())) }
+        _uiState.update { it.withPendingPhoto(pending.failed(error)) }
         // Closed: no one can retry it, so it is removed as by Remove.
         if (cleared) abandon(pending)
+      }
+    }
+  }
+
+  /**
+   * Keeps [pending], which failed for want of a connection, in [photoOutbox], and returns whether
+   * it is kept. It then leaves [ConversationUiState.pendingPhotos] for
+   * [ConversationUiState.queuedPhotos] in one update, so it never shows twice or not at all, and
+   * its camera file is deleted, as the outbox has its own copy.
+   */
+  private suspend fun queue(conversation: Conversation, pending: PendingPhoto): Boolean {
+    try {
+      photoOutbox.enqueue(conversation.id, pending.messageId, pending.photo, pending.caption)
+    } catch (exception: Exception) {
+      if (exception is CancellationException) throw exception
+      // Not kept, as when signed out or the photo can't be read: it fails as before.
+      Log.w(LOG_TAG, "Could not queue photo ${pending.messageId}", exception)
+      return false
+    }
+    val queued = mine(photoOutbox.queued.value)
+    _uiState.update {
+      it.copy(
+          pendingPhotos = it.pendingPhotos.filterNot { p -> p.isSameAs(pending) },
+          queuedPhotos = queued,
+      )
+    }
+    deleteIfTaken(pending.photo)
+    return true
+  }
+
+  /**
+   * Removes my queued photo of [messageId] from [photoOutbox] and deletes its message, which may
+   * already be on the server with its photo pending, as [discardPhoto] does. Ignored while the
+   * sender is sending it, or once it is no longer queued.
+   */
+  fun removeQueuedPhoto(messageId: String) {
+    val queued = _uiState.value.queuedPhotos.find { it.messageId == messageId } ?: return
+    // In uploadScope, so that closing the screen does not stop the removal halfway, leaving the
+    // photo on the device to show again after a restart.
+    uploadScope.launch {
+      if (photoOutbox.remove(messageId)) {
+        chatRepository.deletePhotoMessage(queued.conversationId, messageId)
       }
     }
   }
@@ -477,8 +527,9 @@ class ConversationViewModel(
    * Deletes the photos taken with the camera that were not sent: the one being taken, the attached
    * one and the failed ones. Gallery photos are left alone. A failed photo can no longer be
    * retried, so it is removed as by [discardPhoto], deleting its message too: it would otherwise
-   * stay pending for the other participant. The uploads under way keep running in [uploadScope]
-   * and, when they end, delete their photo, and their message too if they failed.
+   * stay pending for the other participant. The queued photos stay in [photoOutbox]. The uploads
+   * under way keep running in [uploadScope] and, when they end, delete their photo; one that fails
+   * for want of a connection is queued first, and one that fails otherwise deletes its message.
    */
   override fun onCleared() {
     cleared = true
@@ -778,5 +829,6 @@ class ConversationViewModel(
 
   private companion object {
     const val PHOTO_BEING_TAKEN = "photoBeingTaken"
+    const val LOG_TAG = "ConversationViewModel"
   }
 }

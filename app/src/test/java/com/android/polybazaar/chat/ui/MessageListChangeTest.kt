@@ -10,7 +10,8 @@ class MessageListChangeTest {
 
   private val sentAt = Instant.parse("2026-11-11T09:00:00Z")
 
-  private fun mine(id: String) = ChatMessage(id, "renter", "Mine", sentAt)
+  private fun mine(id: String, sending: Boolean = false) =
+      ChatMessage(id, "renter", "Mine", sentAt, sending = sending)
 
   private fun theirs(id: String) = ChatMessage(id, "lender", "Theirs", sentAt)
 
@@ -54,6 +55,17 @@ class MessageListChangeTest {
   @Test
   fun myMessageAfterTheNewest_follows() {
     assertEquals(MessageListChange.FOLLOW, change(shown + mine("m3")))
+  }
+
+  @Test
+  fun myMessageStillSendingAfterTheNewest_follows() {
+    assertEquals(MessageListChange.FOLLOW, change(shown + mine("m3", sending = true)))
+  }
+
+  @Test
+  fun myNewestMessageReachingTheServer_isNone() {
+    // Was shown as sending; the next list has the same messages, now all sent.
+    assertEquals(MessageListChange.NONE, change(shown + mine("m3"), previousNewestId = "m3"))
   }
 
   @Test

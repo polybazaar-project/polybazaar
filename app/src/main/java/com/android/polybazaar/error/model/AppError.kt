@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar.error.model
 
 import android.util.Log
@@ -54,6 +55,9 @@ enum class AppError {
 
   /** An emailed link is malformed, expired or was already used. A new one must be requested. */
   INVALID_LINK,
+
+  /** A recovered confirmation was absent from the server with no pending write. */
+  CONFIRMATION_NOT_SAVED,
 
   /** Any other error. */
   UNKNOWN,

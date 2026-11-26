@@ -7,8 +7,9 @@ package com.android.polybazaar.ui.navigation
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -75,6 +76,8 @@ import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
@@ -90,9 +93,12 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.listing.ui.ListingDetailScreenTags
+import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.map.model.FakePlaceNameRepository
+import com.android.polybazaar.map.ui.MapLocationTags
 import com.android.polybazaar.map.ui.MapScreenTags
+import com.android.polybazaar.map.ui.MapSlot
 import com.android.polybazaar.map.viewmodel.MapUiState
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -110,6 +116,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -142,13 +149,33 @@ class AppNavHostTest {
   // Listings published in these tests belong to the signed-in user, as with the real repository.
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
   private val chatRepository = FakeChatRepository()
+  private val photoOutbox = FakePhotoOutbox(senderUid = user.uid)
   private val bookingRepository = FakeBookingRepository()
   private val locationRepository = FakeLocationRepository()
   private val connectivity = FakeConnectivityRepository()
-  private val pendingQueue = FakePendingListingQueue()
+  // Drafts kept on the device belong to the signed-in user, as with the real queue.
+  private val pendingQueue = FakePendingListingQueue(ownerUid = user.uid)
 
-  /** What the Map tab last gave its map: the stand-in records it, since it draws no markers. */
+  /** What the Map tab last gave its map, recorded by [mapStandIn]. */
   private var mapState: MapUiState? = null
+
+  /**
+   * Drawn instead of the Google map, which can't run under Robolectric: it records the state and
+   * draws one tappable button per marker, so tests can tap a marker as on the real map (#342).
+   */
+  private val mapStandIn: MapSlot = { state, actions ->
+    mapState = state
+    Column {
+      state.markers.forEach { marker ->
+        Button(
+            onClick = { actions.onMarkerClick(marker.id) },
+            modifier = Modifier.testTag(mapMarkerTag(marker.id)),
+        ) {
+          Text(marker.id)
+        }
+      }
+    }
+  }
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -183,12 +210,9 @@ class AppNavHostTest {
             bookingRepository = bookingRepository,
             locationRepository = locationRepository,
             placeNameRepository = FakePlaceNameRepository(),
-            // Google Maps can't run under Robolectric: a stand-in that shows the markers.
-            listingsMap = { state, _ ->
-              mapState = state
-              Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
-            },
+            listingsMap = mapStandIn,
             connectivityRepository = connectivity,
+            photoOutbox = photoOutbox,
             pendingListingQueue = pendingQueue,
             navController = navController,
         )
@@ -234,12 +258,9 @@ class AppNavHostTest {
             bookingRepository = bookingRepository,
             locationRepository = locationRepository,
             placeNameRepository = FakePlaceNameRepository(),
-            // Google Maps can't run under Robolectric: a stand-in that shows the markers.
-            listingsMap = { state, _ ->
-              mapState = state
-              Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
-            },
+            listingsMap = mapStandIn,
             connectivityRepository = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(),
             pendingListingQueue = FakePendingListingQueue(),
             navController = navController,
         )
@@ -500,6 +521,112 @@ class AppNavHostTest {
     assertTrue(listingRepository.allListings.isEmpty())
   }
 
+  private suspend fun keepDraft(id: String, title: String) {
+    pendingQueue.enqueue(
+        id,
+        ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, title, "One-hour session"),
+    )
+  }
+
+  private fun draftsPublishedMessage(count: Int) =
+      context.resources.getQuantityString(R.plurals.listing_drafts_published, count, count)
+
+  private fun draftsFailedMessage(count: Int) =
+      context.resources.getQuantityString(R.plurals.listing_drafts_failed, count, count)
+
+  @Test
+  fun draftsKeptOffline_arePublishedWhenTheAppStartsOnline_withAMessage() {
+    runBlocking {
+      keepDraft("d1", "Math tutoring")
+      keepDraft("d2", "Physics tutoring")
+    }
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText(draftsPublishedMessage(2))
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertEquals("2 listings created offline were published.", draftsPublishedMessage(2))
+    assertEquals(listOf("d1", "d2"), listingRepository.publishedListingIds)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+  }
+
+  @Test
+  fun draftKeptOffline_isPublishedWhenTheConnectionReturns_withAMessage() {
+    connectivity.isOnline.value = false
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+
+    connectivity.isOnline.value = true
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText("Your listing created offline was published.")
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertEquals(listOf("d1"), listingRepository.publishedListingIds)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+  }
+
+  @Test
+  fun draftThatCannotBePublished_staysOnTheDevice_withAMessage() {
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    listingRepository.failingPublishIds += "d1"
+    setContent(FakeAuthRepository(currentUser = user))
+
+    val message = "A listing created offline couldn’t be published. We’ll try again later."
+    composeTestRule.waitUntil {
+      composeTestRule.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty()
+    }
+    assertEquals(message, draftsFailedMessage(1))
+    assertEquals(listOf("d1"), pendingQueue.pending.value.map { it.id })
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+  }
+
+  @Test
+  fun draftsPartlyPublished_tellBothOutcomesInOneMessage() {
+    runBlocking {
+      keepDraft("d1", "Math tutoring")
+      keepDraft("d2", "Physics tutoring")
+      keepDraft("d3", "Chemistry tutoring")
+    }
+    listingRepository.failingPublishIds += setOf("d2", "d3")
+    setContent(FakeAuthRepository(currentUser = user))
+
+    val message = "${draftsPublishedMessage(1)} ${draftsFailedMessage(2)}"
+    composeTestRule.waitUntil {
+      composeTestRule.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty()
+    }
+    assertEquals(
+        "Your listing created offline was published. 2 listings created offline couldn’t be " +
+            "published. We’ll try again later.",
+        message,
+    )
+    assertEquals(listOf("d2", "d3"), pendingQueue.pending.value.map { it.id })
+  }
+
+  @Test
+  fun draftsOfAnUnverifiedUser_areNotPublished() {
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+    assertEquals(listOf("d1"), pendingQueue.pending.value.map { it.id })
+    composeTestRule.onNodeWithText(draftsPublishedMessage(1)).assertDoesNotExist()
+  }
+
   @Test
   fun noPersistedUser_startsOnSignIn() {
     setContent(FakeAuthRepository(currentUser = null))
@@ -735,9 +862,10 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
-          listingsMap = { state, _ -> mapState = state },
+          listingsMap = mapStandIn,
       )
     }
 
@@ -996,6 +1124,68 @@ class AppNavHostTest {
     val entry = navController.currentBackStackEntry
     assertEquals(route, entry?.destination?.route)
     assertEquals(value, entry?.arguments?.getString(key))
+  }
+
+  // The photo sender runs app-wide for the verified signed-in user.
+
+  /** Ada's conversation about a drill, holding a photo she sent offline, "queued1". */
+  private fun givenAQueuedPhoto(): QueuedPhoto {
+    val drill =
+        Conversation(
+            listingId = "drill",
+            listingTitle = "Bosch drill",
+            renterUid = user.uid,
+            lenderUid = "uid-lender",
+            lastMessageAt = Instant.EPOCH,
+        )
+    chatRepository.myConversations.value = Result.success(listOf(drill))
+    val photo =
+        QueuedPhoto("queued1", drill.id, user.uid, Uri.parse("file:///outbox/queued1.jpg"), null)
+    photoOutbox.add(photo)
+    return photo
+  }
+
+  @Test
+  fun verifiedUser_theirQueuedPhoto_isSentOnceOnline_fromAnyScreen() {
+    val photo = givenAQueuedPhoto()
+
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.waitUntil(5_000) { photoOutbox.queued.value.isEmpty() }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(
+        listOf(photo.messageId to photo.photo),
+        chatRepository.sentPhotos.map { it.messageId to it.photo },
+    )
+  }
+
+  @Test
+  fun unverifiedUser_theirQueuedPhoto_isNotSent() {
+    givenAQueuedPhoto()
+
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+
+    assertTrue(chatRepository.sentPhotos.isEmpty())
+    assertEquals(listOf("queued1"), photoOutbox.queued.value.map { it.messageId })
+  }
+
+  @Test
+  fun signedOut_queuedPhoto_isNotSent() {
+    givenAQueuedPhoto()
+
+    setContent(FakeAuthRepository(currentUser = null))
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+
+    assertTrue(chatRepository.sentPhotos.isEmpty())
+    assertEquals(listOf("queued1"), photoOutbox.queued.value.map { it.messageId })
   }
 
   /** A message the signed-in user sent, to tell which conversation a screen observes. */
@@ -1414,6 +1604,20 @@ class AppNavHostTest {
   }
 
   @Test
+  fun signOutFromSettings_disablesSignOutUntilItFinishes() {
+    val signOutGate = CompletableDeferred<Unit>()
+    setContent(FakeAuthRepository(currentUser = user, signOutGate = signOutGate))
+    openSettings()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).assertIsNotEnabled()
+    signOutGate.complete(Unit)
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
   fun cancellingSignOut_staysOnSettingsSignedIn() {
     val viewModel = setContent(FakeAuthRepository(currentUser = user))
     openSettings()
@@ -1571,9 +1775,10 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
-          listingsMap = { state, _ -> mapState = state },
+          listingsMap = mapStandIn,
       )
     }
     openProfile()
@@ -1652,9 +1857,10 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
-          listingsMap = { state, _ -> mapState = state },
+          listingsMap = mapStandIn,
       )
     }
     composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
@@ -1768,6 +1974,38 @@ class AppNavHostTest {
     composeTestRule.waitForIdle()
 
     assertEquals(listOf("drill", "tent"), mapState?.markers?.map { it.id })
+  }
+
+  @Test
+  fun mapTab_markerPreview_opensTheListingDetail_andBackKeepsThePreview() {
+    listingRepository.allListings =
+        listOf(
+            gracesDrill.copy(location = ListingLocation(46.5185, 6.5683, "Rolex Learning Center"))
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openMap()
+    // Robolectric has no location permission: say "Not now" and pick EPFL, so the location card
+    // doesn't cover the bottom of the map where the preview shows.
+    composeTestRule.onNodeWithTag(MapLocationTags.NOT_NOW_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(MapLocationTags.campusButton(Campus.EPFL)).performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(mapMarkerTag("drill")).performClick()
+    composeTestRule.onNodeWithTag(MapScreenTags.PREVIEW).performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.TITLE).assertTextEquals(gracesDrill.title)
+
+    // The map's ViewModel stays on the back stack, so the renter finds the same preview.
+    Espresso.pressBack()
+    composeTestRule.waitForIdle()
+    assertEquals(Routes.MAP, navController.currentBackStackEntry?.destination?.route)
+    // The same listing's preview, not just any preview.
+    composeTestRule
+        .onNodeWithTag(MapScreenTags.PREVIEW)
+        .assertIsDisplayed()
+        .assert(hasText(gracesDrill.title))
   }
 
   @Test
@@ -2290,6 +2528,8 @@ class AppNavHostTest {
       private val signInGate: CompletableDeferred<Result<User>>? = null,
       /** When set, sign-up waits for it instead of returning [signUpResult]. */
       private val signUpGate: CompletableDeferred<Result<User>>? = null,
+      /** When set, sign-out waits for it. */
+      private val signOutGate: CompletableDeferred<Unit>? = null,
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> =
         signInGate?.await() ?: signInResult
@@ -2298,6 +2538,7 @@ class AppNavHostTest {
         signUpGate?.await() ?: signUpResult
 
     override suspend fun signOut() {
+      signOutGate?.await()
       signOutError?.let { throw it }
     }
 
@@ -2325,5 +2566,5 @@ class AppNavHostTest {
 
 private const val NETWORK_MESSAGE = "No connection. Check your internet and try again."
 
-/** Tag of the stand-in drawn instead of the Google map, which can't run under Robolectric. */
-private const val MAP_STAND_IN = "map_stand_in"
+/** Tag of a marker's button in [AppNavHostTest]'s stand-in map. */
+private fun mapMarkerTag(id: String) = "map_marker_$id"

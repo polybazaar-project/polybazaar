@@ -49,9 +49,9 @@ import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.browse.viewmodel.BrowseUiState
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
-import com.android.polybazaar.chat.ui.rememberPhoto
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.photo.rememberPhoto
 
 object BrowseScreenTags {
   const val SCREEN = "browse_screen"
