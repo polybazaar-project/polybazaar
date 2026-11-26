@@ -41,6 +41,7 @@ import com.android.polybazaar.auth.ui.AuthTitleGroup
 import com.android.polybazaar.browse.ui.ListingCard
 import com.android.polybazaar.browse.viewmodel.BrowseListing
 import com.android.polybazaar.error.ui.message
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.profile.viewmodel.LenderProfileUiState
 import com.android.polybazaar.profile.viewmodel.LenderProfileViewModel
 
@@ -321,7 +322,7 @@ internal fun LenderProfileContentPreview() {
                       BrowseListing(
                           id = "drill",
                           title = "Bosch drill set",
-                          category = "Tools",
+                          category = ListingCategory.ITEM_TOOLS,
                           price = "CHF 8",
                       )
                   ),

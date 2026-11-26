@@ -84,7 +84,7 @@ class LenderProfileViewModelTest {
             BrowseListing(
                 id = "drill",
                 title = "Bosch drill set",
-                category = "Tools",
+                category = ListingCategory.ITEM_TOOLS,
                 price = "CHF 8",
             )
         ),

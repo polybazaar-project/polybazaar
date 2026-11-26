@@ -7,11 +7,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
@@ -68,7 +73,8 @@ class BrowseScreenTest {
           ),
           ItemListing(ListingCategory.ITEM_TOOLS, 5.0, "Claw hammer", "", listingId = "hammer"),
       )
-  private val sampleCategories = listOf("Tools", "Electronics")
+  private val sampleCategories =
+      listOf(ListingCategory.ITEM_TOOLS, ListingCategory.ITEM_ELECTRONICS)
 
   @Test
   fun search_filtersViewModelListings() {
@@ -154,20 +160,21 @@ class BrowseScreenTest {
 
   @Test
   fun categorySelector_highlightsSelected() {
-    var selectedCategory = "Tools"
     composeTestRule.setContent {
       CategorySelector(
           categories = sampleCategories,
-          selectedCategory = selectedCategory,
-          onCategorySelected = { selectedCategory = it },
+          selectedCategory = ListingCategory.ITEM_TOOLS,
+          onCategorySelected = {},
       )
     }
-    composeTestRule.onNodeWithText("Tools").assertIsDisplayed()
+    // Announced as selected, so TalkBack users know which filter is on.
+    categoryChip("Tools").assertIsDisplayed().assertIsSelected()
+    categoryChip("Electronics").assertIsNotSelected()
   }
 
   @Test
   fun categorySelector_withAllCategories_scrollsTheLastChipIntoViewAndSelectsIt() {
-    var selected: String? = null
+    var selected: ListingCategory? = null
     composeTestRule.setContent {
       Box(Modifier.width(NARROW_WIDTH)) {
         CategorySelector(
@@ -242,8 +249,8 @@ class BrowseScreenTest {
     // Read from the ViewModel, not recomputed here, so this still taps the chip the screen shows
     // last if the ViewModel orders categories differently.
     val lastCategory = viewModel.uiState.value.categories.last()
-    val inLastCategory = listings.first { it.category.displayName == lastCategory }
-    val inAnotherCategory = listings.first { it.category.displayName != lastCategory }
+    val inLastCategory = listings.first { it.category == lastCategory }
+    val inAnotherCategory = listings.first { it.category != lastCategory }
 
     val lastChip = categoryChip(lastCategory)
     lastChip.assertIsNotDisplayed()
@@ -256,7 +263,8 @@ class BrowseScreenTest {
 
   @Test
   fun listingCard_displaysAllInfo() {
-    val listing = BrowseListing("id1", "Test Item", "Tools", "100 m away", "CHF 15")
+    val listing =
+        BrowseListing("id1", "Test Item", ListingCategory.ITEM_TOOLS, "100 m away", "CHF 15")
     composeTestRule.setContent { ListingCard(listing) }
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_CARD).assertIsDisplayed()
@@ -332,6 +340,7 @@ class BrowseScreenTest {
       BrowseContent(
           uiState = BrowseUiState(listings = listOf(drillCard), isLoading = true),
           onQueryChange = {},
+          onTypeSelected = {},
           onCategorySelected = {},
           onRetry = {},
       )
@@ -348,6 +357,7 @@ class BrowseScreenTest {
       BrowseContent(
           uiState = BrowseUiState(listings = listOf(drillCard)),
           onQueryChange = {},
+          onTypeSelected = {},
           onCategorySelected = {},
           onRetry = {},
           onOpenListing = { opened += it },
@@ -376,6 +386,7 @@ class BrowseScreenTest {
       BrowseContent(
           uiState = BrowseUiState(listings = listOf(drillCard), error = AppError.NETWORK),
           onQueryChange = {},
+          onTypeSelected = {},
           onCategorySelected = {},
           onRetry = { retries++ },
       )
@@ -448,7 +459,12 @@ class BrowseScreenTest {
   }
 
   private val drillCard =
-      BrowseListing(id = "drill", title = "Bosch drill set", category = "Tools", price = "CHF 8")
+      BrowseListing(
+          id = "drill",
+          title = "Bosch drill set",
+          category = ListingCategory.ITEM_TOOLS,
+          price = "CHF 8",
+      )
 
   private fun showManyListingsScrolledToTheLast() {
     val listings =
@@ -476,13 +492,28 @@ class BrowseScreenTest {
   private fun string(id: Int): String =
       ApplicationProvider.getApplicationContext<android.content.Context>().getString(id)
 
-  private val allCategories = ListingCategory.entries.map { it.displayName }.distinct().sorted()
+  // In the order the ViewModel offers them.
+  private val allCategories =
+      ListingCategory.entries.sortedWith(
+          compareBy({ it.displayName }, { it.type != ListingType.ITEM })
+      )
 
   // Cards show the category too, so this targets the chip in the category selector.
-  private fun categoryChip(category: String): SemanticsNodeInteraction =
+  private fun categoryChip(label: String): SemanticsNodeInteraction =
       composeTestRule.onNode(
-          hasText(category) and hasAnyAncestor(hasTestTag(BrowseScreenTags.CATEGORY_SELECTOR))
+          hasText(label) and hasAnyAncestor(hasTestTag(BrowseScreenTags.CATEGORY_SELECTOR))
       )
+
+  private fun categoryChip(category: ListingCategory): SemanticsNodeInteraction =
+      categoryChip(chipLabelOf(category))
+
+  /** What the chip of [category] says, as [chipLabel] gives it. */
+  private fun chipLabelOf(category: ListingCategory): String =
+      when (category) {
+        ListingCategory.ITEM_OTHER -> string(R.string.browse_category_other_items)
+        ListingCategory.SERVICE_OTHER -> string(R.string.browse_category_other_services)
+        else -> category.displayName
+      }
 
   private fun clickCategory(category: String) {
     categoryChip(category).performClick()
@@ -502,7 +533,15 @@ class BrowseScreenTest {
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   fun listingCard_withAPhoto_showsIt() {
-    val listing = BrowseListing("id1", "Test Item", "Tools", null, "CHF 15", "listings/id1/0")
+    val listing =
+        BrowseListing(
+            "id1",
+            "Test Item",
+            ListingCategory.ITEM_TOOLS,
+            null,
+            "CHF 15",
+            "listings/id1/0",
+        )
     composeTestRule.setContent { ListingCard(listing, photo = jpeg()) }
 
     composeTestRule.waitUntil(5_000) {
@@ -516,7 +555,15 @@ class BrowseScreenTest {
 
   @Test
   fun listingCard_withoutAPhoto_showsNoPhoto() {
-    val listing = BrowseListing("id1", "Test Item", "Tools", null, "CHF 15", "listings/id1/0")
+    val listing =
+        BrowseListing(
+            "id1",
+            "Test Item",
+            ListingCategory.ITEM_TOOLS,
+            null,
+            "CHF 15",
+            "listings/id1/0",
+        )
     composeTestRule.setContent { ListingCard(listing) }
 
     composeTestRule.onNodeWithTag(BrowseScreenTags.LISTING_PHOTO).assertDoesNotExist()
@@ -553,6 +600,104 @@ class BrowseScreenTest {
     composeTestRule
         .onNodeWithTag(BrowseScreenTags.LISTING_PHOTO, useUnmergedTree = true)
         .assertIsDisplayed()
+  }
+
+  /** One listing per category, items and services, titled after the category id. */
+  private val everyCategory =
+      ListingCategory.entries.map {
+        if (it.type == ListingType.ITEM)
+            ItemListing(it, 5.0, "${it.id} listing", "", listingId = it.id)
+        else ServiceListing(it, 5.0, "${it.id} listing", "", listingId = it.id)
+      }
+
+  private fun showEveryCategory(): BrowseViewModel {
+    val viewModel = BrowseViewModel(FakeListingRepository(everyCategory), currentUid)
+    composeTestRule.setContent { BrowseScreen(viewModel = viewModel) }
+    return viewModel
+  }
+
+  @Test
+  fun typeSelector_startsOnAll() {
+    showEveryCategory()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_SELECTOR).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_ALL).assertIsSelected()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_ITEMS).assertIsNotSelected()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_SERVICES).assertIsNotSelected()
+  }
+
+  @Test
+  fun chips_tellTalkBackHowTheyChoose() {
+    showEveryCategory()
+
+    // The type row is one choice among three; a category chip turns off when tapped again.
+    composeTestRule
+        .onNodeWithTag(BrowseScreenTags.TYPE_SELECTOR)
+        .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.SelectableGroup))
+    listOf(BrowseScreenTags.TYPE_ALL, BrowseScreenTags.TYPE_ITEMS, BrowseScreenTags.TYPE_SERVICES)
+        .forEach {
+          composeTestRule
+              .onNodeWithTag(it)
+              .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+        }
+    categoryChip("Tools")
+        .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox))
+  }
+
+  @Test
+  fun choosingItems_showsOnlyItemsAndTheirCategories() {
+    val viewModel = showEveryCategory()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_ITEMS).performClick()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_ITEMS).assertIsSelected()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_ALL).assertIsNotSelected()
+    assertTrue(
+        viewModel.uiState.value.filteredListings.all { it.category.type == ListingType.ITEM }
+    )
+    composeTestRule.onNodeWithText("item_tools listing").assertExists()
+    composeTestRule.onNodeWithText("service_tutoring listing").assertDoesNotExist()
+    categoryChip("Tools").assertExists()
+    categoryChip("Tutoring").assertDoesNotExist()
+    categoryChip(string(R.string.browse_category_other_services)).assertDoesNotExist()
+  }
+
+  @Test
+  fun choosingServices_showsOnlyServicesAndTheirCategories() {
+    val viewModel = showEveryCategory()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_SERVICES).performClick()
+
+    assertTrue(
+        viewModel.uiState.value.filteredListings.all { it.category.type == ListingType.SERVICE }
+    )
+    composeTestRule.onNodeWithText("service_tutoring listing").assertExists()
+    composeTestRule.onNodeWithText("item_tools listing").assertDoesNotExist()
+    categoryChip("Tutoring").assertExists()
+    categoryChip("Tools").assertDoesNotExist()
+  }
+
+  @Test
+  fun choosingAllAgain_showsEveryListing() {
+    val viewModel = showEveryCategory()
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_SERVICES).performClick()
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_ALL).performClick()
+
+    assertEquals(everyCategory.size, viewModel.uiState.value.filteredListings.size)
+    composeTestRule.onNodeWithTag(BrowseScreenTags.TYPE_ALL).assertIsSelected()
+  }
+
+  @Test
+  fun theTwoOtherCategories_haveTheirOwnChips() {
+    showEveryCategory()
+
+    categoryChip(ListingCategory.SERVICE_OTHER).performScrollTo().performClick()
+
+    composeTestRule.onNodeWithText("service_other listing").assertExists()
+    composeTestRule.onNodeWithText("item_other listing").assertDoesNotExist()
+    categoryChip(ListingCategory.SERVICE_OTHER).assertIsSelected()
+    categoryChip(ListingCategory.ITEM_OTHER).assertIsNotSelected()
   }
 }
 
