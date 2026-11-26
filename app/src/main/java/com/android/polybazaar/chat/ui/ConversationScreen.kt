@@ -97,6 +97,7 @@ import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.ChatRules
 import com.android.polybazaar.chat.model.Conversation
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.viewmodel.ConversationListingStatus
 import com.android.polybazaar.chat.viewmodel.ConversationUiState
 import com.android.polybazaar.chat.viewmodel.ConversationViewModel
@@ -175,6 +176,12 @@ object ConversationScreenTags {
 
   /** Tag of Remove on the failed photo with message ID [id]. */
   fun discardPhoto(id: String) = "conversation_discard_photo_$id"
+
+  /** Tag of the bubble of the photo with message ID [id] kept to be sent once back online. */
+  fun queuedPhoto(id: String) = "conversation_queued_photo_$id"
+
+  /** Tag of Remove on the queued photo with message ID [id]. */
+  fun removeQueuedPhoto(id: String) = "conversation_remove_queued_photo_$id"
 }
 
 /** What the screen shows between the header and the composer, decided by [conversationBody]. */
@@ -304,6 +311,7 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
       onLoadPhoto = viewModel::loadPhoto,
       onRetryPhoto = viewModel::retryPhoto,
       onDiscardPhoto = viewModel::discardPhoto,
+      onRemoveQueuedPhoto = viewModel::removeQueuedPhoto,
   )
   if (camera.showPermissionExplanation) {
     CameraPermissionDialog(onDismiss = camera::dismissPermissionExplanation)
@@ -331,6 +339,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  *   user taps a photo that failed to load.
  * @param onRetryPhoto called with the message ID of a failed photo when the user taps Retry.
  * @param onDiscardPhoto called with the message ID of a failed photo when the user taps Remove.
+ * @param onRemoveQueuedPhoto called with the message ID of a queued photo, waiting for a connection
+ *   or failed, when the user taps Remove.
  * @param zone time zone of the message times and days.
  * @param now the current time, which the day dividers count "Today" and "Yesterday" from.
  */
@@ -348,6 +358,7 @@ fun ConversationContent(
     onLoadPhoto: (String) -> Unit = {},
     onRetryPhoto: (String) -> Unit = {},
     onDiscardPhoto: (String) -> Unit = {},
+    onRemoveQueuedPhoto: (String) -> Unit = {},
     zone: ZoneId = ZoneId.systemDefault(),
     now: Instant = Instant.now(),
 ) {
@@ -399,7 +410,8 @@ fun ConversationContent(
                 zone = zone,
                 today = now.atZone(zone).toLocalDate(),
                 onRetry = onRetry,
-                photoActions = PhotoActions(onLoadPhoto, onRetryPhoto, onDiscardPhoto),
+                photoActions =
+                    PhotoActions(onLoadPhoto, onRetryPhoto, onDiscardPhoto, onRemoveQueuedPhoto),
             )
       }
     }
@@ -802,15 +814,19 @@ private class PhotoActions(
     val load: (path: String) -> Unit,
     val retry: (messageId: String) -> Unit,
     val discard: (messageId: String) -> Unit,
+    val removeQueued: (messageId: String) -> Unit,
 )
 
 /** Key of [pending]'s item, prefixed: once sent, a photo's message arrives with the same ID. */
 private fun pendingPhotoKey(pending: PendingPhoto) = "pending_${pending.messageId}"
 
+/** Key of [queued]'s item, prefixed like [pendingPhotoKey]. */
+private fun queuedPhotoKey(queued: QueuedPhoto) = "queued_${queued.messageId}"
+
 /**
  * The messages, oldest at the top, under the day they were sent on, then the photos being sent,
- * with the load error and Retry above them when a reload failed, and a hint over the bottom while a
- * message has arrived below the view.
+ * then those waiting for a connection, with the load error and Retry above them when a reload
+ * failed, and a hint over the bottom while a message has arrived below the view.
  */
 @Composable
 private fun MessageList(
@@ -822,11 +838,15 @@ private fun MessageList(
 ) {
   val messages = uiState.shownMessages
   val pendingPhotos = uiState.pendingPhotos
+  val queuedPhotos = uiState.queuedPhotos
   val items = remember(messages, zone) { conversationItems(messages, zone).asReversed() }
   val newest = messages.lastOrNull()
   val pendingIds = pendingPhotos.map { it.messageId }
   // Item 0, at the bottom of the reversed list: a day's divider sits above its messages.
-  val bottomKey = pendingPhotos.lastOrNull()?.let(::pendingPhotoKey) ?: newest?.id
+  val bottomKey =
+      queuedPhotos.lastOrNull()?.let(::queuedPhotoKey)
+          ?: pendingPhotos.lastOrNull()?.let(::pendingPhotoKey)
+          ?: newest?.id
   val listState = rememberLazyListState()
   val scope = rememberCoroutineScope()
   // Decoded above the list: a bubble that scrolls out of view and back shows its photo at once.
@@ -873,7 +893,11 @@ private fun MessageList(
   // scroll is cut short leaves it up. Looked up by key, which holds whether or not the new message
   // is laid out yet.
   val endKeys by
-      rememberUpdatedState(setOfNotNull(newest?.id) + pendingPhotos.map(::pendingPhotoKey))
+      rememberUpdatedState(
+          setOfNotNull(newest?.id) +
+              pendingPhotos.map(::pendingPhotoKey) +
+              queuedPhotos.map(::queuedPhotoKey)
+      )
   LaunchedEffect(listState) {
     snapshotFlow {
       if (!newestUnseen) return@snapshotFlow false
@@ -898,6 +922,12 @@ private fun MessageList(
           reverseLayout = true,
           verticalArrangement = Arrangement.spacedBy(8.dp),
       ) {
+        items(queuedPhotos.asReversed(), key = ::queuedPhotoKey) { queued ->
+          QueuedPhotoBubble(
+              queued = queued,
+              onRemove = { photoActions.removeQueued(queued.messageId) },
+          )
+        }
         items(pendingPhotos.asReversed(), key = ::pendingPhotoKey) { pending ->
           PendingPhotoBubble(
               pending = pending,
@@ -1258,49 +1288,17 @@ private fun PhotoLoadError(onRetry: (() -> Unit)?, modifier: Modifier) {
  */
 @Composable
 private fun PendingPhotoBubble(pending: PendingPhoto, onRetry: () -> Unit, onDiscard: () -> Unit) {
-  val description = stringResource(R.string.conversation_photo)
   val uploading = pending.status == PendingPhotoStatus.UPLOADING
-  Bubble(
-      isMine = true,
+  FadedPhotoBubble(
       tag = ConversationScreenTags.pendingPhoto(pending.messageId),
-      fixedWidth = true,
+      photo = pending.photo,
+      caption = pending.caption,
+      sending = uploading,
   ) {
-    Box(contentAlignment = Alignment.Center) {
-      // The placeholder shows when the photo on the device can no longer be read.
-      PhotoOrPlaceholder(
-          photo = rememberLocalPhoto(pending.photo),
-          description = description,
-          modifier =
-              Modifier.fillMaxWidth()
-                  .height(BubblePhotoHeight)
-                  .clip(RoundedCornerShape(10.dp))
-                  .alpha(0.6f),
-      )
-      if (uploading) {
-        CircularProgressIndicator(
-            color = AuthColors.CardBackground,
-            strokeWidth = 2.dp,
-            modifier = Modifier.size(24.dp),
-        )
-      }
-    }
-    pending.caption?.let {
-      Text(text = it, color = AuthColors.TextPrimary, fontSize = 14.sp, lineHeight = 19.sp)
-    }
     if (uploading) {
       BubbleFooter(text = stringResource(R.string.conversation_photo_sending))
     } else {
-      Text(
-          text =
-              stringResource(
-                  R.string.conversation_photo_not_sent,
-                  (pending.error ?: AppError.UNKNOWN).message(),
-              ),
-          color = AuthColors.Danger,
-          fontSize = 12.sp,
-          // Announced when it fails: TalkBack's focus is elsewhere, on Send or the field.
-          modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-      )
+      NotSent(pending.error)
       Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         TextButton(
             onClick = onRetry,
@@ -1312,17 +1310,113 @@ private fun PendingPhotoBubble(pending: PendingPhoto, onRetry: () -> Unit, onDis
               fontWeight = FontWeight.SemiBold,
           )
         }
-        TextButton(
+        RemovePhotoButton(
             onClick = onDiscard,
-            modifier = Modifier.testTag(ConversationScreenTags.discardPhoto(pending.messageId)),
-        ) {
-          Text(
-              text = stringResource(R.string.conversation_photo_remove),
-              color = AuthColors.TextSecondary,
-          )
-        }
+            tag = ConversationScreenTags.discardPhoto(pending.messageId),
+        )
       }
     }
+  }
+}
+
+/**
+ * A photo the user sent offline, kept on the device to be sent once back online, as their own
+ * bubble like [PendingPhotoBubble]: waiting for a connection with Remove; with a spinner while it
+ * is sent; or with why it failed and Remove only, as a retry would fail again.
+ */
+@Composable
+private fun QueuedPhotoBubble(queued: QueuedPhoto, onRemove: () -> Unit) {
+  FadedPhotoBubble(
+      tag = ConversationScreenTags.queuedPhoto(queued.messageId),
+      photo = queued.photo,
+      caption = queued.caption,
+      sending = queued.sending,
+  ) {
+    when {
+      queued.sending -> BubbleFooter(text = stringResource(R.string.conversation_photo_sending))
+      queued.error != null -> NotSent(queued.error)
+      else ->
+          Text(
+              text = stringResource(R.string.conversation_photo_waiting),
+              color = AuthColors.TextSecondary,
+              fontSize = 12.sp,
+              // Announced when it starts waiting: TalkBack's focus is elsewhere, on Send say.
+              modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+          )
+    }
+    if (!queued.sending) {
+      RemovePhotoButton(
+          onClick = onRemove,
+          tag = ConversationScreenTags.removeQueuedPhoto(queued.messageId),
+      )
+    }
+  }
+}
+
+/**
+ * My bubble with [photo], read from the device and faded as it is not in the conversation yet, with
+ * a spinner over it while [sending], then its [caption] and [status].
+ */
+@Composable
+private fun FadedPhotoBubble(
+    tag: String,
+    photo: Uri,
+    caption: String?,
+    sending: Boolean,
+    status: @Composable ColumnScope.() -> Unit,
+) {
+  val description = stringResource(R.string.conversation_photo)
+  Bubble(isMine = true, tag = tag, fixedWidth = true) {
+    Box(contentAlignment = Alignment.Center) {
+      // The placeholder shows when the photo on the device can no longer be read.
+      PhotoOrPlaceholder(
+          photo = rememberLocalPhoto(photo),
+          description = description,
+          modifier =
+              Modifier.fillMaxWidth()
+                  .height(BubblePhotoHeight)
+                  .clip(RoundedCornerShape(10.dp))
+                  .alpha(0.6f),
+      )
+      if (sending) {
+        CircularProgressIndicator(
+            color = AuthColors.CardBackground,
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(24.dp),
+        )
+      }
+    }
+    caption?.let {
+      Text(text = it, color = AuthColors.TextPrimary, fontSize = 14.sp, lineHeight = 19.sp)
+    }
+    status()
+  }
+}
+
+/** "Not sent." and why, [error], in a photo's bubble. */
+@Composable
+private fun NotSent(error: AppError?) {
+  Text(
+      text =
+          stringResource(
+              R.string.conversation_photo_not_sent,
+              (error ?: AppError.UNKNOWN).message(),
+          ),
+      color = AuthColors.Danger,
+      fontSize = 12.sp,
+      // Announced when it fails: TalkBack's focus is elsewhere, on Send or the field.
+      modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+  )
+}
+
+/** Remove, on a photo of mine that is not sent. */
+@Composable
+private fun RemovePhotoButton(onClick: () -> Unit, tag: String) {
+  TextButton(onClick = onClick, modifier = Modifier.testTag(tag)) {
+    Text(
+        text = stringResource(R.string.conversation_photo_remove),
+        color = AuthColors.TextSecondary,
+    )
   }
 }
 
@@ -1718,8 +1812,58 @@ internal fun ConversationPhotosPreview() {
                           photo = "file:///preview/photo_3.jpg".toUri(),
                           caption = "And the shelf I mean",
                           status = PendingPhotoStatus.FAILED,
-                          error = AppError.NETWORK,
+                          error = AppError.PERMISSION_DENIED,
                       )
+                  ),
+              isLoading = false,
+          ),
+      zone = ZoneOffset.UTC,
+  )
+}
+
+/**
+ * Two of my photos sent offline: one that failed once back online, and one waiting for a
+ * connection.
+ */
+@Preview(showBackground = true, widthDp = 412, heightDp = 917)
+@Composable
+internal fun ConversationQueuedPhotosPreview() {
+  val start = Instant.parse("2026-05-04T09:12:00Z")
+  ConversationContent(
+      uiState =
+          ConversationUiState(
+              myUid = "renter",
+              messages =
+                  listOf(ChatMessage("1", "renter", "Could you send a photo of the drill?", start)),
+              conversation =
+                  Conversation(
+                      listingId = "drill",
+                      listingTitle = "Bosch drill set",
+                      renterUid = "renter",
+                      lenderUid = "lender",
+                      lastMessageAt = start,
+                  ),
+              listingTitle = "Bosch drill set",
+              listingStatus = ConversationListingStatus.ACTIVE,
+              otherUser = User(uid = "lender", email = "", username = "james"),
+              canAttachPhoto = true,
+              queuedPhotos =
+                  listOf(
+                      QueuedPhoto(
+                          messageId = "4",
+                          conversationId = "drill_renter",
+                          senderUid = "renter",
+                          photo = "file:///preview/photo_4.jpg".toUri(),
+                          caption = "The bits I have",
+                          error = AppError.PERMISSION_DENIED,
+                      ),
+                      QueuedPhoto(
+                          messageId = "5",
+                          conversationId = "drill_renter",
+                          senderUid = "renter",
+                          photo = "file:///preview/photo_5.jpg".toUri(),
+                          caption = null,
+                      ),
                   ),
               isLoading = false,
           ),
