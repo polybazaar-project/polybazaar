@@ -6,6 +6,11 @@ package com.android.polybazaar.booking.model
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
 
 /**
  * A [BookingRepository] in memory, for tests. It records the last booking requested and how many
@@ -17,8 +22,7 @@ import kotlinx.coroutines.currentCoroutineContext
  * with [loadFailure] when set. [acceptBooking] changes [listingBookings] as the real repository
  * does: the booking is confirmed and the other requests sharing a day with it cancelled. It waits
  * for [acceptGate] when set and fails with [acceptFailure] when set, leaving [listingBookings]
- * unchanged. [cancelBooking] records the id in [cancelledIds] and, unless it fails, cancels that
- * booking in [listingBookings].
+ * unchanged.
  *
  * [getBookingsForLender] returns [lenderBookings], or throws [lenderLoadFailure], after
  * [pendingLenderLoad]; it has its own fields so that a screen loading both kinds of bookings can
@@ -42,7 +46,6 @@ class FakeBookingRepository : BookingRepository {
   var loadFailure: Exception? = null
   var loadCount = 0
   var cancellationCount = 0
-  val cancelledIds = mutableListOf<String>()
   var cancelFailure: Exception? = null
   var pendingCancel: CompletableDeferred<Unit>? = null
   var cancelWriteFailure: ((Exception) -> Unit)? = null
@@ -51,6 +54,12 @@ class FakeBookingRepository : BookingRepository {
   val handoverConfirmations = mutableListOf<String>()
   val returnNotifications = mutableListOf<String>()
   val returnConfirmations = mutableListOf<String>()
+  val bookingUpdates = MutableSharedFlow<ObservedBookings>(extraBufferCapacity = 1)
+  var bookingUpdateFailure: Exception? = null
+  var confirmationWriteFailure: ((Exception) -> Unit)? = null
+  var immediateConfirmationFailure: Exception? = null
+  val dismissedConfirmations = mutableListOf<String>()
+  var dismissConfirmationError: Exception? = null
 
   val accepted = mutableListOf<Booking>()
   var acceptGate: CompletableDeferred<Unit>? = null
@@ -102,34 +111,51 @@ class FakeBookingRepository : BookingRepository {
     return renterBookings
   }
 
+  override fun observeBookingsForListing(listingId: String): Flow<ObservedBookings> = flow {
+    emit(ObservedBookings(getBookingsForListing(listingId)))
+    emitAll(bookingUpdates.onEach { bookingUpdateFailure?.let { throw it } })
+  }
+
+  override fun observeBookingsForRenter(): Flow<ObservedBookings> = flow {
+    emit(ObservedBookings(getBookingsForRenter()))
+    emitAll(bookingUpdates.onEach { bookingUpdateFailure?.let { throw it } })
+  }
+
   override suspend fun cancelBooking(id: String, onWriteFailure: (Exception) -> Unit) {
     cancellationCount++
-    cancelledIds += id
     cancelWriteFailure = onWriteFailure
     pendingCancel?.await()
-    immediateCancelWriteFailure?.let {
-      onWriteFailure(it)
-      return
-    }
+    immediateCancelWriteFailure?.let(onWriteFailure)
     cancelFailure?.let { throw it }
-    listingBookings = listingBookings.map {
-      if (it.id == id) it.copy(status = BookingStatus.CANCELLED) else it
-    }
   }
 
   override suspend fun notifyHandover(id: String, onWriteFailure: (Exception) -> Unit) {
     handoverNotifications += id
+    recordConfirmationFailure(onWriteFailure)
   }
 
   override suspend fun confirmHandover(id: String, onWriteFailure: (Exception) -> Unit) {
     handoverConfirmations += id
+    recordConfirmationFailure(onWriteFailure)
   }
 
   override suspend fun notifyReturn(id: String, onWriteFailure: (Exception) -> Unit) {
     returnNotifications += id
+    recordConfirmationFailure(onWriteFailure)
   }
 
   override suspend fun confirmReturn(id: String, onWriteFailure: (Exception) -> Unit) {
     returnConfirmations += id
+    recordConfirmationFailure(onWriteFailure)
+  }
+
+  override suspend fun dismissConfirmationFailure(id: String) {
+    dismissedConfirmations += id
+    dismissConfirmationError?.let { throw it }
+  }
+
+  private fun recordConfirmationFailure(onWriteFailure: (Exception) -> Unit) {
+    confirmationWriteFailure = onWriteFailure
+    immediateConfirmationFailure?.let(onWriteFailure)
   }
 }

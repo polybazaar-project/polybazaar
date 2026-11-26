@@ -4,11 +4,13 @@ package com.android.polybazaar.browse.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.android.polybazaar.chat.viewmodel.attempt
 import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.attempt
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
+import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
+import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.formatChf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,15 +19,37 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** @property photoPath Storage path of the listing's first photo, null when it has none. */
+/**
+ * @property category the listing's category, which also gives its type (item or service).
+ * @property photoPath Storage path of the listing's first photo, null when it has none.
+ */
 data class BrowseListing(
     val id: String,
     val title: String,
-    val category: String,
+    val category: ListingCategory,
     val distance: String? = null,
     val price: String,
     val photoPath: String? = null,
 )
+
+/**
+ * What the renter narrowed Browse down to. A listing is shown when it matches all of them.
+ *
+ * @property query text the listing's title must contain, ignoring case. Empty matches every title.
+ * @property type the type listings must have, or null for both items and services.
+ * @property category the category listings must be in, or null for any. When [type] is set, it is
+ *   one of that type's categories.
+ */
+data class BrowseFilters(
+    val query: String = "",
+    val type: ListingType? = null,
+    val category: ListingCategory? = null,
+) {
+  fun matches(listing: BrowseListing): Boolean =
+      (type == null || listing.category.type == type) &&
+          (category == null || listing.category == category) &&
+          listing.title.contains(query, ignoreCase = true)
+}
 
 /**
  * @property photos the cards' photos downloaded so far, by Storage path. A photo still downloading,
@@ -33,18 +57,26 @@ data class BrowseListing(
  */
 data class BrowseUiState(
     val listings: List<BrowseListing> = emptyList(),
-    val categories: List<String> = emptyList(),
-    val query: String = "",
-    val selectedCategory: String? = null,
+    val filters: BrowseFilters = BrowseFilters(),
     val isLoading: Boolean = false,
     val error: AppError? = null,
     val photos: Map<String, ByteArray> = emptyMap(),
 ) {
+  /**
+   * The categories to offer as chips: those with at least one listing, of the selected type when
+   * one is. Ordered by name, items before services for the same name, so the two "Other" categories
+   * sit side by side.
+   */
+  val categories: List<ListingCategory>
+    get() =
+        listings
+            .map { it.category }
+            .filter { filters.type == null || it.type == filters.type }
+            .distinct()
+            .sortedWith(compareBy({ it.displayName }, { it.type != ListingType.ITEM }))
+
   val filteredListings: List<BrowseListing>
-    get() = listings.filter { listing ->
-      (selectedCategory == null || listing.category == selectedCategory) &&
-          listing.title.contains(query, ignoreCase = true)
-    }
+    get() = listings.filter(filters::matches)
 }
 
 /**
@@ -58,16 +90,16 @@ internal fun Listing.toBrowseListing(): BrowseListing? {
   return BrowseListing(
       id = id,
       title = title,
-      category = category.displayName,
+      category = category,
       price = formatChf(price),
       photoPath = imagePaths.firstOrNull(),
   )
 }
 
 /**
- * Holds the Browse screen: the listings other users offer, with the search text and category
- * filter. [currentUid] is the signed-in user, whose own listings are left out because they cannot
- * rent from themselves.
+ * Holds the Browse screen: the listings other users offer, with the renter's [BrowseFilters].
+ * [currentUid] is the signed-in user, whose own listings are left out because they cannot rent from
+ * themselves.
  */
 class BrowseViewModel(
     private val listingRepository: ListingRepository,
@@ -98,15 +130,18 @@ class BrowseViewModel(
             .onSuccess { listings ->
               val cards =
                   listings.filter { it.ownerUid != currentUid }.mapNotNull { it.toBrowseListing() }
-              val categories = cards.map { it.category }.distinct().sorted()
               val photoPaths = cards.mapNotNull { it.photoPath }.toSet()
               _uiState.update {
                 it.copy(
                     listings = cards,
-                    categories = categories,
-                    // A category with no listing left cannot be unselected from the screen.
-                    selectedCategory =
-                        it.selectedCategory?.takeIf { category -> category in categories },
+                    // A category with no listing left has no chip, so could not be unselected.
+                    filters =
+                        it.filters.copy(
+                            category =
+                                it.filters.category?.takeIf { category ->
+                                  cards.any { card -> card.category == category }
+                                }
+                        ),
                     // A photo no card shows any more is dropped with its card.
                     photos = it.photos.filterKeys { path -> path in photoPaths },
                 )
@@ -149,12 +184,26 @@ class BrowseViewModel(
   }
 
   fun updateQuery(query: String) {
-    _uiState.update { it.copy(query = query) }
+    _uiState.update { it.copy(filters = it.filters.copy(query = query)) }
   }
 
-  fun selectCategory(category: String) {
+  /**
+   * Shows only listings of [type], or both items and services for null. A selected category of the
+   * other type is cleared, since its chip is no longer shown.
+   */
+  fun selectType(type: ListingType?) {
     _uiState.update {
-      it.copy(selectedCategory = if (it.selectedCategory == category) null else category)
+      val category =
+          it.filters.category?.takeIf { category -> type == null || category.type == type }
+      it.copy(filters = it.filters.copy(type = type, category = category))
+    }
+  }
+
+  /** Selects [category], or clears it when it is already selected. */
+  fun selectCategory(category: ListingCategory) {
+    _uiState.update {
+      val selected = if (it.filters.category == category) null else category
+      it.copy(filters = it.filters.copy(category = selected))
     }
   }
 }

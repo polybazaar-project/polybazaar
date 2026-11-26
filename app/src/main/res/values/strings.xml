@@ -1,5 +1,6 @@
 <!-- Co-authored-by: Claude Code (Claude Opus 5.5) -->
 <!-- Co-authored-by: Claude Code (Claude Fable 5.2) -->
+<!-- Co-authored-by: Copilot (Auto) -->
 <resources>
     <string name="app_name">PolyBazaar</string>
     <string name="title_activity_main">PolyBazaar</string>
@@ -22,6 +23,11 @@
     <string name="browse_nearby_location">Zürich · within 2 km</string>
     <string name="browse_price_per_day">/ day</string>
     <string name="browse_retry">Retry</string>
+    <string name="browse_type_all">All</string>
+    <string name="browse_type_items">Items</string>
+    <string name="browse_type_services">Services</string>
+    <string name="browse_category_other_items">Other items</string>
+    <string name="browse_category_other_services">Other services</string>
     <string name="session_retry">Retry</string>
 
     <!-- Lender profile screen -->
@@ -31,6 +37,17 @@
     <string name="lender_profile_listings_title">Their listings</string>
     <string name="lender_profile_no_listings">This lender has no listings yet.</string>
     <string name="lender_profile_not_found">This profile no longer exists.</string>
+
+    <!-- Create listing screen -->
+    <string name="listing_saved_offline">Saved offline. Your listing will be published when you’re back online.</string>
+    <plurals name="listing_drafts_published">
+        <item quantity="one">Your listing created offline was published.</item>
+        <item quantity="other">%d listings created offline were published.</item>
+    </plurals>
+    <plurals name="listing_drafts_failed">
+        <item quantity="one">A listing created offline couldn’t be published. We’ll try again later.</item>
+        <item quantity="other">%d listings created offline couldn’t be published. We’ll try again later.</item>
+    </plurals>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
@@ -102,6 +119,7 @@
     <string name="conversation_empty_tagline">Good tools. Great neighbours.</string>
     <string name="conversation_my_message_footer">You · %1$s</string>
     <string name="conversation_their_message_footer">%1$s · %2$s</string>
+    <string name="conversation_message_sending">Sending…</string>
     <string name="conversation_placeholder">Write a message…</string>
     <string name="conversation_placeholder_closed">Conversation closed</string>
     <string name="conversation_send">Send</string>
@@ -117,6 +135,7 @@
     <string name="conversation_photo_load_failed_retry">Couldn’t load the photo · Tap to retry</string>
     <string name="conversation_photo_load_failed">Couldn’t load the photo</string>
     <string name="conversation_photo_sending">Sending…</string>
+    <string name="conversation_photo_waiting">Waiting for connection</string>
     <string name="conversation_photo_not_sent">Not sent. %1$s</string>
     <string name="conversation_photo_remove">Remove</string>
     <string name="conversation_length_counter">%1$d/%2$d</string>
@@ -313,6 +332,41 @@
     <string name="bookings_status_requested">Requested</string>
     <string name="bookings_status_confirmed">Confirmed</string>
     <string name="bookings_status_cancelled">Cancelled</string>
+    <string name="booking_handover_return">Handover &amp; return</string>
+    <string name="booking_step">Step %1$d of 5</string>
+    <string name="booking_observation_failed">Live updates stopped. Retry to refresh bookings.\n%1$s</string>
+    <string name="booking_updates_unavailable">Updates unavailable</string>
+    <string name="booking_updates_unavailable_help">Retry live updates to see the current status.</string>
+    <string name="booking_checking_confirmation">Checking confirmation</string>
+    <string name="booking_checking_confirmation_help">Connect to check whether your confirmation was saved.</string>
+    <string name="booking_confirmation_not_saved">Your confirmation wasn\'t saved.</string>
+    <string name="booking_confirmation_dismiss">Dismiss</string>
+    <string name="booking_ready_handover">Ready for handover</string>
+    <string name="booking_wait_handover">Waiting for handover</string>
+    <string name="booking_handover_notified">Handover notified</string>
+    <string name="booking_wait_renter">Waiting for renter</string>
+    <string name="booking_ready_return">Ready to return</string>
+    <string name="booking_wait_return">Waiting for return</string>
+    <string name="booking_return_notified">Return notified</string>
+    <string name="booking_wait_lender">Waiting for lender</string>
+    <string name="booking_return_completed">Return completed</string>
+    <string name="booking_notify_handover">Notify handover</string>
+    <string name="booking_confirm_handover">Confirm handover</string>
+    <string name="booking_notify_return">Notify return</string>
+    <string name="booking_confirm_return">Confirm return</string>
+    <string name="booking_handover_lender_help">Tell the renter when you hand over the item.</string>
+    <string name="booking_handover_renter_wait_help">The lender will notify you when they hand over the item.</string>
+    <string name="booking_handover_lender_wait_help">The renter needs to confirm the handover.</string>
+    <string name="booking_handover_renter_help">Confirm that you received the item.</string>
+    <string name="booking_return_lender_wait_help">The renter will notify you when they return the item.</string>
+    <string name="booking_return_renter_help">Tell the lender when you return the item.</string>
+    <string name="booking_return_lender_help">Confirm that you received the item back.</string>
+    <string name="booking_return_renter_wait_help">The lender needs to confirm the return.</string>
+    <string name="booking_completed_help">Both parties have confirmed the return.</string>
+    <string name="booking_pending_sync">Pending sync</string>
+    <string name="booking_pending_sync_help">Saved on this device. Waiting to sync.</string>
+    <string name="booking_saving_confirmation">Saving…</string>
+    <string name="booking_saving_confirmation_help">Saving your confirmation on this device.</string>
 
     <!-- Booking requests received by a lender -->
     <string name="listing_detail_booking_requests">Booking requests</string>
@@ -326,11 +380,8 @@
         <item quantity="other">%1$d days</item>
     </plurals>
     <string name="received_requests_accept">Accept</string>
+    <string name="received_requests_unavailable">Some of these days are no longer offered, so this request can\'t be accepted.</string>
     <string name="received_requests_cancel">Cancel</string>
-    <string name="received_requests_cancel_booking">Cancel booking</string>
-    <string name="received_requests_cancel_title">Cancel this booking?</string>
-    <string name="received_requests_cancel_text">%1$s will no longer have %2$s. These days stay off your listing: add them back in Edit listing to lend them again.</string>
-    <string name="received_requests_keep">Keep booking</string>
     <string name="received_requests_confirm_title">Accept this request?</string>
     <string name="received_requests_confirm_text">%1$s gets %2$s. No one else can request these days.</string>
     <plurals name="received_requests_confirm_cancels">
