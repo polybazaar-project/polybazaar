@@ -143,7 +143,7 @@ object AppNavHostTags {
  * @param placeNameRepository suggests the neighbourhood and town as the name of a listing location
  *   off campus.
  * @param connectivityRepository tells the listing forms and the conversations whether the device is
- *   online.
+ *   online, and the photo sender when to send.
  * @param photoOutbox keeps the chat photos sent offline, sent from any screen once back online.
  * @param pendingListingQueue keeps the listings created offline, to publish once back online.
  */
@@ -582,7 +582,7 @@ fun AppNavHost(
                               photoStorage = chatPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               uploadScope = photoUploadScope,
-                              connectivity = connectivityRepository,
+                              photoOutbox = photoOutbox,
                           )
                         }
                       }
