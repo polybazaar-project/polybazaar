@@ -35,12 +35,15 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ListingPendingDetails
+import com.android.polybazaar.listing.model.PendingListingChange
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.viewmodel.ListingDetailUiState
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
@@ -67,6 +70,8 @@ class ListingDetailScreenTest {
   @get:Rule val composeTestRule = createComposeRule()
 
   private val context: Context = ApplicationProvider.getApplicationContext()
+  private val queue = FakePendingListingQueue()
+  private val online = FakeConnectivityRepository()
 
   private val drill =
       ItemListing(
@@ -397,7 +402,7 @@ class ListingDetailScreenTest {
         }
     val profiles = mock<ProfileRepository> { on { observeProfile(any()) } doReturn flowOf(lender) }
     val auth = mock<AuthRepository> { onBlocking { getCurrentUser() } doReturn lender }
-    val viewModel = ListingDetailViewModel("drill", listings, profiles, auth)
+    val viewModel = ListingDetailViewModel("drill", listings, profiles, auth, queue, online)
 
     composeTestRule.setContent {
       ListingDetailScreen(viewModel = viewModel, actions = ListingDetailActions())
@@ -519,6 +524,36 @@ class ListingDetailScreenTest {
   }
 
   @Test
+  fun keptPause_toItsOwner_isMarkedWaitingToSync_andKeepsTheActions() {
+    val change = PendingListingChange("drill", "lender-1", paused = true)
+    setContent(ownerState(drill.copy(isPaused = true)).copy(pendingChange = change))
+
+    node(ListingDetailScreenTags.SYNC_BADGE)
+        .assertTextEquals(context.getString(R.string.listing_detail_waiting_to_sync).uppercase())
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertIsEnabled()
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).assertIsEnabled()
+  }
+
+  @Test
+  fun keptDelete_toItsOwner_isMarkedWaitingToSync_andDisablesTheActions() {
+    val change = PendingListingChange("drill", "lender-1", isDeleted = true)
+    setContent(ownerState().copy(pendingChange = change))
+
+    node(ListingDetailScreenTags.SYNC_BADGE)
+        .assertTextEquals(context.getString(R.string.listing_detail_deletion_waiting).uppercase())
+    node(ListingDetailScreenTags.EDIT_BUTTON).assertIsNotEnabled()
+    node(ListingDetailScreenTags.OWNER_MENU_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun keptChange_isNotShownToARenter() {
+    val change = PendingListingChange("drill", "lender-1", paused = true)
+    setContent(ListingDetailUiState(listing = drill, lender = lender, pendingChange = change))
+
+    node(ListingDetailScreenTags.SYNC_BADGE).assertDoesNotExist()
+  }
+
+  @Test
   fun ownerActionFailed_saysWhyUnderTheButton() {
     setContent(ownerState().copy(ownerActionError = AppError.NETWORK))
 
@@ -565,7 +600,7 @@ class ListingDetailScreenTest {
     val listings = FakeListingRepository(allListings = listOf(drill))
     val profiles = mock<ProfileRepository> { on { observeProfile(any()) } doReturn flowOf(lender) }
     val auth = mock<AuthRepository> { onBlocking { getCurrentUser() } doReturn lender }
-    val viewModel = ListingDetailViewModel("drill", listings, profiles, auth)
+    val viewModel = ListingDetailViewModel("drill", listings, profiles, auth, queue, online)
     var leaves = 0
 
     composeTestRule.setContent {

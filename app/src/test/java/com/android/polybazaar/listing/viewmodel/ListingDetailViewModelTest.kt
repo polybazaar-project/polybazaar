@@ -4,13 +4,17 @@ package com.android.polybazaar.listing.viewmodel
 import android.net.Uri
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
+import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.listing.model.FakeListingRepository
+import com.android.polybazaar.listing.model.FakePendingListingQueue
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingPendingDetails
+import com.android.polybazaar.listing.model.PendingListingChange
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
+import java.io.IOException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -19,6 +23,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -55,6 +60,8 @@ class ListingDetailViewModelTest {
   private val listings = FakeListingRepository(allListings = listOf(listing))
   private val profiles = FakeProfileRepository(mapOf(lender.uid to lender))
   private val auth = FakeAuthRepository(verifiedViewer)
+  private val pendingQueue = FakePendingListingQueue(ownerUid = lender.uid)
+  private val connectivity = FakeConnectivityRepository()
 
   @Before
   fun setUp() {
@@ -68,7 +75,8 @@ class ListingDetailViewModelTest {
 
   /** Creates the ViewModel and runs its first load to the end. */
   private fun loadedViewModel(listingId: String = listing.listingId!!): ListingDetailViewModel {
-    val viewModel = ListingDetailViewModel(listingId, listings, profiles, auth)
+    val viewModel =
+        ListingDetailViewModel(listingId, listings, profiles, auth, pendingQueue, connectivity)
     testDispatcher.scheduler.advanceUntilIdle()
     return viewModel
   }
@@ -95,7 +103,8 @@ class ListingDetailViewModelTest {
     val gate = CompletableDeferred<Unit>()
     listings.gate = gate
 
-    val viewModel = ListingDetailViewModel(listing.listingId!!, listings, profiles, auth)
+    val viewModel =
+        ListingDetailViewModel("drill", listings, profiles, auth, pendingQueue, connectivity)
     testDispatcher.scheduler.runCurrent()
     assertTrue(viewModel.uiState.value.isLoading)
     assertNull(viewModel.uiState.value.listing)
@@ -355,6 +364,100 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun offlinePause_isQueued_shownAtOnce_andReloadedOnceSynced() {
+    val viewModel = ownerViewModel()
+    connectivity.isOnline.value = false
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val change = PendingListingChange(listing.listingId!!, lender.uid, paused = true)
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertEquals(listOf(change), pendingQueue.changes.value)
+    assertEquals(true, viewModel.uiState.value.listing?.isPaused)
+    assertEquals(change, viewModel.uiState.value.pendingChange)
+
+    // Saved by the sync: the listing is read again, as Firestore now has it.
+    listings.allListings = listOf(listing.copy(isPaused = true, title = "Synced"))
+    val readsBefore = listings.getListingCalls
+    runBlocking { pendingQueue.removeChange(change) }
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(readsBefore + 1, listings.getListingCalls)
+    assertNull(viewModel.uiState.value.pendingChange)
+    assertEquals("Synced", viewModel.uiState.value.listing?.title)
+  }
+
+  @Test
+  fun offlinePause_thatCannotBeKept_leavesTheListing_andSaysWhy() {
+    val viewModel = ownerViewModel()
+    connectivity.isOnline.value = false
+    pendingQueue.failure = IOException("Disk full")
+
+    viewModel.setPaused(true)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(false, viewModel.uiState.value.listing?.isPaused)
+    assertEquals(AppError.UNKNOWN, viewModel.uiState.value.ownerActionError)
+  }
+
+  @Test
+  fun keptPause_isShownToTheOwnerOnly() {
+    runBlocking { pendingQueue.enqueueChange(listing.listingId!!, paused = true) }
+
+    assertEquals(false, loadedViewModel().uiState.value.listing?.isPaused)
+    assertEquals(true, ownerViewModel().uiState.value.listing?.isPaused)
+  }
+
+  @Test
+  fun onlineResumeOrDelete_forgetsTheKeptPause() {
+    runBlocking { pendingQueue.enqueueChange("drill", paused = true) }
+    val viewModel = ownerViewModel()
+    viewModel.setPaused(false)
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertTrue(pendingQueue.changes.value.isEmpty())
+
+    runBlocking { pendingQueue.enqueueChange("drill", paused = true) }
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertTrue(pendingQueue.changes.value.isEmpty())
+    assertEquals(listOf("drill"), listings.deletedListingIds)
+  }
+
+  @Test
+  fun offlineDelete_isQueued_andTheScreenLeavesSayingSo() {
+    val viewModel = ownerViewModel()
+    connectivity.isOnline.value = false
+
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val state = viewModel.uiState.value
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertEquals(
+        listOf(PendingListingChange(listing.listingId!!, lender.uid, isDeleted = true)),
+        pendingQueue.changes.value,
+    )
+    assertTrue(state.isDeleted)
+    assertTrue(state.isDeletionQueued)
+  }
+
+  @Test
+  fun keptDelete_blocksTheOwnerActions() {
+    runBlocking { pendingQueue.enqueueChange(listing.listingId!!, delete = true) }
+    val viewModel = ownerViewModel()
+
+    viewModel.setPaused(true)
+    viewModel.deleteListing()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(listings.pauseCalls.isEmpty())
+    assertTrue(listings.deletedListingIds.isEmpty())
+    assertFalse(viewModel.uiState.value.isDeleted)
+    assertEquals(true, viewModel.uiState.value.pendingChange?.isDeleted)
+  }
+
+  @Test
   fun cancelledPause_isNotShownAsAnError_andAllowsTheNextAction() {
     val viewModel = ownerViewModel()
     listings.failure = CancellationException("Screen closed")
@@ -482,7 +585,8 @@ class ListingDetailViewModelTest {
   fun loadListing_whileALoadIsRunning_isIgnored() {
     val gate = CompletableDeferred<Unit>()
     listings.gate = gate
-    val viewModel = ListingDetailViewModel(listing.listingId!!, listings, profiles, auth)
+    val viewModel =
+        ListingDetailViewModel("drill", listings, profiles, auth, pendingQueue, connectivity)
     testDispatcher.scheduler.runCurrent()
 
     viewModel.loadListing()

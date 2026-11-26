@@ -107,6 +107,7 @@ object ListingDetailScreenTags {
   const val FULL_SCREEN_CLOSE = "listing_detail_full_screen_close"
   const val PAUSED_BADGE = "listing_detail_paused_badge"
   const val PAUSED_NOTICE = "listing_detail_paused_notice"
+  const val SYNC_BADGE = "listing_detail_sync_badge"
   const val OWNER_ACTION_ERROR = "listing_detail_owner_action_error"
   const val BOOKING_REQUESTS_BUTTON = "listing_detail_booking_requests_button"
 }
@@ -147,6 +148,10 @@ internal fun listingDetailBody(state: ListingDetailUiState): ListingDetailBody =
       state.error != null -> ListingDetailBody.ERROR
       else -> ListingDetailBody.LOADING
     }
+
+/** Whether the owner may edit, pause, resume or delete: not while saving, nor once deleted. */
+private val ListingDetailUiState.ownerActionsEnabled: Boolean
+  get() = !isUpdating && pendingChange?.isDeleted != true
 
 /** Side margin of the page, the x of the content in the Figma frame "Rental listing detail". */
 private val PageMargin = 18.dp
@@ -245,7 +250,7 @@ private fun ColumnScope.ListingDetail(
       if (uiState.isOwner) {
         OwnerMenu(
             isPaused = listing.isPaused,
-            enabled = !uiState.isUpdating,
+            enabled = uiState.ownerActionsEnabled,
             onSetPaused = ownerCalls.onSetPaused,
             onDeleteRequest = { confirmingDelete = true },
             // 19dp in and 11dp down, where the Figma puts the ⋮ button.
@@ -258,6 +263,15 @@ private fun ColumnScope.ListingDetail(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       Overview(listing, uiState.pendingDetails)
+      // The owner's change made offline, until it is saved.
+      if (uiState.isOwner && uiState.pendingChange != null) {
+        PausedBadge(
+            Modifier.testTag(ListingDetailScreenTags.SYNC_BADGE),
+            text =
+                if (uiState.pendingChange.isDeleted) R.string.listing_detail_deletion_waiting
+                else R.string.listing_detail_waiting_to_sync,
+        )
+      }
       if (listing.isPaused) PausedNotice(text = pausedNoticeText(uiState.isOwner))
       DescriptionSection(listing, uiState.pendingDetails)
       TermsSection(listing, uiState.pendingDetails)
@@ -598,7 +612,7 @@ private fun BookingBar(
         BarButton(
             text = stringResource(R.string.listing_detail_edit),
             icon = R.drawable.ic_pencil,
-            enabled = !uiState.isUpdating && listingId != null,
+            enabled = uiState.ownerActionsEnabled && listingId != null,
             tag = ListingDetailScreenTags.EDIT_BUTTON,
             onClick = { listingId?.let(actions.onEdit) },
         )

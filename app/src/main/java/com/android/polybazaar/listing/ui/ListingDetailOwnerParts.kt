@@ -1,6 +1,7 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -190,11 +191,16 @@ internal fun DeleteListingDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
  * @param modifier for the screen's own test tag, for example.
  * @param verticalPadding inside the pill. The Toolbox passes 0.dp so a paused row is as tall as an
  *   active one: the badge's line is then as tall as the title's.
+ * @param text the pill's text, for example the detail's "Waiting to sync" in the same style.
  */
 @Composable
-internal fun PausedBadge(modifier: Modifier = Modifier, verticalPadding: Dp = 7.dp) {
+internal fun PausedBadge(
+    modifier: Modifier = Modifier,
+    verticalPadding: Dp = 7.dp,
+    @StringRes text: Int = R.string.listing_detail_paused,
+) {
   Text(
-      text = stringResource(R.string.listing_detail_paused).uppercase(),
+      text = stringResource(text).uppercase(),
       color = PausedBadgeText,
       fontSize = 11.sp,
       fontWeight = FontWeight.SemiBold,

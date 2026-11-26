@@ -96,6 +96,9 @@
     <string name="listing_detail_delete_confirm">Delete</string>
     <string name="listing_detail_delete_cancel">Cancel</string>
     <string name="listing_detail_paused">Paused</string>
+    <string name="listing_detail_waiting_to_sync">Waiting to sync</string>
+    <string name="listing_detail_deletion_waiting">Deletion waiting to sync</string>
+    <string name="listing_deletion_queued">This listing will be deleted once you’re back online.</string>
     <string name="listing_detail_paused_title">Listing paused</string>
     <string name="listing_detail_owner_paused_text">Hidden from Browse and your profile. Resume it to take bookings again.</string>
     <string name="listing_detail_renter_paused_text">The lender isn\'t taking bookings right now.</string>

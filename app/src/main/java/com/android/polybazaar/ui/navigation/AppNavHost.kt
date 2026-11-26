@@ -417,10 +417,13 @@ fun AppNavHost(
                               listingRepository = listingRepository,
                               profileRepository = profileRepository,
                               authRepository = authRepository,
+                              pendingListingQueue = pendingListingQueue,
+                              connectivityRepository = connectivityRepository,
                           )
                         }
                       }
               )
+          val deletionQueuedMessage = stringResource(R.string.listing_deletion_queued)
           // The listing is read once, so coming back to it, for example after editing it, loads
           // it again. On opening, the ViewModel ignores this call while its first load runs.
           LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { detailViewModel.loadListing() }
@@ -439,7 +442,13 @@ fun AppNavHost(
                       onOpenBookings = {
                         navController.navigate(Routes.lenderBookings(it)) { launchSingleTop = true }
                       },
-                      onDeleted = { navController.popBackStack() },
+                      onDeleted = {
+                        // Deleted offline: the delete is saved once back online.
+                        if (detailViewModel.uiState.value.isDeletionQueued) {
+                          showMessage(deletionQueuedMessage)
+                        }
+                        navController.popBackStack()
+                      },
                       // The viewer messages the owner as the renter. Single top, so a double tap
                       // does not stack two conversation screens.
                       onMessageLender = {
