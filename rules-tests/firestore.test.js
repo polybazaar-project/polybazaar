@@ -806,7 +806,10 @@ describe("listings", () => {
     await assertSucceeds(updateDoc(listing, { availableDates: deleteField() }));
   });
 
-  const epfl = { latitude: 46.5191, longitude: 6.5668, name: "Rolex Learning Center" };
+  // On the app's 0.02° grid, as ListingLocation.approximate() stores it (#23).
+  const epfl = { latitude: 46.52, longitude: 6.56, name: "Rolex Learning Center" };
+  // The exact point a lender picked, before snapping.
+  const exactRolex = { latitude: 46.5191, longitude: 6.5668, name: "Rolex Learning Center" };
 
   // Every location a listing must not store, on create and on update alike.
   const invalidLocations = {
@@ -865,6 +868,42 @@ describe("listings", () => {
       await refused(label, updateDoc(listing, { location }));
     }
     await assertSucceeds(updateDoc(listing, { location: deleteField() }));
+  });
+
+  test("a new listing can only store the approximate point", async () => {
+    const db = verified(ALICE);
+    await refused("exact point", setDoc(doc(db, "listings/l1"), itemListing({ location: exactRolex })));
+    await refused(
+      "exact longitude",
+      setDoc(doc(db, "listings/s1"), serviceListing({ location: { ...epfl, longitude: 6.5668 } })),
+    );
+    // Whole and negative degrees are on the grid too.
+    await assertSucceeds(
+      setDoc(doc(db, "listings/l2"), itemListing({ location: { latitude: -33.86, longitude: 151.22, name: "Opera" } })),
+    );
+    await assertSucceeds(
+      setDoc(doc(db, "listings/l3"), itemListing({ location: { latitude: 46, longitude: -6, name: "Whole" } })),
+    );
+  });
+
+  test("an edit cannot move the location to an exact point", async () => {
+    await seed("listings/l1", itemListing({ location: epfl }));
+    const listing = doc(verified(ALICE), "listings/l1");
+    await refused("exact point", updateDoc(listing, { location: exactRolex }));
+    await assertSucceeds(
+      updateDoc(listing, { location: { latitude: 46.54, longitude: 6.62, name: "Renens" } }),
+    );
+  });
+
+  test("a listing saved before the grid can still be paused and edited without moving it", async () => {
+    // Written before #23, with the exact point.
+    await seed("listings/old", itemListing({ location: exactRolex }));
+    const listing = doc(verified(ALICE), "listings/old");
+    await assertSucceeds(updateDoc(listing, { paused: true }));
+    await assertSucceeds(updateDoc(listing, { title: "Drill, renamed" }));
+    // Moving it again must snap it, and snapping it is accepted.
+    await refused("another exact point", updateDoc(listing, { location: { ...exactRolex, latitude: 46.5201 } }));
+    await assertSucceeds(updateDoc(listing, { location: epfl }));
   });
 
   test("a listing is an ITEM or a SERVICE", async () => {

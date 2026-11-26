@@ -390,6 +390,25 @@ service cloud.firestore {
             && location.name.size() <= 80;
       }
 
+      // Only the approximate point is stored (#23): both coordinates on the app's 0.02° grid, as
+      // ListingLocation.approximate() snaps them (APPROXIMATE_STEPS_PER_DEGREE = 50). The
+      // tolerance absorbs floating point, since 46.52 * 50 is not exactly 2326 as a double.
+      function onApproximateGrid(degrees) {
+        return math.abs(degrees * 50 - math.round(degrees * 50)) < 0.000001;
+      }
+
+      function approximateLocation(location) {
+        return onApproximateGrid(location.latitude) && onApproximateGrid(location.longitude);
+      }
+
+      // A location left as it was is not checked: a listing saved before the grid can still be
+      // paused or edited without moving its location.
+      function locationSetOnGrid(data, before) {
+        return !('location' in data)
+            || ('location' in before && data.location == before.location)
+            || approximateLocation(data.location);
+      }
+
       function validListing(data) {
         return data.keys().hasAll(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused'])
             && data.keys().hasOnly(['ownerUid', 'category', 'price', 'type', 'title', 'description', 'imagePaths', 'paused', 'refundValue', 'maxRentalDays', 'availableDates', 'location'])
@@ -426,14 +445,17 @@ service cloud.firestore {
 
       allow read: if isVerified();
 
-      allow create: if isVerified() && validListing(request.resource.data);
+      allow create: if isVerified()
+          && validListing(request.resource.data)
+          && locationSetOnGrid(request.resource.data, {});
 
       allow update: if isVerified()
           && resource.data.ownerUid == request.auth.uid
           && request.resource.data.ownerUid == resource.data.ownerUid
           // The type decides whether refundValue exists, so a listing keeps the type it was created with.
           && request.resource.data.type == resource.data.type
-          && validListing(request.resource.data);
+          && validListing(request.resource.data)
+          && locationSetOnGrid(request.resource.data, resource.data);
 
       allow delete: if isVerified() && resource.data.ownerUid == request.auth.uid;
     }
