@@ -14,7 +14,31 @@ import kotlin.math.sqrt
  * @property name what the listing detail shows, for example "Rolex Learning Center". At most
  *   [ListingRules.MAX_LOCATION_NAME_LENGTH] characters once trimmed.
  */
-data class ListingLocation(val latitude: Double, val longitude: Double, val name: String)
+data class ListingLocation(val latitude: Double, val longitude: Double, val name: String) {
+
+  /**
+   * This location as stored and shown (#23): both coordinates snapped to a grid of
+   * 1/[APPROXIMATE_STEPS_PER_DEGREE] degree, so the point the lender picked, often their home, is
+   * never shared. The name is kept, since the lender chooses what it says.
+   *
+   * A grid rather than a random offset: saving the same point again gives the same result, so
+   * editing a listing many times can't reveal the real point by averaging. Applying it twice
+   * changes nothing.
+   */
+  fun approximate(): ListingLocation =
+      copy(latitude = snapToGrid(latitude), longitude = snapToGrid(longitude))
+
+  companion object {
+    /**
+     * Grid cells per degree: 0.02°, about 2.2 km north-south and 1.5 km east-west around Lausanne,
+     * the "about 2 km" the app tells users. firestore.rules checks the same grid.
+     */
+    const val APPROXIMATE_STEPS_PER_DEGREE = 50
+
+    private fun snapToGrid(degrees: Double): Double =
+        Math.round(degrees * APPROXIMATE_STEPS_PER_DEGREE).toDouble() / APPROXIMATE_STEPS_PER_DEGREE
+  }
+}
 
 /** Names for the points the lender picks on the map for a listing's location. */
 object ListingLocations {
