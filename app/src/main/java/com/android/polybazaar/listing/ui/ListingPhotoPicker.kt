@@ -2,7 +2,6 @@
 package com.android.polybazaar.listing.ui
 
 import android.content.ContentResolver
-import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import com.android.polybazaar.R
 import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
+import com.android.polybazaar.photo.PHOTO_PREVIEW_MAX_SIZE
+import com.android.polybazaar.photo.decodePhotoPreview
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -154,8 +155,6 @@ internal suspend fun loadPhotoPreview(
       }
     }
 
-internal const val PHOTO_PREVIEW_MAX_SIZE = 512
-
 /**
  * The thumbnail of the saved photo at [path], decoded from its downloaded [bytes], or null until
  * they are there. Asks for them with [download] when the thumbnail first shows.
@@ -173,30 +172,6 @@ private fun rememberStoredPhotoPreview(
       }
   return preview
 }
-
-/**
- * Decodes the downloaded photo [bytes] scaled down by a power of two until its longest side is at
- * most twice [maxSize], or returns null when they are not an image.
- *
- * @param dispatcher runs the decoding, off the main thread.
- * @param maxSize the longest side, in pixels, the photo is shown at: [PHOTO_PREVIEW_MAX_SIZE] for a
- *   thumbnail, more for a photo across the screen.
- */
-internal suspend fun decodePhotoPreview(
-    bytes: ByteArray,
-    dispatcher: CoroutineDispatcher = Dispatchers.Default,
-    maxSize: Int = PHOTO_PREVIEW_MAX_SIZE,
-): ImageBitmap? =
-    withContext(dispatcher) {
-      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-      BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-      var sampleSize = 1
-      while (maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= maxSize) {
-        sampleSize *= 2
-      }
-      val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-      BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
-    }
 
 /**
  * The "Photos" field: "Take photo" and "Gallery" buttons that become a row of thumbnails, followed

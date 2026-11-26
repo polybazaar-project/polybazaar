@@ -110,9 +110,10 @@ import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.formatChf
 import com.android.polybazaar.listing.ui.CameraPermissionDialog
-import com.android.polybazaar.listing.ui.decodePhotoPreview
 import com.android.polybazaar.listing.ui.loadPhotoPreview
 import com.android.polybazaar.listing.ui.rememberPhotoCamera
+import com.android.polybazaar.photo.decodePhotoPreview
+import com.android.polybazaar.photo.rememberPhoto
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -1034,7 +1035,8 @@ private class MessagePhoto(
 /**
  * One message: the user's own at the end of the row, the other participant's at the start. A photo
  * message shows its photo, then its caption if any. The footer says who sent it and when, or only
- * when while the other participant's profile is unknown.
+ * when while the other participant's profile is unknown. While the user's own message hasn't
+ * reached the server yet, as when it was sent offline, the footer says it is sending instead.
  */
 @Composable
 private fun MessageBubble(
@@ -1047,6 +1049,7 @@ private fun MessageBubble(
   val time = message.sentAt.atZone(zone).format(TimeFormat)
   val footer =
       when {
+        isMine && message.sending -> stringResource(R.string.conversation_message_sending)
         isMine -> stringResource(R.string.conversation_my_message_footer, time)
         otherUsername != null ->
             stringResource(R.string.conversation_their_message_footer, otherUsername, time)
@@ -1616,8 +1619,8 @@ private fun MessageField(
 }
 
 /**
- * A paused listing with messages over two days, for the IDE preview. Internal so a test can render
- * it.
+ * A paused listing with messages over two days, the last one of mine still sending, for the IDE
+ * preview. Internal so a test can render it.
  */
 @Preview(showBackground = true, widthDp = 412, heightDp = 917)
 @Composable
@@ -1638,6 +1641,13 @@ internal fun ConversationContentPreview() {
                           start.plusSeconds(120),
                       ),
                       ChatMessage("3", "renter", "Perfect, see you then.", nextDay),
+                      ChatMessage(
+                          "4",
+                          "renter",
+                          "I'll bring it back on Sunday evening.",
+                          nextDay.plusSeconds(60),
+                          sending = true,
+                      ),
                   ),
               conversation =
                   Conversation(

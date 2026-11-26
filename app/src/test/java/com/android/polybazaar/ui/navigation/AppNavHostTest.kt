@@ -76,6 +76,8 @@ import com.android.polybazaar.browse.ui.BrowseScreenTags
 import com.android.polybazaar.chat.model.ChatMessage
 import com.android.polybazaar.chat.model.Conversation
 import com.android.polybazaar.chat.model.FakeChatRepository
+import com.android.polybazaar.chat.model.FakePhotoOutbox
+import com.android.polybazaar.chat.model.QueuedPhoto
 import com.android.polybazaar.chat.ui.ConversationScreenTags
 import com.android.polybazaar.chat.ui.InboxScreenTags
 import com.android.polybazaar.connectivity.model.FakeConnectivityRepository
@@ -114,6 +116,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -146,10 +149,12 @@ class AppNavHostTest {
   // Listings published in these tests belong to the signed-in user, as with the real repository.
   private val listingRepository = FakeListingRepository(ownerUid = user.uid)
   private val chatRepository = FakeChatRepository()
+  private val photoOutbox = FakePhotoOutbox(senderUid = user.uid)
   private val bookingRepository = FakeBookingRepository()
   private val locationRepository = FakeLocationRepository()
   private val connectivity = FakeConnectivityRepository()
-  private val pendingQueue = FakePendingListingQueue()
+  // Drafts kept on the device belong to the signed-in user, as with the real queue.
+  private val pendingQueue = FakePendingListingQueue(ownerUid = user.uid)
 
   /** What the Map tab last gave its map, recorded by [mapStandIn]. */
   private var mapState: MapUiState? = null
@@ -207,6 +212,7 @@ class AppNavHostTest {
             placeNameRepository = FakePlaceNameRepository(),
             listingsMap = mapStandIn,
             connectivityRepository = connectivity,
+            photoOutbox = photoOutbox,
             pendingListingQueue = pendingQueue,
             navController = navController,
         )
@@ -254,6 +260,7 @@ class AppNavHostTest {
             placeNameRepository = FakePlaceNameRepository(),
             listingsMap = mapStandIn,
             connectivityRepository = FakeConnectivityRepository(),
+            photoOutbox = FakePhotoOutbox(),
             pendingListingQueue = FakePendingListingQueue(),
             navController = navController,
         )
@@ -514,6 +521,112 @@ class AppNavHostTest {
     assertTrue(listingRepository.allListings.isEmpty())
   }
 
+  private suspend fun keepDraft(id: String, title: String) {
+    pendingQueue.enqueue(
+        id,
+        ServiceListing(ListingCategory.SERVICE_TUTORING, 25.0, title, "One-hour session"),
+    )
+  }
+
+  private fun draftsPublishedMessage(count: Int) =
+      context.resources.getQuantityString(R.plurals.listing_drafts_published, count, count)
+
+  private fun draftsFailedMessage(count: Int) =
+      context.resources.getQuantityString(R.plurals.listing_drafts_failed, count, count)
+
+  @Test
+  fun draftsKeptOffline_arePublishedWhenTheAppStartsOnline_withAMessage() {
+    runBlocking {
+      keepDraft("d1", "Math tutoring")
+      keepDraft("d2", "Physics tutoring")
+    }
+    setContent(FakeAuthRepository(currentUser = user))
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText(draftsPublishedMessage(2))
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertEquals("2 listings created offline were published.", draftsPublishedMessage(2))
+    assertEquals(listOf("d1", "d2"), listingRepository.publishedListingIds)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+  }
+
+  @Test
+  fun draftKeptOffline_isPublishedWhenTheConnectionReturns_withAMessage() {
+    connectivity.isOnline.value = false
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+
+    connectivity.isOnline.value = true
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText("Your listing created offline was published.")
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertEquals(listOf("d1"), listingRepository.publishedListingIds)
+    assertTrue(pendingQueue.pending.value.isEmpty())
+  }
+
+  @Test
+  fun draftThatCannotBePublished_staysOnTheDevice_withAMessage() {
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    listingRepository.failingPublishIds += "d1"
+    setContent(FakeAuthRepository(currentUser = user))
+
+    val message = "A listing created offline couldn’t be published. We’ll try again later."
+    composeTestRule.waitUntil {
+      composeTestRule.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty()
+    }
+    assertEquals(message, draftsFailedMessage(1))
+    assertEquals(listOf("d1"), pendingQueue.pending.value.map { it.id })
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+  }
+
+  @Test
+  fun draftsPartlyPublished_tellBothOutcomesInOneMessage() {
+    runBlocking {
+      keepDraft("d1", "Math tutoring")
+      keepDraft("d2", "Physics tutoring")
+      keepDraft("d3", "Chemistry tutoring")
+    }
+    listingRepository.failingPublishIds += setOf("d2", "d3")
+    setContent(FakeAuthRepository(currentUser = user))
+
+    val message = "${draftsPublishedMessage(1)} ${draftsFailedMessage(2)}"
+    composeTestRule.waitUntil {
+      composeTestRule.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty()
+    }
+    assertEquals(
+        "Your listing created offline was published. 2 listings created offline couldn’t be " +
+            "published. We’ll try again later.",
+        message,
+    )
+    assertEquals(listOf("d2", "d3"), pendingQueue.pending.value.map { it.id })
+  }
+
+  @Test
+  fun draftsOfAnUnverifiedUser_areNotPublished() {
+    runBlocking { keepDraft("d1", "Math tutoring") }
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+    assertTrue(listingRepository.publishedListingIds.isEmpty())
+    assertEquals(listOf("d1"), pendingQueue.pending.value.map { it.id })
+    composeTestRule.onNodeWithText(draftsPublishedMessage(1)).assertDoesNotExist()
+  }
+
   @Test
   fun noPersistedUser_startsOnSignIn() {
     setContent(FakeAuthRepository(currentUser = null))
@@ -749,6 +862,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = mapStandIn,
@@ -1010,6 +1124,68 @@ class AppNavHostTest {
     val entry = navController.currentBackStackEntry
     assertEquals(route, entry?.destination?.route)
     assertEquals(value, entry?.arguments?.getString(key))
+  }
+
+  // The photo sender runs app-wide for the verified signed-in user.
+
+  /** Ada's conversation about a drill, holding a photo she sent offline, "queued1". */
+  private fun givenAQueuedPhoto(): QueuedPhoto {
+    val drill =
+        Conversation(
+            listingId = "drill",
+            listingTitle = "Bosch drill",
+            renterUid = user.uid,
+            lenderUid = "uid-lender",
+            lastMessageAt = Instant.EPOCH,
+        )
+    chatRepository.myConversations.value = Result.success(listOf(drill))
+    val photo =
+        QueuedPhoto("queued1", drill.id, user.uid, Uri.parse("file:///outbox/queued1.jpg"), null)
+    photoOutbox.add(photo)
+    return photo
+  }
+
+  @Test
+  fun verifiedUser_theirQueuedPhoto_isSentOnceOnline_fromAnyScreen() {
+    val photo = givenAQueuedPhoto()
+
+    setContent(FakeAuthRepository(currentUser = user))
+    composeTestRule.waitUntil(5_000) { photoOutbox.queued.value.isEmpty() }
+
+    composeTestRule.onNodeWithTag(BrowseScreenTags.SCREEN).assertIsDisplayed()
+    assertEquals(
+        listOf(photo.messageId to photo.photo),
+        chatRepository.sentPhotos.map { it.messageId to it.photo },
+    )
+  }
+
+  @Test
+  fun unverifiedUser_theirQueuedPhoto_isNotSent() {
+    givenAQueuedPhoto()
+
+    setContent(
+        FakeAuthRepository(
+            currentUser = unverifiedUser,
+            refreshUserResult = Result.success(unverifiedUser),
+        )
+    )
+    composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+
+    assertTrue(chatRepository.sentPhotos.isEmpty())
+    assertEquals(listOf("queued1"), photoOutbox.queued.value.map { it.messageId })
+  }
+
+  @Test
+  fun signedOut_queuedPhoto_isNotSent() {
+    givenAQueuedPhoto()
+
+    setContent(FakeAuthRepository(currentUser = null))
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.waitForIdle()
+
+    assertTrue(chatRepository.sentPhotos.isEmpty())
+    assertEquals(listOf("queued1"), photoOutbox.queued.value.map { it.messageId })
   }
 
   /** A message the signed-in user sent, to tell which conversation a screen observes. */
@@ -1428,6 +1604,20 @@ class AppNavHostTest {
   }
 
   @Test
+  fun signOutFromSettings_disablesSignOutUntilItFinishes() {
+    val signOutGate = CompletableDeferred<Unit>()
+    setContent(FakeAuthRepository(currentUser = user, signOutGate = signOutGate))
+    openSettings()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).assertIsNotEnabled()
+    signOutGate.complete(Unit)
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
   fun cancellingSignOut_staysOnSettingsSignedIn() {
     val viewModel = setContent(FakeAuthRepository(currentUser = user))
     openSettings()
@@ -1585,6 +1775,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = mapStandIn,
@@ -1666,6 +1857,7 @@ class AppNavHostTest {
           locationRepository = locationRepository,
           placeNameRepository = FakePlaceNameRepository(),
           connectivityRepository = FakeConnectivityRepository(),
+          photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
           listingsMap = mapStandIn,
@@ -2336,6 +2528,8 @@ class AppNavHostTest {
       private val signInGate: CompletableDeferred<Result<User>>? = null,
       /** When set, sign-up waits for it instead of returning [signUpResult]. */
       private val signUpGate: CompletableDeferred<Result<User>>? = null,
+      /** When set, sign-out waits for it. */
+      private val signOutGate: CompletableDeferred<Unit>? = null,
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> =
         signInGate?.await() ?: signInResult
@@ -2344,6 +2538,7 @@ class AppNavHostTest {
         signUpGate?.await() ?: signUpResult
 
     override suspend fun signOut() {
+      signOutGate?.await()
       signOutError?.let { throw it }
     }
 

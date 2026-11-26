@@ -1,15 +1,18 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.auth.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.NoSessionException
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.notification.model.FakePushDeviceRepository
 import java.net.UnknownHostException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -27,14 +30,22 @@ class AuthViewModelTest {
 
   private val testDispatcher = StandardTestDispatcher()
   private lateinit var repository: FakeAuthRepository
+  private lateinit var pushDevices: FakePushDeviceRepository
   private lateinit var viewModel: AuthViewModel
   private val loggedErrors = mutableListOf<Throwable>()
+  private val verifiedUser = User("user-1", "user@example.com", "User", isEmailVerified = true)
 
   @Before
   fun setUp() {
     Dispatchers.setMain(testDispatcher)
     repository = FakeAuthRepository()
-    viewModel = AuthViewModel(repository, logUnexpectedError = loggedErrors::add)
+    pushDevices = FakePushDeviceRepository()
+    viewModel =
+        AuthViewModel(
+            repository,
+            pushDeviceRepository = pushDevices,
+            logUnexpectedError = loggedErrors::add,
+        )
   }
 
   @After
@@ -393,6 +404,181 @@ class AuthViewModelTest {
     viewModel.onEmailVerified()
 
     assertEquals(true, viewModel.uiState.value.user?.isEmailVerified)
+  }
+
+  @Test
+  fun signIn_verifiedUser_registersTheDeviceOnce() = runTest {
+    repository.signInResult = Result.success(verifiedUser)
+
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.clearError()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("user-1"), pushDevices.registered)
+  }
+
+  @Test
+  fun restoreSession_verifiedUser_registersTheDevice() = runTest {
+    repository.currentUser = verifiedUser
+
+    viewModel.restoreSession()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("user-1"), pushDevices.registered)
+  }
+
+  @Test
+  fun unverifiedUser_registersTheDeviceOnlyOnceVerified() = runTest {
+    repository.signInResult = Result.success(User("user-1", "user@example.com", "User"))
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    assertTrue(pushDevices.registered.isEmpty())
+
+    viewModel.onEmailVerified()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("user-1"), pushDevices.registered)
+  }
+
+  @Test
+  fun registerFailure_isLoggedAndNotShown() = runTest {
+    val failure = IllegalStateException("no installation id")
+    pushDevices.registerException = failure
+    repository.signInResult = Result.success(verifiedUser)
+
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(verifiedUser, viewModel.uiState.value.user)
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listOf<Throwable>(failure), loggedErrors)
+  }
+
+  @Test
+  fun signOut_unregistersTheDeviceBeforeSigningOut() = runTest {
+    repository.signInResult = Result.success(verifiedUser)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    var signedOutBeforeUnregister: Boolean? = null
+    pushDevices.onUnregister = { signedOutBeforeUnregister = repository.didSignOut }
+
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("user-1"), pushDevices.unregistered)
+    assertEquals(false, signedOutBeforeUnregister)
+    assertTrue(repository.didSignOut)
+  }
+
+  @Test
+  fun signOut_unverifiedUser_doesNotUnregister() = runTest {
+    repository.signInResult = Result.success(User("user-1", "user@example.com", "User"))
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(pushDevices.unregistered.isEmpty())
+    assertTrue(repository.didSignOut)
+  }
+
+  @Test
+  fun signOut_unregisterFailure_isLoggedAndStillSignsOut() = runTest {
+    repository.signInResult = Result.success(verifiedUser)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    val failure = IllegalStateException("offline")
+    pushDevices.unregisterException = failure
+
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(repository.didSignOut)
+    assertNull(viewModel.uiState.value.user)
+    assertNull(viewModel.uiState.value.error)
+    assertEquals(listOf<Throwable>(failure), loggedErrors)
+  }
+
+  @Test
+  fun signOut_failure_registersTheDeviceAgain() = runTest {
+    repository.signInResult = Result.success(verifiedUser)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    repository.signOutException = IllegalStateException()
+
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(verifiedUser, viewModel.uiState.value.user)
+    assertEquals(listOf("user-1", "user-1"), pushDevices.registered)
+  }
+
+  @Test
+  fun signInAgainAfterSignOut_registersTheDeviceAgain() = runTest {
+    repository.signInResult = Result.success(verifiedUser)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("user-1", "user-1"), pushDevices.registered)
+  }
+
+  @Test
+  fun signOut_cancelsARegistrationStillRunning() = runTest {
+    val registerGate = CompletableDeferred<Unit>()
+    pushDevices.registerGate = registerGate
+    repository.signInResult = Result.success(verifiedUser)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    viewModel.signOut()
+    testDispatcher.scheduler.advanceUntilIdle()
+    registerGate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertTrue(pushDevices.registered.isEmpty())
+  }
+
+  @Test
+  fun signOut_whileASignOutIsRunning_isIgnored() = runTest {
+    repository.signInResult = Result.success(verifiedUser)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    val unregisterGate = CompletableDeferred<Unit>()
+    pushDevices.unregisterGate = unregisterGate
+
+    viewModel.signOut()
+    viewModel.signOut()
+    testDispatcher.scheduler.runCurrent()
+    unregisterGate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("user-1"), pushDevices.unregistered)
+    assertNull(viewModel.uiState.value.user)
+  }
+
+  @Test
+  fun signOut_finishesWhenTheViewModelIsClearedWhileUnregistering() = runTest {
+    repository.signInResult = Result.success(verifiedUser)
+    viewModel.signIn("user@example.com", "password")
+    testDispatcher.scheduler.advanceUntilIdle()
+    val unregisterGate = CompletableDeferred<Unit>()
+    pushDevices.unregisterGate = unregisterGate
+    viewModel.signOut()
+    testDispatcher.scheduler.runCurrent()
+
+    viewModel.viewModelScope.cancel()
+    unregisterGate.complete(Unit)
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf("user-1"), pushDevices.unregistered)
+    assertTrue(repository.didSignOut)
   }
 
   private class FakeAuthRepository : AuthRepository {

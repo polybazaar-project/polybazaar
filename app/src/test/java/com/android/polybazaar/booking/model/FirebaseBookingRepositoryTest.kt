@@ -3,6 +3,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.model
 
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
@@ -10,14 +12,28 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.EventListener
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.firestore.WriteBatch
 import java.time.LocalDate
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,9 +62,15 @@ class FirebaseBookingRepositoryTest {
   private val allLenderQuery = mock<Query>()
   private val snapshot = mock<QuerySnapshot>()
   private val stored = mock<DocumentSnapshot>()
+  private val journal = FakeConfirmationJournal()
   // A fixed day before every booking these tests store, so none of them is ever finished.
   private val repository =
-      FirebaseBookingRepository(firestore, auth, today = { LocalDate.of(2026, 11, 1) })
+      FirebaseBookingRepository(
+          firestore,
+          auth,
+          journal = journal,
+          today = { LocalDate.of(2026, 11, 1) },
+      )
   private val booking =
       Booking(
           listingId = "listing",
@@ -70,6 +92,7 @@ class FirebaseBookingRepositoryTest {
     whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(renterQuery)
     whenever(collection.whereEqualTo("lenderUid", "renter")).thenReturn(allLenderQuery)
     whenever(collection.document("booking-id")).thenReturn(document)
+    whenever(snapshot.metadata).thenReturn(mock<SnapshotMetadata>())
   }
 
   @Test
@@ -113,7 +136,8 @@ class FirebaseBookingRepositoryTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.set(any<Map<String, Any>>())).thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseBookingRepository(firestore, auth, journal = journal) { reportedFailure = it }
     var reportedToCaller: Exception? = null
 
     repository.requestBooking(booking) { reportedToCaller = it }
@@ -205,15 +229,315 @@ class FirebaseBookingRepositoryTest {
   }
 
   @Test
+  fun observeBookingsEmitsPendingAndAcknowledgedChangesAndRemovesListener() = runTest {
+    val registration = mock<ListenerRegistration>()
+    val metadata = mock<SnapshotMetadata>()
+    val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(renterQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+        .thenReturn(registration)
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.id).thenReturn("booking-id")
+    whenever(stored.metadata).thenReturn(metadata)
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getString("status")).thenReturn("CONFIRMED")
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+    val results = mutableListOf<ObservedBookings>()
+    val job = launch { repository.observeBookingsForRenter().take(2).toList(results) }
+    runCurrent()
+
+    whenever(metadata.hasPendingWrites()).thenReturn(true)
+    listener.firstValue.onEvent(snapshot, null)
+    runCurrent()
+    whenever(metadata.hasPendingWrites()).thenReturn(false)
+    listener.firstValue.onEvent(snapshot, null)
+    job.join()
+
+    assertEquals(setOf("booking-id"), results[0].pendingIds)
+    assertEquals(emptySet<String>(), results[1].pendingIds)
+    assertEquals(BookingStatus.CONFIRMED, results[1].bookings.single().status)
+    verify(registration).remove()
+  }
+
+  @Test
+  fun observeListingBookingsUsesSignedInLenderAndRemovesListener() = runTest {
+    val lender = mock<FirebaseUser>()
+    whenever(lender.uid).thenReturn("lender")
+    whenever(auth.currentUser).thenReturn(lender)
+    val registration = mock<ListenerRegistration>()
+    val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(lenderQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+        .thenReturn(registration)
+    whenever(snapshot.documents).thenReturn(emptyList())
+
+    val result = async { repository.observeBookingsForListing("listing").first() }
+    runCurrent()
+    listener.firstValue.onEvent(snapshot, null)
+
+    assertEquals(ObservedBookings(emptyList()), result.await())
+    verify(listingQuery).whereEqualTo("lenderUid", "lender")
+    verify(registration).remove()
+  }
+
+  @Test
+  fun observeBookingsPropagatesListenerErrorsAndMalformedSnapshots() = runTest {
+    val listenerError =
+        FirebaseFirestoreException(
+            "Permission denied",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
+    val malformed = mock<QuerySnapshot>()
+    whenever(malformed.documents).thenReturn(listOf(stored))
+    val events = listOf(null to listenerError, null to null, malformed to null)
+
+    for ((value, error) in events) {
+      val query = mock<Query>()
+      val registration = mock<ListenerRegistration>()
+      val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+      whenever(collection.whereEqualTo("renterUid", "renter")).thenReturn(query)
+      whenever(query.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+          .thenReturn(registration)
+      val result = async {
+        runCatching { repository.observeBookingsForRenter().first() }.exceptionOrNull()
+      }
+      runCurrent()
+      listener.firstValue.onEvent(value, error)
+      val failure = result.await()
+
+      if (error != null) assertSame(error, failure)
+      else assertTrue(failure is IllegalStateException)
+      verify(registration).remove()
+    }
+  }
+
+  @Test
+  fun observeBookingsRejectsSignedOutUser() = runTest {
+    whenever(auth.currentUser).thenReturn(null)
+
+    val failure = runCatching { repository.observeBookingsForRenter().first() }.exceptionOrNull()
+    assertTrue(failure is FirebaseFirestoreException)
+    assertEquals(
+        FirebaseFirestoreException.Code.UNAUTHENTICATED,
+        (failure as FirebaseFirestoreException).code,
+    )
+    verify(collection, never()).whereEqualTo("renterUid", "renter")
+  }
+
+  @Test
+  fun restoredAttemptWaitsForServerAndReconcilesPendingAndAcknowledgedWrites() = runTest {
+    val attempt =
+        ConfirmationAttempt("renter", "booking-id", ConfirmationAction.CONFIRM_HANDOVER, "token")
+    journal.put(attempt)
+    journal.finish(attempt.token)
+    val documentMetadata = mock<SnapshotMetadata>()
+    val queryMetadata = mock<SnapshotMetadata>()
+    val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(renterQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+        .thenReturn(mock<ListenerRegistration>())
+    whenever(snapshot.metadata).thenReturn(queryMetadata)
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.id).thenReturn("booking-id")
+    whenever(stored.metadata).thenReturn(documentMetadata)
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getString("status")).thenReturn("CONFIRMED")
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+
+    suspend fun nextSnapshot(): ObservedBookings {
+      val result = async { repository.observeBookingsForRenter().first() }
+      runCurrent()
+      listener.lastValue.onEvent(snapshot, null)
+      return result.await()
+    }
+
+    whenever(queryMetadata.isFromCache).thenReturn(true)
+    val cached = nextSnapshot()
+    assertEquals(setOf("booking-id"), cached.checkingConfirmationIds)
+    assertTrue(cached.confirmationFailures.isEmpty())
+
+    whenever(queryMetadata.isFromCache).thenReturn(false)
+    whenever(documentMetadata.hasPendingWrites()).thenReturn(true)
+    val pending = nextSnapshot()
+    assertEquals(setOf("booking-id"), pending.pendingIds)
+    assertEquals(listOf(attempt), journal.attempts.value)
+
+    whenever(documentMetadata.hasPendingWrites()).thenReturn(false)
+    whenever(stored.contains("renterHandoverConfirmed")).thenReturn(true)
+    whenever(stored.get("renterHandoverConfirmed")).thenReturn(true)
+    val acknowledged = nextSnapshot()
+    assertTrue(acknowledged.confirmationFailures.isEmpty())
+    assertTrue(acknowledged.checkingConfirmationIds.isEmpty())
+    assertTrue(journal.attempts.value.isEmpty())
+  }
+
+  @Test
+  fun restoredAttemptWithoutPendingWriteOrServerConfirmationIsReported() = runTest {
+    val attempt =
+        ConfirmationAttempt("renter", "booking-id", ConfirmationAction.CONFIRM_HANDOVER, "token")
+    val other = attempt.copy(uid = "other", token = "other-token")
+    journal.put(attempt)
+    journal.finish(attempt.token)
+    journal.put(other)
+    journal.finish(other.token)
+    val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(renterQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+        .thenReturn(mock<ListenerRegistration>())
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.id).thenReturn("booking-id")
+    whenever(stored.metadata).thenReturn(mock<SnapshotMetadata>())
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getString("status")).thenReturn("CONFIRMED")
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+
+    val result = async { repository.observeBookingsForRenter().first() }
+    runCurrent()
+    listener.firstValue.onEvent(snapshot, null)
+
+    assertEquals(
+        RecoveredConfirmationFailure(
+            ConfirmationAction.CONFIRM_HANDOVER,
+            AppError.CONFIRMATION_NOT_SAVED,
+        ),
+        result.await().confirmationFailures["booking-id"],
+    )
+    assertEquals(other, journal.attempts.value.first { it.uid == "other" })
+    repository.dismissConfirmationFailure("booking-id")
+    assertEquals(listOf(other), journal.attempts.value)
+  }
+
+  @Test
+  fun failureIsStoredBeforeCallbackCanDismissIt() = runTest {
+    val entered = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+    val gated =
+        object : ConfirmationJournal by journal {
+          override suspend fun fail(token: String, error: AppError) {
+            entered.complete(Unit)
+            release.await()
+            journal.fail(token, error)
+          }
+        }
+    val write = TaskCompletionSource<Void>()
+    whenever(document.update(any<String>(), eq(true))).thenReturn(write.task)
+    val failure =
+        FirebaseFirestoreException("refused", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    val callback = CompletableDeferred<Exception>()
+    val repository = FirebaseBookingRepository(firestore, auth, journal = gated) {}
+    repository.confirmHandover("booking-id") { callback.complete(it) }
+    write.setException(failure)
+
+    withContext(Dispatchers.IO) { withTimeout(5_000) { entered.await() } }
+    assertFalse(callback.isCompleted)
+    release.complete(Unit)
+    assertSame(failure, withContext(Dispatchers.IO) { withTimeout(5_000) { callback.await() } })
+    assertEquals(AppError.PERMISSION_DENIED, journal.attempts.value.single().error)
+    repository.dismissConfirmationFailure("booking-id")
+    assertTrue(journal.attempts.value.isEmpty())
+  }
+
+  @Test
+  fun persistedFailureIsNotObservedBeforeCallbackAndCannotReappearAfterDismissal() = runTest {
+    val persisted = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+    val gated =
+        object : ConfirmationJournal by journal {
+          override suspend fun fail(token: String, error: AppError) {
+            journal.fail(token, error)
+            persisted.complete(Unit)
+            release.await()
+          }
+        }
+    val write = TaskCompletionSource<Void>()
+    whenever(document.update(any<String>(), eq(true))).thenReturn(write.task)
+    val listener = argumentCaptor<EventListener<QuerySnapshot>>()
+    whenever(renterQuery.addSnapshotListener(eq(MetadataChanges.INCLUDE), listener.capture()))
+        .thenReturn(mock<ListenerRegistration>())
+    whenever(snapshot.documents).thenReturn(listOf(stored))
+    whenever(stored.id).thenReturn("booking-id")
+    whenever(stored.metadata).thenReturn(mock<SnapshotMetadata>())
+    whenever(stored.getString("listingId")).thenReturn(booking.listingId)
+    whenever(stored.getString("renterUid")).thenReturn(booking.renterUid)
+    whenever(stored.getString("lenderUid")).thenReturn(booking.lenderUid)
+    whenever(stored.getString("status")).thenReturn("CONFIRMED")
+    whenever(stored.get("days")).thenReturn(booking.days.map { it.toEpochDay() })
+    val callback = CompletableDeferred<Exception>()
+    val repository = FirebaseBookingRepository(firestore, auth, journal = gated) {}
+    repository.confirmHandover("booking-id") { callback.complete(it) }
+    val updates = mutableListOf<ObservedBookings>()
+    val observation = launch { repository.observeBookingsForRenter().collect { updates += it } }
+    runCurrent()
+    listener.firstValue.onEvent(snapshot, null)
+    runCurrent()
+    assertTrue(updates.isNotEmpty())
+
+    val failure =
+        FirebaseFirestoreException("refused", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+    write.setException(failure)
+    withContext(Dispatchers.IO) { withTimeout(5_000) { persisted.await() } }
+    runCurrent()
+    assertFalse(callback.isCompleted)
+    assertTrue(updates.all { it.confirmationFailures.isEmpty() })
+    assertEquals(setOf("booking-id"), updates.last().checkingConfirmationIds)
+    release.complete(Unit)
+    withContext(Dispatchers.IO) { withTimeout(5_000) { callback.await() } }
+    repository.dismissConfirmationFailure("booking-id")
+    runCurrent()
+    assertTrue(journal.attempts.value.isEmpty())
+    assertTrue(updates.last().confirmationFailures.isEmpty())
+    observation.cancel()
+  }
+
+  @Test
+  fun synchronousConfirmationWriteFailureIsPersistedFinishedAndRethrown() = runTest {
+    val failure =
+        IllegalStateException(
+            "Could not queue confirmation",
+            AppException(AppError.PERMISSION_DENIED),
+        )
+    whenever(document.update("renterHandoverConfirmed", true)).thenThrow(failure)
+    val finished = mutableListOf<String>()
+    val recordingJournal =
+        object : ConfirmationJournal by journal {
+          override fun finish(token: String) {
+            finished += token
+            journal.finish(token)
+          }
+        }
+    val repository = FirebaseBookingRepository(firestore, auth, journal = recordingJournal)
+    var callbackCalled = false
+
+    val thrown =
+        try {
+          repository.confirmHandover("booking-id") { callbackCalled = true }
+          null
+        } catch (exception: Exception) {
+          exception
+        }
+
+    val attempt = journal.attempts.value.single()
+    assertSame(failure, thrown)
+    assertEquals("booking-id", attempt.bookingId)
+    assertEquals(ConfirmationAction.CONFIRM_HANDOVER, attempt.action)
+    assertEquals(AppError.PERMISSION_DENIED, attempt.error)
+    assertEquals(listOf(attempt.token), finished)
+    assertTrue(journal.activeTokens.value.isEmpty())
+    assertFalse(callbackCalled)
+  }
+
+  @Test
   fun confirmationOperationsQueueTheirOwnFieldsAndReportWriteFailures() = runTest {
     val pending = TaskCompletionSource<Void>()
     whenever(document.update(any<String>(), eq(true))).thenReturn(pending.task)
     var logged: Exception? = null
-    var reported: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { logged = it }
+    val reported = CompletableDeferred<Exception>()
+    val repository = FirebaseBookingRepository(firestore, auth, journal = journal) { logged = it }
 
     withTimeout(1_000) {
-      repository.notifyHandover("booking-id") { reported = it }
+      repository.notifyHandover("booking-id") { reported.complete(it) }
       repository.confirmHandover("booking-id")
       repository.notifyReturn("booking-id")
       repository.confirmReturn("booking-id")
@@ -223,10 +547,14 @@ class FirebaseBookingRepositoryTest {
     verify(document).update("renterReturnConfirmed", true)
     verify(document).update("lenderReturnConfirmed", true)
     assertFalse(pending.task.isComplete)
-    val failure = IllegalStateException("Write rejected")
+    val failure =
+        FirebaseFirestoreException(
+            "Write rejected",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+        )
     pending.setException(failure)
     assertSame(failure, logged)
-    assertSame(failure, reported)
+    assertSame(failure, withContext(Dispatchers.IO) { withTimeout(5_000) { reported.await() } })
   }
 
   @Test
@@ -382,7 +710,8 @@ class FirebaseBookingRepositoryTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
     var reportedFailure: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { reportedFailure = it }
+    val repository =
+        FirebaseBookingRepository(firestore, auth, journal = journal) { reportedFailure = it }
     var reportedToCaller: Exception? = null
 
     repository.cancelBooking("booking-id", onWriteFailure = { reportedToCaller = it })
@@ -398,7 +727,7 @@ class FirebaseBookingRepositoryTest {
     val pendingWrite = TaskCompletionSource<Void>()
     whenever(document.update("status", "CANCELLED")).thenReturn(pendingWrite.task)
     var logged: Exception? = null
-    val repository = FirebaseBookingRepository(firestore, auth) { logged = it }
+    val repository = FirebaseBookingRepository(firestore, auth, journal = journal) { logged = it }
 
     repository.cancelBooking("booking-id")
     val failure = IllegalStateException("Write rejected")
@@ -508,7 +837,12 @@ class FirebaseBookingRepositoryTest {
         }
     whenever(firestore.collection("listings")).thenReturn(mock())
     val repository =
-        FirebaseBookingRepository(firestore, auth, today = { LocalDate.of(2026, 12, 3) })
+        FirebaseBookingRepository(
+            firestore,
+            auth,
+            journal = journal,
+            today = { LocalDate.of(2026, 12, 3) },
+        )
     val accepted =
         Booking(
             listingId = "listing",

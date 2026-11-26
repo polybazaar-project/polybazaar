@@ -12,6 +12,21 @@ enum class BookingStatus {
   CANCELLED,
 }
 
+enum class ConfirmationAction {
+  NOTIFY_HANDOVER,
+  CONFIRM_HANDOVER,
+  NOTIFY_RETURN,
+  CONFIRM_RETURN,
+}
+
+fun ConfirmationAction.isRecorded(booking: Booking): Boolean =
+    when (this) {
+      ConfirmationAction.NOTIFY_HANDOVER -> booking.handoverNotified
+      ConfirmationAction.CONFIRM_HANDOVER -> booking.renterHandoverConfirmed
+      ConfirmationAction.NOTIFY_RETURN -> booking.returnNotified
+      ConfirmationAction.CONFIRM_RETURN -> booking.lenderReturnConfirmed
+    }
+
 /**
  * A rental or service booking of a listing.
  *

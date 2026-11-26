@@ -21,6 +21,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
@@ -40,6 +41,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -52,6 +55,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mockito
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyVararg
 import org.mockito.kotlin.argumentCaptor
@@ -311,6 +315,35 @@ class FirebaseChatRepositoryTest {
 
     assertTrue(!pendingWrite.task.isComplete)
     verify(batch).commit()
+  }
+
+  @Test
+  fun sendMessageCommitsTextsInTheOrderTheyAreSentWithoutWaitingForTheServer() = runTest {
+    // Offline: the server never confirms, so each commit stays queued on the device.
+    val neverDone = TaskCompletionSource<Void>().task
+    // Each send gets its own batch; RETURNS_SELF lets its chained set calls return it.
+    val firstBatch =
+        mock<WriteBatch>(defaultAnswer = Mockito.RETURNS_SELF) {
+          on { commit() } doReturn neverDone
+        }
+    val secondBatch =
+        mock<WriteBatch>(defaultAnswer = Mockito.RETURNS_SELF) {
+          on { commit() } doReturn neverDone
+        }
+    whenever(firestore.batch()).thenReturn(firstBatch, secondBatch)
+
+    withTimeout(1_000) {
+      repository.sendMessage(replied, "First")
+      repository.sendMessage(replied, "Second")
+    }
+
+    fun textFields(text: String) =
+        mapOf("senderUid" to "renter", "text" to text, "sentAt" to FieldValue.serverTimestamp())
+    val order = inOrder(firstBatch, secondBatch)
+    order.verify(firstBatch).set(eq(messageRef), eq(textFields("First")))
+    order.verify(firstBatch).commit()
+    order.verify(secondBatch).set(eq(messageRef), eq(textFields("Second")))
+    order.verify(secondBatch).commit()
   }
 
   @Test
@@ -1388,6 +1421,54 @@ class FirebaseChatRepositoryTest {
   }
 
   @Test
+  fun observeMessagesMarksOnlyTheMessagesWithPendingWritesAsSending() = runTest {
+    val listener = captureMessagesListener()
+    val sent = message("m1", "renter", "Hi", 1_700_000_000)
+    val queued = message("m2", "renter", "Are you there?", 1_700_000_060, pendingWrites = true)
+    val snapshot = mock<QuerySnapshot>()
+    whenever(snapshot.documents).thenReturn(listOf(sent, queued))
+
+    val observed = async { repository.observeMessages("listing_renter").first() }
+    runCurrent()
+    listener().onEvent(snapshot, null)
+
+    assertEquals(listOf(false, true), observed.await().map { it.sending })
+  }
+
+  @Test
+  fun observeMessagesListensToMetadataOnlyChanges() = runTest {
+    captureMessagesListener()
+
+    val observed = launch { repository.observeMessages("listing_renter").first() }
+    runCurrent()
+
+    verify(orderedMessages).addSnapshotListener(eq(MetadataChanges.INCLUDE), any())
+    observed.cancel()
+  }
+
+  @Test
+  fun observeMessagesEmitsTheMessageAsSentOnceTheServerAcknowledgesIt() = runTest {
+    val listener = captureMessagesListener()
+    val queued = message("m1", "renter", "Hi", 1_700_000_000, pendingWrites = true)
+    val acknowledged = message("m1", "renter", "Hi", 1_700_000_000)
+    val beforeAck = mock<QuerySnapshot>()
+    whenever(beforeAck.documents).thenReturn(listOf(queued))
+    val afterAck = mock<QuerySnapshot>()
+    whenever(afterAck.documents).thenReturn(listOf(acknowledged))
+
+    val observed = async { repository.observeMessages("listing_renter").take(2).toList() }
+    runCurrent()
+    listener().onEvent(beforeAck, null)
+    listener().onEvent(afterAck, null)
+
+    val message = ChatMessage("m1", "renter", "Hi", Instant.ofEpochSecond(1_700_000_000))
+    assertEquals(
+        listOf(listOf(message.copy(sending = true)), listOf(message)),
+        observed.await(),
+    )
+  }
+
+  @Test
   fun observeMessagesRejectsMessageWithNeitherTextNorPhoto() = runTest {
     val listener = captureMessagesListener()
     val empty = message("m1", "renter", null, 1_700_000_000)
@@ -1592,15 +1673,21 @@ class FirebaseChatRepositoryTest {
       sentAt: Long,
       imagePath: String? = null,
       photoPending: Boolean? = null,
-  ) =
-      mock<DocumentSnapshot>().also {
-        whenever(it.id).thenReturn(id)
-        whenever(it.getString("senderUid")).thenReturn(senderUid)
-        whenever(it.getString("text")).thenReturn(text)
-        whenever(it.getString("imagePath")).thenReturn(imagePath)
-        whenever(it.getBoolean("photoPending")).thenReturn(photoPending)
-        whenever(timestampOf(it, "sentAt")).thenReturn(Timestamp(sentAt, 0))
-      }
+      pendingWrites: Boolean = false,
+  ): DocumentSnapshot {
+    // With [pendingWrites], this device has written the message but the server doesn't have it yet.
+    val metadata = mock<SnapshotMetadata>()
+    whenever(metadata.hasPendingWrites()).thenReturn(pendingWrites)
+    return mock<DocumentSnapshot>().also {
+      whenever(it.id).thenReturn(id)
+      whenever(it.getString("senderUid")).thenReturn(senderUid)
+      whenever(it.getString("text")).thenReturn(text)
+      whenever(it.getString("imagePath")).thenReturn(imagePath)
+      whenever(it.getBoolean("photoPending")).thenReturn(photoPending)
+      whenever(timestampOf(it, "sentAt")).thenReturn(Timestamp(sentAt, 0))
+      whenever(it.metadata).thenReturn(metadata)
+    }
+  }
 
   /** Emits [document] as the only message of the conversation and returns what is observed. */
   private suspend fun TestScope.observeOnlyMessage(document: DocumentSnapshot): ChatMessage {
@@ -1621,7 +1708,8 @@ class FirebaseChatRepositoryTest {
 
   private fun captureMessagesListener(): () -> EventListener<QuerySnapshot> {
     val captor = argumentCaptor<EventListener<QuerySnapshot>>()
-    whenever(orderedMessages.addSnapshotListener(captor.capture())).thenReturn(registration)
+    whenever(orderedMessages.addSnapshotListener(eq(MetadataChanges.INCLUDE), captor.capture()))
+        .thenReturn(registration)
     return { captor.firstValue }
   }
 

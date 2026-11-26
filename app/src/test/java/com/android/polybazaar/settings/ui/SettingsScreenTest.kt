@@ -2,6 +2,8 @@
 package com.android.polybazaar.settings.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -59,6 +61,21 @@ class SettingsScreenTest {
     composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
 
     assertEquals(1, signOuts)
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_DIALOG).assertDoesNotExist()
+  }
+
+  @Test
+  fun whileSigningOut_theRowSaysSoAndCannotOpenTheDialog() {
+    composeTestRule.setContent {
+      SettingsContent(onBack = {}, onSignOut = { signOuts++ }, signingOut = true)
+    }
+
+    composeTestRule
+        .onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON)
+        .assertIsNotEnabled()
+        .assertTextEquals("Signing out…")
+        .performClick()
+
     composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_DIALOG).assertDoesNotExist()
   }
 

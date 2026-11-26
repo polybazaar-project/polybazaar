@@ -59,6 +59,7 @@ import com.android.polybazaar.listing.viewmodel.ListingFormUiState
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
 import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.map.model.FakePlaceNameRepository
+import com.android.polybazaar.photo.PHOTO_PREVIEW_MAX_SIZE
 import java.io.File
 import java.net.UnknownHostException
 import java.time.LocalDate
@@ -1124,6 +1125,9 @@ class CreateListingScreenTest {
     }
 
     override fun newListingId(): String = "listing-1"
+
+    override suspend fun publishListing(listingId: String, listing: Listing) =
+        error("Not used here")
 
     override suspend fun getMyListings(): Result<List<Listing>> = Result.success(emptyList())
 
