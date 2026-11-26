@@ -40,9 +40,9 @@ import com.android.polybazaar.auth.ui.AuthColors
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.ConfirmationAction
+import com.android.polybazaar.booking.model.canBeCancelled
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
-import com.android.polybazaar.booking.model.isFinished
 import com.android.polybazaar.booking.viewmodel.BookingParty
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
@@ -177,7 +177,8 @@ fun BookingListContent(
 
 /**
  * The errors of [uiState], each with its Retry: live updates that stopped (Retry calls [onRetry]),
- * and a failed read or cancellation (Retry cancels the booking again, or else calls [onRetry]).
+ * and a failed read or cancellation (Retry cancels the booking again, or else calls [onRetry]). The
+ * second Retry is disabled unless [retryEnabled].
  */
 @Composable
 internal fun BookingErrors(
@@ -185,6 +186,7 @@ internal fun BookingErrors(
     onRetry: () -> Unit,
     onCancel: (String) -> Unit,
     modifier: Modifier = Modifier,
+    retryEnabled: Boolean = true,
 ) {
   uiState.observationError?.let { observationError ->
     ErrorRow(
@@ -201,7 +203,7 @@ internal fun BookingErrors(
         text = error.message(),
         textTag = BookingListScreenTags.ERROR_MESSAGE,
         retryTag = BookingListScreenTags.RETRY_BUTTON,
-        retryEnabled = true,
+        retryEnabled = retryEnabled,
         onRetry = { uiState.failedCancelId?.let(onCancel) ?: onRetry() },
         modifier = modifier,
     )
@@ -265,10 +267,7 @@ internal fun BookingCard(
       observationUnavailable = uiState.observationError != null,
       isLoadingBookings = uiState.isLoadingBookings,
       failure = uiState.confirmationFailures[booking.id],
-      canCancel =
-          booking.status != BookingStatus.CANCELLED &&
-              !booking.handoverNotified &&
-              !booking.isFinished(today),
+      canCancel = booking.canBeCancelled(today),
       cancelEnabled = cancelEnabled,
       onCancel = { onCancel(booking.id) },
       onConfirm = { action -> onConfirm(booking.id, action) },

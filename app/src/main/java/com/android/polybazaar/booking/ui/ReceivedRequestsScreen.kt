@@ -44,6 +44,7 @@ import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.ConfirmationAction
+import com.android.polybazaar.booking.model.canBeCancelled
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
 import com.android.polybazaar.booking.model.isFinished
@@ -203,7 +204,8 @@ private fun RequestLists(
   // survive a rotation.
   var confirmingId by rememberSaveable { mutableStateOf<String?>(null) }
   var cancellingId by rememberSaveable { mutableStateOf<String?>(null) }
-  // One answer at a time: no accept while a cancellation is being queued, and the reverse.
+  // One answer at a time: no accept while a cancellation is being queued, and no cancellation,
+  // nor its Retry, while an accept runs or another cancellation is being queued.
   val answering = uiState.acceptingId != null || bookings.cancellingBookingIds.isNotEmpty()
   Column(
       modifier =
@@ -278,6 +280,7 @@ private fun RequestLists(
           uiState = bookings,
           onRetry = actions.onRetryBookings,
           onCancel = actions.onCancel,
+          retryEnabled = !answering,
       )
       accepted.forEach { booking ->
         BookingCard(
@@ -312,12 +315,7 @@ private fun RequestLists(
     )
   }
   // Closes if the booking can no longer be cancelled, e.g. once the renter cancelled it.
-  val cancelling = accepted.find {
-    it.id == cancellingId &&
-        it.status == BookingStatus.CONFIRMED &&
-        !it.handoverNotified &&
-        !it.isFinished(today)
-  }
+  val cancelling = accepted.find { it.id == cancellingId && it.canBeCancelled(today) }
   if (cancelling != null) {
     CancelDialog(
         renterName = bookings.renterNames[cancelling.renterUid],

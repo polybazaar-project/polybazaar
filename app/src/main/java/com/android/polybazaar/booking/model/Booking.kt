@@ -60,3 +60,7 @@ fun Booking.overlaps(other: Booking): Boolean = days.any { it in other.days }
 
 /** Whether every day is before [today]: the booking is history and stays as it is. */
 fun Booking.isFinished(today: LocalDate): Boolean = days.all { it.isBefore(today) }
+
+/** Whether the booking can still be cancelled on [today]: not cancelled, handed over, or over. */
+fun Booking.canBeCancelled(today: LocalDate): Boolean =
+    status != BookingStatus.CANCELLED && !handoverNotified && !isFinished(today)

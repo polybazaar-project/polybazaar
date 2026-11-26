@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertAll
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -12,6 +14,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isNotEnabled
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -362,10 +365,38 @@ class ReceivedRequestsScreenTest {
   }
 
   @Test
-  fun whileAnAcceptRuns_noBookingCanBeCancelled() {
-    setContent(loaded.copy(acceptingId = "ann"), bookings = acceptedBookings)
+  fun whileAnAcceptRuns_noBookingCanBeCancelled_norAFailedCancellationRetried() {
+    val dee = booking("dee", "uid-dee", days(29..29), BookingStatus.CONFIRMED)
+    setContent(
+        loaded.copy(acceptingId = "ann"),
+        bookings =
+            acceptedBookings.copy(
+                bookings = listOf(cy, dee),
+                error = AppError.NETWORK,
+                failedCancelId = "dee",
+            ),
+    )
 
-    node(BookingListScreenTags.CANCEL_BUTTON).assertIsNotEnabled()
+    composeTestRule
+        .onAllNodes(hasTestTag(BookingListScreenTags.CANCEL_BUTTON))
+        .assertCountEquals(2)
+        .assertAll(isNotEnabled())
+    node(BookingListScreenTags.RETRY_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun aFailedCancellation_isRetriedWithoutAskingAgain() {
+    val cancelled = mutableListOf<String>()
+    setContent(
+        loaded,
+        ReceivedRequestsActions(onCancel = { cancelled += it }),
+        bookings = acceptedBookings.copy(error = AppError.NETWORK, failedCancelId = "cy"),
+    )
+
+    node(BookingListScreenTags.RETRY_BUTTON).assertIsEnabled().performClick()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
+    assertEquals(listOf("cy"), cancelled)
   }
 
   @Test
