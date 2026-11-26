@@ -29,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -43,6 +44,7 @@ import com.android.polybazaar.auth.ui.AuthPrimaryButton
 import com.android.polybazaar.booking.model.Booking
 import com.android.polybazaar.booking.model.BookingStatus
 import com.android.polybazaar.booking.model.ConfirmationAction
+import com.android.polybazaar.booking.model.canBeCancelled
 import com.android.polybazaar.booking.model.formatRuns
 import com.android.polybazaar.booking.model.groupIntoRuns
 import com.android.polybazaar.booking.model.isFinished
@@ -68,6 +70,10 @@ object ReceivedRequestsScreenTags {
   const val ACCEPT_DIALOG_TEXT = "received_requests_accept_dialog_text"
   const val ACCEPT_CONFIRM = "received_requests_accept_confirm"
   const val ACCEPT_CANCEL = "received_requests_accept_cancel"
+  const val CANCEL_DIALOG = "received_requests_cancel_dialog"
+  const val CANCEL_DIALOG_TEXT = "received_requests_cancel_dialog_text"
+  const val CANCEL_CONFIRM = "received_requests_cancel_confirm"
+  const val CANCEL_KEEP = "received_requests_cancel_keep"
 
   /** The card of the waiting request with this id. */
   fun request(id: String) = "received_requests_request_$id"
@@ -87,7 +93,8 @@ object ReceivedRequestsScreenTags {
  *
  * @property onRetry reads the waiting requests again.
  * @property onRetryBookings restarts the live updates of the accepted bookings.
- * @property onCancel cancels the accepted booking with this id.
+ * @property onCancel cancels the accepted booking with this id, once the lender confirmed it, or
+ *   again after the cancellation failed.
  * @property onConfirm records the lender's handover or return step on the booking with this id.
  * @property onDismissConfirmation hides the failed confirmation of the booking with this id.
  */
@@ -106,7 +113,7 @@ class ReceivedRequestsActions(
  * follows the ones they accepted. [viewModel] reads the waiting requests and accepts them;
  * accepting asks for confirmation first, saying how many other requests for the same days it
  * cancels. [bookingsViewModel] keeps the accepted bookings up to date while the screen is shown,
- * with their handover and return steps and Cancel.
+ * with their handover and return steps and Cancel, which also asks for confirmation.
  */
 @Composable
 fun ReceivedRequestsScreen(
@@ -193,8 +200,13 @@ private fun RequestLists(
     today: LocalDate,
 ) {
   val accepted = bookings.acceptedBookings(today)
-  // The id of the request waiting for confirmation. Saveable, so the dialog survives a rotation.
+  // The ids of the request and the booking waiting for confirmation. Saveable, so the dialogs
+  // survive a rotation.
   var confirmingId by rememberSaveable { mutableStateOf<String?>(null) }
+  var cancellingId by rememberSaveable { mutableStateOf<String?>(null) }
+  // One answer at a time: no accept while a cancellation is being queued, and no cancellation,
+  // nor its Retry, while an accept runs or another cancellation is being queued.
+  val answering = uiState.acceptingId != null || bookings.cancellingBookingIds.isNotEmpty()
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -244,7 +256,7 @@ private fun RequestLists(
             AuthPrimaryButton(
                 text = stringResource(R.string.received_requests_accept),
                 onClick = { confirmingId = request.id },
-                enabled = uiState.acceptingId == null && !uiState.isLoading,
+                enabled = !answering && !uiState.isLoading,
                 modifier =
                     Modifier.fillMaxWidth()
                         .height(44.dp)
@@ -268,6 +280,7 @@ private fun RequestLists(
           uiState = bookings,
           onRetry = actions.onRetryBookings,
           onCancel = actions.onCancel,
+          retryEnabled = !answering,
       )
       accepted.forEach { booking ->
         BookingCard(
@@ -278,10 +291,11 @@ private fun RequestLists(
                 bookings.renterNames[booking.renterUid]
                     ?: stringResource(R.string.received_requests_unknown_renter),
             today = today,
-            onCancel = actions.onCancel,
+            onCancel = { cancellingId = it },
             onConfirm = actions.onConfirm,
             onDismissConfirmation = actions.onDismissConfirmation,
             modifier = Modifier.testTag(ReceivedRequestsScreenTags.accepted(booking.id)),
+            cancelEnabled = !answering,
         )
       }
     }
@@ -298,6 +312,19 @@ private fun RequestLists(
           actions.onAccept(confirming)
         },
         onDismiss = { confirmingId = null },
+    )
+  }
+  // Closes if the booking can no longer be cancelled, e.g. once the renter cancelled it.
+  val cancelling = accepted.find { it.id == cancellingId && it.canBeCancelled(today) }
+  if (cancelling != null) {
+    CancelDialog(
+        renterName = bookings.renterNames[cancelling.renterUid],
+        days = formatRuns(groupIntoRuns(cancelling.days)),
+        onConfirm = {
+          cancellingId = null
+          actions.onCancel(cancelling.id)
+        },
+        onDismiss = { cancellingId = null },
     )
   }
 }
@@ -381,14 +408,82 @@ private fun AcceptDialog(
       )
     }
   }
+  ConfirmDialog(
+      tags =
+          DialogTags(
+              dialog = ReceivedRequestsScreenTags.ACCEPT_DIALOG,
+              text = ReceivedRequestsScreenTags.ACCEPT_DIALOG_TEXT,
+              confirm = ReceivedRequestsScreenTags.ACCEPT_CONFIRM,
+              dismiss = ReceivedRequestsScreenTags.ACCEPT_CANCEL,
+          ),
+      title = stringResource(R.string.received_requests_confirm_title),
+      text = text,
+      confirmLabel = stringResource(R.string.received_requests_accept),
+      confirmColor = AuthColors.Accent,
+      dismissLabel = stringResource(R.string.received_requests_cancel),
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+  )
+}
+
+/**
+ * Asks the lender to confirm cancelling the booking of [renterName] for [days], and warns that the
+ * days are not offered again by itself.
+ */
+@Composable
+private fun CancelDialog(
+    renterName: String?,
+    days: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  val renter = renterName ?: stringResource(R.string.received_requests_unknown_renter)
+  ConfirmDialog(
+      tags =
+          DialogTags(
+              dialog = ReceivedRequestsScreenTags.CANCEL_DIALOG,
+              text = ReceivedRequestsScreenTags.CANCEL_DIALOG_TEXT,
+              confirm = ReceivedRequestsScreenTags.CANCEL_CONFIRM,
+              dismiss = ReceivedRequestsScreenTags.CANCEL_KEEP,
+          ),
+      title = stringResource(R.string.received_requests_cancel_title),
+      text = stringResource(R.string.received_requests_cancel_text, renter, days),
+      confirmLabel = stringResource(R.string.received_requests_cancel_booking),
+      confirmColor = AuthColors.Danger,
+      dismissLabel = stringResource(R.string.received_requests_keep),
+      onConfirm = onConfirm,
+      onDismiss = onDismiss,
+  )
+}
+
+/** The test tags of a [ConfirmDialog] and its parts. */
+private class DialogTags(
+    val dialog: String,
+    val text: String,
+    val confirm: String,
+    val dismiss: String,
+)
+
+/** A dialog asking the lender to confirm an answer, titled [title] and explaining it in [text]. */
+@Composable
+private fun ConfirmDialog(
+    tags: DialogTags,
+    title: String,
+    text: String,
+    confirmLabel: String,
+    confirmColor: Color,
+    dismissLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
   AlertDialog(
       onDismissRequest = onDismiss,
       containerColor = AuthColors.CardBackground,
       shape = RoundedCornerShape(20.dp),
-      modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_DIALOG),
+      modifier = Modifier.testTag(tags.dialog),
       title = {
         Text(
-            text = stringResource(R.string.received_requests_confirm_title),
+            text = title,
             color = AuthColors.TextPrimary,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
@@ -400,29 +495,23 @@ private fun AcceptDialog(
             color = AuthColors.TextSecondary,
             fontSize = 13.sp,
             lineHeight = 18.sp,
-            modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_DIALOG_TEXT),
+            modifier = Modifier.testTag(tags.text),
         )
       },
       confirmButton = {
-        TextButton(
-            onClick = onConfirm,
-            modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_CONFIRM),
-        ) {
+        TextButton(onClick = onConfirm, modifier = Modifier.testTag(tags.confirm)) {
           Text(
-              text = stringResource(R.string.received_requests_accept),
-              color = AuthColors.Accent,
+              text = confirmLabel,
+              color = confirmColor,
               fontSize = 14.sp,
               fontWeight = FontWeight.SemiBold,
           )
         }
       },
       dismissButton = {
-        TextButton(
-            onClick = onDismiss,
-            modifier = Modifier.testTag(ReceivedRequestsScreenTags.ACCEPT_CANCEL),
-        ) {
+        TextButton(onClick = onDismiss, modifier = Modifier.testTag(tags.dismiss)) {
           Text(
-              text = stringResource(R.string.received_requests_cancel),
+              text = dismissLabel,
               color = AuthColors.TextSecondary,
               fontSize = 14.sp,
               fontWeight = FontWeight.SemiBold,

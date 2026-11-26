@@ -2,6 +2,11 @@
 package com.android.polybazaar.booking.ui
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertAll
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -9,6 +14,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isNotEnabled
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -265,7 +271,7 @@ class ReceivedRequestsScreenTest {
   }
 
   @Test
-  fun anAcceptedBooking_offersTheLendersHandoverStep_andCancel() {
+  fun anAcceptedBooking_offersTheLendersHandoverStep_andCancelAfterAConfirmation() {
     val confirmed = mutableListOf<Pair<String, ConfirmationAction>>()
     val cancelled = mutableListOf<String>()
     setContent(
@@ -286,7 +292,129 @@ class ReceivedRequestsScreenTest {
     node(BookingListScreenTags.CANCEL_BUTTON).performClick()
 
     assertEquals(listOf("cy" to ConfirmationAction.NOTIFY_HANDOVER), confirmed)
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG_TEXT)
+        .assertTextEquals(
+            "cy will no longer have 28 Nov. These days stay off your listing: " +
+                "add them back in Edit listing to lend them again."
+        )
+    assertEquals(emptyList<String>(), cancelled)
+    node(ReceivedRequestsScreenTags.CANCEL_CONFIRM).performClick()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
     assertEquals(listOf("cy"), cancelled)
+  }
+
+  @Test
+  fun keepingTheBooking_cancelsNothing() {
+    val cancelled = mutableListOf<String>()
+    setContent(
+        ReceivedRequestsUiState(hasLoaded = true),
+        ReceivedRequestsActions(onCancel = { cancelled += it }),
+        bookings = BookingUiState(bookings = listOf(cy)),
+    )
+
+    node(BookingListScreenTags.CANCEL_BUTTON).performClick()
+    // No name read: the dialog names a renter.
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG_TEXT)
+        .assertTextEquals(
+            "A renter will no longer have 28 Nov. These days stay off your listing: " +
+                "add them back in Edit listing to lend them again."
+        )
+    node(ReceivedRequestsScreenTags.CANCEL_KEEP).performClick()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
+    assertEquals(emptyList<String>(), cancelled)
+  }
+
+  @Test
+  fun theCancelDialog_survivesARotation() {
+    val restoration = StateRestorationTester(composeTestRule)
+    restoration.setContent {
+      ReceivedRequestsContent(
+          uiState = loaded,
+          bookings = acceptedBookings,
+          actions = ReceivedRequestsActions(),
+          today = today,
+      )
+    }
+    node(BookingListScreenTags.CANCEL_BUTTON).performClick()
+
+    restoration.emulateSavedInstanceStateRestore()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertIsDisplayed()
+  }
+
+  @Test
+  fun theCancelDialog_closes_whenTheBookingIsCancelledMeanwhile() {
+    var bookings by mutableStateOf(acceptedBookings)
+    composeTestRule.setContent {
+      ReceivedRequestsContent(
+          uiState = ReceivedRequestsUiState(hasLoaded = true),
+          bookings = bookings,
+          actions = ReceivedRequestsActions(),
+          today = today,
+      )
+    }
+    node(BookingListScreenTags.CANCEL_BUTTON).performClick()
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertIsDisplayed()
+
+    // The renter cancels it first.
+    bookings = acceptedBookings.copy(bookings = listOf(cy.copy(status = BookingStatus.CANCELLED)))
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
+  }
+
+  @Test
+  fun whileAnAcceptRuns_noBookingCanBeCancelled_norAFailedCancellationRetried() {
+    val dee = booking("dee", "uid-dee", days(29..29), BookingStatus.CONFIRMED)
+    setContent(
+        loaded.copy(acceptingId = "ann"),
+        bookings =
+            acceptedBookings.copy(
+                bookings = listOf(cy, dee),
+                error = AppError.NETWORK,
+                failedCancelId = "dee",
+            ),
+    )
+
+    composeTestRule
+        .onAllNodes(hasTestTag(BookingListScreenTags.CANCEL_BUTTON))
+        .assertCountEquals(2)
+        .assertAll(isNotEnabled())
+    node(BookingListScreenTags.RETRY_BUTTON).assertIsNotEnabled()
+  }
+
+  @Test
+  fun aFailedCancellation_isRetriedWithoutAskingAgain() {
+    val cancelled = mutableListOf<String>()
+    setContent(
+        loaded,
+        ReceivedRequestsActions(onCancel = { cancelled += it }),
+        bookings = acceptedBookings.copy(error = AppError.NETWORK, failedCancelId = "cy"),
+    )
+
+    node(BookingListScreenTags.RETRY_BUTTON).assertIsEnabled().performClick()
+
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
+    assertEquals(listOf("cy"), cancelled)
+  }
+
+  @Test
+  fun whileACancellationIsQueued_noRequestCanBeAccepted_norAnotherBookingCancelled() {
+    val dee = booking("dee", "uid-dee", days(29..29), BookingStatus.CONFIRMED)
+    setContent(
+        loaded,
+        bookings = BookingUiState(bookings = listOf(cy, dee), cancellingBookingIds = setOf("cy")),
+    )
+
+    node(ReceivedRequestsScreenTags.acceptButton("ann")).assertIsNotEnabled()
+    node(ReceivedRequestsScreenTags.acceptButton("bob")).assertIsNotEnabled()
+    composeTestRule
+        .onNode(
+            hasTestTag(BookingListScreenTags.CANCEL_BUTTON) and
+                hasAnyAncestor(hasTestTag(ReceivedRequestsScreenTags.accepted("dee")))
+        )
+        .assertIsNotEnabled()
   }
 
   @Test
@@ -392,11 +520,43 @@ class ReceivedRequestsScreenTest {
     node(BookingListScreenTags.OBSERVATION_RETRY).performClick()
     composeTestRule.waitUntil { bookingsViewModel.uiState.value.observationError == null }
     node(BookingListScreenTags.CANCEL_BUTTON).performClick()
+    node(ReceivedRequestsScreenTags.CANCEL_CONFIRM).performClick()
 
     composeTestRule.waitUntil {
       bookingsViewModel.uiState.value.bookings.single().status == BookingStatus.CANCELLED
     }
     assertEquals(1, bookings.cancellationCount)
     node(ReceivedRequestsScreenTags.accepted("cy")).assertDoesNotExist()
+  }
+
+  @Test
+  fun withTheViewModels_aCancellationTheServerRefuses_bringsTheBookingBack_withAnError() {
+    val upcoming =
+        booking("cy", "uid-cy", setOf(LocalDate.now().plusDays(5)), BookingStatus.CONFIRMED)
+    val bookings = FakeBookingRepository().apply { listingBookings = listOf(upcoming) }
+    val listings = FakeListingRepository(listOf(drill(availableDates = emptySet())))
+    val viewModel = ReceivedRequestsViewModel("drill", bookings, listings, FakeProfileRepository())
+    val bookingsViewModel = BookingViewModel(bookings)
+    composeTestRule.setContent {
+      ReceivedRequestsScreen("drill", viewModel, bookingsViewModel, onBack = {})
+    }
+
+    node(BookingListScreenTags.CANCEL_BUTTON).performClick()
+    node(ReceivedRequestsScreenTags.CANCEL_CONFIRM).performClick()
+    // Queued, also offline: the booking leaves Accepted at once.
+    node(ReceivedRequestsScreenTags.accepted("cy")).assertDoesNotExist()
+
+    // The server answers after the write was queued locally.
+    composeTestRule.runOnIdle {
+      bookings.cancelWriteFailure?.invoke(AppException(AppError.PERMISSION_DENIED))
+    }
+
+    node(ReceivedRequestsScreenTags.accepted("cy")).assertIsDisplayed()
+    node(BookingListScreenTags.ERROR_MESSAGE)
+        .assertTextEquals(context.getString(R.string.error_permission_denied))
+    // Retry cancels again, without asking a second time.
+    node(BookingListScreenTags.RETRY_BUTTON).performClick()
+    composeTestRule.waitUntil { bookings.cancellationCount == 2 }
+    node(ReceivedRequestsScreenTags.CANCEL_DIALOG).assertDoesNotExist()
   }
 }
