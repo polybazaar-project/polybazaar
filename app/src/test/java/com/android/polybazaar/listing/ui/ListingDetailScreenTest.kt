@@ -236,7 +236,7 @@ class ListingDetailScreenTest {
   }
 
   @Test
-  fun location_whenSet_showsItsName() {
+  fun location_whenSet_showsItsNameAsAnApproximateArea() {
     setContent(
         ListingDetailUiState(
             listing =
@@ -244,7 +244,11 @@ class ListingDetailScreenTest {
         )
     )
 
-    node(ListingDetailScreenTags.LOCATION).assertTextEquals("Rolex Learning Center")
+    // Only an area is stored (#23), so the line says so.
+    node(ListingDetailScreenTags.LOCATION)
+        .assertTextEquals(
+            context.getString(R.string.listing_detail_location_approximate, "Rolex Learning Center")
+        )
   }
 
   @Test

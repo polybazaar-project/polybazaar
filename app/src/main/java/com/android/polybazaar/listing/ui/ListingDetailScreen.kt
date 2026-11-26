@@ -351,8 +351,9 @@ private fun Overview(listing: Listing, pending: ListingPendingDetails) {
     )
     // Left out while unknown: the pickup line already says the location is to be confirmed.
     listing.location?.let {
+      // The point is only stored as an area (#23), so the line says so.
       SecondaryText(
-          text = it.name,
+          text = stringResource(R.string.listing_detail_location_approximate, it.name),
           fontSize = 13.sp,
           modifier = Modifier.testTag(ListingDetailScreenTags.LOCATION),
       )
