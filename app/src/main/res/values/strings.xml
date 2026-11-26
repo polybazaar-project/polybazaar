@@ -362,6 +362,7 @@
         <item quantity="other">%1$d days</item>
     </plurals>
     <string name="received_requests_accept">Accept</string>
+    <string name="received_requests_unavailable">Some of these days are no longer offered, so this request can\'t be accepted.</string>
     <string name="received_requests_cancel">Cancel</string>
     <string name="received_requests_confirm_title">Accept this request?</string>
     <string name="received_requests_confirm_text">%1$s gets %2$s. No one else can request these days.</string>

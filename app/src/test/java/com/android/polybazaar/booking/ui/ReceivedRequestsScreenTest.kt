@@ -202,12 +202,15 @@ class ReceivedRequestsScreenTest {
   }
 
   @Test
-  fun aRequestForADayNoLongerOffered_hasNoAccept() {
+  fun aRequestForADayNoLongerOffered_hasNoAccept_andSaysWhy() {
     setContent(loaded.copy(offeredDays = days(17..21)))
 
     node(ReceivedRequestsScreenTags.request("bob")).assertIsDisplayed()
     node(ReceivedRequestsScreenTags.acceptButton("bob")).assertDoesNotExist()
+    node(ReceivedRequestsScreenTags.unavailable("bob"))
+        .assertTextEquals(context.getString(R.string.received_requests_unavailable))
     node(ReceivedRequestsScreenTags.acceptButton("ann")).assertIsEnabled()
+    node(ReceivedRequestsScreenTags.unavailable("ann")).assertDoesNotExist()
   }
 
   @Test

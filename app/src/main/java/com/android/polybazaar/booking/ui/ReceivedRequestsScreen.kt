@@ -75,6 +75,9 @@ object ReceivedRequestsScreenTags {
   /** The "Accept" button of the waiting request with this id. */
   fun acceptButton(id: String) = "received_requests_accept_$id"
 
+  /** Why the waiting request with this id has no "Accept" button. */
+  fun unavailable(id: String) = "received_requests_unavailable_$id"
+
   /** The card of the accepted booking with this id. */
   fun accepted(id: String) = "received_requests_accepted_$id"
 }
@@ -241,6 +244,14 @@ private fun RequestLists(
                     Modifier.fillMaxWidth()
                         .height(44.dp)
                         .testTag(ReceivedRequestsScreenTags.acceptButton(request.id)),
+            )
+          } else {
+            Text(
+                text = stringResource(R.string.received_requests_unavailable),
+                color = AuthColors.TextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                modifier = Modifier.testTag(ReceivedRequestsScreenTags.unavailable(request.id)),
             )
           }
         }
