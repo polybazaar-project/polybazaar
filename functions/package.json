@@ -1,0 +1,17 @@
+{
+  "name": "polybazaar-functions",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "npx --yes firebase-tools@15.37.0 emulators:exec --only firestore --project demo-polybazaar \"node --test --test-concurrency=1\"",
+    "test:unit": "node --test test/payload.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "14.5.1",
+    "firebase-functions": "7.4.0"
+  }
+}
