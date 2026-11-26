@@ -7,13 +7,8 @@ package com.android.polybazaar.ui.navigation
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -99,6 +94,8 @@ import com.android.polybazaar.map.model.FakePlaceNameRepository
 import com.android.polybazaar.map.ui.MapLocationTags
 import com.android.polybazaar.map.ui.MapScreenTags
 import com.android.polybazaar.map.ui.MapSlot
+import com.android.polybazaar.map.ui.StandInMapTags
+import com.android.polybazaar.map.ui.standInMap
 import com.android.polybazaar.map.viewmodel.MapUiState
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -159,23 +156,8 @@ class AppNavHostTest {
   /** What the Map tab last gave its map, recorded by [mapStandIn]. */
   private var mapState: MapUiState? = null
 
-  /**
-   * Drawn instead of the Google map, which can't run under Robolectric: it records the state and
-   * draws one tappable button per marker, so tests can tap a marker as on the real map (#342).
-   */
-  private val mapStandIn: MapSlot = { state, actions ->
-    mapState = state
-    Column {
-      state.markers.forEach { marker ->
-        Button(
-            onClick = { actions.onMarkerClick(marker.id) },
-            modifier = Modifier.testTag(mapMarkerTag(marker.id)),
-        ) {
-          Text(marker.id)
-        }
-      }
-    }
-  }
+  /** The shared stand-in for the Google map (#435), recording what it is given in [mapState]. */
+  private val mapStandIn: MapSlot = standInMap { mapState = it }
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -1990,7 +1972,7 @@ class AppNavHostTest {
     composeTestRule.onNodeWithTag(MapLocationTags.campusButton(Campus.EPFL)).performClick()
     composeTestRule.waitForIdle()
 
-    composeTestRule.onNodeWithTag(mapMarkerTag("drill")).performClick()
+    composeTestRule.onNodeWithTag(StandInMapTags.marker("drill")).performClick()
     composeTestRule.onNodeWithTag(MapScreenTags.PREVIEW).performClick()
     composeTestRule.waitForIdle()
 
@@ -2565,6 +2547,3 @@ class AppNavHostTest {
 }
 
 private const val NETWORK_MESSAGE = "No connection. Check your internet and try again."
-
-/** Tag of a marker's button in [AppNavHostTest]'s stand-in map. */
-private fun mapMarkerTag(id: String) = "map_marker_$id"

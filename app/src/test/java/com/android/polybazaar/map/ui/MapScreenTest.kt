@@ -3,10 +3,7 @@ package com.android.polybazaar.map.ui
 
 import android.content.Context
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
@@ -354,31 +351,16 @@ class MapScreenTest {
       MapScreen(
           viewModel,
           onOpenListing = { opened = it },
-          // A stand-in that taps like the Google map: one button per marker, and the map itself.
-          map = { state, actions ->
-            Column {
-              Button(onClick = actions.onMapClick, modifier = Modifier.testTag("map")) {
-                Text("map")
-              }
-              state.markers.forEach { marker ->
-                Button(
-                    onClick = { actions.onMarkerClick(marker.id) },
-                    modifier = Modifier.testTag("marker_${marker.id}"),
-                ) {
-                  Text(marker.id)
-                }
-              }
-            }
-          },
+          map = standInMap(),
       )
     }
     composeTestRule.waitForIdle()
 
-    node("marker_drill").performClick()
+    node(StandInMapTags.marker("drill")).performClick()
     node(MapScreenTags.PREVIEW).assertIsDisplayed().performClick()
     assertEquals("drill", opened)
 
-    node("map").performClick()
+    node(StandInMapTags.MAP).performClick()
     node(MapScreenTags.PREVIEW).assertDoesNotExist()
   }
 }
