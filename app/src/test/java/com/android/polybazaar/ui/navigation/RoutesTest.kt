@@ -1,4 +1,5 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.ui.navigation
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -10,7 +11,7 @@ import org.junit.runner.RunWith
 class RoutesTest {
 
   @Test
-  fun lenderBookings_encodesTheListingId() {
-    assertEquals("lender_bookings/a%2Fb%3Fc%20d", Routes.lenderBookings("a/b?c d"))
+  fun receivedRequests_encodesTheListingId() {
+    assertEquals("received_requests/a%2Fb%3Fc%20d", Routes.receivedRequests("a/b?c d"))
   }
 }

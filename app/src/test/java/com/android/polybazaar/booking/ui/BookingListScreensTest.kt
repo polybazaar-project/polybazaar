@@ -1,6 +1,8 @@
 // Co-authored-by: Copilot (Auto)
+// Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.booking.ui
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -20,6 +22,7 @@ import com.android.polybazaar.booking.model.FakeBookingRepository
 import com.android.polybazaar.booking.viewmodel.BookingUiState
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
 import com.android.polybazaar.booking.viewmodel.ConfirmationFailure
+import com.android.polybazaar.booking.viewmodel.ReceivedRequestsUiState
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.AppException
 import java.time.LocalDate
@@ -49,18 +52,49 @@ class BookingListScreensTest {
       onBack: () -> Unit = {},
       onRetry: () -> Unit = {},
       onCancel: (String) -> Unit = {},
-      showRenter: Boolean = false,
+      asLender: Boolean = false,
       onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
       onDismissConfirmation: (String) -> Unit = {},
   ) {
     composeTestRule.setContent {
+      Bookings(state, asLender, onBack, onRetry, onCancel, onConfirm, onDismissConfirmation)
+    }
+  }
+
+  /**
+   * [state] as the renter sees it on "My bookings", or with [asLender] as the lender sees its
+   * confirmed bookings in the Accepted section of their listing's booking requests.
+   */
+  @Composable
+  private fun Bookings(
+      state: BookingUiState,
+      asLender: Boolean,
+      onBack: () -> Unit = {},
+      onRetry: () -> Unit = {},
+      onCancel: (String) -> Unit = {},
+      onConfirm: (String, ConfirmationAction) -> Unit = { _, _ -> },
+      onDismissConfirmation: (String) -> Unit = {},
+  ) {
+    if (asLender) {
+      ReceivedRequestsContent(
+          uiState = ReceivedRequestsUiState(hasLoaded = true),
+          bookings = state,
+          actions =
+              ReceivedRequestsActions(
+                  onBack = onBack,
+                  onRetryBookings = onRetry,
+                  onCancel = onCancel,
+                  onConfirm = onConfirm,
+                  onDismissConfirmation = onDismissConfirmation,
+              ),
+      )
+    } else {
       BookingListContent(
           title = "My bookings",
           uiState = state,
           onBack = onBack,
           onRetry = onRetry,
           onCancel = onCancel,
-          showRenter = showRenter,
           onConfirm = onConfirm,
           onDismissConfirmation = onDismissConfirmation,
       )
@@ -110,7 +144,7 @@ class BookingListScreensTest {
     val actions = mutableListOf<Pair<String, ConfirmationAction>>()
     show(
         BookingUiState(bookings = listOf(returning)),
-        showRenter = true,
+        asLender = true,
         onConfirm = { id, action -> actions += id to action },
     )
 
@@ -181,13 +215,9 @@ class BookingListScreensTest {
     var current by mutableStateOf(scenarios.first())
     val actions = mutableListOf<Pair<String, ConfirmationAction>>()
     composeTestRule.setContent {
-      BookingListContent(
-          title = "Bookings",
-          uiState = BookingUiState(bookings = listOf(current.booking)),
-          onBack = {},
-          onRetry = {},
-          onCancel = {},
-          showRenter = current.lender,
+      Bookings(
+          state = BookingUiState(bookings = listOf(current.booking)),
+          asLender = current.lender,
           onConfirm = { id, action -> actions += id to action },
       )
     }
@@ -407,11 +437,12 @@ class BookingListScreensTest {
   fun lenderScreen_namesBookingsAfterTheirRenter() {
     show(
         BookingUiState(
-            bookings = listOf(booking("a")),
+            // The lender's screen lists only accepted bookings here; requests have their own cards.
+            bookings = listOf(booking("a", BookingStatus.CONFIRMED)),
             listingTitles = mapOf("listing" to "Bosch drill set"),
             renterNames = mapOf("renter" to "James Richard"),
         ),
-        showRenter = true,
+        asLender = true,
     )
 
     composeTestRule.onNodeWithTag(BookingListScreenTags.LABEL).assertTextEquals("James Richard")
@@ -533,37 +564,6 @@ class BookingListScreensTest {
     composeTestRule.onNodeWithTag(BookingListScreenTags.EMPTY).assertIsDisplayed()
     composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
 
-    assertEquals(1, backs)
-  }
-
-  @Test
-  fun lenderBookingsScreen_retriesLoadAndCancelsBooking() {
-    val repository =
-        FakeBookingRepository().apply {
-          loadFailure = AppException(AppError.NETWORK)
-          listingBookings = listOf(booking("a"))
-        }
-    val viewModel = BookingViewModel(repository)
-    var backs = 0
-    composeTestRule.setContent {
-      LenderBookingsScreen(
-          listingId = "listing",
-          viewModel = viewModel,
-          onBack = { backs++ },
-      )
-    }
-    composeTestRule.waitUntil { viewModel.uiState.value.observationError != null }
-    repository.loadFailure = null
-    composeTestRule.onNodeWithTag(BookingListScreenTags.OBSERVATION_RETRY).performClick()
-
-    composeTestRule.waitUntil { viewModel.uiState.value.bookings.isNotEmpty() }
-    assertEquals(2, repository.loadCount)
-
-    composeTestRule.onNodeWithTag(BookingListScreenTags.CANCEL_BUTTON).performClick()
-    composeTestRule.waitUntil {
-      viewModel.uiState.value.bookings.single().status == BookingStatus.CANCELLED
-    }
-    composeTestRule.onNodeWithTag(BookingListScreenTags.BACK_BUTTON).performClick()
     assertEquals(1, backs)
   }
 

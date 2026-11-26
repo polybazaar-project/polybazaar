@@ -65,10 +65,11 @@ import com.android.polybazaar.auth.viewmodel.ForgotPasswordViewModel
 import com.android.polybazaar.auth.viewmodel.VerifyEmailViewModel
 import com.android.polybazaar.booking.model.BookingRepository
 import com.android.polybazaar.booking.ui.BookingRequestScreen
-import com.android.polybazaar.booking.ui.LenderBookingsScreen
+import com.android.polybazaar.booking.ui.ReceivedRequestsScreen
 import com.android.polybazaar.booking.ui.RenterBookingsScreen
 import com.android.polybazaar.booking.viewmodel.BookingRequestViewModel
 import com.android.polybazaar.booking.viewmodel.BookingViewModel
+import com.android.polybazaar.booking.viewmodel.ReceivedRequestsViewModel
 import com.android.polybazaar.browse.ui.BrowseScreen
 import com.android.polybazaar.browse.viewmodel.BrowseViewModel
 import com.android.polybazaar.chat.model.ChatRepository
@@ -132,7 +133,8 @@ object AppNavHostTags {
  *   Pass the repository [authViewModel] uses, so every auth screen talks to the same backend.
  * @param listingRepository gives the Browse screen the listings to show, and saves new ones.
  * @param chatRepository gives the Conversations screen the signed-in user's conversations.
- * @param bookingRepository sends the booking requests made from a listing's "Choose dates".
+ * @param bookingRepository sends the booking requests made from a listing's "Choose dates", and
+ *   gives a listing's owner the requests on it to accept.
  * @param listingsMap draws the Map tab's map: the Google map, or a stand-in in tests, where Google
  *   Maps can't run.
  * @param photoStorage keeps the photos of the listing being created.
@@ -436,8 +438,10 @@ fun AppNavHost(
                       onEdit = {
                         navController.navigate(Routes.editListing(it)) { launchSingleTop = true }
                       },
-                      onOpenBookings = {
-                        navController.navigate(Routes.lenderBookings(it)) { launchSingleTop = true }
+                      onOpenRequests = {
+                        navController.navigate(Routes.receivedRequests(it)) {
+                          launchSingleTop = true
+                        }
                       },
                       onDeleted = { navController.popBackStack() },
                       // The viewer messages the owner as the renter. Single top, so a double tap
@@ -481,9 +485,7 @@ fun AppNavHost(
               viewModel(
                   factory =
                       viewModelFactory {
-                        initializer {
-                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
-                        }
+                        initializer { BookingViewModel(bookingRepository, listingRepository) }
                       }
               )
           BookingRequestScreen(
@@ -500,9 +502,7 @@ fun AppNavHost(
                   key = "renter_bookings",
                   factory =
                       viewModelFactory {
-                        initializer {
-                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
-                        }
+                        initializer { BookingViewModel(bookingRepository, listingRepository) }
                       },
               )
           RenterBookingsScreen(
@@ -511,23 +511,39 @@ fun AppNavHost(
           )
         }
         composable(
-            route = Routes.LENDER_BOOKINGS,
+            route = Routes.RECEIVED_REQUESTS,
             arguments = listOf(navArgument(Routes.LISTING_ID) { type = NavType.StringType }),
         ) { entry ->
           val listingId = entry.arguments?.getString(Routes.LISTING_ID) ?: return@composable
-          val bookingViewModel: BookingViewModel =
+          val requestsViewModel: ReceivedRequestsViewModel =
               viewModel(
-                  key = "lender_bookings_$listingId",
                   factory =
                       viewModelFactory {
                         initializer {
-                          BookingViewModel(bookingRepository, listingRepository, profileRepository)
+                          ReceivedRequestsViewModel(
+                              listingId = listingId,
+                              bookingRepository = bookingRepository,
+                              listingRepository = listingRepository,
+                              profileRepository = profileRepository,
+                          )
                         }
-                      },
+                      }
               )
-          LenderBookingsScreen(
+          // Follows the accepted bookings live, with their handover, return and Cancel.
+          val bookingsViewModel: BookingViewModel =
+              viewModel(
+                  factory =
+                      viewModelFactory {
+                        initializer {
+                          BookingViewModel(bookingRepository, profileRepository = profileRepository)
+                        }
+                      }
+              )
+          ReceivedRequestsScreen(
               listingId = listingId,
-              viewModel = bookingViewModel,
+              viewModel = requestsViewModel,
+              bookingsViewModel = bookingsViewModel,
+              // As on the booking request: a second tap while leaving would also pop the listing.
               onBack = dropUnlessResumed { navController.popBackStack() },
           )
         }
@@ -776,6 +792,7 @@ private val signedInRoutes =
         Routes.INBOX,
         Routes.CONVERSATION,
         Routes.BOOKING_REQUEST,
+        Routes.RECEIVED_REQUESTS,
         Routes.PROFILE,
         Routes.EDIT_PROFILE,
         Routes.SETTINGS,
