@@ -319,8 +319,9 @@ class FirebaseListingRepository(
           put(AVAILABLE_DATES, availableDates.map { it.toEpochDay() }.sorted())
         }
         // A map rather than a GeoPoint, so the model stays free of Firebase. Left out when there is
-        // none, like the available days.
-        location?.let {
+        // none, like the available days. Only the approximate point is stored (#23): create, update
+        // and publish all write through here.
+        location?.approximate()?.let {
           put(
               LOCATION,
               mapOf(
@@ -389,7 +390,10 @@ class FirebaseListingRepository(
     val latitude = (data[LATITUDE] as? Number)?.toDouble() ?: return null
     val longitude = (data[LONGITUDE] as? Number)?.toDouble() ?: return null
     val name = data[LOCATION_NAME] as? String ?: return null
-    return ListingLocation(latitude, longitude, name.trim()).takeIf(ListingRules::isValidLocation)
+    // Snapped on reading too, so a listing saved before #23 never shows its exact point either.
+    return ListingLocation(latitude, longitude, name.trim())
+        .takeIf(ListingRules::isValidLocation)
+        ?.approximate()
   }
 
   /**

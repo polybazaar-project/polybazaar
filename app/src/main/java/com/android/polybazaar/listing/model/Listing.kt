@@ -67,7 +67,7 @@ sealed class Listing(
   /**
    * This listing as saved under [listingId] by [ownerUid], with its photos at [imagePaths] and the
    * stored pause state [isPaused]. The photos on the device are uploaded by then, so [images] is
-   * empty.
+   * empty, and its location is the approximate one stored (#23).
    */
   abstract fun saved(
       listingId: String,
@@ -128,6 +128,7 @@ data class ServiceListing(
           imagePaths = imagePaths,
           ownerUid = ownerUid,
           isPaused = isPaused,
+          location = location?.approximate(),
       )
 }
 
@@ -182,5 +183,6 @@ data class ItemListing(
           imagePaths = imagePaths,
           ownerUid = ownerUid,
           isPaused = isPaused,
+          location = location?.approximate(),
       )
 }
