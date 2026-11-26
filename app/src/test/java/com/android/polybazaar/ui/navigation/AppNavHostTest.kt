@@ -7,8 +7,9 @@ package com.android.polybazaar.ui.navigation
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.LocalActivityResultRegistryOwner
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -92,9 +93,12 @@ import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.listing.ui.EditListingScreenTags
 import com.android.polybazaar.listing.ui.ListingDetailScreenTags
+import com.android.polybazaar.map.model.Campus
 import com.android.polybazaar.map.model.FakeLocationRepository
 import com.android.polybazaar.map.model.FakePlaceNameRepository
+import com.android.polybazaar.map.ui.MapLocationTags
 import com.android.polybazaar.map.ui.MapScreenTags
+import com.android.polybazaar.map.ui.MapSlot
 import com.android.polybazaar.map.viewmodel.MapUiState
 import com.android.polybazaar.profile.model.ProfileRepository
 import com.android.polybazaar.profile.ui.EditProfileScreenTags
@@ -152,8 +156,26 @@ class AppNavHostTest {
   // Drafts kept on the device belong to the signed-in user, as with the real queue.
   private val pendingQueue = FakePendingListingQueue(ownerUid = user.uid)
 
-  /** What the Map tab last gave its map: the stand-in records it, since it draws no markers. */
+  /** What the Map tab last gave its map, recorded by [mapStandIn]. */
   private var mapState: MapUiState? = null
+
+  /**
+   * Drawn instead of the Google map, which can't run under Robolectric: it records the state and
+   * draws one tappable button per marker, so tests can tap a marker as on the real map (#342).
+   */
+  private val mapStandIn: MapSlot = { state, actions ->
+    mapState = state
+    Column {
+      state.markers.forEach { marker ->
+        Button(
+            onClick = { actions.onMarkerClick(marker.id) },
+            modifier = Modifier.testTag(mapMarkerTag(marker.id)),
+        ) {
+          Text(marker.id)
+        }
+      }
+    }
+  }
   private val photoStorage =
       FilePhotoStorage(
           ApplicationProvider.getApplicationContext(),
@@ -188,11 +210,7 @@ class AppNavHostTest {
             bookingRepository = bookingRepository,
             locationRepository = locationRepository,
             placeNameRepository = FakePlaceNameRepository(),
-            // Google Maps can't run under Robolectric: a stand-in that shows the markers.
-            listingsMap = { state, _ ->
-              mapState = state
-              Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
-            },
+            listingsMap = mapStandIn,
             connectivityRepository = connectivity,
             photoOutbox = photoOutbox,
             pendingListingQueue = pendingQueue,
@@ -240,11 +258,7 @@ class AppNavHostTest {
             bookingRepository = bookingRepository,
             locationRepository = locationRepository,
             placeNameRepository = FakePlaceNameRepository(),
-            // Google Maps can't run under Robolectric: a stand-in that shows the markers.
-            listingsMap = { state, _ ->
-              mapState = state
-              Box(Modifier.fillMaxSize().testTag(MAP_STAND_IN))
-            },
+            listingsMap = mapStandIn,
             connectivityRepository = FakeConnectivityRepository(),
             photoOutbox = FakePhotoOutbox(),
             pendingListingQueue = FakePendingListingQueue(),
@@ -851,7 +865,7 @@ class AppNavHostTest {
           photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
-          listingsMap = { state, _ -> mapState = state },
+          listingsMap = mapStandIn,
       )
     }
 
@@ -1590,6 +1604,20 @@ class AppNavHostTest {
   }
 
   @Test
+  fun signOutFromSettings_disablesSignOutUntilItFinishes() {
+    val signOutGate = CompletableDeferred<Unit>()
+    setContent(FakeAuthRepository(currentUser = user, signOutGate = signOutGate))
+    openSettings()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithTag(SettingsScreenTags.SIGN_OUT_BUTTON).assertIsNotEnabled()
+    signOutGate.complete(Unit)
+    composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+  }
+
+  @Test
   fun cancellingSignOut_staysOnSettingsSignedIn() {
     val viewModel = setContent(FakeAuthRepository(currentUser = user))
     openSettings()
@@ -1750,7 +1778,7 @@ class AppNavHostTest {
           photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
-          listingsMap = { state, _ -> mapState = state },
+          listingsMap = mapStandIn,
       )
     }
     openProfile()
@@ -1832,7 +1860,7 @@ class AppNavHostTest {
           photoOutbox = FakePhotoOutbox(),
           pendingListingQueue = FakePendingListingQueue(),
           navController = navController,
-          listingsMap = { state, _ -> mapState = state },
+          listingsMap = mapStandIn,
       )
     }
     composeTestRule.onNodeWithTag(VerifyEmailScreenTags.SCREEN).assertIsDisplayed()
@@ -1946,6 +1974,38 @@ class AppNavHostTest {
     composeTestRule.waitForIdle()
 
     assertEquals(listOf("drill", "tent"), mapState?.markers?.map { it.id })
+  }
+
+  @Test
+  fun mapTab_markerPreview_opensTheListingDetail_andBackKeepsThePreview() {
+    listingRepository.allListings =
+        listOf(
+            gracesDrill.copy(location = ListingLocation(46.5185, 6.5683, "Rolex Learning Center"))
+        )
+    setContent(FakeAuthRepository(currentUser = user))
+    openMap()
+    // Robolectric has no location permission: say "Not now" and pick EPFL, so the location card
+    // doesn't cover the bottom of the map where the preview shows.
+    composeTestRule.onNodeWithTag(MapLocationTags.NOT_NOW_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(MapLocationTags.campusButton(Campus.EPFL)).performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(mapMarkerTag("drill")).performClick()
+    composeTestRule.onNodeWithTag(MapScreenTags.PREVIEW).performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.TITLE).assertTextEquals(gracesDrill.title)
+
+    // The map's ViewModel stays on the back stack, so the renter finds the same preview.
+    Espresso.pressBack()
+    composeTestRule.waitForIdle()
+    assertEquals(Routes.MAP, navController.currentBackStackEntry?.destination?.route)
+    // The same listing's preview, not just any preview.
+    composeTestRule
+        .onNodeWithTag(MapScreenTags.PREVIEW)
+        .assertIsDisplayed()
+        .assert(hasText(gracesDrill.title))
   }
 
   @Test
@@ -2468,6 +2528,8 @@ class AppNavHostTest {
       private val signInGate: CompletableDeferred<Result<User>>? = null,
       /** When set, sign-up waits for it instead of returning [signUpResult]. */
       private val signUpGate: CompletableDeferred<Result<User>>? = null,
+      /** When set, sign-out waits for it. */
+      private val signOutGate: CompletableDeferred<Unit>? = null,
   ) : AuthRepository {
     override suspend fun signIn(email: String, password: String): Result<User> =
         signInGate?.await() ?: signInResult
@@ -2476,6 +2538,7 @@ class AppNavHostTest {
         signUpGate?.await() ?: signUpResult
 
     override suspend fun signOut() {
+      signOutGate?.await()
       signOutError?.let { throw it }
     }
 
@@ -2503,5 +2566,5 @@ class AppNavHostTest {
 
 private const val NETWORK_MESSAGE = "No connection. Check your internet and try again."
 
-/** Tag of the stand-in drawn instead of the Google map, which can't run under Robolectric. */
-private const val MAP_STAND_IN = "map_stand_in"
+/** Tag of a marker's button in [AppNavHostTest]'s stand-in map. */
+private fun mapMarkerTag(id: String) = "map_marker_$id"

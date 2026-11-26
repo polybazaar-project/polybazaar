@@ -143,7 +143,7 @@ object AppNavHostTags {
  * @param placeNameRepository suggests the neighbourhood and town as the name of a listing location
  *   off campus.
  * @param connectivityRepository tells the listing forms and the conversations whether the device is
- *   online.
+ *   online, and the photo sender when to send.
  * @param photoOutbox keeps the chat photos sent offline, sent from any screen once back online.
  * @param pendingListingQueue keeps the listings created offline, to publish once back online.
  */
@@ -582,7 +582,7 @@ fun AppNavHost(
                               photoStorage = chatPhotoStorage,
                               savedStateHandle = createSavedStateHandle(),
                               uploadScope = photoUploadScope,
-                              connectivity = connectivityRepository,
+                              photoOutbox = photoOutbox,
                           )
                         }
                       }
@@ -613,7 +613,12 @@ fun AppNavHost(
           // Coming back to the tab shows listings created or paused meanwhile. On opening, the
           // ViewModel ignores this call while its first load runs.
           LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { mapViewModel.loadListings() }
-          MapScreen(viewModel = mapViewModel, map = listingsMap)
+          MapScreen(
+              viewModel = mapViewModel,
+              // Back from the detail returns to the map, with the same preview open (#342).
+              onOpenListing = { navController.navigate(Routes.listingDetail(it)) },
+              map = listingsMap,
+          )
         }
         composable(Routes.INBOX) {
           // Renders nothing for the frame between sign-out and the redirect to sign-in.
@@ -746,6 +751,8 @@ fun AppNavHost(
           SettingsContent(
               onBack = { navController.popBackStack() },
               onSignOut = authViewModel::signOut,
+              // A signed-in user's only loading state is a sign-out.
+              signingOut = uiState.isLoading,
           )
         }
       }

@@ -1,4 +1,5 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
+// Co-authored-by: Copilot (Auto)
 package com.android.polybazaar
 
 import android.view.WindowManager
@@ -10,8 +11,12 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.android.polybazaar.auth.ui.SignInScreenTags
+import com.android.polybazaar.booking.model.ConfirmationAction
+import com.android.polybazaar.booking.model.ConfirmationAttempt
 import com.google.firebase.FirebaseApp
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -36,6 +41,26 @@ class MainActivityTest {
   fun launch_withoutSignedInUser_opensSignIn() {
     ActivityScenario.launch(MainActivity::class.java).use {
       composeTestRule.onNodeWithTag(SignInScreenTags.SCREEN).assertIsDisplayed()
+    }
+  }
+
+  @Test
+  fun journalSurvivesActivityRecreation() {
+    val attempt = ConfirmationAttempt("renter", "booking", ConfirmationAction.CONFIRM_HANDOVER, "t")
+    val application = ApplicationProvider.getApplicationContext<PolyBazaarApplication>()
+    val journal = application.confirmationJournal
+    try {
+      runBlocking { journal.put(attempt) }
+      ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        scenario.recreate()
+        scenario.onActivity { activity ->
+          assertSame(journal, (activity.application as PolyBazaarApplication).confirmationJournal)
+          assertTrue(attempt.token in journal.activeTokens.value)
+        }
+      }
+    } finally {
+      runBlocking { journal.remove(attempt.token) }
+      journal.finish(attempt.token)
     }
   }
 
