@@ -137,66 +137,74 @@ object ListingRules {
   fun formatAmountInput(amount: Double): String =
       BigDecimal.valueOf(amount).stripTrailingZeros().toPlainString()
 
-  /**
-   * Builds the listing described by a form, or returns null while the form is incomplete.
-   *
-   * @param photos photos on this device, to upload.
-   * @param imagePaths when editing, the stored photos to keep.
-   * @param listingId when editing, the listing being edited.
-   * @param maxRentalDays kept from the edited item, since the form has no input for it. Ignored for
-   *   services.
-   * @param availableDates the days the owner offers the listing on.
-   * @param location where the listing is offered, set in the form. A location with a blank name
-   *   leaves the form incomplete; its name is stored trimmed.
-   */
-  fun buildListing(
-      type: ListingType,
-      title: String,
-      description: String,
-      price: String,
-      category: ListingCategory?,
-      photos: List<Uri>,
-      refundValue: String = "",
-      imagePaths: List<String> = emptyList(),
-      listingId: String? = null,
-      maxRentalDays: Int? = null,
-      availableDates: Set<LocalDate> = emptySet(),
-      location: ListingLocation? = null,
-  ): Listing? {
-    val parsedPrice = parsePrice(price) ?: return null
-    if (title.isBlank() || description.isBlank() || category?.type != type) return null
+  /** Builds the listing described by [input], or returns null while the form is incomplete. */
+  fun buildListing(input: ListingFormInput): Listing? {
+    val parsedPrice = parsePrice(input.price) ?: return null
+    val category = input.category
+    if (input.title.isBlank() || input.description.isBlank() || category?.type != input.type)
+        return null
+    val location = input.location
     if (location != null && location.name.isBlank()) return null
     val trimmedLocation = location?.copy(name = location.name.trim())
-    return when (type) {
+    return when (input.type) {
       ListingType.ITEM ->
           ItemListing(
               category = category,
               price = parsedPrice,
-              title = title.trim(),
-              description = description.trim(),
+              title = input.title.trim(),
+              description = input.description.trim(),
               // Left blank, the refund value falls back to the price, like in ItemListing.
               refundValue =
-                  if (refundValue.isBlank()) parsedPrice
-                  else parsePrice(refundValue, MAX_REFUND_VALUE) ?: return null,
-              maxRentalDays = maxRentalDays,
-              images = photos,
-              imagePaths = imagePaths,
-              listingId = listingId,
-              availableDates = availableDates,
+                  if (input.refundValue.isBlank()) parsedPrice
+                  else parsePrice(input.refundValue, MAX_REFUND_VALUE) ?: return null,
+              maxRentalDays = input.maxRentalDays,
+              images = input.photos,
+              imagePaths = input.imagePaths,
+              listingId = input.listingId,
+              availableDates = input.availableDates,
               location = trimmedLocation,
           )
       ListingType.SERVICE ->
           ServiceListing(
               category = category,
               price = parsedPrice,
-              title = title.trim(),
-              description = description.trim(),
-              images = photos,
-              imagePaths = imagePaths,
-              listingId = listingId,
-              availableDates = availableDates,
+              title = input.title.trim(),
+              description = input.description.trim(),
+              images = input.photos,
+              imagePaths = input.imagePaths,
+              listingId = input.listingId,
+              availableDates = input.availableDates,
               location = trimmedLocation,
           )
     }
   }
 }
+
+/**
+ * What a listing form holds, as [ListingRules.buildListing] reads it.
+ *
+ * @property price the price as typed.
+ * @property photos photos on this device, to upload.
+ * @property refundValue the refund value as typed; blank falls back to the price.
+ * @property imagePaths when editing, the stored photos to keep.
+ * @property listingId when editing, the listing being edited.
+ * @property maxRentalDays kept from the edited item, since the form has no input for it. Ignored
+ *   for services.
+ * @property availableDates the days the owner offers the listing on.
+ * @property location where the listing is offered, set in the form. A location with a blank name
+ *   leaves the form incomplete; its name is stored trimmed.
+ */
+data class ListingFormInput(
+    val type: ListingType,
+    val title: String,
+    val description: String,
+    val price: String,
+    val category: ListingCategory?,
+    val photos: List<Uri> = emptyList(),
+    val refundValue: String = "",
+    val imagePaths: List<String> = emptyList(),
+    val listingId: String? = null,
+    val maxRentalDays: Int? = null,
+    val availableDates: Set<LocalDate> = emptySet(),
+    val location: ListingLocation? = null,
+)
