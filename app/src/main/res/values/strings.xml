@@ -52,6 +52,7 @@
     <string name="listing_detail_service_terms_title">SERVICE TERMS</string>
     <string name="listing_detail_pickup">Pickup: %1$s</string>
     <string name="listing_detail_pickup_pending">Location and timing to be confirmed.</string>
+    <string name="listing_detail_location_approximate">%1$s · area of about 2 km</string>
     <string name="listing_detail_returns">Returns: %1$s</string>
     <string name="listing_detail_returns_pending">Return window to be agreed.</string>
     <string name="listing_detail_cancellation">Cancellation: %1$s</string>
@@ -164,6 +165,7 @@
     <string name="map_preview_skill">Skill</string>
     <string name="map_preview_open">Open %1$s</string>
     <string name="map_preview_close">Close preview</string>
+    <string name="map_preview_approximate">Area of about 2 km</string>
 
     <!-- Edit profile screen -->
     <string name="edit_profile_photo_not_removed">Your bio was saved, but the photo couldn’t be removed. Tap Save to try again.</string>
@@ -275,6 +277,8 @@
     <string name="listing_location_name_error">Give the place a name.</string>
     <string name="listing_location_picker_title">Choose the location</string>
     <string name="listing_location_picker_hint">Move the map to place the pin</string>
+    <string name="listing_location_approximate_hint">Renters only see an area of about 2 km, never this exact spot.</string>
+    <string name="listing_location_name_privacy_hint">Name a public place, not your address.</string>
     <string name="listing_location_offline">Connect to the internet to choose a location</string>
     <string name="listing_location_show_mine">Show my location</string>
     <string name="listing_location_confirm">Confirm location</string>

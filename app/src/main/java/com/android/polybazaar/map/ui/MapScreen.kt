@@ -53,6 +53,7 @@ object MapScreenTags {
   const val EMPTY = "map_no_listings"
   const val PREVIEW = "map_marker_preview"
   const val PREVIEW_CLOSE = "map_marker_preview_close"
+  const val PREVIEW_AREA = "map_marker_preview_area"
 }
 
 /**
@@ -68,7 +69,12 @@ typealias MapSlot = @Composable (uiState: MapUiState, actions: MapActions) -> Un
 
 /** The Google map, the map used in the app. */
 val GoogleListingsMap: MapSlot = { uiState, actions ->
-  ListingsMap(centre = uiState.centre, markers = uiState.markers, actions = actions)
+  ListingsMap(
+      centre = uiState.centre,
+      markers = uiState.markers,
+      actions = actions,
+      selected = uiState.selectedMarker,
+  )
 }
 
 /** Where the map's camera points and how close. */
