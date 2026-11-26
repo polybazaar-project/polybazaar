@@ -14,6 +14,7 @@ import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
+import com.android.polybazaar.listing.model.ListingFormInput
 import com.android.polybazaar.listing.model.ListingLocation
 import com.android.polybazaar.listing.model.ListingLocations
 import com.android.polybazaar.listing.model.ListingRepository
@@ -116,18 +117,20 @@ data class ListingFormUiState(
   val listing: Listing?
     get() =
         buildListing(
-            type = type,
-            title = title,
-            description = description,
-            price = price,
-            category = category,
-            photos = photos,
-            refundValue = refundValue,
-            imagePaths = storedPhotos,
-            listingId = listingId,
-            maxRentalDays = maxRentalDays,
-            availableDates = availableDates,
-            location = location,
+            ListingFormInput(
+                type = type,
+                title = title,
+                description = description,
+                price = price,
+                category = category,
+                photos = photos,
+                refundValue = refundValue,
+                imagePaths = storedPhotos,
+                listingId = listingId,
+                maxRentalDays = maxRentalDays,
+                availableDates = availableDates,
+                location = location,
+            )
         )
 
   /** Photos kept and photos added together, which [MAX_PHOTOS] limits. */
