@@ -730,6 +730,28 @@ class ConversationScreenTest {
   }
 
   @Test
+  fun recreatedWhileAPhotoUploads_keepsThePlace() {
+    val restoration = StateRestorationTester(composeTestRule)
+    restoration.setContent {
+      ConversationContent(
+          uiState =
+              loaded.copy(
+                  messages = manyMessages,
+                  pendingPhotos = listOf(pending(PendingPhotoStatus.UPLOADING, id = "m50")),
+              ),
+          zone = ZoneOffset.UTC,
+      )
+    }
+    scrollToTheOldest()
+
+    restoration.emulateSavedInstanceStateRestore()
+
+    // The restored pending ids still hold m50: had they come back empty, the photo would look
+    // newly sent and the list would jump to the bottom.
+    node(ConversationScreenTags.myMessage("m0")).assertIsDisplayed()
+  }
+
+  @Test
   fun tappingTheHint_showsTheNewMessage_andHidesTheHint() {
     val arrive = showManyMessages()
     scrollToTheOldest()
