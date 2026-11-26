@@ -9,6 +9,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ServiceListing
+import com.google.firebase.firestore.FirebaseFirestoreException
 import java.io.IOException
 import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
@@ -33,7 +34,7 @@ import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ListingDraftPublisherViewModelTest {
+class ListingOutboxSyncViewModelTest {
 
   private val testDispatcher = StandardTestDispatcher()
 
@@ -72,7 +73,7 @@ class ListingDraftPublisherViewModelTest {
   private val timeoutMillis = 1_000L
 
   private fun publisher(uid: String? = ada) =
-      ListingDraftPublisherViewModel(queue, listings, connectivity, { today }, timeoutMillis).also {
+      ListingOutboxSyncViewModel(queue, listings, connectivity, { today }, timeoutMillis).also {
         it.setSignedInUser(uid)
       }
 
@@ -92,7 +93,7 @@ class ListingDraftPublisherViewModelTest {
     assertEquals(listOf("d1", "d2"), fake.allListings.map { it.listingId })
     assertEquals(listOf("Bosch drill set", "Math tutoring"), fake.allListings.map { it.title })
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(published = 2, failed = 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(published = 2, failed = 0), viewModel.notice.value)
   }
 
   @Test
@@ -112,7 +113,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("d1"), fake.publishedListingIds)
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -130,7 +131,7 @@ class ListingDraftPublisherViewModelTest {
     advanceUntilIdle()
 
     assertEquals(listOf("d1"), fake.publishedListingIds)
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -144,7 +145,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("ada-1"), attemptedIds())
     assertEquals(listOf("bob-1"), pendingIds())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
 
     // Bob signs in on the same device: only then are his drafts published.
     viewModel.clearNotice()
@@ -153,7 +154,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("ada-1", "bob-1"), attemptedIds())
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -181,7 +182,7 @@ class ListingDraftPublisherViewModelTest {
     assertEquals(listOf("d1", "d2"), attemptedIds())
     assertEquals(listOf("d1", "d2"), pendingIds())
     assertTrue(fake.allListings.isEmpty())
-    assertEquals(DraftPublishNotice(published = 0, failed = 2), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(published = 0, failed = 2), viewModel.notice.value)
   }
 
   @Test
@@ -197,7 +198,7 @@ class ListingDraftPublisherViewModelTest {
     assertEquals(listOf("d1", "d2", "d3"), attemptedIds())
     assertEquals(listOf("d2"), pendingIds())
     assertEquals(listOf("d1", "d3"), fake.publishedListingIds)
-    assertEquals(DraftPublishNotice(published = 2, failed = 1), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(published = 2, failed = 1), viewModel.notice.value)
   }
 
   @Test
@@ -214,7 +215,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("d1", "d2"), attemptedIds())
     assertEquals(listOf("d1"), pendingIds())
-    assertEquals(DraftPublishNotice(published = 1, failed = 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(published = 1, failed = 0), viewModel.notice.value)
 
     // The same user signing in again changes nothing either.
     viewModel.clearNotice()
@@ -231,7 +232,7 @@ class ListingDraftPublisherViewModelTest {
     listings.failingIds += "d1"
     val viewModel = publisher()
     advanceUntilIdle()
-    assertEquals(DraftPublishNotice(0, 1), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(0, 1), viewModel.notice.value)
 
     listings.failingIds.clear()
     connectivity.isOnline.value = false
@@ -244,7 +245,7 @@ class ListingDraftPublisherViewModelTest {
     assertEquals(listOf("d1", "d1"), attemptedIds())
     assertEquals(listOf("d1"), fake.publishedListingIds)
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -264,7 +265,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("d1", "d1"), attemptedIds())
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -280,7 +281,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertTrue(queue.pending.value.isEmpty())
     assertEquals(listOf("d1"), fake.publishedListingIds)
-    assertEquals(DraftPublishNotice(1, 0), restarted.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), restarted.notice.value)
   }
 
   @Test
@@ -294,14 +295,14 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("d1"), fake.publishedListingIds)
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
   fun removingThePublishedDrafts_startsNoOtherPass_andTellsOnce() = runTest {
     queue.enqueue("d1", drill())
     val viewModel = publisher()
-    val notices = mutableListOf<DraftPublishNotice?>()
+    val notices = mutableListOf<ListingSyncNotice?>()
     backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
       viewModel.notice.toList(notices)
     }
@@ -310,7 +311,7 @@ class ListingDraftPublisherViewModelTest {
     advanceUntilIdle()
 
     assertEquals(listOf("d1"), attemptedIds())
-    assertEquals(listOf(null, DraftPublishNotice(1, 0)), notices)
+    assertEquals(listOf(null, ListingSyncNotice(1, 0)), notices)
   }
 
   @Test
@@ -334,7 +335,7 @@ class ListingDraftPublisherViewModelTest {
     assertEquals(listOf("d1", "d2"), fake.publishedListingIds)
     assertEquals(listOf("d1", "d2"), fake.allListings.map { it.listingId })
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -348,7 +349,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("d1"), fake.allListings.map { it.listingId })
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -373,7 +374,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("d1"), fake.publishedListingIds)
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -414,7 +415,7 @@ class ListingDraftPublisherViewModelTest {
     assertEquals(listOf("d1", "d2"), attemptedIds())
     assertEquals(listOf("d1"), pendingIds())
     assertEquals(listOf("d2"), fake.publishedListingIds)
-    assertEquals(DraftPublishNotice(published = 1, failed = 1), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(published = 1, failed = 1), viewModel.notice.value)
   }
 
   @Test
@@ -423,7 +424,7 @@ class ListingDraftPublisherViewModelTest {
     listings.hangingIds += "d1"
     val viewModel = publisher()
     advanceUntilIdle()
-    assertEquals(DraftPublishNotice(0, 1), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(0, 1), viewModel.notice.value)
 
     listings.hangingIds.clear()
     connectivity.isOnline.value = false
@@ -433,7 +434,7 @@ class ListingDraftPublisherViewModelTest {
 
     assertEquals(listOf("d1", "d1"), attemptedIds())
     assertTrue(queue.pending.value.isEmpty())
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
   }
 
   @Test
@@ -464,28 +465,91 @@ class ListingDraftPublisherViewModelTest {
     queue.enqueue("d1", drill())
     val viewModel = publisher()
     advanceUntilIdle()
-    assertEquals(DraftPublishNotice(1, 0), viewModel.notice.value)
+    assertEquals(ListingSyncNotice(1, 0), viewModel.notice.value)
 
     viewModel.clearNotice()
 
     assertNull(viewModel.notice.value)
   }
 
+  @Test
+  fun changes_areSavedKeptOrDropped_once_andTold() = runTest {
+    queue.enqueueChange("paused", paused = true)
+    queue.enqueueChange("resumed", paused = false)
+    queue.enqueueChange("deleted", delete = true)
+    queue.enqueueChange("unchanged")
+    queue.enqueueChange("gone", paused = true)
+    queue.enqueueChange("failing", paused = true)
+    queue.enqueueChange("hanging", delete = true)
+    queue.ownerUid = bob
+    queue.enqueueChange("bobs", paused = true)
+    listings.changeFailures["gone"] =
+        FirebaseFirestoreException("Gone", FirebaseFirestoreException.Code.NOT_FOUND)
+    listings.changeFailures["failing"] = IOException("Unavailable")
+    listings.hangingIds += "hanging"
+
+    val viewModel = publisher()
+    advanceUntilIdle()
+
+    // "unchanged" has nothing to save, and "gone" was deleted elsewhere.
+    assertEquals(listOf("paused" to true, "resumed" to false), fake.pauseCalls)
+    assertEquals(listOf("deleted"), fake.deletedListingIds)
+    assertEquals(listOf("failing", "hanging", "bobs"), queue.changes.value.map { it.listingId })
+    val notice = ListingSyncNotice(0, 0, changesSaved = 4, changesFailed = 2, changesDropped = 1)
+    assertEquals(notice, viewModel.notice.value)
+
+    // Kept changes are not tried again in the same session, only once back online.
+    val tried = listings.changeAttempts.toList()
+    queue.ownerUid = ada
+    queue.enqueueChange("later", paused = true)
+    // A kept change merged with a later one is a new change, tried at once.
+    queue.enqueueChange("failing", delete = true)
+    advanceUntilIdle()
+    assertEquals(tried + "later" + "failing", listings.changeAttempts)
+
+    listings.changeFailures.clear()
+    listings.hangingIds.clear()
+    connectivity.isOnline.value = false
+    advanceUntilIdle()
+    connectivity.isOnline.value = true
+    advanceUntilIdle()
+
+    assertEquals(listOf("bobs"), queue.changes.value.map { it.listingId })
+    assertEquals(listOf("deleted", "hanging", "failing"), fake.deletedListingIds)
+    assertEquals(ListingSyncNotice(0, 0, changesSaved = 2), viewModel.notice.value)
+  }
+
   /**
    * Records every [publishListing] attempt, failing those whose id is in [failingIds], never
-   * answering those whose id is in [hangingIds], and otherwise answering as [fake] does.
+   * answering those whose id is in [hangingIds], and otherwise answering as [fake] does. Records
+   * the ids of [setPaused] and [deleteListing] in [changeAttempts] too, failing with
+   * [changeFailures] or never answering the same way.
    */
   private class RecordingListingRepository(private val fake: FakeListingRepository) :
       ListingRepository by fake {
     val attempts = mutableListOf<Pair<String, Listing>>()
     val failingIds = mutableSetOf<String>()
     val hangingIds = mutableSetOf<String>()
+    val changeAttempts = mutableListOf<String>()
+    val changeFailures = mutableMapOf<String, Exception>()
 
     override suspend fun publishListing(listingId: String, listing: Listing) {
       attempts += listingId to listing
       if (listingId in failingIds) throw IOException("Could not publish $listingId")
       if (listingId in hangingIds) awaitCancellation()
       fake.publishListing(listingId, listing)
+    }
+
+    override suspend fun setPaused(listingId: String, paused: Boolean) =
+        answer(listingId) ?: fake.setPaused(listingId, paused)
+
+    override suspend fun deleteListing(listingId: String) =
+        answer(listingId) ?: fake.deleteListing(listingId)
+
+    private suspend fun answer(listingId: String): Result<Unit>? {
+      changeAttempts += listingId
+      if (listingId in hangingIds) awaitCancellation()
+      return changeFailures[listingId]?.let { Result.failure(it) }
     }
   }
 }
