@@ -238,7 +238,8 @@ private fun ErrorRow(
  * [booking] as [party] sees it in [uiState]: its [label], days and status, Cancel while it is still
  * active (not cancelled, not handed over, not over by [today]), and for a confirmed booking the
  * handover and return step with the action that is [party]'s turn. A confirmation recovered as
- * failed after the app closed can be dismissed with [onDismissConfirmation].
+ * failed after the app closed can be dismissed with [onDismissConfirmation]. Cancel is disabled
+ * unless [cancelEnabled].
  */
 @Composable
 internal fun BookingCard(
@@ -251,6 +252,7 @@ internal fun BookingCard(
     onConfirm: (String, ConfirmationAction) -> Unit,
     onDismissConfirmation: (String) -> Unit,
     modifier: Modifier = Modifier,
+    cancelEnabled: Boolean = true,
 ) {
   BookingRow(
       booking = booking,
@@ -267,6 +269,7 @@ internal fun BookingCard(
           booking.status != BookingStatus.CANCELLED &&
               !booking.handoverNotified &&
               !booking.isFinished(today),
+      cancelEnabled = cancelEnabled,
       onCancel = { onCancel(booking.id) },
       onConfirm = { action -> onConfirm(booking.id, action) },
       onDismissConfirmation = { onDismissConfirmation(booking.id) },
@@ -287,6 +290,7 @@ private fun BookingRow(
     isLoadingBookings: Boolean,
     failure: ConfirmationFailure?,
     canCancel: Boolean,
+    cancelEnabled: Boolean,
     onCancel: () -> Unit,
     onConfirm: (ConfirmationAction) -> Unit,
     onDismissConfirmation: () -> Unit,
@@ -337,11 +341,12 @@ private fun BookingRow(
         canCancel ->
             TextButton(
                 onClick = onCancel,
+                enabled = cancelEnabled,
                 modifier = Modifier.testTag(BookingListScreenTags.CANCEL_BUTTON),
             ) {
               Text(
                   text = stringResource(R.string.bookings_cancel),
-                  color = AuthColors.Danger,
+                  color = if (cancelEnabled) AuthColors.Danger else AuthColors.TextSecondary,
                   fontWeight = FontWeight.Bold,
               )
             }
