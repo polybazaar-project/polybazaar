@@ -4,13 +4,17 @@ package com.android.polybazaar.profile.ui
 
 import android.content.Context
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -23,6 +27,7 @@ import com.android.polybazaar.R
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.error.model.AppError
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,11 +78,44 @@ class ProfileScreenTest {
     node(ProfileScreenTags.BIO).assertTextEquals("Weekend maker")
     node(ProfileComponentTags.AVATAR).assertIsDisplayed()
     node(ProfileScreenTags.SETTINGS_BUTTON).assertIsDisplayed()
-    node(ProfileScreenTags.RECENT_ACTIVITY).performScrollTo().assertIsDisplayed()
-    composeTestRule.onNodeWithText("History is empty!").assertExists()
     node(ProfileScreenTags.EDIT_PROFILE_BUTTON).performScrollTo().assertIsEnabled()
     node(ProfileScreenTags.LOADING_INDICATOR).assertDoesNotExist()
     node(ProfileScreenTags.ERROR_MESSAGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun recentActivityCard_isNotShown() {
+    setContent()
+
+    composeTestRule.onNodeWithText("Recent activity").assertDoesNotExist()
+    composeTestRule.onNodeWithText("History is empty!").assertDoesNotExist()
+  }
+
+  @Test
+  fun toolbox_fillsTheHeightDownToMyBookings() {
+    // A phone-sized page, so the Toolbox gets whatever the fixed parts leave.
+    composeTestRule.setContent {
+      Box(modifier = Modifier.requiredSize(width = 412.dp, height = 844.dp)) {
+        ProfileContent(
+            profile = profile,
+            isLoading = false,
+            error = null,
+            onEditProfile = {},
+            onOpenSettings = {},
+            toolbox = { Box(modifier = Modifier.fillMaxSize().testTag(TOOLBOX_TAG)) },
+        )
+      }
+    }
+
+    val toolbox = node(TOOLBOX_TAG).getUnclippedBoundsInRoot()
+    val bookings = node(ProfileScreenTags.MY_BOOKINGS_BUTTON).getUnclippedBoundsInRoot()
+    // Nothing sits between the Toolbox and "My bookings" any more. The Material3 TextButton's 48dp
+    // minimum touch target leaves a few dp above its 40dp bounds, so allow a small gap.
+    val gap = bookings.top - toolbox.bottom
+    assertTrue("Gap between Toolbox and My bookings is $gap", gap >= 0.dp && gap <= 8.dp)
+    // With the activity card it was about 350dp high; the freed height now goes to the Toolbox.
+    val height = toolbox.bottom - toolbox.top
+    assertTrue("Toolbox is only $height high", height > 400.dp)
   }
 
   @Test
@@ -90,8 +128,8 @@ class ProfileScreenTest {
 
   @Test
   fun shortScreen_scrollsToTheFullSizeEditButton() {
-    // 320dp is shorter than the header, both cards and the 82dp button together, so the page has
-    // to scroll. A squeezed layout would shrink or hide the button instead.
+    // 320dp is shorter than the header, the identity card and the 82dp button together, so the page
+    // has to scroll. A squeezed layout would shrink or hide the button instead.
     composeTestRule.setContent {
       Box(modifier = Modifier.size(width = 360.dp, height = 320.dp)) {
         ProfileContent(
@@ -162,5 +200,9 @@ class ProfileScreenTest {
 
     node(ProfileScreenTags.ERROR_MESSAGE)
         .assertTextEquals(context.getString(R.string.error_not_found))
+  }
+
+  private companion object {
+    const val TOOLBOX_TAG = "toolbox"
   }
 }
