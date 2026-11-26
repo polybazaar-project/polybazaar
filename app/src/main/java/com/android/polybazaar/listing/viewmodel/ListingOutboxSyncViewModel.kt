@@ -138,41 +138,41 @@ class ListingOutboxSyncViewModel(
         failed++
       }
     }
-    var changesSaved = 0
-    var changesFailed = 0
-    var changesDropped = 0
-    for (change in changes) {
-      val result =
-          withTimeoutOrNull(publishTimeoutMillis) {
-            if (change.isDeleted) listingRepository.deleteListing(change.listingId)
-            else
-                change.paused?.let { listingRepository.setPaused(change.listingId, it) }
-                    ?: Result.success(Unit)
-          }
-      val exception = result?.exceptionOrNull()
-      if (exception is CancellationException) throw exception
-      when {
-        result == null -> {
-          Log.w(LOG_TAG, "Saving the change to ${change.listingId} timed out")
-          changesFailed++
-        }
-        exception == null -> {
-          pendingListingQueue.removeChange(change)
-          changesSaved++
-        }
-        // deleteListing succeeds on a listing already gone, so only a pause or resume gets here.
-        exception.toAppError() == AppError.NOT_FOUND -> {
-          pendingListingQueue.removeChange(change)
-          changesDropped++
-        }
-        else -> {
-          Log.w(LOG_TAG, "Could not save the change to ${change.listingId}", exception)
-          changesFailed++
-        }
-      }
-    }
+    val outcomes = changes.map { saveChange(it) }
     _notice.value =
-        ListingSyncNotice(published, failed, changesSaved, changesFailed, changesDropped)
+        ListingSyncNotice(
+            published,
+            failed,
+            changesSaved = outcomes.count { it == ChangeOutcome.SAVED },
+            changesFailed = outcomes.count { it == ChangeOutcome.FAILED },
+            changesDropped = outcomes.count { it == ChangeOutcome.DROPPED },
+        )
+  }
+
+  private enum class ChangeOutcome {
+    SAVED,
+    FAILED,
+    DROPPED,
+  }
+
+  /** Saves [change], removing it unless it failed. */
+  private suspend fun saveChange(change: PendingListingChange): ChangeOutcome {
+    val result =
+        withTimeoutOrNull(publishTimeoutMillis) {
+          if (change.isDeleted) listingRepository.deleteListing(change.listingId)
+          else
+              change.paused?.let { listingRepository.setPaused(change.listingId, it) }
+                  ?: Result.success(Unit)
+        }
+    val exception = result?.exceptionOrNull()
+    if (exception is CancellationException) throw exception
+    return when {
+      result == null -> ChangeOutcome.FAILED.also { Log.w(LOG_TAG, "A change timed out") }
+      exception == null -> ChangeOutcome.SAVED
+      // deleteListing succeeds on a listing already gone, so only a pause or resume gets here.
+      exception.toAppError() == AppError.NOT_FOUND -> ChangeOutcome.DROPPED
+      else -> ChangeOutcome.FAILED.also { Log.w(LOG_TAG, "Could not save a change", exception) }
+    }.also { if (it != ChangeOutcome.FAILED) pendingListingQueue.removeChange(change) }
   }
 
   /** The draft without the available days now past, as the listing form saves it. */

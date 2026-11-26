@@ -444,9 +444,9 @@ fun AppNavHost(
                       },
                       onDeleted = {
                         // Deleted offline: the delete is saved once back online.
-                        if (detailViewModel.uiState.value.isDeletionQueued) {
-                          showMessage(deletionQueuedMessage)
-                        }
+                        deletionQueuedMessage
+                            .takeIf { detailViewModel.uiState.value.isDeletionQueued }
+                            ?.let(showMessage)
                         navController.popBackStack()
                       },
                       // The viewer messages the owner as the renter. Single top, so a double tap

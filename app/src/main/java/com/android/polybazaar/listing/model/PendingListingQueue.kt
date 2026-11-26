@@ -201,7 +201,7 @@ class FilePendingListingQueue(
 
   /**
    * Deletes the draft files in [folder], keeping a change to the same listing; the folder goes once
-   * empty. Returns whether every draft file was deleted.
+   * empty. Returns whether every draft file, and the folder unless it keeps a change, was deleted.
    */
   private fun deleteDraftFiles(folder: File): Boolean {
     val deleted =
@@ -209,9 +209,9 @@ class FilePendingListingQueue(
             .listFiles()
             .orEmpty()
             .filterNot { it.name.startsWith(CHANGE_FILE) }
-            .all { it.delete() }
-    folder.delete()
-    return deleted
+            .map { it.delete() } // Every file is tried, even after one fails.
+            .all { it }
+    return deleted && (folder.delete() || !folder.list().isNullOrEmpty())
   }
 
   /** The folder of listing [id], refusing an id that could point outside [directory]. */
