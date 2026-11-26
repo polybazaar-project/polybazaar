@@ -55,6 +55,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -852,9 +853,13 @@ private fun MessageList(
   // Decoded above the list: a bubble that scrolls out of view and back shows its photo at once.
   val decodedPhotos = rememberDecodedPhotos(uiState.messagePhotos)
   // What the list showed at the last change, and whether a message is waiting below the view.
-  // Saved across recreation, as the list's position is; the ids in an ArrayList, which it can save.
+  // Saved across recreation, as the list's position is. The ids are an immutable list, replaced at
+  // each change: listSaver stores it as a list Android can save, and gives it back as a List.
   var previousNewestId by rememberSaveable { mutableStateOf<String?>(null) }
-  var previousPendingIds by rememberSaveable { mutableStateOf(ArrayList<String>()) }
+  var previousPendingIds by
+      rememberSaveable(stateSaver = listSaver(save = { it }, restore = { it })) {
+        mutableStateOf(emptyList<String>())
+      }
   var previousBottomKey by rememberSaveable { mutableStateOf<String?>(null) }
   var newestUnseen by rememberSaveable { mutableStateOf(false) }
   // The list keeps its place by key, so an arrival lands below the view unless this follows it.
@@ -874,7 +879,7 @@ private fun MessageList(
         )
     val previousBottom = previousBottomKey
     previousNewestId = newest?.id
-    previousPendingIds = ArrayList(pendingIds)
+    previousPendingIds = pendingIds
     previousBottomKey = bottomKey
     when (change) {
       MessageListChange.FOLLOW -> listState.requestScrollToItem(0)
