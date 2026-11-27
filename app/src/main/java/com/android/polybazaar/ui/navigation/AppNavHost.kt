@@ -444,12 +444,23 @@ fun AppNavHost(
                         }
                       },
                       onDeleted = { navController.popBackStack() },
-                      // The viewer messages the owner as the renter. Single top, so a double tap
-                      // does not stack two conversation screens.
+                      // The viewer messages the owner as the renter. Opened from that very
+                      // conversation, the detail goes back to it rather than opening a second one
+                      // with its own draft. Single top, so a double tap does not stack two
+                      // conversation screens.
                       onMessageLender = {
                         uiState.user?.uid?.let { uid ->
-                          navController.navigate(Routes.conversation(listingId, uid)) {
-                            launchSingleTop = true
+                          val previous = navController.previousBackStackEntry
+                          if (
+                              previous?.destination?.route == Routes.CONVERSATION &&
+                                  previous.arguments?.getString(Routes.LISTING_ID) == listingId &&
+                                  previous.arguments?.getString(Routes.RENTER_UID) == uid
+                          ) {
+                            navController.popBackStack()
+                          } else {
+                            navController.navigate(Routes.conversation(listingId, uid)) {
+                              launchSingleTop = true
+                            }
                           }
                         }
                       },
@@ -606,6 +617,14 @@ fun AppNavHost(
           ConversationScreen(
               viewModel = conversationViewModel,
               onBack = { navController.popBackStack() },
+              // Both single top, so a double tap opens one screen. Both stay above the
+              // conversation, so its draft and photos are kept for when the user comes back.
+              onOpenProfile = {
+                navController.navigate(Routes.lenderProfile(it)) { launchSingleTop = true }
+              },
+              onOpenListing = {
+                navController.navigate(Routes.listingDetail(it)) { launchSingleTop = true }
+              },
           )
         }
         composable(Routes.MAP) {
