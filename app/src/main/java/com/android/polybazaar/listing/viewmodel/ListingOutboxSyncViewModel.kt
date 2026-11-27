@@ -6,10 +6,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.booking.model.upcomingDays
 import com.android.polybazaar.connectivity.model.ConnectivityRepository
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.ItemListing
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.PendingListing
+import com.android.polybazaar.listing.model.PendingListingChange
 import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.listing.model.ServiceListing
 import java.time.LocalDate
@@ -23,12 +26,25 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** The outcome of a publish pass that tried at least one draft, to tell the user. */
-data class DraftPublishNotice(val published: Int, val failed: Int)
+/**
+ * The outcome of a sync pass that tried at least one draft or change, to tell the user.
+ *
+ * @property published drafts published; [failed] drafts kept to try again.
+ * @property changesSaved changes saved; [changesFailed] changes kept to try again.
+ * @property changesDropped changes forgotten because their listing was deleted elsewhere.
+ */
+data class ListingSyncNotice(
+    val published: Int,
+    val failed: Int,
+    val changesSaved: Int = 0,
+    val changesFailed: Int = 0,
+    val changesDropped: Int = 0,
+)
 
 /**
- * Publishes the signed-in user's listings created offline, kept in [pendingListingQueue], when the
- * app starts online, the connection returns or a user signs in.
+ * Publishes the signed-in user's listings created offline, and saves their changes made offline to
+ * published listings, both kept in [pendingListingQueue], when the app starts online, the
+ * connection returns or a user signs in.
  *
  * Only drafts whose owner is the signed-in user are published; other accounts' drafts stay on the
  * device. A published draft is removed from the device; one that fails stays, with its photos, and
@@ -37,14 +53,19 @@ data class DraftPublishNotice(val published: Int, val failed: Int)
  * not publish an id that already exists, and passes never overlap: a single collector runs them one
  * after the other, and collectLatest waits for a cancelled pass to end before the next starts.
  *
+ * Changes follow the same rules: each is tried once per session, removed once saved, and kept when
+ * it fails. Saving a pause or a delete again changes nothing, so a change saved but cut short
+ * before its removal does no harm. A change to a listing deleted elsewhere is dropped.
+ *
  * A draft whose publishing takes longer than [publishTimeoutMillis] is kept and counted as failed:
  * the device may report being online while Firestore never answers, on a captive portal or a very
  * weak network.
  *
  * @param today the current day, to leave past available days out of a published draft.
- * @param publishTimeoutMillis how long publishing one draft, photos included, may take.
+ * @param publishTimeoutMillis how long publishing one draft, photos included, or saving one change
+ *   may take.
  */
-class ListingDraftPublisherViewModel(
+class ListingOutboxSyncViewModel(
     private val pendingListingQueue: PendingListingQueue,
     private val listingRepository: ListingRepository,
     connectivityRepository: ConnectivityRepository,
@@ -54,9 +75,9 @@ class ListingDraftPublisherViewModel(
 
   private val signedInUid = MutableStateFlow<String?>(null)
 
-  private val _notice = MutableStateFlow<DraftPublishNotice?>(null)
-  /** The outcome of the last pass that tried a draft, until [clearNotice]. */
-  val notice: StateFlow<DraftPublishNotice?> = _notice.asStateFlow()
+  private val _notice = MutableStateFlow<ListingSyncNotice?>(null)
+  /** The outcome of the last pass that tried a draft or a change, until [clearNotice]. */
+  val notice: StateFlow<ListingSyncNotice?> = _notice.asStateFlow()
 
   init {
     viewModelScope.launch {
@@ -66,14 +87,19 @@ class ListingDraftPublisherViewModel(
           // published or found published next time.
           .collectLatest { (isOnline, uid) ->
             if (!isOnline || uid == null) return@collectLatest
-            // Each draft is tried once per session, so removing a published one or keeping a
-            // failed one does not start another pass for it.
+            // Each draft, and each change, is tried once per session, so removing a saved one or
+            // keeping a failed one does not start another pass for it. A change merged with a
+            // later one is a new change, and is tried.
             val tried = mutableSetOf<String>()
-            pendingListingQueue.pending.collect { drafts ->
+            val triedChanges = mutableSetOf<PendingListingChange>()
+            combine(pendingListingQueue.pending, pendingListingQueue.changes, ::Pair).collect {
+                (drafts, changes) ->
               val untried = drafts.filter { it.ownerUid == uid && it.id !in tried }
-              if (untried.isEmpty()) return@collect
+              val untriedChanges = changes.filter { it.ownerUid == uid && it !in triedChanges }
+              if (untried.isEmpty() && untriedChanges.isEmpty()) return@collect
               tried += untried.map { it.id }
-              publish(untried)
+              triedChanges += untriedChanges
+              sync(untried, untriedChanges)
             }
           }
     }
@@ -88,7 +114,7 @@ class ListingDraftPublisherViewModel(
     _notice.value = null
   }
 
-  private suspend fun publish(drafts: List<PendingListing>) {
+  private suspend fun sync(drafts: List<PendingListing>, changes: List<PendingListingChange>) {
     var published = 0
     var failed = 0
     for (draft in drafts) {
@@ -112,7 +138,41 @@ class ListingDraftPublisherViewModel(
         failed++
       }
     }
-    _notice.value = DraftPublishNotice(published, failed)
+    val outcomes = changes.map { saveChange(it) }
+    _notice.value =
+        ListingSyncNotice(
+            published,
+            failed,
+            changesSaved = outcomes.count { it == ChangeOutcome.SAVED },
+            changesFailed = outcomes.count { it == ChangeOutcome.FAILED },
+            changesDropped = outcomes.count { it == ChangeOutcome.DROPPED },
+        )
+  }
+
+  private enum class ChangeOutcome {
+    SAVED,
+    FAILED,
+    DROPPED,
+  }
+
+  /** Saves [change], removing it unless it failed. */
+  private suspend fun saveChange(change: PendingListingChange): ChangeOutcome {
+    val result =
+        withTimeoutOrNull(publishTimeoutMillis) {
+          if (change.isDeleted) listingRepository.deleteListing(change.listingId)
+          else
+              change.paused?.let { listingRepository.setPaused(change.listingId, it) }
+                  ?: Result.success(Unit)
+        }
+    val exception = result?.exceptionOrNull()
+    if (exception is CancellationException) throw exception
+    return when {
+      result == null -> ChangeOutcome.FAILED.also { Log.w(LOG_TAG, "A change timed out") }
+      exception == null -> ChangeOutcome.SAVED
+      // deleteListing succeeds on a listing already gone, so only a pause or resume gets here.
+      exception.toAppError() == AppError.NOT_FOUND -> ChangeOutcome.DROPPED
+      else -> ChangeOutcome.FAILED.also { Log.w(LOG_TAG, "Could not save a change", exception) }
+    }.also { if (it != ChangeOutcome.FAILED) pendingListingQueue.removeChange(change) }
   }
 
   /** The draft without the available days now past, as the listing form saves it. */
@@ -125,7 +185,7 @@ class ListingDraftPublisherViewModel(
   }
 
   private companion object {
-    const val LOG_TAG = "DraftPublisher"
+    const val LOG_TAG = "ListingOutboxSync"
     // Generous, as it includes uploading the draft's photos.
     const val PUBLISH_TIMEOUT_MILLIS = 60_000L
   }

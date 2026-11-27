@@ -1046,6 +1046,37 @@ class AppNavHostTest {
   }
 
   @Test
+  fun listingDetail_ownerDeletesOffline_isToldItWaits_andTheDeleteIsSavedOnceOnline() {
+    listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
+    connectivity.isOnline.value = false
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.OWNER_MENU_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.DELETE_ITEM).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.DELETE_CONFIRM).performClick()
+
+    composeTestRule.onNodeWithTag(ProfileScreenTags.SCREEN).assertIsDisplayed()
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.listing_deletion_queued))
+        .assertIsDisplayed()
+    assertTrue(listingRepository.deletedListingIds.isEmpty())
+
+    connectivity.isOnline.value = true
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText("Your change made offline was saved.")
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertEquals(listOf("drill"), listingRepository.deletedListingIds)
+    assertTrue(pendingQueue.changes.value.isEmpty())
+  }
+
+  @Test
   fun listingDetail_ownerPausesAndResumes_andTheToolboxShowsIt() {
     listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
     setContent(FakeAuthRepository(currentUser = user))

@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.android.polybazaar.auth.model.AuthRepository
 import com.android.polybazaar.auth.model.User
 import com.android.polybazaar.auth.model.ViewerCache
+import com.android.polybazaar.connectivity.model.ConnectivityRepository
 import com.android.polybazaar.error.model.AppError
 import com.android.polybazaar.error.model.toAppError
 import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingPendingDetails
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ListingRules
+import com.android.polybazaar.listing.model.PendingListingChange
+import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.listing.model.withPaused
 import com.android.polybazaar.profile.model.ProfileRepository
 import kotlinx.coroutines.CancellationException
@@ -56,6 +59,10 @@ import kotlinx.coroutines.launch
  *   when the owner tries again.
  * @property isDeleted true once the owner deleted the listing, until the screen has left (see
  *   [ListingDetailViewModel.onDeletedHandled]).
+ * @property isDeletionQueued true once the owner deleted the listing offline: the delete is kept on
+ *   the device and saved once back online.
+ * @property pendingChange the owner's change made offline to this listing and not saved yet, or
+ *   null. A pending delete disables the owner's actions.
  */
 data class ListingDetailUiState(
     val listing: Listing? = null,
@@ -71,6 +78,8 @@ data class ListingDetailUiState(
     val lenderError: AppError? = null,
     val ownerActionError: AppError? = null,
     val isDeleted: Boolean = false,
+    val isDeletionQueued: Boolean = false,
+    val pendingChange: PendingListingChange? = null,
 )
 
 /**
@@ -87,12 +96,18 @@ internal fun contactAllowed(viewer: User?, listing: Listing): Boolean =
 internal fun ownedBy(viewer: User?, listing: Listing): Boolean =
     viewer != null && listing.ownerUid == viewer.uid
 
-/** Loads one listing, the viewer and the lender's profile for the listing detail screen. */
+/**
+ * Loads one listing, the viewer and the lender's profile for the listing detail screen. Offline,
+ * the owner's pause, resume and delete are kept in [pendingListingQueue], to be saved once back
+ * online.
+ */
 class ListingDetailViewModel(
     private val listingId: String,
     private val listingRepository: ListingRepository,
     private val profileRepository: ProfileRepository,
     authRepository: AuthRepository,
+    private val pendingListingQueue: PendingListingQueue,
+    private val connectivityRepository: ConnectivityRepository,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(ListingDetailUiState())
@@ -121,6 +136,17 @@ class ListingDetailViewModel(
 
   init {
     loadListing()
+    viewModelScope.launch {
+      pendingListingQueue.changes
+          .map { changes -> changes.find { it.listingId == listingId } }
+          .distinctUntilChanged()
+          .collect { change ->
+            val synced = change == null && _uiState.value.pendingChange != null
+            _uiState.update { it.copy(pendingChange = change).withPendingChange() }
+            // Saved or dropped: the listing as Firestore now has it replaces the one shown.
+            if (synced) loadListing()
+          }
+    }
   }
 
   /**
@@ -157,12 +183,17 @@ class ListingDetailViewModel(
    * Pauses the listing when [paused] is true, hiding it from Browse and the owner's profile, or
    * resumes it. Only for its owner, once the listing is loaded, and not while the listing is being
    * read again or another owner action is being saved. On failure the listing keeps its state and
-   * [ListingDetailUiState.ownerActionError] says why.
+   * [ListingDetailUiState.ownerActionError] says why. Offline it is kept to be saved later, and
+   * shown at once.
    */
   fun setPaused(paused: Boolean) {
     val listingId = ownerActionTarget() ?: return
     runOwnerAction(
-        save = { listingRepository.setPaused(listingId, paused) },
+        save = {
+          if (connectivityRepository.isOnline.value) {
+            listingRepository.setPaused(listingId, paused).forgettingPendingChange()
+          } else runCatching { pendingListingQueue.enqueueChange(listingId, paused = paused) }
+        },
         // Shown from the answer rather than read again: Firestore saved exactly this change.
         onSaved = { _uiState.update { it.copy(listing = it.listing?.withPaused(paused)) } },
     )
@@ -172,15 +203,20 @@ class ListingDetailViewModel(
    * Deletes the listing and its photos, for its owner, under the same conditions as [setPaused].
    * The screen asks for confirmation first. On success [ListingDetailUiState.isDeleted] tells the
    * screen to leave; on failure the listing stays shown and [ListingDetailUiState.ownerActionError]
-   * says why.
+   * says why. Offline the delete is kept to be saved later, and
+   * [ListingDetailUiState.isDeletionQueued] is set too.
    */
   fun deleteListing() {
     val listingId = ownerActionTarget() ?: return
+    val isOnline = connectivityRepository.isOnline.value
     runOwnerAction(
-        save = { listingRepository.deleteListing(listingId) },
+        save = {
+          if (isOnline) listingRepository.deleteListing(listingId).forgettingPendingChange()
+          else runCatching { pendingListingQueue.enqueueChange(listingId, delete = true) }
+        },
         onSaved = {
           deleted = true
-          _uiState.update { it.copy(isDeleted = true) }
+          _uiState.update { it.copy(isDeleted = true, isDeletionQueued = !isOnline) }
         },
     )
   }
@@ -194,6 +230,15 @@ class ListingDetailViewModel(
     _uiState.update { it.copy(isDeleted = false) }
   }
 
+  /**
+   * This result, after forgetting the change queued offline for the listing once the owner's write
+   * succeeded online: applied later, it would undo this write or report the listing as deleted
+   * elsewhere.
+   */
+  private suspend fun Result<Unit>.forgettingPendingChange(): Result<Unit> = onSuccess {
+    _uiState.value.pendingChange?.let { pendingListingQueue.removeChange(it) }
+  }
+
   /** The id of the listing an owner action may change now, or null when none may start. */
   private fun ownerActionTarget(): String? {
     val state = _uiState.value
@@ -201,6 +246,8 @@ class ListingDetailViewModel(
     // but this keeps a stray call from reaching Firestore. While a reload runs, its answer could
     // come after the write and show the listing as it was before it (see loadListing).
     if (deleted || !state.isOwner || state.isUpdating || state.isLoading) return null
+    // A delete waiting to sync: nothing more can change the listing.
+    if (state.pendingChange?.isDeleted == true) return null
     return state.listing?.listingId
   }
 
@@ -245,8 +292,18 @@ class ListingDetailViewModel(
           listingPhotos = it.listingPhotos.filterKeys { path -> path in listing.imagePaths },
       )
     }
+    _uiState.update { it.withPendingChange() }
     listing.imagePaths.forEach { downloadPhoto(it) }
     listing.ownerUid?.let { observeLender(it) }
+  }
+
+  /**
+   * The state with the owner's pending pause or resume shown on the listing, so the screen shows
+   * the change kept offline rather than the state last saved.
+   */
+  private fun ListingDetailUiState.withPendingChange(): ListingDetailUiState {
+    val paused = pendingChange?.paused
+    return if (isOwner && paused != null) copy(listing = listing?.withPaused(paused)) else this
   }
 
   /**

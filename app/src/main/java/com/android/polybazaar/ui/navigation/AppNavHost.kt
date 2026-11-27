@@ -91,10 +91,10 @@ import com.android.polybazaar.listing.ui.CreateListingScreen
 import com.android.polybazaar.listing.ui.EditListingScreen
 import com.android.polybazaar.listing.ui.ListingDetailActions
 import com.android.polybazaar.listing.ui.ListingDetailScreen
-import com.android.polybazaar.listing.viewmodel.DraftPublishNotice
 import com.android.polybazaar.listing.viewmodel.ListingDetailViewModel
-import com.android.polybazaar.listing.viewmodel.ListingDraftPublisherViewModel
 import com.android.polybazaar.listing.viewmodel.ListingFormViewModel
+import com.android.polybazaar.listing.viewmodel.ListingOutboxSyncViewModel
+import com.android.polybazaar.listing.viewmodel.ListingSyncNotice
 import com.android.polybazaar.map.model.LocationRepository
 import com.android.polybazaar.map.model.PlaceNameRepository
 import com.android.polybazaar.map.ui.GoogleListingsMap
@@ -419,10 +419,13 @@ fun AppNavHost(
                               listingRepository = listingRepository,
                               profileRepository = profileRepository,
                               authRepository = authRepository,
+                              pendingListingQueue = pendingListingQueue,
+                              connectivityRepository = connectivityRepository,
                           )
                         }
                       }
               )
+          val deletionQueuedMessage = stringResource(R.string.listing_deletion_queued)
           // The listing is read once, so coming back to it, for example after editing it, loads
           // it again. On opening, the ViewModel ignores this call while its first load runs.
           LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { detailViewModel.loadListing() }
@@ -443,7 +446,13 @@ fun AppNavHost(
                           launchSingleTop = true
                         }
                       },
-                      onDeleted = { navController.popBackStack() },
+                      onDeleted = {
+                        // Deleted offline: the delete is saved once back online.
+                        deletionQueuedMessage
+                            .takeIf { detailViewModel.uiState.value.isDeletionQueued }
+                            ?.let(showMessage)
+                        navController.popBackStack()
+                      },
                       // The viewer messages the owner as the renter. Single top, so a double tap
                       // does not stack two conversation screens.
                       onMessageLender = {
@@ -832,9 +841,9 @@ private fun NavHostController.openNewBrowse() {
 }
 
 /**
- * Publishes [user]'s listing drafts kept offline whenever the device is online, and tells the
- * outcome with [showMessage]. Only a verified user publishes: the security rules refuse the others'
- * listings.
+ * Publishes [user]'s listing drafts, and saves their listing changes, kept offline whenever the
+ * device is online, and tells the outcome with [showMessage]. Only a verified user publishes: the
+ * security rules refuse the others' listings.
  */
 @Composable
 private fun PublishDraftsWhenOnline(
@@ -844,12 +853,12 @@ private fun PublishDraftsWhenOnline(
     connectivityRepository: ConnectivityRepository,
     showMessage: (String) -> Unit,
 ) {
-  val draftPublisher: ListingDraftPublisherViewModel =
+  val draftPublisher: ListingOutboxSyncViewModel =
       viewModel(
           factory =
               viewModelFactory {
                 initializer {
-                  ListingDraftPublisherViewModel(
+                  ListingOutboxSyncViewModel(
                       pendingListingQueue,
                       listingRepository,
                       connectivityRepository,
@@ -869,21 +878,18 @@ private fun PublishDraftsWhenOnline(
   }
 }
 
-/** How many drafts [notice] published and how many failed, in one message. */
+/** How many drafts and changes [notice] saved, failed or dropped, in one message. */
 @Composable
-private fun draftNoticeMessage(notice: DraftPublishNotice): String =
-    listOfNotNull(
-            if (notice.published > 0) {
-              pluralStringResource(
-                  R.plurals.listing_drafts_published,
-                  notice.published,
-                  notice.published,
-              )
-            } else null,
-            if (notice.failed > 0) {
-              pluralStringResource(R.plurals.listing_drafts_failed, notice.failed, notice.failed)
-            } else null,
+private fun draftNoticeMessage(notice: ListingSyncNotice): String =
+    listOf(
+            R.plurals.listing_drafts_published to notice.published,
+            R.plurals.listing_drafts_failed to notice.failed,
+            R.plurals.listing_changes_saved to notice.changesSaved,
+            R.plurals.listing_changes_failed to notice.changesFailed,
+            R.plurals.listing_changes_dropped to notice.changesDropped,
         )
+        .filter { (_, count) -> count > 0 }
+        .map { (plural, count) -> pluralStringResource(plural, count, count) }
         .joinToString(" ")
 
 /**

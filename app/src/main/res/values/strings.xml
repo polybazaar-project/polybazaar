@@ -48,6 +48,18 @@
         <item quantity="one">A listing created offline couldn’t be published. We’ll try again later.</item>
         <item quantity="other">%d listings created offline couldn’t be published. We’ll try again later.</item>
     </plurals>
+    <plurals name="listing_changes_saved">
+        <item quantity="one">Your change made offline was saved.</item>
+        <item quantity="other">%d changes made offline were saved.</item>
+    </plurals>
+    <plurals name="listing_changes_failed">
+        <item quantity="one">A change made offline couldn’t be saved. We’ll try again later.</item>
+        <item quantity="other">%d changes made offline couldn’t be saved. We’ll try again later.</item>
+    </plurals>
+    <plurals name="listing_changes_dropped">
+        <item quantity="one">A change made offline wasn’t saved because the listing was deleted elsewhere.</item>
+        <item quantity="other">%d changes made offline weren’t saved because their listings were deleted elsewhere.</item>
+    </plurals>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>
@@ -89,6 +101,9 @@
     <string name="listing_detail_delete_confirm">Delete</string>
     <string name="listing_detail_delete_cancel">Cancel</string>
     <string name="listing_detail_paused">Paused</string>
+    <string name="listing_detail_waiting_to_sync">Waiting to sync</string>
+    <string name="listing_detail_deletion_waiting">Deletion waiting to sync</string>
+    <string name="listing_deletion_queued">This listing will be deleted once you’re back online.</string>
     <string name="listing_detail_paused_title">Listing paused</string>
     <string name="listing_detail_owner_paused_text">Hidden from Browse and your profile. Resume it to take bookings again.</string>
     <string name="listing_detail_renter_paused_text">The lender isn\'t taking bookings right now.</string>

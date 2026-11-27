@@ -198,4 +198,69 @@ class FilePendingListingQueueTest {
     assertFalse(outside.exists())
     assertTrue(queue.pending.value.isEmpty())
   }
+
+  @Test
+  fun changes_areMergedPerListing_andSurviveTheAppBeingClosed() = runTest {
+    val queue = newQueue()
+    queue.enqueueChange("paused", paused = true)
+    queue.enqueueChange("resumed", paused = true)
+    queue.enqueueChange("resumed", paused = false)
+    // A change without a pause keeps the one kept before.
+    queue.enqueueChange("resumed")
+    queue.enqueueChange("deleted", paused = true)
+    queue.enqueueChange("deleted", delete = true)
+
+    val expected =
+        listOf(
+            PendingListingChange("deleted", "uid-ada", isDeleted = true),
+            PendingListingChange("paused", "uid-ada", paused = true),
+            PendingListingChange("resumed", "uid-ada", paused = false),
+        )
+    assertEquals(expected, queue.changes.value.sortedBy { it.listingId })
+    // Folders holding only a change are kept on loading, and read back as they were.
+    val reloaded = newQueue()
+    assertEquals(expected, reloaded.changes.value.sortedBy { it.listingId })
+    assertTrue(reloaded.pending.value.isEmpty())
+  }
+
+  @Test
+  fun removeChange_skipsAReplacedChange_andKeepsADraftOfTheSameId() = runTest {
+    val queue = newQueue()
+    queue.enqueue("item1", service)
+    queue.enqueueChange("item1", paused = true)
+    val replaced = queue.changes.value.single()
+    queue.enqueueChange("item1", delete = true)
+    queue.enqueueChange("solo", paused = true)
+    queue.enqueue("solo", service)
+    queue.remove("solo")
+    assertTrue(File(directory, "solo/change.json").isFile)
+
+    queue.removeChange(replaced)
+    assertEquals(
+        listOf(true, false),
+        queue.changes.value.sortedBy { it.listingId }.map { it.isDeleted },
+    )
+
+    queue.changes.value.forEach { queue.removeChange(it) }
+
+    assertTrue(queue.changes.value.isEmpty())
+    assertFalse(File(directory, "item1/change.json").exists())
+    assertFalse(File(directory, "solo").exists())
+    val reloaded = newQueue()
+    assertTrue(reloaded.changes.value.isEmpty())
+    assertEquals(listOf("item1"), reloaded.pending.value.map { it.id })
+  }
+
+  @Test
+  fun unreadableChanges_areSkipped_andNobodySignedInKeepsNoChange() = runTest {
+    newQueue().enqueueChange("good", paused = true)
+    newQueue().enqueueChange("corrupt", delete = true)
+    File(directory, "corrupt/change.json").writeText("{ not json")
+
+    assertEquals(listOf("good"), newQueue().changes.value.map { it.listingId })
+
+    val error = runCatching { newQueue(uid = null).enqueueChange("x", paused = true) }
+    assertEquals(AppError.UNAUTHENTICATED, (error.exceptionOrNull() as AppException).error)
+    assertFalse(File(directory, "x").exists())
+  }
 }
