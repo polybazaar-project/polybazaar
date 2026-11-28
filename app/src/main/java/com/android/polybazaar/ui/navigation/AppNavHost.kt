@@ -395,10 +395,15 @@ fun AppNavHost(
                         }
                       }
               )
+          val queuedMessage = stringResource(R.string.listing_edit_saved_offline)
           EditListingScreen(
               listingViewModel = listingViewModel,
               onBack = { navController.popBackStack() },
               onListingSaved = { navController.popBackStack() },
+              onListingQueued = {
+                showMessage(queuedMessage)
+                navController.popBackStack()
+              },
           )
         }
         composable(
@@ -870,6 +875,7 @@ private fun draftNoticeMessage(notice: ListingSyncNotice): String =
             R.plurals.listing_changes_saved to notice.changesSaved,
             R.plurals.listing_changes_failed to notice.changesFailed,
             R.plurals.listing_changes_dropped to notice.changesDropped,
+            R.plurals.listing_changes_conflicted to notice.changesConflicted,
         )
         .filter { (_, count) -> count > 0 }
         .map { (plural, count) -> pluralStringResource(plural, count, count) }

@@ -298,12 +298,21 @@ class ListingDetailViewModel(
   }
 
   /**
-   * The state with the owner's pending pause or resume shown on the listing, so the screen shows
-   * the change kept offline rather than the state last saved.
+   * The state with the owner's pending edit, pause or resume shown on the listing, so the screen
+   * shows the change kept offline rather than the listing last saved. The edit's new photos are not
+   * shown until saved: the screen only shows stored ones.
    */
   private fun ListingDetailUiState.withPendingChange(): ListingDetailUiState {
-    val paused = pendingChange?.paused
-    return if (isOwner && paused != null) copy(listing = listing?.withPaused(paused)) else this
+    val change = pendingChange
+    val shown = listing
+    val ownerUid = shown?.ownerUid
+    if (!isOwner || change == null || shown == null || ownerUid == null) return this
+    val paused = change.paused ?: shown.isPaused
+    val edit = change.edit?.takeIf { change.ownerUid == ownerUid }
+    return copy(
+        listing =
+            edit?.saved(listingId, edit.imagePaths, ownerUid, paused) ?: shown.withPaused(paused)
+    )
   }
 
   /**

@@ -1,6 +1,8 @@
 // Co-authored-by: Claude Code (Claude Opus 5.5)
 package com.android.polybazaar.listing.model
 
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
@@ -19,9 +21,11 @@ import kotlinx.coroutines.flow.flow
  * real repository when neither has it, [publishListing] adds to [allListings] under the given id
  * unless a listing already has it, recording each id in [publishedListingIds], and fails for the
  * ids in [failingPublishIds], [updateListing] replaces the listing in both, [deleteListing] removes
- * it from both, and [setPaused] changes its pause state in both. Every call except
- * [loadListingImage] fails with [failure] when it is set. Set [gate] to keep any of these calls
- * waiting until the test completes it, to look at one in progress.
+ * it from both, and [setPaused] changes its pause state in both. [applyQueuedEdit] fails with a
+ * Firestore `NOT_FOUND` error when neither list has the listing, with [AppError.CHANGED_ELSEWHERE]
+ * when it differs from the base, its pause state aside, and updates it like [updateListing]
+ * otherwise. Every call except [loadListingImage] fails with [failure] when it is set. Set [gate]
+ * to keep any of these calls waiting until the test completes it, to look at one in progress.
  *
  * [observeListing] follows the listing in both lists, emitting `Missing` while neither has it, like
  * the real repository once the server says it does not exist. Changing either list emits again, and
@@ -197,6 +201,14 @@ class FakeListingRepository(
     myListings = myListings.map { if (it.listingId == saved.listingId) saved else it }
     return saved
   }
+
+  override suspend fun applyQueuedEdit(base: Listing, edit: Listing): Result<Unit> =
+      getListing(checkNotNull(edit.listingId)).mapCatching { stored ->
+        if (stored.withPaused(false) != base.withPaused(false)) {
+          throw AppException(AppError.CHANGED_ELSEWHERE)
+        }
+        updateListing(edit)
+      }
 
   override suspend fun deleteListing(listingId: String): Result<Unit> =
       answer(Unit).onSuccess {

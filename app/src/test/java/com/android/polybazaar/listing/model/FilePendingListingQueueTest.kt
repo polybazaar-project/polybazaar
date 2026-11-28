@@ -14,6 +14,7 @@ import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -262,5 +263,118 @@ class FilePendingListingQueueTest {
     val error = runCatching { newQueue(uid = null).enqueueChange("x", paused = true) }
     assertEquals(AppError.UNAUTHENTICATED, (error.exceptionOrNull() as AppException).error)
     assertFalse(File(directory, "x").exists())
+  }
+
+  // Edits made offline (#484)
+
+  private val stored = item.copy(listingId = "l1", imagePaths = listOf("p/0", "p/1"))
+
+  private fun camera() = Uri.fromFile(cameraFile)
+
+  /** Keeps an edit of [id] adding [photos] to [stored], made from [base]. */
+  private suspend fun FilePendingListingQueue.edit(
+      id: String,
+      vararg photos: Uri,
+      base: Listing = stored,
+  ) = enqueueChange(id, edit = stored.copy(images = photos.toList()), base = base)
+
+  private fun changePhotos(id: String) =
+      File(directory, id).listFiles().orEmpty().filter { it.name.startsWith("change_photo_") }
+
+  @Test
+  fun edit_keepsCopiesOfItsNewPhotos_withItsBase_andSurvivesTheAppBeingClosed() = runTest {
+    val queue = newQueue()
+    val edit = stored.copy(imagePaths = listOf("p/1"), images = listOf(galleryPhoto, camera()))
+
+    queue.enqueueChange("l1", paused = true, edit = edit, base = stored)
+    // The change must not depend on the camera file, which the form deletes.
+    cameraFile.delete()
+
+    val change = queue.changes.value.single()
+    val photos = change.edit!!.images
+    assertEquals(changePhotos("l1").map(Uri::fromFile).toSet(), photos.toSet())
+    assertArrayEquals(galleryBytes, File(photos[0].path!!).readBytes())
+    assertArrayEquals(byteArrayOf(9, 8), File(photos[1].path!!).readBytes())
+    assertEquals(
+        PendingListingChange("l1", "uid-ada", true, false, edit.copy(images = photos), stored),
+        change,
+    )
+    assertEquals(listOf(change), newQueue().changes.value)
+  }
+
+  @Test
+  fun editingAgain_keepsTheFirstBase_reusesKeptPhotos_andDeletesTheRemovedOnes() = runTest {
+    val queue = newQueue()
+    queue.edit("l1", galleryPhoto, camera())
+    val (removed, kept) = queue.changes.value.single().edit!!.images
+
+    queue.edit("l1", kept, camera(), base = stored.copy(title = "Saved meanwhile"))
+
+    val change = queue.changes.value.single()
+    assertEquals(stored, change.base)
+    assertEquals(kept, change.edit!!.images[0])
+    assertArrayEquals(byteArrayOf(9, 8), File(change.edit!!.images[1].path!!).readBytes())
+    assertFalse(File(removed.path!!).exists())
+    assertEquals(2, changePhotos("l1").size)
+    assertEquals(listOf(change), newQueue().changes.value)
+  }
+
+  @Test
+  fun deleteAfterAnEdit_dropsItsPhotos_andRemovingAnEditDeletesThem() = runTest {
+    val queue = newQueue()
+    queue.edit("l1", galleryPhoto)
+    queue.enqueueChange("l1", delete = true)
+    queue.edit("l2", camera())
+
+    val deleted = PendingListingChange("l1", "uid-ada", isDeleted = true)
+    assertEquals(deleted, queue.changes.value.first())
+    assertEquals(listOf("change.json"), File(directory, "l1").list()!!.toList())
+    queue.removeChange(queue.changes.value.last())
+    assertFalse(File(directory, "l2").exists())
+    assertEquals(listOf(deleted), newQueue().changes.value)
+  }
+
+  @Test
+  fun editWhosePhotoCannotBeCopied_keepsTheEarlierChangeAndOnlyItsPhotos() = runTest {
+    val queue = newQueue()
+    queue.edit("l1", galleryPhoto)
+    val earlier = queue.changes.value.single()
+    val missing = Uri.fromFile(File(context.filesDir, "missing.jpg"))
+
+    val error = runCatching { queue.edit("l1", camera(), missing) }.exceptionOrNull()
+
+    assertTrue(error is FileNotFoundException)
+    assertEquals(listOf(earlier), queue.changes.value)
+    assertEquals(earlier.edit!!.images.map { File(it.path!!) }, changePhotos("l1"))
+    assertEquals(listOf(earlier), newQueue().changes.value)
+  }
+
+  @Test
+  fun loading_deletesUnusedChangePhotos_andSkipsAPhotoNamedOutsideTheFolder() = runTest {
+    newQueue().edit("l1", galleryPhoto)
+    val kept = changePhotos("l1").single()
+    // Left behind by the app being killed while replacing the change.
+    val leftover = File(directory, "l1/change_photo_left.jpg").apply { writeBytes(byteArrayOf(1)) }
+    newQueue().edit("escape", camera())
+    val file = File(directory, "escape/change.json")
+    val json = JSONObject(file.readText())
+    json.getJSONObject("edit").put("photos", JSONArray(listOf("../l1/${kept.name}")))
+    file.writeText(json.toString())
+
+    assertEquals(listOf("l1"), newQueue().changes.value.map { it.listingId })
+    assertFalse(leftover.exists())
+    assertEquals(listOf(kept), changePhotos("l1"))
+  }
+
+  @Test
+  fun removingADraft_keepsThePhotosOfAnEditToTheSameId() = runTest {
+    val queue = newQueue()
+    queue.edit("l1", camera())
+    queue.enqueue("l1", service)
+
+    queue.remove("l1")
+
+    assertEquals(1, changePhotos("l1").size)
+    assertEquals(queue.changes.value, newQueue().changes.value)
   }
 }

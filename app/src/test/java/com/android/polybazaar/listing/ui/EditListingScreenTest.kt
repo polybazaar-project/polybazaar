@@ -42,6 +42,7 @@ import com.android.polybazaar.map.model.FakePlaceNameRepository
 import java.net.UnknownHostException
 import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -89,6 +90,9 @@ class EditListingScreenTest {
       listingId: String = drill.listingId!!,
       onBack: () -> Unit = {},
       onListingSaved: (Listing) -> Unit = {},
+      online: Boolean = true,
+      queue: FakePendingListingQueue = FakePendingListingQueue(),
+      onListingQueued: () -> Unit = {},
   ): ListingFormViewModel {
     val viewModel =
         ListingFormViewModel(
@@ -98,14 +102,15 @@ class EditListingScreenTest {
             SavedStateHandle(),
             FakeLocationRepository(),
             FakePlaceNameRepository(),
-            FakeConnectivityRepository(),
-            FakePendingListingQueue(),
+            FakeConnectivityRepository(online),
+            queue,
         )
     composeTestRule.setContent {
       EditListingScreen(
           listingViewModel = viewModel,
           onBack = onBack,
           onListingSaved = onListingSaved,
+          onListingQueued = onListingQueued,
       )
     }
     return viewModel
@@ -130,6 +135,23 @@ class EditListingScreenTest {
     // Editing a listing never offers to create one.
     node(CreateListingScreenTags.CREATE_BUTTON).assertDoesNotExist()
     node(EditListingScreenTags.LOADING_INDICATOR).assertDoesNotExist()
+    node(EditListingScreenTags.SYNC_BADGE).assertDoesNotExist()
+  }
+
+  @Test
+  fun queuedEdit_isShownWaitingToSync_andSavingItAgainOfflineIsReportedOnce() {
+    val queue = FakePendingListingQueue(ownerUid = "uid-ada")
+    runBlocking { queue.enqueueChange("drill", edit = drill.copy(title = "Queued"), base = drill) }
+    var queued = 0
+    setContent(online = false, queue = queue, onListingQueued = { queued++ })
+
+    node(EditListingScreenTags.SYNC_BADGE).assertIsDisplayed()
+    node(CreateListingScreenTags.TITLE_FIELD).assertTextContains("Queued")
+    node(EditListingScreenTags.SAVE_BUTTON).performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    assertEquals(1, queued)
+    assertEquals("Queued", queue.changes.value.single().edit?.title)
   }
 
   @Test

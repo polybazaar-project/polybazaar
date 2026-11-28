@@ -59,6 +59,9 @@ enum class AppError {
   /** A recovered confirmation was absent from the server with no pending write. */
   CONFIRMATION_NOT_SAVED,
 
+  /** A change made offline was not saved: someone changed the same document meanwhile. */
+  CHANGED_ELSEWHERE,
+
   /** Any other error. */
   UNKNOWN,
 }

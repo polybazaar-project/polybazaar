@@ -1077,6 +1077,45 @@ class AppNavHostTest {
   }
 
   @Test
+  fun editListingOffline_isToldItWaits_andAnEditChangedElsewhereIsDroppedOnceOnline() {
+    val drill = gracesDrill.copy(ownerUid = user.uid)
+    listingRepository.myListings = listOf(drill)
+    connectivity.isOnline.value = false
+    setContent(FakeAuthRepository(currentUser = user))
+    openProfile()
+    composeTestRule.onNodeWithTag(ToolboxCardTags.LISTING_ROW).performClick()
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.EDIT_BUTTON).performClick()
+    composeTestRule.onNodeWithTag(CreateListingScreenTags.TITLE_FIELD).performTextClearance()
+    composeTestRule
+        .onNodeWithTag(CreateListingScreenTags.TITLE_FIELD)
+        .performTextInput("Makita drill")
+    composeTestRule
+        .onNodeWithTag(EditListingScreenTags.SAVE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    assertOnListingDetail("Makita drill")
+    composeTestRule
+        .onNodeWithText(context.getString(R.string.listing_edit_saved_offline))
+        .assertIsDisplayed()
+
+    // Changed on another device meanwhile: the edit must not overwrite it.
+    listingRepository.myListings = listOf(drill.copy(title = "Bosch drill, new bits"))
+    connectivity.isOnline.value = true
+
+    composeTestRule.waitUntil {
+      composeTestRule
+          .onAllNodesWithText(
+              "A change made offline wasn’t saved because the listing was changed elsewhere."
+          )
+          .fetchSemanticsNodes()
+          .isNotEmpty()
+    }
+    assertTrue(listingRepository.updatedListings.isEmpty())
+    assertTrue(pendingQueue.changes.value.isEmpty())
+  }
+
+  @Test
   fun listingDetail_ownerPausesAndResumes_andTheToolboxShowsIt() {
     listingRepository.myListings = listOf(gracesDrill.copy(ownerUid = user.uid))
     setContent(FakeAuthRepository(currentUser = user))

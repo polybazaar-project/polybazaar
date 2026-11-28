@@ -1147,6 +1147,9 @@ class CreateListingScreenTest {
     override suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit> =
         error("Not used here")
 
+    override suspend fun applyQueuedEdit(base: Listing, edit: Listing): Result<Unit> =
+        error("Not used here")
+
     override suspend fun loadListingImage(imagePath: String) = ByteArray(0)
   }
 

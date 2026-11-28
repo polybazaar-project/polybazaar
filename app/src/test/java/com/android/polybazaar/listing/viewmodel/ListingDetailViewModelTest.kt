@@ -410,6 +410,18 @@ class ListingDetailViewModelTest {
   }
 
   @Test
+  fun keptEdit_isShownToTheOwnerOnly_withItsKeptPhotosAndPause() {
+    val photo = Uri.parse("file:///change_photo_1.jpg")
+    val edit =
+        listing.copy(title = "Cordless drill", imagePaths = listOf("kept"), images = listOf(photo))
+    runBlocking { pendingQueue.enqueueChange("drill", paused = true, edit = edit, base = listing) }
+
+    assertEquals(listing, loadedViewModel().uiState.value.listing)
+    val shown = listing.copy(title = "Cordless drill", imagePaths = listOf("kept"), isPaused = true)
+    assertEquals(shown, ownerViewModel().uiState.value.listing)
+  }
+
+  @Test
   fun onlineResumeOrDelete_forgetsTheKeptPause() {
     runBlocking { pendingQueue.enqueueChange("drill", paused = true) }
     val viewModel = ownerViewModel()

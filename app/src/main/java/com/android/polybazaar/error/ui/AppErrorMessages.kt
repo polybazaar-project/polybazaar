@@ -25,6 +25,7 @@ val AppError.messageRes: Int
         AppError.TOO_MANY_REQUESTS -> R.string.error_too_many_requests
         AppError.INVALID_LINK -> R.string.error_invalid_link
         AppError.CONFIRMATION_NOT_SAVED -> R.string.booking_confirmation_not_saved
+        AppError.CHANGED_ELSEWHERE -> R.string.error_changed_elsewhere
         AppError.UNKNOWN -> R.string.error_unknown
       }
 

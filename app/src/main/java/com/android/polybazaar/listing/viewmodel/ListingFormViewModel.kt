@@ -31,6 +31,7 @@ import com.android.polybazaar.listing.model.ListingRules.isValidPriceInput
 import com.android.polybazaar.listing.model.ListingRules.isValidRefundInput
 import com.android.polybazaar.listing.model.ListingRules.parsePrice
 import com.android.polybazaar.listing.model.ListingType
+import com.android.polybazaar.listing.model.PendingListingChange
 import com.android.polybazaar.listing.model.PendingListingQueue
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.map.model.Campus
@@ -72,8 +73,10 @@ import kotlinx.coroutines.launch
  * @property loadError why the edited listing could not be loaded, or null. The form cannot be saved
  *   until a Retry succeeds.
  * @property savedListing the saved listing, until the screen has handled it.
- * @property isQueued true once the listing created offline is kept as a draft to publish later,
- *   until the screen has handled it.
+ * @property isQueued true once the listing created offline is kept as a draft to publish later, or
+ *   the edit made offline is kept to save later, until the screen has handled it.
+ * @property isEditQueued whether the edited listing has an edit made offline and not saved yet,
+ *   which the form then shows instead of the listing as stored.
  * @property saveError why the last save failed, or null.
  * @property isOnline whether the device is online, which choosing a location on the map needs.
  *   Followed live, never saved with the form.
@@ -101,6 +104,7 @@ data class ListingFormUiState(
     val loadError: AppError? = null,
     val savedListing: Listing? = null,
     val isQueued: Boolean = false,
+    val isEditQueued: Boolean = false,
     val isSaving: Boolean = false,
     val saveError: AppError? = null,
     val isOnline: Boolean = true,
@@ -183,6 +187,7 @@ private fun formFor(listing: Listing, today: LocalDate) =
         refundValue = (listing as? ItemListing)?.refundValue?.let(::formatAmountInput) ?: "",
         category = listing.category,
         storedPhotos = listing.imagePaths,
+        photos = listing.images,
         maxRentalDays = (listing as? ItemListing)?.maxRentalDays,
         location = listing.location,
         suggestedPoint =
@@ -207,7 +212,8 @@ private fun formFor(listing: Listing, today: LocalDate) =
  *   suggest it as the location's name.
  * @param connectivityRepository tells whether the device is online, see
  *   [ListingFormUiState.isOnline].
- * @param pendingListingQueue keeps a listing created offline as a draft, to publish later.
+ * @param pendingListingQueue keeps a listing created offline as a draft, to publish later, and an
+ *   edit made offline, to save later.
  * @param today the current day, to leave past available days out of an edited listing.
  */
 class ListingFormViewModel(
@@ -226,7 +232,10 @@ class ListingFormViewModel(
       MutableStateFlow(
           savedStateHandle
               .restoreForm(listingId, today())
-              .copy(isOnline = connectivityRepository.isOnline.value)
+              .copy(
+                  isOnline = connectivityRepository.isOnline.value,
+                  isEditQueued = queuedChange()?.edit != null,
+              )
       )
   val uiState: StateFlow<ListingFormUiState> = _uiState.asStateFlow()
 
@@ -239,6 +248,12 @@ class ListingFormViewModel(
 
   /** The saved photos being downloaded, so that each is downloaded once at a time. */
   private val photosDownloading = mutableSetOf<String>()
+
+  /**
+   * The edited listing as loaded from the repository, which an edit made offline starts from. Null
+   * until loaded, and in a form restored after Android killed the app.
+   */
+  private var loadedListing: Listing? = null
 
   /** The running request for the lender's position, see [locateLender]. */
   private var locateJob: Job? = null
@@ -290,8 +305,16 @@ class ListingFormViewModel(
             .getListing(id)
             .onSuccess { listing ->
               savedStateHandle[LOADED] = true
+              loadedListing = listing
+              // The owner's edit made offline, until it is saved, is what they edit again.
+              val queuedEdit = queuedChange()?.takeIf { it.ownerUid == listing.ownerUid }?.edit
               updateState {
-                formFor(listing, today()).copy(isLoading = true, isOnline = it.isOnline)
+                formFor(queuedEdit ?: listing, today())
+                    .copy(
+                        isLoading = true,
+                        isOnline = it.isOnline,
+                        isEditQueued = queuedEdit != null,
+                    )
               }
             }
             .onFailure { exception ->
@@ -504,7 +527,8 @@ class ListingFormViewModel(
 
   /**
    * Creates the listing, or saves the changes to the edited one. Offline, a new listing is kept as
-   * a draft instead, see [ListingFormUiState.isQueued]: uploading it would wait for the connection.
+   * a draft instead, and the changes are kept to save later, see [ListingFormUiState.isQueued]:
+   * uploading them would wait for the connection.
    */
   fun save() {
     if (!_uiState.value.canSave) return
@@ -525,12 +549,17 @@ class ListingFormViewModel(
     }
     viewModelScope.launch {
       try {
-        if (!state.isEditing && !state.isOnline) {
-          pendingListingQueue.enqueue(listingRepository.newListingId(), listing)
-          // Copied with the draft, so the camera photos are no longer needed here.
+        if (!state.isOnline) {
+          if (listingId != null) {
+            // The edit is checked against the listing as loaded, unless an earlier edit kept it.
+            val base = loadedListing ?: listingRepository.getListing(listingId).getOrThrow()
+            pendingListingQueue.enqueueChange(listingId, edit = listing, base = base)
+          } else pendingListingQueue.enqueue(listingRepository.newListingId(), listing)
+          // Copied with the draft or the edit, so the camera photos are no longer needed here.
           listing.images.forEach(photoStorage::delete)
           updateState {
-            ListingFormUiState(today = today()).copy(isQueued = true, isOnline = it.isOnline)
+            val form = if (state.isEditing) it else ListingFormUiState(today = today())
+            form.copy(isQueued = true, isSaving = false, isOnline = it.isOnline)
           }
           return@launch
         }
@@ -539,6 +568,7 @@ class ListingFormViewModel(
             else listingRepository.createListing(listing)
         // Uploaded, so the camera photos are no longer needed on the phone.
         listing.images.forEach(photoStorage::delete)
+        if (state.isEditing) forgetQueuedEdit()
         // A fresh form, so coming back to it cannot create the same listing twice. An edit form
         // shows the listing as saved, its new photos now stored ones.
         updateState {
@@ -560,6 +590,20 @@ class ListingFormViewModel(
   fun clearSavedListing() = updateState { it.copy(savedListing = null) }
 
   fun clearQueued() = updateState { it.copy(isQueued = false) }
+
+  /** The change made offline to the edited listing and not saved yet, or null. */
+  private fun queuedChange(): PendingListingChange? =
+      pendingListingQueue.changes.value.find { it.listingId == listingId }
+
+  /**
+   * Forgets the edit made offline once the form saved its own: saved later, it would find the
+   * listing changed and be dropped. A pause or resume made offline is still kept.
+   */
+  private suspend fun forgetQueuedEdit() {
+    val change = queuedChange()?.takeIf { it.edit != null } ?: return
+    pendingListingQueue.removeChange(change)
+    change.paused?.let { pendingListingQueue.enqueueChange(change.listingId, paused = it) }
+  }
 
   /**
    * Downloads the saved photo at [path], one of [ListingFormUiState.storedPhotos], into
