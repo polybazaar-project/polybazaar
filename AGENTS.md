@@ -7,10 +7,17 @@ Durable rules for any AI agent (and any teammate) working in this repository. Re
 
 PolyBazaar is a Kotlin / Jetpack Compose Android app: a peer-to-peer marketplace where students rent out items and offer skills. Backend is Firebase (Auth, Firestore, Storage) plus Google Maps and push notifications. It must work offline: Firestore persistence, and drafts that sync when the connection returns. Package: `com.android.polybazaar`.
 
+## Where to look
+
+- `ARCHITECTURE.md`: the packages, how the app is wired, the Firestore and Storage data, the offline mechanisms, the tests, a glossary and past decisions. Look up the package, data or mechanism your task touches.
+- `.github/skills/code-review/SKILL.md` to review a PR, `.github/skills/open-pull-request/SKILL.md` to open one, and `.github/pull_request_template.md` for its description.
+- `README.md`: the pitch, and how to test and deploy the Cloud Functions.
+- The GitHub wiki: the Figma files, the Excalidraw diagram, the team planning and user feedback.
+
 ## Architecture rules
 
-- **MVVM.** `model/` holds data classes, repository interfaces and their Firebase implementations. `ui/` holds composables and ViewModels.
-- **ViewModels never import Firebase** or a repository implementation; they depend on repository interfaces. Firebase code lives only in `model/`.
+- **MVVM, split by feature.** Each feature package, such as `listing/`, holds `model/` (data classes, repository interfaces and their implementations), `viewmodel/` and `ui/` (composables).
+- **ViewModels never import Firebase** or a repository implementation; they depend on repository interfaces. Firebase code lives only in the `model/` packages, `photo/` and `MainActivity`, which constructs the implementations.
 - Prefer composables and navigation over new Activities.
 - Keep each change focused on its task; do not build for hypothetical future needs.
 
@@ -20,9 +27,11 @@ Run from the repo root with the Gradle wrapper, exactly as CI does:
 
 - `./gradlew ktfmtFormat` formats the code; `./gradlew ktfmtCheck` verifies it.
 - `./gradlew assemble lint` builds and lints.
-- `./gradlew check` runs unit tests (JUnit, Robolectric) and checks.
+- `./gradlew check` runs unit tests (JUnit, Robolectric) and checks. `./gradlew testDebugUnitTest --tests '*NameTest'` runs one test class.
 - `./gradlew connectedCheck` runs instrumented tests (Compose, Kaspresso); needs an emulator.
 - `./gradlew jacocoTestReport` produces the coverage report that Sonar reads.
+- `(cd rules-tests && npm ci && npm test)` tests the security rules, and `(cd functions && npm ci && npm test)` the Cloud Functions. Both start the Firebase emulators, which need Java 21 and ports 8080 and 9199 free.
+- `git config core.hooksPath .githooks` turns on the pre-commit hook, which runs `ktfmtCheck`.
 
 `app/google-services.json` is needed to build locally. Get it from a teammate; it is gitignored and CI generates it from the `GOOGLE_SERVICES` secret.
 
@@ -35,6 +44,7 @@ A `GEOCODING_API_KEY=...` line in `local.properties` (gitignored; get it from a 
 - The behavior works and matches the task's acceptance criteria.
 - New behavior comes with tests, in the same PR as the feature.
 - `./gradlew ktfmtCheck` and `./gradlew check` pass locally, and CI is green.
+- `ARCHITECTURE.md` still matches the code: a PR that makes it wrong updates it too, such as one that adds or renames a package, a type it names, a Firestore collection or Storage path, an object that lives for the whole process, an offline mechanism or a Cloud Function.
 - At least one teammate has approved the PR.
 
 ## Git and pull requests
