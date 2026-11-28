@@ -22,6 +22,7 @@ import com.android.polybazaar.listing.model.ListingRules.MAX_PHOTOS
 import com.android.polybazaar.listing.model.ListingRules.MAX_TITLE_LENGTH
 import com.android.polybazaar.listing.model.ListingType
 import com.android.polybazaar.listing.model.ObservedListing
+import com.android.polybazaar.listing.model.PendingListingChange
 import com.android.polybazaar.listing.model.PhotoStorage
 import com.android.polybazaar.listing.model.ServiceListing
 import com.android.polybazaar.listing.model.TakenPhoto
@@ -1859,19 +1860,78 @@ class ListingFormViewModelTest {
   }
 
   @Test
-  fun edit_offline_isStillSavedThroughTheRepository() = runTest {
+  fun edit_offline_isQueuedAgainstTheLoadedListingInsteadOfSaved() = runTest {
     val editViewModel = editForm()
     connectivity.isOnline.value = false
     testDispatcher.scheduler.advanceUntilIdle()
     editViewModel.updatePrice("15")
-    repository.result = storedItem.copy(price = 15.0)
 
     editViewModel.save()
     testDispatcher.scheduler.advanceUntilIdle()
 
-    assertEquals(15.0, repository.updatedListings.single().price, 0.0)
-    assertTrue(pendingQueue.pending.value.isEmpty())
-    assertFalse(editViewModel.uiState.value.isQueued)
-    assertEquals(storedItem.copy(price = 15.0), editViewModel.uiState.value.savedListing)
+    assertTrue(repository.updatedListings.isEmpty())
+    val change = pendingQueue.changes.value.single()
+    assertEquals(15.0, change.edit!!.price, 0.0)
+    assertEquals(storedItem, change.base)
+    assertTrue(editViewModel.uiState.value.isQueued)
+  }
+
+  private suspend fun queueEdit(title: String, paused: Boolean? = null) =
+      pendingQueue.enqueueChange(
+          "l1",
+          paused,
+          edit = storedItem.copy(title = title),
+          base = storedItem,
+      )
+
+  @Test
+  fun edit_opensFromTheOwnersQueuedEdit_andSavingOfflineQueuesTheNewVersion() = runTest {
+    queueEdit("Queued drill")
+    connectivity.isOnline.value = false
+    val editViewModel = editForm()
+    assertEquals("Queued drill", editViewModel.uiState.value.title)
+    assertTrue(editViewModel.uiState.value.isEditQueued)
+
+    editViewModel.updateTitle("Final drill")
+    editViewModel.addPhotos(uris(1))
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    val change = pendingQueue.changes.value.single()
+    // The form leaves the owner out, as for an edit saved online.
+    assertEquals(
+        storedItem.copy(title = "Final drill", images = uris(1), ownerUid = null),
+        change.edit,
+    )
+    assertEquals(storedItem, change.base)
+    assertEquals(uris(1), photoStorage.deleted)
+    assertEquals("Final drill", editViewModel.uiState.value.title)
+  }
+
+  @Test
+  fun edit_ignoresAnotherAccountsQueuedEdit() = runTest {
+    pendingQueue.ownerUid = "someone-else"
+    queueEdit("Queued drill")
+
+    val state = editForm().uiState.value
+
+    assertEquals(storedItem.title, state.title)
+    assertFalse(state.isEditQueued)
+  }
+
+  @Test
+  fun edit_savedOnline_replacesTheQueuedEdit_andKeepsItsPause() = runTest {
+    queueEdit("Queued", paused = true)
+    val editViewModel = editForm()
+    repository.result = storedItem.copy(title = "Queued")
+
+    editViewModel.save()
+    testDispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals("Queued", repository.updatedListings.single().title)
+    assertEquals(
+        listOf(PendingListingChange("l1", "owner", paused = true)),
+        pendingQueue.changes.value,
+    )
   }
 }

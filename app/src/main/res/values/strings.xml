@@ -59,6 +59,7 @@
         <item quantity="one">A change made offline wasn’t saved because the listing was changed elsewhere.</item>
         <item quantity="other">%d changes made offline weren’t saved because their listings were changed elsewhere.</item>
     </plurals>
+    <string name="listing_edit_saved_offline">Saved offline. Your changes will be saved when you’re back online.</string>
 
     <!-- Listing detail screen -->
     <string name="listing_detail_retry">Retry</string>

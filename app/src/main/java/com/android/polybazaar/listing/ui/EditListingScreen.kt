@@ -61,6 +61,7 @@ object EditListingScreenTags {
   const val ERROR_MESSAGE = "edit_listing_error_message"
   const val CANCEL_BUTTON = "edit_listing_cancel_button"
   const val SAVE_BUTTON = "edit_listing_save_button"
+  const val SYNC_BADGE = "edit_listing_sync_badge"
 }
 
 /**
@@ -70,12 +71,14 @@ object EditListingScreenTags {
  * @param onBack called when the user leaves without saving, with the back button or Cancel. Not
  *   while saving: leaving cancels the save, which can leave the listing pointing at deleted photos.
  * @param onListingSaved called once the changes have been saved.
+ * @param onListingQueued called once the changes, made offline, have been kept to save later.
  */
 @Composable
 fun EditListingScreen(
     listingViewModel: ListingFormViewModel,
     onBack: () -> Unit = {},
     onListingSaved: (Listing) -> Unit = {},
+    onListingQueued: () -> Unit = {},
 ) {
   // Collected without dispatching for the same reason as on the Create screen: a text field that
   // lags behind its input can jump its cursor or drop characters.
@@ -87,6 +90,12 @@ fun EditListingScreen(
       onListingSaved(savedListing)
       // Handled, so recreating the screen (on rotation, say) must not handle it again.
       listingViewModel.clearSavedListing()
+    }
+  }
+  LaunchedEffect(uiState.isQueued) {
+    if (uiState.isQueued) {
+      onListingQueued()
+      listingViewModel.clearQueued()
     }
   }
   // Leaving clears the ViewModel and cancels the save. If Firestore already has the update, the
@@ -136,6 +145,13 @@ fun EditListingContent(
       uiState.isLoading -> LoadingIndicator()
       loadError != null -> LoadError(text = loadError.message(), onRetry = onRetry)
       else -> {
+        // The form shows the edit made offline, until it is saved.
+        if (uiState.isEditQueued) {
+          PausedBadge(
+              Modifier.padding(horizontal = 18.dp).testTag(EditListingScreenTags.SYNC_BADGE),
+              text = R.string.listing_detail_waiting_to_sync,
+          )
+        }
         ListingTypeSelector(
             selected = uiState.type,
             onSelect = actions.onTypeSelected,

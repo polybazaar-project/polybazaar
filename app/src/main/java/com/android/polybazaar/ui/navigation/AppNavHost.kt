@@ -395,10 +395,15 @@ fun AppNavHost(
                         }
                       }
               )
+          val queuedMessage = stringResource(R.string.listing_edit_saved_offline)
           EditListingScreen(
               listingViewModel = listingViewModel,
               onBack = { navController.popBackStack() },
               onListingSaved = { navController.popBackStack() },
+              onListingQueued = {
+                showMessage(queuedMessage)
+                navController.popBackStack()
+              },
           )
         }
         composable(
