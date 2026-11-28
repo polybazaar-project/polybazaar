@@ -100,6 +100,7 @@
     <string name="conversation_summary_you">You</string>
     <string name="conversation_summary_spoken_lender">Listing by %1$s</string>
     <string name="conversation_summary_spoken_mine">Your listing</string>
+    <string name="conversation_open_profile">Open profile</string>
     <string name="conversation_status_rental">Rental</string>
     <string name="conversation_status_service">Service</string>
     <string name="conversation_status_paused">Paused</string>

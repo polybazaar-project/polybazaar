@@ -444,14 +444,9 @@ fun AppNavHost(
                         }
                       },
                       onDeleted = { navController.popBackStack() },
-                      // The viewer messages the owner as the renter. Single top, so a double tap
-                      // does not stack two conversation screens.
+                      // The viewer messages the owner as the renter.
                       onMessageLender = {
-                        uiState.user?.uid?.let { uid ->
-                          navController.navigate(Routes.conversation(listingId, uid)) {
-                            launchSingleTop = true
-                          }
-                        }
+                        uiState.user?.uid?.let { navController.openConversation(listingId, it) }
                       },
                       // Only a renter sees "Choose dates"; the owner has "Edit listing" there.
                       onChooseDates = {
@@ -606,6 +601,14 @@ fun AppNavHost(
           ConversationScreen(
               viewModel = conversationViewModel,
               onBack = { navController.popBackStack() },
+              // Both single top, so a double tap opens one screen. Both stay above the
+              // conversation, so its draft and photos are kept for when the user comes back.
+              onOpenProfile = {
+                navController.navigate(Routes.lenderProfile(it)) { launchSingleTop = true }
+              },
+              onOpenListing = {
+                navController.navigate(Routes.listingDetail(it)) { launchSingleTop = true }
+              },
           )
         }
         composable(Routes.MAP) {
@@ -808,6 +811,24 @@ private fun NavHostController.navigateFromAuth(user: User) {
   navigate(signedInRoute(user)) {
     popUpTo(Routes.SIGN_IN) { inclusive = true }
     launchSingleTop = true
+  }
+}
+
+/**
+ * Opens the conversation of the renter [renterUid] about [listingId]. When that conversation is the
+ * screen under this one, goes back to it instead, so it keeps its draft rather than a second one
+ * opening without it. Single top, so a double tap does not stack two conversation screens.
+ */
+private fun NavHostController.openConversation(listingId: String, renterUid: String) {
+  val previous = previousBackStackEntry
+  if (
+      previous?.destination?.route == Routes.CONVERSATION &&
+          previous.arguments?.getString(Routes.LISTING_ID) == listingId &&
+          previous.arguments?.getString(Routes.RENTER_UID) == renterUid
+  ) {
+    popBackStack()
+  } else {
+    navigate(Routes.conversation(listingId, renterUid)) { launchSingleTop = true }
   }
 }
 

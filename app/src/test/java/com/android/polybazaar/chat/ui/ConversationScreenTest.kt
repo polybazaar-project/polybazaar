@@ -93,6 +93,7 @@ import com.android.polybazaar.listing.model.TakenPhoto
 import com.android.polybazaar.listing.ui.CreateListingScreenTags
 import com.android.polybazaar.profile.model.FakeProfileRepository
 import com.android.polybazaar.profile.ui.redPhoto
+import com.android.polybazaar.testing.hasClickLabel
 import java.io.File
 import java.net.UnknownHostException
 import java.time.Instant
@@ -154,6 +155,8 @@ class ConversationScreenTest {
   private fun setContent(
       uiState: ConversationUiState,
       onBack: () -> Unit = {},
+      onOpenProfile: (String) -> Unit = {},
+      onOpenListing: (String) -> Unit = {},
       onDraftChange: (String) -> Unit = {},
       onSend: () -> Unit = {},
       onRetry: () -> Unit = {},
@@ -172,6 +175,8 @@ class ConversationScreenTest {
       ConversationContent(
           uiState = uiState,
           onBack = onBack,
+          onOpenProfile = onOpenProfile,
+          onOpenListing = onOpenListing,
           onDraftChange = onDraftChange,
           onSend = onSend,
           onRetry = onRetry,
@@ -192,6 +197,9 @@ class ConversationScreenTest {
   private fun string(id: Int, vararg args: Any): String = context.getString(id, *args)
 
   private fun node(tag: String) = composeTestRule.onNodeWithTag(tag)
+
+  /** A node merged into a button, such as the header's texts inside the profile button. */
+  private fun unmerged(tag: String) = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
 
   private fun text(text: String) = composeTestRule.onNodeWithText(text, useUnmergedTree = true)
 
@@ -338,7 +346,12 @@ class ConversationScreenTest {
           // rememberLauncherForActivityResult reads its registry from this composition local.
           LocalActivityResultRegistryOwner provides launcherOwner,
       ) {
-        ConversationScreen(viewModel = viewModel, onBack = {})
+        ConversationScreen(
+            viewModel = viewModel,
+            onBack = {},
+            onOpenProfile = {},
+            onOpenListing = {},
+        )
       }
     }
     return viewModel
@@ -484,7 +497,7 @@ class ConversationScreenTest {
     node(ConversationScreenTags.EMPTY_STATE).assertIsDisplayed()
     text(string(R.string.conversation_empty_title_unknown)).assertIsDisplayed()
     text(string(R.string.conversation_empty_body_no_title)).assertIsDisplayed()
-    node(ConversationScreenTags.OTHER_USERNAME).assertDoesNotExist()
+    unmerged(ConversationScreenTags.OTHER_USERNAME).assertDoesNotExist()
   }
 
   @Test
@@ -559,7 +572,7 @@ class ConversationScreenTest {
     }
 
     node(ConversationScreenTags.BACK_BUTTON).assertIsDisplayed()
-    node(ConversationScreenTags.LISTING_TITLE).assertIsDisplayed()
+    unmerged(ConversationScreenTags.LISTING_TITLE).assertIsDisplayed()
     val field = node(ConversationScreenTags.MESSAGE_FIELD).getBoundsInRoot()
     val screen = composeTestRule.onRoot().getBoundsInRoot()
     assertTrue(field.bottom <= screen.bottom - keyboard)
@@ -580,7 +593,7 @@ class ConversationScreenTest {
     setContent(loaded.copy(otherUser = null))
 
     node(ConversationScreenTags.theirMessage("m2")).assertTextEquals("Yes, from ten.", "09:14")
-    node(ConversationScreenTags.OTHER_USERNAME).assertDoesNotExist()
+    unmerged(ConversationScreenTags.OTHER_USERNAME).assertDoesNotExist()
   }
 
   @Test
@@ -959,13 +972,84 @@ class ConversationScreenTest {
     var backs = 0
     setContent(loaded, onBack = { backs++ })
 
-    node(ConversationScreenTags.LISTING_TITLE).assertTextEquals("Bosch drill set")
-    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@james · Lender")
-    node(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
+    unmerged(ConversationScreenTags.LISTING_TITLE).assertTextEquals("Bosch drill set")
+    unmerged(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@james · Lender")
+    unmerged(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
     node(ConversationScreenTags.PAUSED_NOTICE).assertDoesNotExist()
     node(ConversationScreenTags.DELETED_NOTICE).assertDoesNotExist()
     node(ConversationScreenTags.BACK_BUTTON).performClick()
     assertEquals(1, backs)
+  }
+
+  @Test
+  fun header_opensTheOtherUsersProfile_asOneButtonForTalkBack() {
+    val opened = mutableListOf<String>()
+    setContent(loaded, onOpenProfile = { opened += it })
+
+    node(ConversationScreenTags.OTHER_USER)
+        .assert(hasClickLabel(string(R.string.conversation_open_profile)))
+        .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        .assertTextEquals("Bosch drill set", "@james · Lender")
+        .performClick()
+
+    assertEquals(listOf(james.uid), opened)
+  }
+
+  @Test
+  fun header_isNotAButton_untilTheProfileLoads() {
+    var uiState by mutableStateOf(loaded.copy(otherUser = null))
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+
+    node(ConversationScreenTags.OTHER_USER).assertHasNoClickAction()
+
+    uiState = uiState.copy(otherUser = james)
+    node(ConversationScreenTags.OTHER_USER).assertHasClickAction()
+  }
+
+  @Test
+  fun summary_opensTheListing_asAButtonForTalkBack_evenWhilePaused() {
+    var uiState by mutableStateOf(loaded.copy(listing = drill))
+    val opened = mutableListOf<String>()
+    composeTestRule.setContent {
+      ConversationContent(
+          uiState = uiState,
+          onOpenListing = { opened += it },
+          zone = ZoneOffset.UTC,
+          now = now,
+      )
+    }
+
+    node(ConversationScreenTags.LISTING_SUMMARY)
+        .assert(hasClickLabel(string(R.string.open_listing)))
+        .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        .performClick()
+    uiState =
+        uiState.copy(
+            listing = drill.copy(isPaused = true),
+            listingStatus = ConversationListingStatus.PAUSED,
+        )
+    node(ConversationScreenTags.LISTING_SUMMARY).performClick()
+
+    assertEquals(listOf("drill", "drill"), opened)
+  }
+
+  @Test
+  fun summary_ofADeletedListing_isNotAButton() {
+    var uiState by
+        mutableStateOf(
+            loaded.copy(listing = drill, listingStatus = ConversationListingStatus.DELETED)
+        )
+    composeTestRule.setContent {
+      ConversationContent(uiState = uiState, zone = ZoneOffset.UTC, now = now)
+    }
+
+    node(ConversationScreenTags.LISTING_SUMMARY).assertHasNoClickAction()
+
+    // Deleted before the screen opened, so never read.
+    uiState = uiState.copy(listing = null)
+    node(ConversationScreenTags.LISTING_SUMMARY).assertHasNoClickAction()
   }
 
   @Test
@@ -1198,7 +1282,7 @@ class ConversationScreenTest {
   fun preview_showsAPausedListingWithItsMessages() {
     composeTestRule.setContent { ConversationContentPreview() }
 
-    node(ConversationScreenTags.LISTING_TITLE).assertTextEquals("Bosch drill set")
+    unmerged(ConversationScreenTags.LISTING_TITLE).assertTextEquals("Bosch drill set")
     node(ConversationScreenTags.PAUSED_NOTICE).assertIsDisplayed()
     node(ConversationScreenTags.myMessage("1")).assertIsDisplayed()
     node(ConversationScreenTags.theirMessage("2")).assertIsDisplayed()
@@ -1442,7 +1526,7 @@ class ConversationScreenTest {
 
     node(ConversationScreenTags.LISTING_SUMMARY)
         .assertContentDescriptionEquals(string(R.string.conversation_summary_spoken_mine))
-    node(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@remi · Renter")
+    unmerged(ConversationScreenTags.OTHER_USERNAME).assertTextEquals("@remi · Renter")
   }
 
   @Test
@@ -1450,7 +1534,7 @@ class ConversationScreenTest {
     setContent(ConversationUiState(myUid = "renter"))
 
     node(ConversationScreenTags.LISTING_SUMMARY).assertDoesNotExist()
-    node(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
+    unmerged(ConversationScreenTags.OTHER_AVATAR).assertIsDisplayed()
   }
 
   @Test

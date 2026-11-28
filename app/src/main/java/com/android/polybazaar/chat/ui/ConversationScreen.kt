@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -128,6 +129,7 @@ object ConversationScreenTags {
   const val SCREEN = "conversation_screen"
   const val BACK_BUTTON = "conversation_back_button"
   const val LISTING_TITLE = "conversation_listing_title"
+  const val OTHER_USER = "conversation_other_user"
   const val OTHER_USERNAME = "conversation_other_username"
   const val OTHER_AVATAR = "conversation_other_avatar"
   const val LISTING_SUMMARY = "conversation_listing_summary"
@@ -272,9 +274,16 @@ private val TimeFormat = DateTimeFormatter.ofPattern("HH:mm")
  * Conversation screen: shows what [viewModel] loads, and passes it what the user types and taps.
  *
  * @param onBack called when the user taps the back button.
+ * @param onOpenProfile called with the other participant's uid when the user taps them.
+ * @param onOpenListing called with the listing's ID when the user taps its card.
  */
 @Composable
-fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
+fun ConversationScreen(
+    viewModel: ConversationViewModel,
+    onBack: () -> Unit,
+    onOpenProfile: (String) -> Unit,
+    onOpenListing: (String) -> Unit,
+) {
   // Collected without dispatching, as on the listing forms: a text field that lags behind its input
   // can jump its cursor or drop characters.
   val uiState by viewModel.uiState.collectAsState(context = Dispatchers.Main.immediate)
@@ -298,6 +307,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
   ConversationContent(
       uiState = uiState,
       onBack = onBack,
+      onOpenProfile = onOpenProfile,
+      onOpenListing = onOpenListing,
       onDraftChange = viewModel::onDraftChange,
       onSend = viewModel::send,
       onRetry = viewModel::retry,
@@ -327,6 +338,10 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
  * closes for good when the listing is deleted. Send is enabled when it is open and
  * [ConversationUiState.canSend] is true.
  *
+ * @param onOpenProfile called with the other participant's uid when the user taps the header, once
+ *   their profile has loaded.
+ * @param onOpenListing called with the listing's ID when the user taps its card, unless the listing
+ *   is deleted.
  * @param onDraftChange called with the new text when the user edits the draft.
  * @param onSend called when the user taps Send.
  * @param onRetry called when the user taps Retry after a load failed.
@@ -349,6 +364,8 @@ fun ConversationScreen(viewModel: ConversationViewModel, onBack: () -> Unit) {
 fun ConversationContent(
     uiState: ConversationUiState,
     onBack: () -> Unit = {},
+    onOpenProfile: (String) -> Unit = {},
+    onOpenListing: (String) -> Unit = {},
     onDraftChange: (String) -> Unit = {},
     onSend: () -> Unit = {},
     onRetry: () -> Unit = {},
@@ -387,10 +404,17 @@ fun ConversationContent(
         otherUserPhoto = rememberPhoto(uiState.otherUserPhoto),
         isRenter = uiState.isRenter,
         onBack = onBack,
+        onOpenProfile = onOpenProfile,
     )
     val listingPhoto = rememberPhoto(uiState.listingPhoto)
+    // A deleted listing is kept in the state, but its detail no longer exists.
+    val openListing =
+        uiState.listing
+            ?.listingId
+            ?.takeIf { !deleted }
+            ?.let { listingId -> { onOpenListing(listingId) } }
     uiState.listingStatus?.let {
-      ListingSummary(uiState = uiState, status = it, photo = listingPhoto)
+      ListingSummary(uiState = uiState, status = it, photo = listingPhoto, onOpen = openListing)
     }
     HorizontalDivider(color = AuthColors.Outline)
     uiState.listingStatus?.let { ListingNotice(it, uiState.firstMessageBlockedByPause) }
@@ -441,7 +465,8 @@ fun ConversationContent(
 
 /**
  * Back, the listing's title with the other participant's username and role under it, then their
- * photo.
+ * photo. Everything after Back is one button that opens the other participant's profile, once it
+ * has loaded.
  */
 @Composable
 private fun Header(
@@ -450,9 +475,11 @@ private fun Header(
     otherUserPhoto: ImageBitmap?,
     isRenter: Boolean,
     onBack: () -> Unit,
+    onOpenProfile: (String) -> Unit,
 ) {
+  val openProfileLabel = stringResource(R.string.conversation_open_profile)
   Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = PageMargin, vertical = 8.dp),
+      modifier = Modifier.fillMaxWidth().padding(horizontal = PageMargin),
       horizontalArrangement = Arrangement.spacedBy(12.dp),
       verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -460,44 +487,69 @@ private fun Header(
         onClick = onBack,
         modifier = Modifier.testTag(ConversationScreenTags.BACK_BUTTON),
     )
-    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Row(
+        modifier =
+            Modifier.weight(1f)
+                .then(
+                    if (otherUser == null) Modifier
+                    else
+                        Modifier.clickable(
+                            role = Role.Button,
+                            onClickLabel = openProfileLabel,
+                            onClick = { onOpenProfile(otherUser.uid) },
+                        )
+                )
+                // Inside the button, so the header's height is all touch target.
+                .padding(vertical = 8.dp)
+                .testTag(ConversationScreenTags.OTHER_USER),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      HeaderTitles(listingTitle = listingTitle, otherUser = otherUser, isRenter = isRenter)
+      // Decorative: the username next to it says who it is.
+      Image(
+          painter =
+              otherUserPhoto?.let { BitmapPainter(it) }
+                  ?: painterResource(R.drawable.default_profile_photo),
+          contentDescription = null,
+          contentScale = ContentScale.Crop,
+          modifier =
+              Modifier.size(38.dp).clip(CircleShape).testTag(ConversationScreenTags.OTHER_AVATAR),
+      )
+    }
+  }
+}
+
+/** The listing's title, with the other participant's username and role under it once known. */
+@Composable
+private fun RowScope.HeaderTitles(listingTitle: String?, otherUser: User?, isRenter: Boolean) {
+  Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Text(
+        text = listingTitle.orEmpty(),
+        color = AuthColors.TextPrimary,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.testTag(ConversationScreenTags.LISTING_TITLE),
+    )
+    otherUser?.let {
+      val role =
+          if (isRenter) R.string.conversation_role_lender else R.string.conversation_role_renter
       Text(
-          text = listingTitle.orEmpty(),
-          color = AuthColors.TextPrimary,
-          fontSize = 16.sp,
-          fontWeight = FontWeight.Bold,
+          text =
+              stringResource(
+                  R.string.conversation_other_username,
+                  it.username,
+                  stringResource(role),
+              ),
+          color = AuthColors.TextSecondary,
+          fontSize = 12.sp,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
-          modifier = Modifier.testTag(ConversationScreenTags.LISTING_TITLE),
+          modifier = Modifier.testTag(ConversationScreenTags.OTHER_USERNAME),
       )
-      otherUser?.let {
-        val role =
-            if (isRenter) R.string.conversation_role_lender else R.string.conversation_role_renter
-        Text(
-            text =
-                stringResource(
-                    R.string.conversation_other_username,
-                    it.username,
-                    stringResource(role),
-                ),
-            color = AuthColors.TextSecondary,
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.testTag(ConversationScreenTags.OTHER_USERNAME),
-        )
-      }
     }
-    // Decorative: the username next to it says who it is.
-    Image(
-        painter =
-            otherUserPhoto?.let { BitmapPainter(it) }
-                ?: painterResource(R.drawable.default_profile_photo),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier =
-            Modifier.size(38.dp).clip(CircleShape).testTag(ConversationScreenTags.OTHER_AVATAR),
-    )
   }
 }
 
@@ -505,13 +557,17 @@ private fun Header(
  * The listing the conversation is about: its photo, its lender, its price and place, and whether it
  * is a rental or a service, paused or deleted. Without the listing, as when it was deleted before
  * the screen opened, only the lender and the status show.
+ *
+ * @param onOpen called when the user taps the card, which is a button only when this is not null.
  */
 @Composable
 private fun ListingSummary(
     uiState: ConversationUiState,
     status: ConversationListingStatus,
     photo: ImageBitmap?,
+    onOpen: (() -> Unit)?,
 ) {
+  val openLabel = stringResource(R.string.open_listing)
   val listing = uiState.listing
   // The other participant is the lender when the signed-in user is the renter.
   val lender =
@@ -539,6 +595,18 @@ private fun ListingSummary(
               .padding(start = PageMargin, end = PageMargin, top = 4.dp, bottom = 12.dp)
               .background(AuthColors.CardBackground, shape)
               .border(1.dp, AuthColors.Outline, shape)
+              // After the border, so it keeps the ripple inside the rounded corners without
+              // cutting the border's edge.
+              .clip(shape)
+              .then(
+                  if (onOpen == null) Modifier
+                  else
+                      Modifier.clickable(
+                          role = Role.Button,
+                          onClickLabel = openLabel,
+                          onClick = onOpen,
+                      )
+              )
               .padding(10.dp)
               // One TalkBack item for the whole card.
               .semantics(mergeDescendants = true) {}

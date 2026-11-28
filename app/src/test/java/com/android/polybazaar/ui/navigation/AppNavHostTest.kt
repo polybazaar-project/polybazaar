@@ -1238,7 +1238,10 @@ class AppNavHostTest {
    */
   private fun assertOnConversation(title: String, listingId: String, renterUid: String) {
     composeTestRule.onNodeWithTag(ConversationScreenTags.SCREEN).assertIsDisplayed()
-    composeTestRule.onNodeWithTag(ConversationScreenTags.LISTING_TITLE).assertTextEquals(title)
+    // Merged into the button that opens the other user's profile.
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.LISTING_TITLE, useUnmergedTree = true)
+        .assertTextEquals(title)
     assertCurrentRoute(Routes.CONVERSATION, Routes.LISTING_ID, listingId)
     assertCurrentRoute(Routes.CONVERSATION, Routes.RENTER_UID, renterUid)
   }
@@ -1268,6 +1271,67 @@ class AppNavHostTest {
 
     assertOnListingDetail("Bosch drill set")
     assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "drill")
+  }
+
+  @Test
+  fun conversationHeader_opensTheOtherUsersProfile_andBackReturnsToTheConversation() {
+    listingRepository.allListings = listOf(gracesDrill)
+    // The fake gives every uid the same profile: here Grace's, who lends the drill.
+    profileRepository.profile.value = User(uid = "uid-grace", email = "", username = "grace")
+    setContent(FakeAuthRepository(currentUser = user))
+    messageTheLender("Bosch drill set")
+
+    composeTestRule.onNodeWithTag(ConversationScreenTags.OTHER_USER).performClick()
+
+    composeTestRule.onNodeWithTag(LenderProfileScreenTags.SCREEN).assertIsDisplayed()
+    assertCurrentRoute(Routes.LENDER_PROFILE, Routes.LENDER_UID, "uid-grace")
+    composeTestRule.onNodeWithTag(LenderProfileScreenTags.BACK_BUTTON).performClick()
+    assertOnConversation("Bosch drill set", listingId = "drill", renterUid = user.uid)
+  }
+
+  @Test
+  fun conversationListing_openedFromItsDetail_keepsTheDraft_forWhenBackReturnsToIt() {
+    listingRepository.allListings = listOf(gracesDrill)
+    setContent(FakeAuthRepository(currentUser = user))
+    messageTheLender("Bosch drill set")
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextInput("Is it free on Saturday?")
+
+    composeTestRule.onNodeWithTag(ConversationScreenTags.LISTING_SUMMARY).performClick()
+
+    assertOnListingDetail("Bosch drill set")
+    assertEquals(Routes.CONVERSATION, navController.previousBackStackEntry?.destination?.route)
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+    assertOnConversation("Bosch drill set", listingId = "drill", renterUid = user.uid)
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.MESSAGE_FIELD)
+        .assert(hasText("Is it free on Saturday?"))
+  }
+
+  @Test
+  fun listingDetailMessage_openedFromItsConversation_returnsToIt_withItsDraft() {
+    listingRepository.allListings = listOf(gracesDrill)
+    chatRepository.myConversations.value = Result.success(listOf(gracesDrillRentedByAda))
+    setContent(FakeAuthRepository(currentUser = user))
+    openFromInbox(gracesDrillRentedByAda)
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.MESSAGE_FIELD)
+        .performTextInput("Is it free on Saturday?")
+    composeTestRule.onNodeWithTag(ConversationScreenTags.LISTING_SUMMARY).performClick()
+    assertOnListingDetail("Bosch drill set")
+
+    composeTestRule
+        .onNodeWithTag(ListingDetailScreenTags.MESSAGE_BUTTON)
+        .performScrollTo()
+        .performClick()
+
+    // The same conversation, not a second one stacked on the detail.
+    assertOnConversation("Bosch drill set", listingId = "drill", renterUid = user.uid)
+    assertEquals(Routes.INBOX, navController.previousBackStackEntry?.destination?.route)
+    composeTestRule
+        .onNodeWithTag(ConversationScreenTags.MESSAGE_FIELD)
+        .assert(hasText("Is it free on Saturday?"))
   }
 
   @Test
@@ -2190,6 +2254,21 @@ class AppNavHostTest {
         .onNodeWithTag(InboxScreenTags.row(gracesDrillRentedByAda.id))
         .assertIsDisplayed()
     assertEquals(Routes.INBOX, navController.currentBackStackEntry?.destination?.route)
+  }
+
+  @Test
+  fun conversationListing_opensItsDetail_andBackReturnsToTheConversation() {
+    listingRepository.allListings = listOf(gracesDrill)
+    chatRepository.myConversations.value = Result.success(listOf(gracesDrillRentedByAda))
+    setContent(FakeAuthRepository(currentUser = user))
+    openFromInbox(gracesDrillRentedByAda)
+
+    composeTestRule.onNodeWithTag(ConversationScreenTags.LISTING_SUMMARY).performClick()
+
+    assertOnListingDetail("Bosch drill set")
+    assertCurrentRoute(Routes.LISTING_DETAIL, Routes.LISTING_ID, "drill")
+    composeTestRule.onNodeWithTag(ListingDetailScreenTags.BACK_BUTTON).performClick()
+    assertOnConversation("Bosch drill set", listingId = "drill", renterUid = user.uid)
   }
 
   @Test
