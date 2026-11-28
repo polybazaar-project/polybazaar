@@ -29,14 +29,20 @@ class FakePendingListingQueue(var ownerUid: String = "owner") : PendingListingQu
     _pending.update { drafts -> drafts.filterNot { it.id == id } }
   }
 
-  override suspend fun enqueueChange(listingId: String, paused: Boolean?, delete: Boolean) {
+  override suspend fun enqueueChange(
+      listingId: String,
+      paused: Boolean?,
+      delete: Boolean,
+      edit: Listing?,
+      base: Listing?,
+  ) {
     failure?.let { throw it }
     _changes.update { changes ->
       val earlier = changes.find { it.listingId == listingId }
       val change =
           (earlier ?: PendingListingChange(listingId, ownerUid))
               .copy(ownerUid = ownerUid)
-              .followedBy(paused, delete)
+              .followedBy(paused, delete, edit, base)
       changes.filterNot { it.listingId == listingId } + change
     }
   }
