@@ -84,6 +84,18 @@ interface ListingRepository {
   suspend fun updateListing(listing: Listing): Listing
 
   /**
+   * Saves [edit], made offline from [base], like [updateListing], once the server confirms the
+   * listing is still as [base] was, its pause state aside. Succeeds without writing when the server
+   * already has [edit], from an earlier save the device did not record, so an edit is never saved
+   * twice.
+   *
+   * Fails with a Firestore `NOT_FOUND` error when the listing no longer exists, with
+   * [com.android.polybazaar.error.model.AppError.CHANGED_ELSEWHERE] when it was changed meanwhile,
+   * and as [updateListing] otherwise; the caller maps the failure with `toAppError()`.
+   */
+  suspend fun applyQueuedEdit(base: Listing, edit: Listing): Result<Unit>
+
+  /**
    * Deletes the signed-in owner's listing and its photos. Succeeds if it was already deleted.
    *
    * Fails when Firestore cannot answer or the security rules refuse the delete; the caller maps the

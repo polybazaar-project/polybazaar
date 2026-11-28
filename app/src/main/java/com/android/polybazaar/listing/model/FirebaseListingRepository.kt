@@ -4,6 +4,9 @@
 package com.android.polybazaar.listing.model
 
 import android.net.Uri
+import com.android.polybazaar.error.model.AppError
+import com.android.polybazaar.error.model.AppException
+import com.android.polybazaar.error.model.attempt
 import com.android.polybazaar.photo.PhotoCompressor
 import com.android.polybazaar.photo.PhotoStorage
 import com.google.firebase.auth.FirebaseAuth
@@ -134,6 +137,30 @@ class FirebaseListingRepository(
     deleteImagesQuietly(storedPaths - imagePaths.toSet())
     return saved
   }
+
+  override suspend fun applyQueuedEdit(base: Listing, edit: Listing): Result<Unit> =
+      attempt<Unit> {
+        val ownerUid = auth.currentUser?.uid ?: throw unauthenticated()
+        val listingId = edit.listingId ?: throw IllegalArgumentException("The edit has no id")
+        // An update cut short in an earlier session must reach the server before the check below,
+        // like in publishListing.
+        firestore.waitForPendingWrites().await()
+        val stored =
+            firestore.collection(LISTINGS_COLLECTION).document(listingId).get(Source.SERVER).await()
+        val storedPaths = stored.imagePaths()
+        // Compared as written, which leaves out the pause state, ignored here.
+        val storedData =
+            stored.takeIf { it.exists() }?.toListing()?.toFirestoreData(ownerUid, storedPaths)
+                ?: throw notFound(listingId)
+        val alreadySaved =
+            storedPaths.size == edit.imagePaths.size + edit.images.size &&
+                storedPaths.take(edit.imagePaths.size) == edit.imagePaths &&
+                storedData == edit.toFirestoreData(ownerUid, storedPaths)
+        when {
+          storedData == base.toFirestoreData(ownerUid, base.imagePaths) -> updateListing(edit)
+          !alreadySaved -> throw AppException(AppError.CHANGED_ELSEWHERE)
+        }
+      }
 
   override suspend fun deleteListing(listingId: String): Result<Unit> {
     return try {

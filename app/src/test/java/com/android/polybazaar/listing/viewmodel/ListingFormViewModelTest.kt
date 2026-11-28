@@ -1070,6 +1070,9 @@ class ListingFormViewModelTest {
     override suspend fun setPaused(listingId: String, paused: Boolean): Result<Unit> =
         error("Not used here")
 
+    override suspend fun applyQueuedEdit(base: Listing, edit: Listing): Result<Unit> =
+        error("Not used here")
+
     /** The bytes of each image path [loadListingImage] answers; any other path fails. */
     var images: Map<String, ByteArray> = emptyMap()
     var imageFailure: Exception? = null

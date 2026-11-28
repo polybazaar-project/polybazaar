@@ -9,6 +9,7 @@ import com.android.polybazaar.listing.model.Listing
 import com.android.polybazaar.listing.model.ListingCategory
 import com.android.polybazaar.listing.model.ListingRepository
 import com.android.polybazaar.listing.model.ServiceListing
+import com.android.polybazaar.listing.model.withPaused
 import com.google.firebase.firestore.FirebaseFirestoreException
 import java.io.IOException
 import java.time.LocalDate
@@ -519,11 +520,36 @@ class ListingOutboxSyncViewModelTest {
     assertEquals(ListingSyncNotice(0, 0, changesSaved = 2), viewModel.notice.value)
   }
 
+  @Test
+  fun edits_areSavedBeforeTheirPause_orDroppedWhenTheirListingChangedOrWentAway() = runTest {
+    val stored = listOf("edited", "changed", "failing").map { drill().copy(listingId = it) }
+    fake.allListings = stored
+    fun edit(id: String) = drill("Cordless drill").copy(listingId = id)
+    queue.enqueueChange("edited", paused = true, edit = edit("edited"), base = stored[0])
+    queue.enqueueChange("changed", edit = edit("changed"), base = stored[1].copy(price = 9.0))
+    queue.enqueueChange("gone", edit = edit("gone"), base = drill().copy(listingId = "gone"))
+    queue.enqueueChange("failing", edit = edit("failing"), base = stored[2])
+    queue.enqueueChange("deleted", edit = edit("deleted"), base = drill())
+    queue.enqueueChange("deleted", delete = true)
+    listings.changeFailures["failing"] = IOException("Unavailable")
+
+    val viewModel = publisher()
+    advanceUntilIdle()
+
+    // Paused after the edit, which would otherwise have resumed it.
+    val saved = edit("edited").withPaused(true)
+    assertEquals(listOf(saved, stored[1], stored[2]), fake.allListings)
+    assertEquals(listOf("deleted"), fake.deletedListingIds)
+    assertEquals(listOf("failing"), queue.changes.value.map { it.listingId })
+    // Saved, failed, dropped as deleted and dropped as changed elsewhere.
+    assertEquals(ListingSyncNotice(0, 0, 2, 1, 1, 1), viewModel.notice.value)
+  }
+
   /**
    * Records every [publishListing] attempt, failing those whose id is in [failingIds], never
    * answering those whose id is in [hangingIds], and otherwise answering as [fake] does. Records
-   * the ids of [setPaused] and [deleteListing] in [changeAttempts] too, failing with
-   * [changeFailures] or never answering the same way.
+   * the ids of [setPaused], [deleteListing] and [applyQueuedEdit] in [changeAttempts] too, failing
+   * with [changeFailures] or never answering the same way.
    */
   private class RecordingListingRepository(private val fake: FakeListingRepository) :
       ListingRepository by fake {
@@ -545,6 +571,9 @@ class ListingOutboxSyncViewModelTest {
 
     override suspend fun deleteListing(listingId: String) =
         answer(listingId) ?: fake.deleteListing(listingId)
+
+    override suspend fun applyQueuedEdit(base: Listing, edit: Listing) =
+        answer(edit.listingId!!) ?: fake.applyQueuedEdit(base, edit)
 
     private suspend fun answer(listingId: String): Result<Unit>? {
       changeAttempts += listingId

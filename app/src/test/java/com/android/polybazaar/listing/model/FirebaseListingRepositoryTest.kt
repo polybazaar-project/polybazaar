@@ -1941,6 +1941,61 @@ class FirebaseListingRepositoryTest {
     assertTrue(compressedPhotos.isEmpty())
   }
 
+  // Edits made offline (#484)
+
+  private fun baseService(imagePaths: List<String> = emptyList()) =
+      editedService(imagePaths).copy(price = 25.0, description = "One-hour session")
+
+  @Test
+  fun applyQueuedEdit_ofAListingStillAsItsBase_savesTheEdit_whateverItsPauseState() = runTest {
+    givenServerListing(storedService(listOf(path(0))) + ("paused" to true))
+    givenStoredListing(storedService(listOf(path(0))) + ("paused" to true))
+    whenever(document.update(any<Map<String, Any>>())).thenReturn(Tasks.forResult(null))
+
+    val result =
+        repository.applyQueuedEdit(baseService(listOf(path(0))), editedService(listOf(path(0))))
+
+    assertTrue(result.isSuccess)
+    val written = argumentCaptor<Map<String, Any>>()
+    inOrder(firestore, document) {
+      verify(firestore).waitForPendingWrites()
+      verify(document).get(Source.SERVER)
+      verify(document).update(written.capture())
+    }
+    assertEquals("Two-hour session", written.firstValue["description"])
+  }
+
+  @Test
+  fun applyQueuedEdit_alreadySavedBefore_succeedsWithoutWritingAgain() = runTest {
+    // The new photo took the next slot when the edit was saved.
+    givenServerListing(
+        storedService(listOf(path(0), path(1))) +
+            ("price" to 30.0) +
+            ("description" to "Two-hour session")
+    )
+    val edit = editedService(listOf(path(0)), listOf(Uri.parse("content://images/0")))
+
+    assertTrue(repository.applyQueuedEdit(baseService(listOf(path(0))), edit).isSuccess)
+    verify(document, never()).update(any<Map<String, Any>>())
+  }
+
+  @Test
+  fun applyQueuedEdit_ofAListingChangedOrDeletedElsewhere_failsWithoutWriting() = runTest {
+    suspend fun error() =
+        repository
+            .applyQueuedEdit(baseService(), editedService(emptyList()))
+            .exceptionOrNull()
+            ?.toAppError()
+
+    givenServerListing(storedService() + ("title" to "Physics tutoring"))
+    assertEquals(AppError.CHANGED_ELSEWHERE, error())
+    givenServerListing(null)
+    assertEquals(AppError.NOT_FOUND, error())
+    whenever(auth.currentUser).thenReturn(null)
+    assertEquals(AppError.UNAUTHENTICATED, error())
+    verify(document, never()).update(any<Map<String, Any>>())
+  }
+
   /** Makes the server hold [fields] at [document], or nothing when null, with no write pending. */
   private fun givenServerListing(fields: Map<String, Any>?) {
     val snapshot = listingDocument(listingId, fields.orEmpty())

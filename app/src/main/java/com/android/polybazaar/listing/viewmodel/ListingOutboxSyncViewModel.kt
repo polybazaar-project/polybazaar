@@ -32,6 +32,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @property published drafts published; [failed] drafts kept to try again.
  * @property changesSaved changes saved; [changesFailed] changes kept to try again.
  * @property changesDropped changes forgotten because their listing was deleted elsewhere.
+ * @property changesConflicted edits forgotten because their listing was changed elsewhere.
  */
 data class ListingSyncNotice(
     val published: Int,
@@ -39,6 +40,7 @@ data class ListingSyncNotice(
     val changesSaved: Int = 0,
     val changesFailed: Int = 0,
     val changesDropped: Int = 0,
+    val changesConflicted: Int = 0,
 )
 
 /**
@@ -55,7 +57,8 @@ data class ListingSyncNotice(
  *
  * Changes follow the same rules: each is tried once per session, removed once saved, and kept when
  * it fails. Saving a pause or a delete again changes nothing, so a change saved but cut short
- * before its removal does no harm. A change to a listing deleted elsewhere is dropped.
+ * before its removal does no harm, and the repository finds an edit already saved. A change to a
+ * listing deleted elsewhere is dropped, and so is an edit of a listing changed elsewhere.
  *
  * A draft whose publishing takes longer than [publishTimeoutMillis] is kept and counted as failed:
  * the device may report being online while Firestore never answers, on a captive portal or a very
@@ -146,6 +149,7 @@ class ListingOutboxSyncViewModel(
             changesSaved = outcomes.count { it == ChangeOutcome.SAVED },
             changesFailed = outcomes.count { it == ChangeOutcome.FAILED },
             changesDropped = outcomes.count { it == ChangeOutcome.DROPPED },
+            changesConflicted = outcomes.count { it == ChangeOutcome.CONFLICTED },
         )
   }
 
@@ -153,26 +157,43 @@ class ListingOutboxSyncViewModel(
     SAVED,
     FAILED,
     DROPPED,
+    CONFLICTED,
   }
 
   /** Saves [change], removing it unless it failed. */
   private suspend fun saveChange(change: PendingListingChange): ChangeOutcome {
-    val result =
-        withTimeoutOrNull(publishTimeoutMillis) {
-          if (change.isDeleted) listingRepository.deleteListing(change.listingId)
-          else
-              change.paused?.let { listingRepository.setPaused(change.listingId, it) }
-                  ?: Result.success(Unit)
-        }
+    val result = withTimeoutOrNull(publishTimeoutMillis) { apply(change) }
     val exception = result?.exceptionOrNull()
     if (exception is CancellationException) throw exception
     return when {
       result == null -> ChangeOutcome.FAILED.also { Log.w(LOG_TAG, "A change timed out") }
       exception == null -> ChangeOutcome.SAVED
-      // deleteListing succeeds on a listing already gone, so only a pause or resume gets here.
-      exception.toAppError() == AppError.NOT_FOUND -> ChangeOutcome.DROPPED
-      else -> ChangeOutcome.FAILED.also { Log.w(LOG_TAG, "Could not save a change", exception) }
+      else ->
+          when (exception.toAppError()) {
+            // deleteListing succeeds on a listing already gone, so only a pause, resume or edit
+            // gets here.
+            AppError.NOT_FOUND -> ChangeOutcome.DROPPED
+            AppError.CHANGED_ELSEWHERE -> ChangeOutcome.CONFLICTED
+            else ->
+                ChangeOutcome.FAILED.also { Log.w(LOG_TAG, "Could not save a change", exception) }
+          }
     }.also { if (it != ChangeOutcome.FAILED) pendingListingQueue.removeChange(change) }
+  }
+
+  /** Saves [change]'s edit, then its pause or resume, or its delete alone. */
+  private suspend fun apply(change: PendingListingChange): Result<Unit> {
+    if (change.isDeleted) return listingRepository.deleteListing(change.listingId)
+    val edit = change.edit
+    val base = change.base
+    // A pause or resume failing after the edit was saved keeps the change: trying it again then
+    // finds the edit saved.
+    if (edit != null && base != null) {
+      listingRepository.applyQueuedEdit(base, edit).onFailure {
+        return Result.failure(it)
+      }
+    }
+    return change.paused?.let { listingRepository.setPaused(change.listingId, it) }
+        ?: Result.success(Unit)
   }
 
   /** The draft without the available days now past, as the listing form saves it. */
