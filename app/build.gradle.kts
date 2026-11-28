@@ -233,6 +233,13 @@ tasks.withType<Test> {
     isIncludeNoLocationClasses = true
     excludes = listOf("jdk.internal.*")
   }
+
+  // ArchitectureDocTest reads these files, so editing only them must rerun the tests instead of
+  // reusing a cached result.
+  inputs
+      .files(rootProject.files("ARCHITECTURE.md", "firestore.rules"))
+      .withPropertyName("architectureDocSources")
+      .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.register("jacocoTestReport", JacocoReport::class) {
